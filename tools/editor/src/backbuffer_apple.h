@@ -5,7 +5,8 @@
 
 namespace fa::editor::ui {
 
-// Makes the window's next drawables readable by a blit (sokol_app creates the layer framebuffer-only).
+// Makes the window's next drawables readable by a blit (sokol_app creates the layer framebuffer-only), and keeps the
+// window above the others (a covered window gets no drawables).
 void metal_make_window_readable();
 // Copies a frame's CAMetalDrawable (the swapchain's metal.current_drawable) to top-down RGBA8. Call after sg_commit(),
 // inside the frame callback. False if the drawable is not readable or not w x h.

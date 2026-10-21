@@ -19,6 +19,8 @@ void metal_make_window_readable() {
     NSWindow* window = (__bridge NSWindow*)sapp_macos_get_window();
     CALayer* layer = window.contentView.layer;
     if ([layer isKindOfClass:[CAMetalLayer class]]) ((CAMetalLayer*)layer).framebufferOnly = NO;
+    // macOS gives a window that other windows cover completely no drawable, so nothing to read: above them, it gets one.
+    window.level = NSFloatingWindowLevel;
 }
 
 bool metal_read_drawable(const void* drawablePtr, int w, int h, std::uint8_t* out) {
