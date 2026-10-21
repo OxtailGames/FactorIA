@@ -3,6 +3,7 @@
 // marshaling, then saves screenshots of the WHOLE window (swapchain read-back) and quits.
 // The editor has no manual editing UI (the AI edits), so edits go through the same commands the AI and the Console call.
 // Output directory: FA_EDITOR_AUTOTEST_OUT (default: <tmp>/fa_editor_autotest_out).
+// Only some sections: FA_EDITOR_AUTOTEST_SECTIONS=K,M (autotest_sections.h; this file is section S).
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -187,6 +188,7 @@ void Editor::inject_char(unsigned codepoint) {
 }
 
 void Editor::autotest_pre_frame() {
+    ++atFramesDrawn_;
     ++atFrame_;
     if (atWaitAi_) {  // hold the script until the (scripted) AI run finished
         if (ai_running() && ++atWaitCount_ < 4000) {
@@ -268,6 +270,18 @@ void Editor::autotest_pre_frame() {
     auto near = [](Vec3 a, Vec3 b) { return std::fabs(a.x - b.x) < 0.01f && std::fabs(a.y - b.y) < 0.01f; };
     const std::string out = atOutDir_ + "/";
 
+    if (!at_section_selected("S")) {  // FA_EDITOR_AUTOTEST_SECTIONS without S: the script of the sections asked for, at once
+        if (f == 8) {
+            at_build_tools_script();
+            atStepAt_ = f + 2;
+        } else if (f > atFrameBudget_) {
+            at_check(false, "autotest finished within the frame budget");
+            sapp_request_quit();
+        }
+        if (f > 8) at_run_steps(f);
+        return;
+    }
+    if (f == 1) at_section_begin("S");
     if (f == 8) {
         select_id("player");
         at_check(!selected().is_null(), "select entity 'player'");

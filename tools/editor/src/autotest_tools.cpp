@@ -9,11 +9,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 
+#include "autotest_sections.h"
 #include "editor_internal.h"
 #include "sokol_app.h"
 #include "ui_backend.h"
@@ -28,6 +31,11 @@ void write_file(const std::string& path, const std::string& bytes) {
     std::error_code ec;
     stdfs::create_directories(stdfs::path(path).parent_path(), ec);
     std::ofstream(path, std::ios::binary) << bytes;
+}
+
+std::string read_file(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
 std::string silence_wav() {  // 0.1 s of silence, 16-bit mono PCM
@@ -164,9 +172,55 @@ void Editor::at_run_steps(int frame) {
     atStepAt_ = frame + s.wait;
 }
 
+void Editor::at_section_begin(const std::string& id) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!atCosts_.empty() && atCosts_.back().frames == 0) {
+        AtSectionCost& last = atCosts_.back();
+        last.frames = std::max<std::uint64_t>(1, atFramesDrawn_ - atSectionFrame0_);
+        last.seconds = std::chrono::duration<double>(now - atSectionStart_).count();
+        last.failures = atFailures_.size() - atSectionFailures0_;
+    }
+    if (id.empty()) return;
+    atCosts_.push_back(AtSectionCost{id});
+    atSectionFrame0_ = atFramesDrawn_;
+    atSectionStart_ = now;
+    atSectionFailures0_ = atFailures_.size();
+    std::string title;
+    for (const AutotestSection& s : kAutotestSections)
+        if (id == s.id) title = s.title;
+    atLog_.push_back("SECTION " + id + ": " + title);
+    FA_INFO("autotest", "section {}: {}", id, title);
+}
+
+Json Editor::at_section_report() {
+    at_section_begin("");
+    Json list = Json::array();
+    std::uint64_t frames = 0;
+    double seconds = 0;
+    std::printf("\nautotest sections (FA_EDITOR_AUTOTEST_SECTIONS=<ids> runs only some):\n  %-4s %7s %8s %8s  %s\n", "id", "frames",
+                "seconds", "failures", "title");
+    for (const AtSectionCost& c : atCosts_) {
+        std::string title;
+        for (const AutotestSection& s : kAutotestSections)
+            if (c.id == s.id) title = s.title;
+        list.push_back(Json::object(
+            {{"id", c.id}, {"title", title}, {"frames", c.frames}, {"seconds", c.seconds}, {"failures", c.failures}}));
+        std::printf("  %-4s %7llu %8.1f %8zu  %s\n", c.id.c_str(), static_cast<unsigned long long>(c.frames), c.seconds, c.failures,
+                    title.c_str());
+        frames += c.frames;
+        seconds += c.seconds;
+    }
+    std::printf("  %-4s %7llu %8.1f %8zu\n\n", "all", static_cast<unsigned long long>(frames), seconds, atFailures_.size());
+    std::fflush(stdout);
+    return list;
+}
+
 void Editor::at_build_tools_script() {
     using Fn = std::function<void()>;
-    auto step = [this](int wait, Fn fn) { atSteps_.push_back(AtStep{wait, std::move(fn)}); };
+    bool keep = true;  // false while the script passes over a section FA_EDITOR_AUTOTEST_SECTIONS did not ask for
+    auto step = [this, &keep](int wait, Fn fn) {
+        if (keep) atSteps_.push_back(AtStep{wait, std::move(fn)});
+    };
     // A click is three steps on different frames: move onto the widget, press, release.
     auto click = [this, &step](const std::string& name) {
         step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
@@ -183,6 +237,23 @@ void Editor::at_build_tools_script() {
         step(2, [this, file] { atPendingShots_.push_back(atOutDir_ + "/" + file); });
     };
     auto project_file = [this](const std::string& rel) { return projectDir_ + "/" + rel; };
+    // The wheel over (x, y) until a widget is shown in its window with room below it (maxY): what a long page needs, however
+    // long it is on this computer (a warning that wraps onto more lines moves everything down). A click never lands on a widget
+    // that is scrolled out of its window: at_widget refuses it.
+    auto scroll_until = [this, &step](const std::string& name, float dy, Vec2 at, float maxY) {
+        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at); });
+        for (int i = 0; i < 60; ++i)
+            step(1, [this, name, dy, at, maxY] {
+                auto it = atWidgets_.find(name);
+                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > 120) return;
+                sapp_event ev{};
+                ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
+                ev.mouse_x = at.x * dpi_;
+                ev.mouse_y = at.y * dpi_;
+                ev.scroll_y = dy;
+                on_event(&ev);
+            });
+    };
 
     // FA_EDITOR_AUTOTEST_REAL_CMAKE=1 (a manual end-to-end check, never set by ctest): the editor's setup context is the real
     // one, so this script does only one thing, press the CMake button of the Set Up window and let it install CMake for real
@@ -251,16 +322,41 @@ void Editor::at_build_tools_script() {
     }
 
     // ------------------------------------------------------------------------------------------------------ setup
-    step(2, [this, project_file] {
-        stop();
-        select_id("");
-        gizmoMode_ = GizmoMode::Select;  // the sections before M click and compare pictures: no handles over the selection
-        write_file(project_file(scenePath_), kFixtureScene);
-        reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
-        write_file(project_file("assets/blip.wav"), silence_wav());
-        focus_window("###Viewport");
-    });
+    // Every section starts with section(id): the script keeps it only when FA_EDITOR_AUTOTEST_SECTIONS asked for it (or named
+    // none), and its first steps put the editor back in the same state, whatever the section before it did: the clean 2D fixture
+    // as the open scene, no window of the autotest open, factoria.json as it was when the script was built, the mouse parked.
+    // A section run alone passes or fails as it does in the full run (autotest_sections.h lists them).
+    const std::string projectJson = read_file(project_file("factoria.json"));
+    auto section = [this, &step, &keep, project_file, projectJson](const char* id) {
+        keep = at_section_selected(id);
+        step(1, [this, id] {
+            at_section_begin(id);
+            stop();
+            select_id("");
+            showExport_ = showPlatformSettings_ = platformCloseAsk_ = keystoreOpen_ = false;
+            showSetup_ = setupLicenseOpen_ = showProjectDialog_ = showAudio_ = showProfiler_ = false;
+            showProject_ = showHierarchy_ = showInspector_ = true;
+            projBrowser_.query = BrowserQuery{};
+            exportLast_.reset();
+            exportChecked_ = -100;
+            atMods_ = 0;
+            toasts_.clear();
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{900, 884});
+            focus_window("Console");  // the tab in front where the Console is docked: the same in every section
+        });
+        step(2, [this, id, project_file, projectJson] {
+            gizmoMode_ = GizmoMode::Select;  // the sections before M click and compare pictures: no handles over the selection
+            if (read_file(project_file("factoria.json")) != projectJson) write_file(project_file("factoria.json"), projectJson);
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
+            write_file(project_file("assets/blip.wav"), silence_wav());
+            focus_window("###Viewport");
+            at_check(!dirty() && undo_depth() == 0 && !world().find_by_id("player").is_null() && !world().find_by_id("coin_3").is_null(),
+                     std::string("section ") + id + " starts on the clean 2D fixture");
+        });
+    };
 
+    section("T");
     // The toolbar's Screenshot button. It reads the game target back, which never completes inside the UI frame on Metal (the
     // game's command buffer is not committed yet): the button only asks, on_frame takes the picture between frames. A hang here
     // is caught by the autotest's watchdog (no frame for 60 s) instead of freezing the window for good.
@@ -275,6 +371,7 @@ void Editor::at_build_tools_script() {
     });
 
     // ----------------------------------------------------------------------------------- A. Audio panel (View menu)
+    section("A");
     click("menu:view");
     step(3, [] {});
     click("menu:audio");
@@ -332,6 +429,7 @@ void Editor::at_build_tools_script() {
     });
 
     // ----------------------------------------------------------------------------------- A2. Profiler panel (View menu)
+    section("A2");
     // A behaviour on the player, then View > Profiler while the game plays: its class must show up as a row with time and calls.
     step(2, [this, project_file] {
         write_file(project_file("scripts/autotest_spinner.js"),
@@ -363,15 +461,9 @@ void Editor::at_build_tools_script() {
         pendingFocus_ = "Profiler";
     });
     snap("editor_profiler.png");
-    step(4, [this, project_file] {
-        stop();
-        showProfiler_ = false;
-        pendingFocus_ = "Console";
-        write_file(project_file(scenePath_), kFixtureScene);
-        reload_scene_from_disk();  // the fixture again, without the script
-    });
 
     // ---------------------------------------------------------- B. Commands that rebuild the open scene file (Console / AI)
+    section("B");
     // A file import into the OPEN scene reloads it in the viewport, and Ctrl+Z still brings back what was on screen.
     step(2, [this] {
         run_console_line("scene.set_component " +
@@ -394,13 +486,9 @@ void Editor::at_build_tools_script() {
         at_check(dirty() && world().find_by_id("map3").is_null(), "an import into another file does not touch the open scene or its unsaved changes");
         at_check(fs::exists("scenes/other_level.scene.json"), "...it just writes the file");
     });
-    step(2, [this, project_file] {  // back to the clean fixture for the checks below
-        write_file(project_file(scenePath_), kFixtureScene);
-        reload_scene_from_disk();
-        at_check(!dirty() && world().find_by_id("map3").is_null(), "the fixture is the open scene again, clean");
-    });
 
     // ------------------------------------------- C. Pick bounds and the selection outline against the real renderer
+    section("C");
     step(2, [this] {
         World& w = world();
         auto make = [&](const char* id, Vec3 pos, float rot) {
@@ -499,6 +587,7 @@ void Editor::at_build_tools_script() {
     snap("editor_select_hud.png");
 
     // ------------------------------------------------------------------------------------ D. Bloom in the viewport
+    section("D");
     step(1, [this] {
         // A glow source on an empty patch of sky; bloom is still off, and nothing is selected (no outline in the way).
         Entity glow = world().create("test_glow", "test_glow");
@@ -557,6 +646,7 @@ void Editor::at_build_tools_script() {
     snap("editor_bloom.png");
 
     // ------------------------------------------------------------------------- E. Ctrl+V into the AI Assistant input
+    section("E");
     // sokol_app turns Ctrl+V into a CLIPBOARD_PASTED event (only with the clipboard enabled); sokol_imgui then presses
     // Ctrl+V for ImGui, which pastes the clipboard's text into the focused box.
     static const char* kPasted = "A 3D tower game.\nThree levels.";
@@ -575,6 +665,7 @@ void Editor::at_build_tools_script() {
     });
 
     // ----------------------------------------------- F. AI Assistant text: wrapping, right-click menu, selectable messages
+    section("F");
     auto rclick = [this, &step](const std::string& name) {
         step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
         step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
@@ -618,6 +709,7 @@ void Editor::at_build_tools_script() {
     });
 
     // ------------------------------------------------------------- G. Delete a project from the Open project dialog
+    section("G");
     step(2, [this] {
         atDeleteProject_ = atOutDir_ + "/delete-me";
         ScaffoldOptions so;
@@ -639,6 +731,7 @@ void Editor::at_build_tools_script() {
     });
 
     // ------------------------------------------------- H. Export window: a button per platform, then the export's report
+    section("H");
     // The toolbar's Export opens it. Every platform's row says what an export there writes, or why it cannot run here
     // (another OS's desktop player is not in this build tree). This machine's platform is exported for real, with the
     // factoria_player of the build tree, on the export's worker thread; the report shows the folder and the next steps.
@@ -700,28 +793,12 @@ void Editor::at_build_tools_script() {
     step(2, [this] { showExport_ = false; });
 
     // ------------------------------------------------- I. Platform settings window
+    section("I");
     // Opened from the Settings... button of the Android row in the Export window, then through the tabs. Edits make it dirty,
     // the Export window's format menu keeps working next to pending edits, Save writes factoria.json (and only that: this
     // computer's file is untouched), closing with unsaved changes asks, and File > Platform Settings... opens it again.
     // This computer's settings live in a scratch file (FACTORIA_EXPORT_CONFIG, set by on_init): never the user's own.
     const std::string machineFile = machine_export_config_path();
-    // The wheel over (x, y) until a widget is shown in its window with room below it (maxY): what a long page needs, however
-    // long it is on this computer (a warning that wraps onto more lines moves everything down). A click never lands on a widget
-    // that is scrolled out of its window: at_widget refuses it.
-    auto scroll_until = [this, &step](const std::string& name, float dy, Vec2 at, float maxY) {
-        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at); });
-        for (int i = 0; i < 60; ++i)
-            step(1, [this, name, dy, at, maxY] {
-                auto it = atWidgets_.find(name);
-                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > 120) return;
-                sapp_event ev{};
-                ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
-                ev.mouse_x = at.x * dpi_;
-                ev.mouse_y = at.y * dpi_;
-                ev.scroll_y = dy;
-                on_event(&ev);
-            });
-    };
     step(2, [this, project_file] {
         // A game icon with a transparent corner, as the AI would make one.
         Image icon;
@@ -845,6 +922,7 @@ void Editor::at_build_tools_script() {
     step(2, [this] { showExport_ = false; });
 
     // ------------------------------------------------- J. Set Up This Computer
+    section("J");
     // File > Set Up This Computer... lists the five components; the Export window and the Platform settings tabs offer the
     // "Set up" button that fixes a row; the Android SDK license dialog only lets "I accept" through after its checkbox.
     // The editor's setup context in the autotest (on_init) can neither download nor run a program, and its FACTORIA_HOME is a
@@ -1069,6 +1147,7 @@ void Editor::at_build_tools_script() {
     });
 
     // --------------------------------------------------- K. A custom material: params, snippet reload, a broken snippet
+    section("K");
     // The editor runs with hotReloadAssets: a material or snippet rewritten on disk (by the AI's file tools, or by hand) shows in
     // the viewport without a reload, in edit mode and while playing, and a broken edit keeps the last good picture and logs once.
     {
@@ -1262,16 +1341,10 @@ void Editor::at_build_tools_script() {
             diff_check(ms->v2, ms->playing, false, "a snippet rewritten on disk changes the viewport while the game plays");
             stop();
         });
-        // Back to the 2D fixture the next sections expect.
-        step(2, [this, project_file] {
-            stop();
-            write_file(project_file(scenePath_), kFixtureScene);
-            reload_scene_from_disk();
-            select_id("");
-        });
     }
 
     // ------------------------------------------------------- L. Hand editing: the Hierarchy and the Inspector, with the mouse
+    section("L");
     // The acceptance of M20's hand editing: select in the tree by clicking, click a number in the Inspector, type a value, Enter;
     // the world changed, one undo step was added, Save writes it into the scene file. Drag and drop in the tree reparents.
     {
@@ -1514,14 +1587,10 @@ void Editor::at_build_tools_script() {
             select_id("");
             reload_scene_from_disk();
         });
-        step(2, [this, project_file] {  // back to the 2D fixture the next sections expect
-            write_file(project_file(scenePath_), kFixtureScene);
-            reload_scene_from_disk();
-            select_id("");
-        });
     }
 
     // ------------------------------------------------------------------- M. Transform gizmos: move, rotate, scale in the viewport
+    section("M");
     // The acceptance of the gizmos: select the player, press W / E / R, drag handles with the injected mouse. Every drag is one
     // undo step and a scene.set_component on Transform; Ctrl snaps; a child of a rotated, scaled parent follows the mouse in
     // world space; Esc puts the start value back with no undo step; Q hides the handles; none while Playing, but Paused edits the
@@ -1961,15 +2030,10 @@ void Editor::at_build_tools_script() {
             undo();
             undo();
         });
-        step(2, [this, project_file] {  // back to the fixture the next sections expect
-            gizmoMode_ = GizmoMode::Move;
-            write_file(project_file(scenePath_), kFixtureScene);
-            reload_scene_from_disk();
-            select_id("");
-        });
     }
 
     // ------------------------------------------------------------------------------------------ N. Project panel (View > Project)
+    section("N");
     // The acceptance of the file browser: the panel lists the project's files, the type filter and the search narrow the list, a
     // prefab dragged onto the Viewport spawns an entity at the point under the mouse (one undo step, Ctrl+Z removes it), a picture
     // dragged onto a Sprite's texture field sets the field (and a sound dragged there does nothing), Delete goes through fs.delete,
@@ -2195,19 +2259,17 @@ void Editor::at_build_tools_script() {
             at_check(!at_visible("proj:file:assets/autotest_trash.txt"), "...and the panel stops listing it without a Refresh");
         });
 
-        step(2, [this, project_file] {  // back to the fixture the next sections expect
-            projBrowser_.query = BrowserQuery{};
-            select_id("");
-            write_file(project_file(scenePath_), kFixtureScene);
-            reload_scene_from_disk();
-            focus_window("Console");
-        });
     }
 
-    // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
+    // ----------------------------------------------------------------------------------- O. CLI agent (Claude Code)
+    section("O");
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
     // Play must wait meanwhile. Needs the fixture (the autotest runs from the repository root) and curl.
+    step(1, [this] {  // the background detection writes aiConfig_ once: it must be done before the swap below (O alone runs early)
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
     step(2, [this] {
 #ifdef _WIN32
         stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
@@ -2250,9 +2312,10 @@ void Editor::at_build_tools_script() {
     });
 
     // ------------------------------------------------------------------------------------------------------ done
+    keep = true;
     step(2, [this] {
         select_id("");
-        Json report = Json::object({{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}});
+        Json report = Json::object({{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}, {"sections", at_section_report()}});
         (void)save_json_file(atOutDir_ + "/autotest_result.json", report);
         FA_INFO("autotest", "finished: {} failure(s)", atFailures_.size());
         sapp_request_quit();
