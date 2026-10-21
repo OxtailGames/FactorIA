@@ -41,8 +41,8 @@ if(FA_BUILD_TESTS)
     endif()
     # Windowed end-to-end test: opens a temp project in the real editor window,
     # exercises select/edit commands/undo/play/stop/AI marshaling and writes screenshots.
-    # Window screenshots read the back buffer (ui::read_backbuffer): GL on Linux, under xvfb-run, and Metal on macOS,
-    # in a real window (the user's session). Windows (D3D11) has no read-back yet.
+    # Window screenshots read the back buffer (ui::read_backbuffer): GL on Linux, under xvfb-run, and Metal on macOS and D3D11 on
+    # Windows (swap chain buffer copied to a staging texture), in a real window (the user's session).
     file(GLOB editor_autotest CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/gpu/*.cpp)
     find_program(FA_XVFB_RUN_EDITOR xvfb-run)
     if(editor_autotest)
@@ -53,7 +53,7 @@ if(FA_BUILD_TESTS)
         if(FA_XVFB_RUN_EDITOR AND FA_PLATFORM STREQUAL "linux")
             set(editor_autotest_launcher ${FA_XVFB_RUN_EDITOR} -a -s "-screen 0 1600x900x24")
             set(editor_autotest_runs ON)
-        elseif(FA_PLATFORM STREQUAL "macos")
+        elseif(FA_PLATFORM STREQUAL "macos" OR FA_PLATFORM STREQUAL "windows")
             set(editor_autotest_runs ON)
         endif()
         if(editor_autotest_runs)

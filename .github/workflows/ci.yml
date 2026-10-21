@@ -200,6 +200,13 @@ jobs:
           test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
           "$cli" setup shaders
 
+      # The runner's desktop is 1024x768, which shrinks the editor autotest's 1600x900 window and hides widgets it clicks.
+      - name: Display resolution for the editor autotest
+        shell: pwsh
+        run: |
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          Get-CimInstance Win32_VideoController | Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
+
       - name: Test (windows-release)
         env:
           FA_REQUIRE_SHDC: '1'
