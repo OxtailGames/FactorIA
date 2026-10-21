@@ -32,15 +32,15 @@ Linux AppImage (a read-only mount: download the newer one). Details:
 
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
 the **Viewport** in the middle, **AI Assistant** on the right, and Console / Engine Feedback / Audio / Profiler as tabs under
-the view. You can also edit by hand with the Hierarchy and the Inspector (below). Still missing: an asset browser and moving
-things by dragging in the view (gizmos): describe those to the AI. Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+the view. You can also edit by hand with the Hierarchy and the Inspector, and by dragging gizmos in the Viewport (below). Still
+missing: an asset browser: describe those to the AI. Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo. |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). |
 | Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
 | Inspector | The selected entity's components, one widget per field, Add Component. |
-| Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at. Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
+| Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
@@ -67,6 +67,32 @@ Compiling a snippet needs sokol-shdc: the factoria downloads carry it next to `f
 gets it with `factoria setup shaders` ([SHADERS.md](SHADERS.md)). The
 [Inspector](#hierarchy-and-inspector) edits a MeshRenderer's `material` and `materialParams` and shows a build error under
 the material field.
+
+## Gizmos
+
+Select an entity and drag handles in the Viewport to move, rotate or scale it. The toolbar has four buttons (tooltips name
+the key) and the keys work while the Viewport is hovered or focused and no text box has the keyboard:
+
+| Mode | Key | Handles |
+| --- | --- | --- |
+| Select | Q | None: a click selects, as always. |
+| Move | W (default) | One arrow per WORLD axis (X red, Y green, Z blue only with a perspective camera) and a square at the centre that moves freely (2D: the XY plane; 3D: the plane facing the camera). |
+| Rotate | E | 2D (orthographic camera, or a screen-space entity): one ring around Z. 3D: three rings around the entity's LOCAL axes. |
+| Scale | R | One handle per LOCAL axis ending in a box, and a centre box for uniform scale. A factor never goes below 0.01, so a drag cannot reach 0 or flip the sign. |
+
+A click on a handle starts a drag and does not change the selection; a click anywhere else selects as before. Handles keep
+their size in screen pixels at any zoom and light up under the mouse. **Hold Ctrl while dragging to snap the value**: move to
+whole world units with an orthographic camera and 0.25 with a perspective one, rotate to 15 degrees, scale to 0.1.
+**Esc while dragging** puts the start value back and leaves no Undo step. They work for 2D and 3D scenes and for screen-space
+(HUD) entities, whose values are design pixels. The gizmo works in world space and writes the entity's LOCAL values, so a
+child of a rotated or scaled parent follows the mouse.
+
+Every change is a `scene.set_component` call on `Transform` through the same path as the Inspector: one drag is ONE Undo
+step, the scene is marked dirty, Save writes the values, and a value the command refuses stops the drag and shows the
+message. Handles are drawn while the game is in edit mode or paused (a paused drag edits the running game, adds no Undo
+step and is lost on Stop, like the Inspector); while the game plays there are none, because the input goes to the game.
+Not here yet: panning or zooming the view independently of the game camera, selecting several entities, a local/world
+axis switch.
 
 ## Hierarchy and Inspector
 

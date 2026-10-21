@@ -19,7 +19,11 @@ Edit by hand in the editor
 - A `MeshRenderer` shows its material's settings with the right widgets (sliders, vectors, colour pickers) and a Reset
   button for each, and a material that does not compile shows its error right under the material field.
 - New command `scene.set_parent` moves an entity under another one (or to the top level), for the AI too.
-- Still to come: moving things by dragging in the game view and a browser for the project's files.
+- Move, rotate and scale in the game view: select something and drag the arrows (W), the rings (E) or the handles (R) that
+  appear on it; Q goes back to just selecting. The four buttons next to Undo do the same. Hold Ctrl to snap, press Esc in
+  the middle of a drag to cancel it. A whole drag is one Undo step, it works for 2D and 3D, for things on the screen (like
+  a score) and for things inside another, and while the game is paused it edits the running game.
+- Still to come: a browser for the project's files.
 
 Find out what makes your game slow
 
