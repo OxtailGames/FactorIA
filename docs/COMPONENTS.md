@@ -445,7 +445,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (not released yet, on main after 0.1.6) |
@@ -473,7 +473,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[240.0,56.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[240.0,56.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (not released yet, on main after 0.1.6) |
@@ -503,7 +503,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[240.0,40.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[240.0,40.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (not released yet, on main after 0.1.6) |
@@ -533,7 +533,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,40.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[320.0,40.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (not released yet, on main after 0.1.6) |
@@ -567,7 +567,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,48.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[320.0,48.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (not released yet, on main after 0.1.6) |
@@ -598,7 +598,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (not released yet, on main after 0.1.6) |
@@ -620,7 +620,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[200.0,200.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[200.0,200.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
@@ -643,7 +643,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[96.0,96.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame. |
+| `size` | vec2 | `[96.0,96.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
@@ -659,6 +659,32 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
 | `pressed` | bool | `false` | Runtime: a finger holds the button. Read-only. Runtime-only (not saved). |
 | `shown` | bool | `false` | Runtime: drawn this frame (see touchOnly). Read-only. Runtime-only (not saved). |
+
+### Captions
+
+Not released yet (on main after 0.1.6).
+
+The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audio.play(path, { caption })` and `ui.caption(text, seconds)` put on the caption list, the newest `maxLines` of them, at the bottom of this entity's rectangle on a background that hugs the text. Text is drawn like Text: it follows ui.textScale, the localization font chain and right-to-left languages. Put ONE per scene (or in a persistent HUD). Without any Captions entity captions are still tracked (game.captions() in tests lists them) but nothing is drawn, and the log says so once. An inactive Captions entity draws nothing either: that is how a "Subtitles" option turns them off. Defaults: bottom centre of the safe area, 960 x 180, over a dark background.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[960.0,180.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.0]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.5,1.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.0,0.0,0.0,0.7]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `maxLines` | int | `3` | How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out). Range 1.0..16.0. |
+| `padding` | vec4 | `[16.0,8.0,16.0,8.0]` | Space [left, top, right, bottom] between the edge of the background and the text. |
+| `font` | asset (font) | `""` | Font of the captions: project path of a .ttf, empty = the built-in font (same values as Text.font). |
+| `fontSize` | float | `28.0` | Glyph height in design pixels, before ui.textScale. Range 1.0..4096.0. |
+| `textColor` | color | `[1.0,1.0,1.0,1.0]` | Colour of the caption text. |
+| `speakerColor` | color | `[1.0,0.82,0.35,1.0]` | Colour of the speaker's name, drawn before the line ("Mara:"). Captions without a speaker have no name. |
+| `align` | enum: left \\| center \\| right \\| start \\| end | `"center"` | Where the block of captions sits inside the rectangle's width, and how the lines align in it. Same values as Text.align: start / end follow the language (start = right in Arabic or Hebrew). |
+| `spacing` | float | `4.0` | Gap in design pixels between two captions. Range 0.0..1000.0. |
+| `lines` | json | `[]` | Runtime: what is drawn now, [{text, speaker}] oldest first, at most `maxLines`. Written by the engine every frame from the caption list; do not edit it. Read-only. Runtime-only (not saved). |
 
 ## Scripting
 
@@ -2035,6 +2061,29 @@ Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<
 
 ## ui
 
+### `ui.caption` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Show a subtitle line on the Captions component for a few seconds.
+
+The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line without a sound, drawn by the Captions component (docs/TEXT.md, "Captions") for `seconds` of the game clock; the newest Captions.maxLines lines show. With `key` (a localization key) the line is the translation and follows a language change. Without a Captions entity the line is only tracked and the log says so once. Example: ui.caption {"text":"Watch out!","seconds":2,"speaker":"Mara"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | no | The line (the fallback when `key` is set and no string table has it). |
+| `key` | string | no | Localization key of the line. |
+| `speaker` | string | no | Name drawn before the line. |
+| `seconds` | number | no | How long it shows, in game-clock seconds (default 3). |
+
+### `ui.clear_captions` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Remove every subtitle from the screen now.
+
+The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
+
 ### `ui.set_text_scale` (modifies state)
 
 Not released yet (on main after 0.1.6).
@@ -2758,6 +2807,22 @@ declare module "factoria" {
     pan?: number;
     loop?: boolean;
     bus?: "sfx" | "music" | "ui";
+    /**
+     * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
+     */
+    caption?: string;
+    /**
+     * Localization key of the subtitle (docs/LOCALIZATION.md): the line is the translation in the current language and changes with the language while it shows. `caption`, when also given, is the fallback for a key that no string table has.
+     */
+    captionKey?: string;
+    /**
+     * Name shown before the caption line in the Captions speakerColor, e.g. "Mara". Needs caption or captionKey.
+     */
+    speaker?: string;
+    /**
+     * Show the caption for this many seconds of the game clock instead of for as long as the sound plays. Required with loop: true (a looping sound never ends), otherwise play() throws.
+     */
+    captionSeconds?: number;
   }
 
   /**
@@ -2765,7 +2830,7 @@ declare module "factoria" {
    */
   export interface AudioAPI {
     /**
-     * Plays a clip, returns a voice id.
+     * Plays a clip, returns a voice id. With caption / captionKey the sound also shows a subtitle on the Captions component for as long as it plays (docs/TEXT.md, "Captions").
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
@@ -3257,6 +3322,14 @@ declare module "factoria" {
      * Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t("menu.play")). Example: ui.on("focus", (e) => ui.speak(e.entity.get("Button").text)). Same as the ui.speak command.
      */
     speak(text: string, opts?: { interrupt?: boolean }): void;
+    /**
+     * Shows a subtitle line on the Captions component for `seconds` (default 3) of the game clock, for dialogue or hints that have no sound file; a sound's own subtitle is audio.play(path, { caption }). With `key` (a localization key) the line is the translation and follows a language change while it shows; `text` is then the fallback and may be "". `speaker` is a name drawn before the line. The newest Captions.maxLines lines show, the oldest drop first. Without a Captions entity the line is only tracked and the log says so once. Same as the ui.caption command. Example: ui.caption("Watch out!", 2, { speaker: "Mara" }).
+     */
+    caption(text: string, seconds?: number, opts?: { key?: string; speaker?: string }): void;
+    /**
+     * Removes every caption now, also the ones of sounds that still play (the sounds are not stopped). Same as the ui.clear_captions command.
+     */
+    clearCaptions(): void;
     /**
      * Stops what is being said and drops the queued lines. Does nothing when nothing is being said or the system has no speech. Same as the ui.stop_speaking command.
      */
@@ -5262,7 +5335,7 @@ declare module "factoria" {
    */
   export interface PanelComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5371,7 +5444,7 @@ declare module "factoria" {
    */
   export interface ButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5493,7 +5566,7 @@ declare module "factoria" {
    */
   export interface ToggleComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5613,7 +5686,7 @@ declare module "factoria" {
    */
   export interface SliderComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5753,7 +5826,7 @@ declare module "factoria" {
    */
   export interface TextFieldComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5878,7 +5951,7 @@ declare module "factoria" {
    */
   export interface ScrollListComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5957,7 +6030,7 @@ declare module "factoria" {
    */
   export interface TouchStickComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since unreleased
      */
     get size(): Vec2;
@@ -6041,7 +6114,7 @@ declare module "factoria" {
    */
   export interface TouchButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
      * @since unreleased
      */
     get size(): Vec2;
@@ -6126,6 +6199,107 @@ declare module "factoria" {
      * @since unreleased
      */
     readonly shown: boolean;
+  }
+  /**
+   * The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audio.play(path, { caption })` and `ui.caption(text, seconds)` put on the caption list, the newest `maxLines` of them, at the bottom of this entity's rectangle on a background that hugs the text. Text is drawn like Text: it follows ui.textScale, the localization font chain and right-to-left languages. Put ONE per scene (or in a persistent HUD). Without any Captions entity captions are still tracked (game.captions() in tests lists them) but nothing is drawn, and the log says so once. An inactive Captions entity draws nothing either: that is how a "Subtitles" option turns them off. Defaults: bottom centre of the safe area, 960 x 180, over a dark background.
+   * 
+   * Category: UI
+   * @since unreleased
+   */
+  export interface CaptionsComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since unreleased
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since unreleased
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since unreleased
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since unreleased
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since unreleased
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out).
+     * @since unreleased
+     */
+    maxLines: number;
+    /**
+     * Space [left, top, right, bottom] between the edge of the background and the text.
+     * @since unreleased
+     */
+    get padding(): Vec3 & { w: number };
+    set padding(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Font of the captions: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since unreleased
+     */
+    font: string;
+    /**
+     * Glyph height in design pixels, before ui.textScale.
+     * @since unreleased
+     */
+    fontSize: number;
+    /**
+     * Colour of the caption text.
+     * @since unreleased
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Colour of the speaker's name, drawn before the line ("Mara:"). Captions without a speaker have no name.
+     * @since unreleased
+     */
+    get speakerColor(): Color;
+    set speakerColor(value: ColorLike);
+    /**
+     * Where the block of captions sits inside the rectangle's width, and how the lines align in it. Same values as Text.align: start / end follow the language (start = right in Arabic or Hebrew).
+     * @since unreleased
+     */
+    align: "left" | "center" | "right" | "start" | "end";
+    /**
+     * Gap in design pixels between two captions.
+     * @since unreleased
+     */
+    spacing: number;
+    /**
+     * Runtime: what is drawn now, [{text, speaker}] oldest first, at most `maxLines`. Written by the engine every frame from the caption list; do not edit it. Read-only. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    readonly lines: any;
   }
   /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
@@ -6228,6 +6402,7 @@ declare module "factoria" {
     ScrollList: ScrollListComponent;
     TouchStick: TouchStickComponent;
     TouchButton: TouchButtonComponent;
+    Captions: CaptionsComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -6264,6 +6439,7 @@ declare module "factoria" {
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; textColor?: ColorLike; touchOnly?: boolean };
+    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
   }
@@ -6334,6 +6510,28 @@ declare module "factoria:test" {
   export interface DescribeFn {
     (name: string, fn: () => void): void;
     skip(name: string, fn: () => void): void;
+  }
+
+  /**
+   * One entry of game.captions(): a subtitle that is on the caption list.
+   */
+  export interface CaptionEntry {
+    /**
+     * The text shown, in the current language when it has a key.
+     */
+    readonly text: string;
+    /**
+     * The speaker's name, "" for none.
+     */
+    readonly speaker: string;
+    /**
+     * The localization key, "" for a plain-text caption.
+     */
+    readonly key: string;
+    /**
+     * "audio:<clip path>" for the caption of a sound, "ui" for ui.caption.
+     */
+    readonly source: string;
   }
 
   /**
@@ -6595,6 +6793,10 @@ declare module "factoria:test" {
      * Empties the list of spoken lines (e.g. after setup, before the action under test).
      */
     clearSpoken(): void;
+    /**
+     * The captions on the list now (cleared before each test), oldest first: { text, speaker, key, source }. `text` is in the current language, `key` is "" for plain text, `source` is "audio:<clip path>" or "ui". The Captions component draws the newest maxLines of them. Example: expect(game.captions().map((c) => c.text)).toEqual(["Welcome"]).
+     */
+    captions(): CaptionEntry[];
     /**
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
      */

@@ -15,11 +15,11 @@
 
 namespace fa {
 
-enum class UiKind : std::int32_t { None, Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton };
+enum class UiKind : std::int32_t { None, Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions };
 const char* ui_kind_name(UiKind k);  // "Panel", "Button"... ("" for None)
 
 // The widget component of `e` (the first of Button, Toggle, Slider, TextField, ScrollList, Panel, TouchStick,
-// TouchButton), None if it has none.
+// TouchButton, Captions), None if it has none.
 UiKind ui_kind(const World& w, Entity e);
 // Its shared geometry and background, nullptr if `e` is no widget.
 const UiBox* ui_box(const World& w, Entity e);
