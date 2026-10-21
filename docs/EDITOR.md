@@ -260,8 +260,7 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   logic (`setup_job.*`: which setup fixes which Export row, an install on its worker thread with its progress, cancelling,
   the license loader and the cached status), all with an injected `fa::SetupContext` (a fake downloader and process runner and
   a temporary home): no test touches the network or your `~/.factoria`.
-- `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS; not
-  registered on Windows, which has no window read-back for the screenshots yet): the real editor window. The autotest
+- `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS and Windows): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
   files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
   tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
@@ -283,7 +282,7 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   presses **Install** of the CMake component and lets it download and unpack the real CMake (about 50 MB from Kitware) into
   the autotest's own `factoria_home`; ctest never sets it.
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
-  (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; `FA_EDITOR_AUTOTEST=welcome` for the other).
+  (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; Windows: set `FA_EDITOR_AUTOTEST=1` and run `fa_editor_autotest.exe` from the repository root; `FA_EDITOR_AUTOTEST=welcome` for the other).
   The process exits with 1 if any check failed (`autotest_result.json` lists them).
 
 The AI's commands run on the editor's main thread, but never for long at a time: queued commands share about 10 ms per frame, and `game.step` with many frames and `project.test` run in slices (frames / one test file per UI frame) so the window stays responsive while the AI works. The results are the same as a single call.

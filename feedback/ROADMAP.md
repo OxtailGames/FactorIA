@@ -183,7 +183,6 @@ Left open after M9:
   `Gamepad (MFi)` in slot 0.
 
 Found while implementing M9, not fixed:
-- Windows has no window read-back for the editor (D3D11), so the editor autotests are not registered there.
 - Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
