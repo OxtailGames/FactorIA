@@ -1449,6 +1449,7 @@ void Editor::at_build_tools_script() {
             reload_scene_from_disk();
             select_id("gem");
             he->undo = undo_depth();
+            inspScrollTo_ = "MeshRenderer.material";
         });
         step(30, [this] {
             at_check(at_visible("insp:matparam:pulse") && at_visible("insp:matparam:glow") && at_visible("insp:matparam:tint"),
