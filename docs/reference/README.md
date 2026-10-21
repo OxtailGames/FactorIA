@@ -200,6 +200,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [scene](commands/scene.md)
 
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
+- [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Not released yet._
 - [`scene.destroy`](commands/scene.md#scenedestroy-modifies-state): Destroy an entity and its children.
 - [`scene.format`](commands/scene.md#sceneformat-modifies-state): Rewrite scene and prefab files in the canonical compact layout, without loading them.
 - [`scene.get_entity`](commands/scene.md#sceneget_entity): Get one entity with every component field (including defaults and runtime values).
