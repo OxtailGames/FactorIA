@@ -785,17 +785,21 @@ void Editor::restore_scene(const Json& snapshot) {
 }
 
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
-    if (name == "prefab.save" || name == "scene.format") return false;  // files only
+    if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit") return false;  // files only
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
-    const bool fileImport = name == "scene.import_ascii" && args.is_object() && args.contains("path") && !args.value("dryRun", false);
-    if (!fileImport || !args["path"].is_string()) return;
+    // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
+    // it was a dry run, `saved`: the scene file it wrote.
+    const Json& res = r.result;
+    const bool fileImport = (name == "scene.import_ascii" || name == "scene.ascii_edit") && res.is_object() &&
+                            res.contains("path") && res.contains("saved") && res["saved"].is_string();
+    if (!fileImport) return;
     // The scene file that is open was rebuilt on disk (hot reload is off in the editor): load it so the viewport shows it.
-    if (fs::normalize(args["path"].get<std::string>()) != fs::normalize(scenePath_)) return;
+    if (fs::normalize(res["saved"].get<std::string>()) != fs::normalize(scenePath_)) return;
     if (play_ != PlayState::Edit) {
         notify(scenePath_ + " was rebuilt on disk while the game runs. Stop, then Reload the scene to see it.", 1);
         return;
