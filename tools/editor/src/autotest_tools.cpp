@@ -1197,7 +1197,11 @@ void Editor::at_build_tools_script() {
             showOverlay_ = false;  // no selection outline in the pictures compared below
             select_id("gem");      // the Inspector shows the build error under MeshRenderer.material
         });
-        step(30, [this, ms] {  // the Inspector reads the renderer's report twice a second
+        step(1, [this, ms] {  // the Inspector reads the renderer's report twice a second: wait for it (bounded)
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, ms] { return ms->skip || at_visible("insp:material:error"); };
+        });
+        step(4, [this, ms] {
             if (ms->skip) return;
             at_check(at_visible("insp:material:error"), "the Inspector shows the material's build error under the material field");
             const std::string shown = material_build_error(assetReport_, "materials/autotest_glow.material.json");
@@ -1213,7 +1217,11 @@ void Editor::at_build_tools_script() {
             if (ms->skip) return;
             diff_check(ms->v2, ms->fixed, true, "fixing the snippet recovers the picture");
         });
-        step(30, [this, ms] {
+        step(1, [this, ms] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, ms] { return ms->skip || !at_visible("insp:material:error"); };
+        });
+        step(4, [this, ms] {
             if (ms->skip) return;
             at_check(!at_visible("insp:material:error"), "the Inspector's build error is gone once the snippet builds again");
             select_id("");
