@@ -15,6 +15,12 @@
 #if defined(__APPLE__)
 #include "backbuffer_apple.h"
 #endif
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <d3d11.h>
+#include <dxgi.h>
+#endif
 
 #include "editor_fonts.h"
 #include "ui_backend.h"
@@ -219,6 +225,53 @@ bool read_backbuffer(int w, int h, std::uint8_t* out) {
     readPix(0, 0, w, h, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, tmp.data());
     for (int y = 0; y < h; ++y) std::memcpy(out + size_t(y) * w * 4, tmp.data() + size_t(h - 1 - y) * w * 4, size_t(w) * 4);
     return true;
+#elif defined(_WIN32)
+    // D3D11: sokol_gfx has already resolved the MSAA render target into the swap chain's buffer 0 at the end of the
+    // window pass, and the flip-discard swap chain only changes buffers inside Present(), which runs after the frame
+    // callback returns. So buffer 0 holds exactly the frame just drawn; copy it to a staging texture and map it.
+    auto* swap = static_cast<IDXGISwapChain*>(const_cast<void*>(sapp_d3d11_get_swap_chain()));
+    if (!swap) return false;
+    ID3D11Texture2D* back = nullptr;
+    if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) return false;
+    ID3D11Device* dev = nullptr;
+    back->GetDevice(&dev);
+    ID3D11DeviceContext* ctx = nullptr;
+    if (dev) dev->GetImmediateContext(&ctx);
+    D3D11_TEXTURE2D_DESC desc{};
+    back->GetDesc(&desc);
+    ID3D11Texture2D* staging = nullptr;
+    bool ok = false;
+    if (ctx && int(desc.Width) == w && int(desc.Height) == h && desc.SampleDesc.Count == 1 &&
+        (desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM || desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)) {
+        D3D11_TEXTURE2D_DESC sd = desc;
+        sd.Usage = D3D11_USAGE_STAGING;
+        sd.BindFlags = 0;
+        sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        sd.MiscFlags = 0;
+        if (SUCCEEDED(dev->CreateTexture2D(&sd, nullptr, &staging)) && staging) {
+            ctx->CopyResource(staging, back);
+            D3D11_MAPPED_SUBRESOURCE m{};
+            if (SUCCEEDED(ctx->Map(staging, 0, D3D11_MAP_READ, 0, &m))) {
+                for (int y = 0; y < h; ++y) {
+                    const auto* src = static_cast<const std::uint8_t*>(m.pData) + size_t(y) * m.RowPitch;
+                    std::uint8_t* dst = out + size_t(y) * w * 4;
+                    for (int x = 0; x < w; ++x) {  // BGRA -> RGBA; the surface is already top row first
+                        dst[x * 4 + 0] = src[x * 4 + 2];
+                        dst[x * 4 + 1] = src[x * 4 + 1];
+                        dst[x * 4 + 2] = src[x * 4 + 0];
+                        dst[x * 4 + 3] = src[x * 4 + 3];
+                    }
+                }
+                ctx->Unmap(staging, 0);
+                ok = true;
+            }
+        }
+    }
+    if (staging) staging->Release();
+    if (ctx) ctx->Release();
+    if (dev) dev->Release();
+    back->Release();
+    return ok;
 #else
     (void)w; (void)h; (void)out;
     return false;
