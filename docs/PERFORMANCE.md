@@ -27,9 +27,12 @@ A baseline is only valid for the kind of machine it was measured on, so budget f
 | Runner id | Where |
 | --- | --- |
 | `linux-gcc-llvmpipe` | Linux, GCC, Mesa llvmpipe (software GL) |
-| `windows-msvc-d3d11-warp` | Windows, MSVC, D3D11 WARP (software; a CI runner has no graphics card). On a PC with a card the id is `windows-msvc-d3d11`: set `FACTORIA_D3D11_WARP=1` to use WARP like CI does |
+| `windows-msvc-d3d11-warp` | Windows, MSVC, D3D11 WARP (software): a CI runner has no graphics card, so its adapter is the Microsoft Basic Render Driver, which is WARP. On a PC with a card the id is `windows-msvc-d3d11`; `FACTORIA_D3D11_WARP=1` makes it render with WARP and use this id, with numbers close to a runner's but not equal (below) |
 | `macos-clang-metal` | macOS, Apple clang, Metal |
 
+Two machines of the same kind still differ: GitHub's Linux runner uses about 25 MB more than WSL on the same code, and
+Windows WARP on a PC and on a runner differ by up to 15 MB either way. So a runner's entry is measured on that runner,
+and the engine's own entries come from its CI runners' output (a job with no entry prints it, see below).
 Set `FACTORIA_PERF_RUNNER=name` to use your own id (a build machine of your own). A runner with no entry in a budget file is
 not an error: the check passes with status `no_baseline`, and its result carries `baselineEntry`, the exact JSON to add
 under `runners`. `{"requireBaseline":true}` makes it fail instead (error `perf_no_baseline`, with the same entry), so a CI

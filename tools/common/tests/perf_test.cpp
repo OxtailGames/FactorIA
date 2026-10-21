@@ -111,6 +111,8 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
 #endif
     const std::string warp = perf_runner_id("D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)");
     CHECK(warp.find("d3d11-warp") != std::string::npos);
+    // A CI runner without a graphics card gets WARP as its "hardware" adapter: the same runner id.
+    CHECK(perf_runner_id("D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)") == warp);
     CHECK(perf_runner_id("EGL surfaceless / llvmpipe (LLVM 19)").find("-llvmpipe") != std::string::npos);
     CHECK(perf_runner_id("Metal / Apple M1").find("-metal") != std::string::npos);
     CHECK(perf_runner_id("none").find("-nogpu") != std::string::npos);

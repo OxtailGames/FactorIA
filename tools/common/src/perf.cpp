@@ -125,8 +125,8 @@ std::string perf_runner_id(const std::string& graphics) {
         gpu = "nogpu";
     } else if (g.find("llvmpipe") != std::string::npos) {
         gpu = "llvmpipe";
-    } else if (g.find("warp") != std::string::npos) {
-        gpu = "d3d11-warp";
+    } else if (g.find("warp") != std::string::npos || g.find("basic render driver") != std::string::npos) {
+        gpu = "d3d11-warp";  // the Basic Render Driver is WARP as the adapter of a machine with no graphics card (CI)
     } else if (g.find("metal") != std::string::npos) {
         gpu = "metal";
     } else if (g.rfind("d3d11", 0) == 0) {

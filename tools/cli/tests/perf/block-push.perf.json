@@ -4,13 +4,13 @@
   "runners": {
     "windows-msvc-d3d11-warp": {
       "frames": 300,
-      "cpuMsAvg": 3.505,
-      "cpuMsP95": 3.951,
-      "cpuMsMax": 25.699,
-      "peakMemoryMB": 55.3,
+      "cpuMsAvg": 2.892,
+      "cpuMsP95": 3.579,
+      "cpuMsMax": 11.135,
+      "peakMemoryMB": 47.3,
       "drawCalls": 2,
       "entities": 45,
-      "graphics": "D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)"
+      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)"
     },
     "linux-gcc-llvmpipe": {
       "frames": 300,
