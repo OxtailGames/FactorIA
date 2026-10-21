@@ -442,9 +442,16 @@ void Editor::autotest_pre_frame() {
         at_check(vpFocused_, "clicking the viewport while playing focuses it for game input");
     } else if (f == 101) {
         inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_D);
+        // How far the player gets in N frames depends on real frame times (a fast runner draws 30 frames in 30 ms), so
+        // hold the script until it ran right instead (bounded like every wait; the check below fails if it never does).
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] {
+            Entity e = world().find_by_id("player");
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t && t->position.x > atOriginalPos_.x + 5;
+        };
     } else if (f == 130) {
         Vec3 p = player_pos();
-        // Any rightward motion proves the key reached the game; distance depends on real frame times.
         at_check(p.x > atOriginalPos_.x + 5, "keyboard input reaches the game while playing (player ran right)");
         inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_D);
         stop();
