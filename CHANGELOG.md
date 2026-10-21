@@ -255,6 +255,9 @@ code of its own:
 - Editing an ASCII level no longer means counting characters: `scene.ascii_edit` changes the map file of a level with
   operations (fill a rectangle, replace a glyph, insert or delete columns, put a coin "2 tiles above the ground" of
   column 40), rewrites only the rows and rebuilds the level, and tells you where every object ended up.
+- On Windows, deleting a folder that holds files with very long paths (a macOS export nests four folders) now deletes
+  all of it: exporting again into the same folder, `fs.delete` and deleting a project from the editor no longer leave
+  old files behind.
 
 ## 0.1.6
 

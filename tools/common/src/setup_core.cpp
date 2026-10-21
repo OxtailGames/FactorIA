@@ -6,6 +6,7 @@
 #include <format>
 #include <thread>
 
+#include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
 #include "setup_internal.h"
@@ -261,14 +262,14 @@ Installer::Installer(const SetupContext& context, std::string component)
 Installer::~Installer() {
     if (!staged_) return;
     std::error_code ec;
-    stdfs::remove_all(staging_, ec);
+    fs::remove_tree(staging_, ec);
     stdfs::remove(staging_.parent_path(), ec);  // the staging folder itself, when nothing else is in it
 }
 
 stdfs::path Installer::staging() {
     if (!staged_) {
         std::error_code ec;
-        stdfs::remove_all(staging_, ec);  // what a crashed run left behind
+        fs::remove_tree(staging_, ec);  // what a crashed run left behind
         stdfs::create_directories(staging_, ec);
         staged_ = true;
     }
@@ -278,7 +279,7 @@ stdfs::path Installer::staging() {
 stdfs::path Installer::make_staging_subdir(const std::string& name) {
     const stdfs::path dir = staging() / name;
     std::error_code ec;
-    stdfs::remove_all(dir, ec);
+    fs::remove_tree(dir, ec);
     stdfs::create_directories(dir, ec);
     return dir;
 }
@@ -437,7 +438,7 @@ std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to) 
         return Fail{"failed", make_error("Cannot move " + from.string() + " to " + to.string() + ": " + message,
                                          "Check the free disk space and that the folder is writable.")};
     }
-    if (!aside.empty()) stdfs::remove_all(aside, ec);
+    if (!aside.empty()) fs::remove_tree(aside, ec);
     return std::nullopt;
 }
 

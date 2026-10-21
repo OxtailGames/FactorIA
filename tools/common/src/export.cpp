@@ -713,7 +713,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
-    stdfs::remove_all(os_path(outRoot), ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
+    fs::remove_tree(outRoot, ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
     stdfs::create_directories(os_path(outRoot), ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
     if (auto r = write_text(outRoot / kExportMarkerFile, marker_text(p, platform)); !r.ok()) return r.error();
@@ -735,7 +735,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
     const SetupContext thisMachine;
     if (auto assetsReady = prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine); !assetsReady.ok()) {
-        stdfs::remove_all(os_path(outRoot), ec);
+        fs::remove_tree(outRoot, ec);
         return assetsReady.error();
     }
 
@@ -759,7 +759,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
-        if (!keepOutput) stdfs::remove_all(os_path(outRoot), ec);
+        if (!keepOutput) fs::remove_tree(outRoot, ec);
         return r.error();
     }
     if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too
