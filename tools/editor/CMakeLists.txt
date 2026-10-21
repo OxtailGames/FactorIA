@@ -48,26 +48,82 @@ if(FA_BUILD_TESTS)
     if(editor_autotest)
         add_executable(fa_editor_autotest ${editor_autotest})
         target_link_libraries(fa_editor_autotest PRIVATE fa_editor fa_warnings)
-        set(editor_autotest_launcher "")
         set(editor_autotest_runs OFF)
+        set(editor_autotest_xvfb OFF)
         if(FA_XVFB_RUN_EDITOR AND FA_PLATFORM STREQUAL "linux")
-            set(editor_autotest_launcher ${FA_XVFB_RUN_EDITOR} -a -s "-screen 0 1600x900x24")
             set(editor_autotest_runs ON)
+            set(editor_autotest_xvfb ON)
         elseif(FA_PLATFORM STREQUAL "macos" OR FA_PLATFORM STREQUAL "windows")
             set(editor_autotest_runs ON)
         endif()
         if(editor_autotest_runs)
-            add_test(NAME editor_autotest
-                COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
-                WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(editor_autotest PROPERTIES LABELS "gpu" RUN_SERIAL TRUE TIMEOUT 180
-                ENVIRONMENT "FA_EDITOR_AUTOTEST=1")
+            # The sections of the autotest (src/autotest_sections.h) in four ctest entries that ctest -j runs at the same time,
+            # each in its own window, temp project and output folder (test-output/editor/<entry>, uploaded by CI on failure).
+            # Balanced by the frames each section draws (the table a run prints at the end: about 750 per entry); E, F and N
+            # share an entry because they use the system clipboard. FA_EDITOR_AUTOTEST=1 alone still plays every section in one
+            # window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
+            set(editor_autotest_entries
+                "1:I,J"
+                "2:S,A,G,H,L"
+                "3:B,C,D,M,O"
+                "4:T,A2,E,F,K,N")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h)
+            file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h editor_autotest_rows REGEX "^ *\\{\"[A-Z0-9]+\", ")
+            set(editor_autotest_ids "")
+            foreach(editor_autotest_row IN LISTS editor_autotest_rows)
+                string(REGEX REPLACE "^ *\\{\"([A-Z0-9]+)\".*" "\\1" editor_autotest_id "${editor_autotest_row}")
+                list(APPEND editor_autotest_ids ${editor_autotest_id})
+            endforeach()
+            list(JOIN editor_autotest_ids ", " editor_autotest_all)
+            set(editor_autotest_seen "")
+            set(editor_autotest_server 110)
+            foreach(editor_autotest_entry IN LISTS editor_autotest_entries)
+                string(REPLACE ":" ";" editor_autotest_parts "${editor_autotest_entry}")
+                list(GET editor_autotest_parts 0 editor_autotest_n)
+                list(GET editor_autotest_parts 1 editor_autotest_sections)
+                string(REPLACE "," ";" editor_autotest_picked "${editor_autotest_sections}")
+                foreach(editor_autotest_id IN LISTS editor_autotest_picked)
+                    if(NOT editor_autotest_id IN_LIST editor_autotest_ids)
+                        message(FATAL_ERROR "tools/editor/CMakeLists.txt: the ctest entry editor_autotest_${editor_autotest_n} "
+                            "names the section '${editor_autotest_id}', which src/autotest_sections.h does not have. Its sections: "
+                            "${editor_autotest_all}. Fix the name in editor_autotest_entries.")
+                    endif()
+                    if(editor_autotest_id IN_LIST editor_autotest_seen)
+                        message(FATAL_ERROR "tools/editor/CMakeLists.txt: the section '${editor_autotest_id}' is in two "
+                            "editor_autotest entries. Keep it in one of editor_autotest_entries: every section runs exactly once.")
+                    endif()
+                    list(APPEND editor_autotest_seen ${editor_autotest_id})
+                endforeach()
+                # Under xvfb-run -a, each entry looks for a free display from its own number: two entries starting at the same
+                # moment would otherwise both take the first free one, and one Xvfb would fail to start.
+                set(editor_autotest_launcher "")
+                if(editor_autotest_xvfb)
+                    set(editor_autotest_launcher ${FA_XVFB_RUN_EDITOR} -a -n ${editor_autotest_server} -s "-screen 0 1600x900x24")
+                endif()
+                math(EXPR editor_autotest_server "${editor_autotest_server} + 10")
+                add_test(NAME editor_autotest_${editor_autotest_n}
+                    COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
+                    WORKING_DIRECTORY ${FA_ROOT})
+                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu" TIMEOUT 120
+                    ENVIRONMENT "FA_EDITOR_AUTOTEST=1;FA_EDITOR_AUTOTEST_SECTIONS=${editor_autotest_sections};FA_EDITOR_AUTOTEST_OUT=${CMAKE_BINARY_DIR}/test-output/editor/autotest_${editor_autotest_n}")
+            endforeach()
+            foreach(editor_autotest_id IN LISTS editor_autotest_ids)
+                if(NOT editor_autotest_id IN_LIST editor_autotest_seen)
+                    message(FATAL_ERROR "tools/editor/CMakeLists.txt: the autotest section '${editor_autotest_id}' "
+                        "(src/autotest_sections.h) is in no editor_autotest entry, so ctest would never run it. Add it to one of "
+                        "editor_autotest_entries: the one with the fewest frames in the table the autotest prints at the end.")
+                endif()
+            endforeach()
             # No-project start: welcome dialog, then Open/New switches to a real project (graphics teardown/rebuild).
+            set(editor_autotest_launcher "")
+            if(editor_autotest_xvfb)
+                set(editor_autotest_launcher ${FA_XVFB_RUN_EDITOR} -a -n ${editor_autotest_server} -s "-screen 0 1600x900x24")
+            endif()
             add_test(NAME editor_autotest_welcome
                 COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
                 WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(editor_autotest_welcome PROPERTIES LABELS "gpu" RUN_SERIAL TRUE TIMEOUT 120
-                ENVIRONMENT "FA_EDITOR_AUTOTEST=welcome")
+            set_tests_properties(editor_autotest_welcome PROPERTIES LABELS "gpu" TIMEOUT 120
+                ENVIRONMENT "FA_EDITOR_AUTOTEST=welcome;FA_EDITOR_AUTOTEST_OUT=${CMAKE_BINARY_DIR}/test-output/editor/welcome")
         endif()
     endif()
 endif()

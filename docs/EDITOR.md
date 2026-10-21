@@ -351,7 +351,7 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
   logic (`setup_job.*`: which setup fixes which Export row, an install on its worker thread with its progress, cancelling,
   the license loader and the cached status), all with an injected `fa::SetupContext` (a fake downloader and process runner and
   a temporary home): no test touches the network or your `~/.factoria`.
-- `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS and Windows; on Windows a screen of at least 1600x900): the real editor window. The autotest
+- `editor_autotest_1` to `editor_autotest_4` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS and Windows; on Windows a screen of at least 1600x900): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
   files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
   tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
@@ -377,6 +377,35 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
   the autotest's own `factoria_home`; ctest never sets it.
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
   (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; Windows: set `FA_EDITOR_AUTOTEST=1` and run `fa_editor_autotest.exe` from the repository root; `FA_EDITOR_AUTOTEST=welcome` for the other).
-  The process exits with 1 if any check failed (`autotest_result.json` lists them).
+  The process exits with 1 if any check failed (`autotest_result.json` lists them). ctest splits the autotest into four
+  entries (`editor_autotest_1` to `_4`, a few sections each, see below) that `ctest -j` runs at the same time, each in its
+  own window, temp project and output folder (`<build>/test-output/editor/autotest_<n>`).
 
 The AI's commands run on the editor's main thread, but never for long at a time: queued commands share about 10 ms per frame, and `game.step` with many frames and `project.test` run in slices (frames / one test file per UI frame) so the window stays responsive while the AI works. The results are the same as a single call.
+
+### Run only some sections
+
+The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot), A (Audio panel), A2 (Profiler panel), B (commands that
+rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
+wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
+(custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel) and O (the CLI
+agent through the MCP endpoint). While you work on one part of the editor, run only the sections that cover it:
+
+```bash
+FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest
+```
+
+The ids are separated by commas or spaces, in any case; an unknown one stops the run before a window opens, with the list of
+sections. Every section starts from the same state: the clean 2D fixture as the open scene (no unsaved changes, no undo
+history), the autotest's windows closed, `factoria.json` as it was, the mouse parked. So a section passes or fails alone as it
+does in the full run, whatever the sections before it did. `FA_EDITOR_AUTOTEST=1` without `FA_EDITOR_AUTOTEST_SECTIONS` still
+runs all of them in one window.
+
+At the end the autotest prints what each section cost (frames, seconds, failures) and writes the same list under `sections`
+in `autotest_result.json`. The ctest entries group the sections by those frames, about the same number per entry; E, F and N
+share one because they use the system clipboard. A new section goes in `kAutotestSections` and in one of the
+`editor_autotest_entries` of `tools/editor/CMakeLists.txt`: configuring fails if a section is in no entry or in two.
+
+A few sections are for iterating only: before a push, build every target and run the full `ctest` (every
+`editor_autotest_*` entry), as for any other change.
