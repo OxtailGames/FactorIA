@@ -48,6 +48,7 @@
 #include "export_job.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include "inspector_model.h"
 #include "platform_settings.h"
 #include "play_recorder.h"
 #include "setup_job.h"
@@ -214,6 +215,21 @@ public:
     void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
     void draw_feedback_panel();
     void draw_audio_panel();
+    // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call
+    // (scene.set_component, scene.set_parent, scene.spawn, scene.destroy...) through edit_command(), the Console's path:
+    // an undo snapshot first (one per `key` within 0.8 s, and one per drag), then the call. A refused call leaves no undo
+    // step behind. `error` gets the command's message when it failed.
+    CommandResult edit_command(const std::string& key, const std::string& name, const Json& args, std::string* error = nullptr);
+    void draw_hierarchy_panel();
+    void draw_inspector_panel();
+    void draw_hierarchy_node(Entity e, const std::string& filter);
+    void hierarchy_spawn(const std::string& parentId, const std::string& name);
+    void hierarchy_duplicate(Entity e);
+    void hierarchy_destroy(Entity e);
+    void draw_inspector_component(Entity e, const TypeInfo& type);
+    // Draws the widget of one reflected field for the JSON `current`; returns true and sets `out` when the user changed it.
+    bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out);
+    void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
     void draw_project_dialog();
     // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
@@ -426,6 +442,32 @@ public:
     bool dlgScanned_ = false;
     std::string dlgDelete_;  // project waiting for the "Delete project?" confirmation
 
+    // Hierarchy / Inspector
+    bool showHierarchy_ = true, showInspector_ = true;
+    std::string hierFilter_;
+    std::string hierRenameId_, hierRenameText_;   // the entity being renamed (popup)
+    bool hierRenameOpen_ = false;                 // request to open the rename popup this frame
+    std::string hierLastSelected_;                // selection the tree last scrolled to (a viewport click moves the tree)
+    std::string hierRevealId_;                    // entity whose ancestors open and which scrolls into view next frame
+    std::map<std::string, std::string> inspErrors_;  // field key -> the last refused edit's message (shown under the field)
+    struct JsonBox {
+        std::string text, error;
+        bool dirty = false;   // the text differs from the value: the user is editing it (or it did not parse)
+    };
+    std::map<std::string, JsonBox> inspJson_;     // Json fields, by field key
+    std::string inspEntity_;                      // entity the inspector showed last frame (state resets when it changes)
+    std::string inspScrollTo_;                    // "Component" or "Component.field": scroll the Inspector to that row (the autotest)
+    struct MaterialInfoEntry {
+        Json info;
+        std::string error;    // material.info failed (the file is unreadable or invalid)
+        std::int64_t mtime = -2;
+        double checkedAt = -1e9;
+    };
+    std::map<std::string, MaterialInfoEntry> materialInfo_;   // by material path
+    Json assetReport_;                            // Renderer::asset_report(), refreshed twice a second
+    double assetReportAt_ = -1e9;
+    std::map<std::string, std::pair<double, std::vector<std::string>>> assetFiles_;  // asset type -> files, refreshed every 2 s
+
     // Audio panel (View > Audio): the live audio.log
     AudioLogState audioLog_;
     double audioPolled_ = -10;
@@ -497,6 +539,7 @@ public:
     std::vector<std::string> atPendingShots_;
     std::thread atThread_;
     std::shared_ptr<CommandResult> atMarshalResult_;
+    std::atomic<bool> atMarshalDone_{false};
     Vec3 atOriginalPos_{};
     std::uint64_t atStepFrame_ = 0;
     void at_check(bool cond, const std::string& what);
@@ -508,6 +551,7 @@ public:
     std::map<std::string, bool> atWidgetEnabled_;           // false when the widget was submitted disabled (at_track's `enabled`)
     std::map<std::string, bool> atWidgetShown_;             // false when the widget was submitted but is scrolled out of its window
     void at_track(const std::string& name, bool enabled = true);
+    void at_track_at(const std::string& name, Vec2 centre, bool enabled = true);  // a point inside the last item (a part of it)
     Vec2 at_widget(const std::string& name);               // centre of a widget drawn in the last frames (fails the test otherwise)
     bool at_visible(const std::string& name) const;        // was the widget submitted in the last frame?
     bool at_enabled(const std::string& name) const;        // ... and not disabled (a button that cannot be pressed yet)?
@@ -527,6 +571,7 @@ public:
     void at_run_steps(int frame);
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
+    void inject_char(unsigned codepoint);   // a typed character (sapp CHAR event): what an InputText receives
     Vec2 atMouse_{};
     std::string atDeleteProject_;  // scratch project the autotest deletes through the Open project dialog
     size_t atUndoBeforeAi_ = 0;
@@ -557,6 +602,8 @@ inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 
 // The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or
 // create a project dialog). `version` is the engine's, FA_ENGINE_VERSION: what `factoria version` prints.
 std::string editor_window_title(std::string_view version, std::string_view projectName);
+// While the game runs the Hierarchy and Inspector edit the running game: say they are lost on Stop (hierarchy_panel.cpp).
+void draw_play_banner(const Editor& ed);
 std::string lower_str(std::string s);
 std::string home_dir();  // HOME, else USERPROFILE (Windows sets no HOME), else ""
 bool contains_ci(const std::string& hay, const std::string& needle);

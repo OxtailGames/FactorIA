@@ -359,6 +359,36 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"destroyed", id}});
           });
 
+    I.commands.add({"scene.set_parent", "Move an entity under another entity, or to the top level of the scene.",
+           "`parent` null or \"\" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on "
+           "screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the "
+           "entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the "
+           "entity itself or one of its children is refused (a cycle). Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
+           parse_schema(R"({"type":"object","required":["id"],"properties":{
+               "id":{"type":"string","description":"Entity id (or name) to move."},
+               "parent":{"type":["string","null"],"description":"New parent's id (or name); null or empty = top level."},
+               "keepWorldTransform":{"type":"boolean","default":true,"description":"true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform."}}})"),
+           false, "scene"},
+          [&I](const Json& a) {
+              Entity e = need_entity(I.world, a);
+              Entity parent = kNullEntity;
+              if (a.contains("parent") && !a["parent"].is_null()) {
+                  if (!a["parent"].is_string())
+                      throw CommandError("invalid_argument", "'parent' must be an entity id string, null or \"\".",
+                                         "Use scene.list_entities to find entity ids.");
+                  if (!a["parent"].get<std::string>().empty()) parent = need_entity(I.world, a, "parent");
+              }
+              for (Entity p = parent; p; p = I.world.parent(p))
+                  if (p == e)
+                      throw CommandError("invalid_argument",
+                                         "Cannot make '" + I.world.id_of(e) + "' a child of '" + I.world.id_of(parent) +
+                                             "': that would put an entity inside itself (a cycle).",
+                                         "Pick a parent that is not the entity or one of its children, or move the other entity first.");
+              I.world.set_parent(e, parent, a.value("keepWorldTransform", true));
+              Entity now = I.world.parent(e);
+              return Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+          });
+
     I.commands.add({"scene.set_component", "Add a component to an entity (if missing) and set the given fields.",
            "`fields` is a partial object; unspecified fields keep their value. A value outside a field's range (see "
            "api.components) is refused, and a bad field changes nothing: errors name the field, the allowed values and "

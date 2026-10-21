@@ -486,8 +486,8 @@ Built (2026-10-19):
   line into a scratch project, checks the materials against the schema and compiles all five for every dialect with the
   real tool. Linked from AI_GUIDE.md, the generated AGENTS.md, README.md, EXPORTING.md and the `MeshRenderer.material`
   doc string (COMPONENTS.md); ARCHITECTURE.md has a "Rendering" section.
-- The editor has no inspector at all (the hand-editing panels are M20), so the material inspector and the error under
-  the field moved to M20. Instead the editor runs with `EngineConfig::hotReloadAssets`: the engine polls only what the
+- The editor had no inspector then (built in M20: the material inspector and the error under the field are in
+  docs/EDITOR.md, Hierarchy and Inspector). Instead the editor runs with `EngineConfig::hotReloadAssets`: the engine polls only what the
   renderer rebuilds in place (materials, snippets, textures, fonts, models), while edit mode and Play, and leaves scenes,
   scripts and locales to the editor. The error is the one log line with file:line (Console, `game.logs`). The editor
   autotest changes `materialParams` through the Console (and undoes it), rewrites, breaks and fixes the snippet, and
