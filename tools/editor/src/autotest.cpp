@@ -175,6 +175,10 @@ void Editor::autotest_pre_frame() {
         atWaitUntil_ = nullptr;
     }
     const int f = atFrame_;
+    if (f == 1)  // the script clicks widgets where a 1600x900 window puts them: a smaller window hides some of them
+        at_check(sapp_width() >= 1600 && sapp_height() >= 900,
+                 "the window is the 1600x900 the autotest asks for (got " + std::to_string(sapp_width()) + "x" +
+                     std::to_string(sapp_height()) + ": the screen is smaller; on a CI runner, raise the display resolution)");
     if (atWelcome_) {
         namespace stdfs = std::filesystem;
         // The update popup (a newer release with its notes): it opens over the dialog, Not now closes it.
