@@ -15,6 +15,7 @@
 #include "fa/core/log.h"
 #include "fa/core/notices.h"
 #include "fa/core/strings.h"
+#include "fa/platform/accessibility.h"
 #include "fa/platform/input.h"
 #include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
@@ -1934,6 +1935,32 @@ NATIVE(platform) {
     return JS_NewString(ctx, FA_PLATFORM_NAME);
 }
 
+// [textScale, reduceMotion, highContrast, screenReader]. Only a game with its own window reads the system; headless runs,
+// tests and the editor give the defaults (or what game.setAccessibility set), so that output never depends on the machine.
+NATIVE(accessibility) {
+    SETUP;
+    const AccessibilitySettings s = I->host->window() ? system_accessibility() : I->testAccessibility;
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, s.textScale));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewBool(ctx, s.reduceMotion));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewBool(ctx, s.highContrast));
+    JS_SetPropertyUint32(ctx, a, 3, JS_NewBool(ctx, s.screenReader));
+    return a;
+}
+
+NATIVE(testAccessibility) {  // (textScale, reduceMotion, highContrast, screenReader); no arguments = back to the defaults
+    SETUP;
+    AccessibilitySettings s;
+    if (argc >= 4) {
+        s.textScale = static_cast<float>(arg_num(ctx, argc, argv, 0));
+        s.reduceMotion = arg_bool(ctx, argc, argv, 1, false);
+        s.highContrast = arg_bool(ctx, argc, argv, 2, false);
+        s.screenReader = arg_bool(ctx, argc, argv, 3, false);
+    }
+    I->testAccessibility = sanitize_accessibility(s);
+    return JS_UNDEFINED;
+}
+
 NATIVE(storageGet) {
     SETUP;
     I->load_storage();
@@ -2256,7 +2283,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };

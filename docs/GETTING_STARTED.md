@@ -438,3 +438,4 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 - `docs/MAKE_BY_HAND.md` (`factoria docs read make-by-hand`): write a small game yourself (scene, script, test, export) to see what the AI does for you.
 - `docs/AI_COSTS.md`: what making a game with AI costs, what drives it and how to cap it.
 - `docs/PUBLISHING.md`: what to do, per store, to publish the game (engine steps and steps by hand).
+- `docs/LEGAL.md` (`factoria docs read legal`): what the engine sends (nothing), privacy policy and EULA templates, checklist.

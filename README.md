@@ -139,6 +139,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md): tutorial for a person: your first game with an AI in the editor, step by step.
 - [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md): tutorial: make a small game by hand (scene, script, test, export) to see what the AI does for you.
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): publishing guide with one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io, web).
+- [docs/LEGAL.md](docs/LEGAL.md): privacy policy and EULA templates for a shipped game, and what the engine itself sends (nothing).
 - [docs/LOCALIZATION.md](docs/LOCALIZATION.md): several languages: string tables, `key` fields, the `i18n` script API.
 - [docs/AI_COSTS.md](docs/AI_COSTS.md): what making a game with AI costs (measured on a real game), what drives it, how to cap and check it.
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md): frame time, memory and draw-call budgets: measure a game, keep a baseline per machine, fail CI on a regression.

@@ -2999,6 +2999,10 @@ declare module "factoria" {
      * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
      */
     readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
+    /**
+     * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
+     */
+    readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
   }
 
   /**
@@ -6523,6 +6527,10 @@ declare module "factoria:test" {
      * Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to "none" before every test.
      */
     setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | "none" | "phone-portrait" | "phone-landscape"): void;
+    /**
+     * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
+     */
+    setAccessibility(settings: { textScale?: number; reduceMotion?: boolean; highContrast?: boolean; screenReader?: boolean }): void;
     /**
      * Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text ("{\"hi") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file.
      */
