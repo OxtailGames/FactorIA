@@ -346,8 +346,6 @@ TEST_CASE("android export: a plugin module is copied whole into an output folder
         CHECK(has(r->files, std::string("plugins/example/") + f));
     }
     CHECK((stdfs::path(r->outputDir) / "plugins/example/src/main/java/factoria/plugin/example/Plugin.java").string().size() > 260);
-    std::error_code ec;
-    stdfs::remove_all(fs::os_path(deep), ec);  // TempDir's own remove_all would stop at the long paths on Windows
 }
 
 TEST_CASE("android export: a plugin of .aar and .jar files is a dependency of the app") {
