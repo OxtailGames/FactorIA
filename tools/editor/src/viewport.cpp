@@ -191,12 +191,18 @@ void Editor::draw_viewport() {
         return screenSpace ? to_vp(p) : to_vp(r->world_to_screen(Vec3{p.x, p.y, z}));
     };
 
-    // ---- interaction (edit / paused only; while playing, events go to the game). A click selects what is under the
-    // cursor: the selection is how the user points at something for the AI. Nothing moves by dragging.
+    // ---- interaction (edit / paused only; while playing, events go to the game). A click on a gizmo handle starts a drag (see
+    // viewport_gizmo.cpp); a click anywhere else selects what is under the cursor: the selection is how the user points at
+    // something for the AI.
     if (play_ != PlayState::Playing) {
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
-        if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)");
+        const bool onHandle = gizmo_frame(*r, imgMin, sz, hovered);
+        if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
+        if (hovered && gizmoHover_) ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
+        else if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)
+Q / W / E / R: select only, move, rotate, scale the selection");
     } else {
+        gizmo_end_drag(false);
+        gizmoShapes_.clear();
         if (vpFocused_) dl->AddRect(imgMin, ImVec2(imgMin.x + sz.x, imgMin.y + sz.y), IM_COL32(80, 220, 255, 255), 0, 0, 2.0f);
     }
 
@@ -248,6 +254,7 @@ void Editor::draw_viewport() {
             dl->AddCircle(o, 4.5f, IM_COL32(0, 0, 0, 200));
         }
     }
+    gizmo_draw(dl);
     dl->PopClipRect();
 
     ImGui::End();

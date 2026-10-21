@@ -1318,6 +1318,10 @@ void Editor::draw_toolbar() {
     ImGui::BeginDisabled(play_ != PlayState::Edit || redo_.empty());
     if (ImGui::Button("Redo")) redo();
     ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+    gizmo_toolbar_buttons();
     ImGui::EndDisabled();
 
     const char* label = play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED";
