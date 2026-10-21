@@ -916,7 +916,10 @@ LK/FB-0037 and LK/FB-0038 have a `Fixed in <commit>` note; Lantern Keep does not
   `max(baseline * (1 + ratio), baseline + slack)`: CPU +100 % average and +150 % p95, memory +10 %, draw calls and
   entities +10 %. ctest runs `example_<name>_perf` for each example against `tools/cli/tests/perf/` and
   `perf_regression_detected`, which must fail. The bookkeeping PR added `requireBaseline`, so the engine's CI fails on a
-  runner with no baseline instead of passing unchecked, and the macOS entries. docs/PERFORMANCE.md.
+  runner with no baseline instead of passing unchecked. With it, the CI runners printed their own entries: macOS's are
+  new, and Windows's replace the ones measured on a PC with `FACTORIA_D3D11_WARP=1` (the runner's adapter, the Microsoft
+  Basic Render Driver, is WARP and now has that runner id). gem-roller's Linux entry also comes from the runner (#132):
+  GitHub's Linux runner uses about 25 MB more than WSL. docs/PERFORMANCE.md.
 - Privacy policy and EULA (M22.6, PR #130, `67fe125`): docs/LEGAL.md says what the engine sends (nothing by itself),
   has a privacy policy template for a game that collects nothing and the paragraphs to add for analytics, ads, accounts,
   cloud saves or crash uploads, when a game needs an EULA beyond the stores' own, and a checklist. It says it is not legal
