@@ -10,6 +10,7 @@
     "back": "Atrás"
   },
   "loading": { "text": "Cargando..." },
+  "captions": { "welcome": "Bienvenido, viajero.", "hint": "¡Cuidado con el borde!", "guide": "Guía" },
   "pause": { "title": "En pausa", "resume": "Reanudar", "mainMenu": "Menú principal" },
   "options": {
     "title": "Opciones",
@@ -30,6 +31,7 @@
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
+    "subtitles": "Subtítulos",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"

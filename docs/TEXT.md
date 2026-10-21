@@ -158,6 +158,22 @@ storage.set("textScale", ui.textScale);
   small button.
 - Fonts are rasterized at the scaled size, so scaled text stays sharp.
 
+## Captions
+
+Subtitles for sounds and hints. One `Captions` component (a UI widget: `anchor`, `pivot`, `safeArea`, `size`, `layer`)
+draws the lines on the caption list, the newest `maxLines`, at the bottom of its rectangle on a background that hugs
+them (`color`, `padding`). Text uses `font`, `fontSize`, `textColor` and, before it, the speaker's name in
+`speakerColor`; it follows `ui.textScale`, the localization font chain and right-to-left languages like `Text`.
+
+- `audio.play(path, { caption, captionKey, speaker, captionSeconds })`: the line shows while that sound plays and goes
+  when it ends or is stopped (`audio.stop`, `audio.stopAll`). `caption` is plain text, `captionKey` a localization key (the
+  line changes language while it shows; `caption` is its fallback). A looping sound needs `captionSeconds`.
+- `ui.caption(text, seconds, { key, speaker })` and `ui.clearCaptions()`: lines without a sound, timed by the engine
+  clock. Same as the `ui.caption` and `ui.clear_captions` commands.
+- With no `Captions` entity the lines are still tracked (`game.captions()` in tests lists them) but not drawn, and the
+  log says so once. An inactive `Captions` entity draws nothing: switch it off for a "Subtitles" option
+  (docs/MENUS.md, "Captions").
+
 ## Limits
 
 - Outline fonts only: no colour emoji, no bitmap-only fonts, no SDF/MSDF atlases; a variable font draws its default

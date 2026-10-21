@@ -256,6 +256,19 @@
                 "layer": 302
               }
             }
+          },
+          {
+            "id": "subtitles",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Subtitles",
+                "key": "options.subtitles",
+                "value": true,
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
           }
         ]
       },

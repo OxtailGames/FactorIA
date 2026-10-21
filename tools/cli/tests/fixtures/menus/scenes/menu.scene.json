@@ -13,6 +13,18 @@
       }
     },
     {
+      "id": "captions",
+      "components": {
+        "Transform": {
+          "position": [0, -24, 0]
+        },
+        "Captions": {
+          "maxLines": 3,
+          "fontSize": 30
+        }
+      }
+    },
+    {
       "id": "main_menu",
       "components": {
         "Transform": {
