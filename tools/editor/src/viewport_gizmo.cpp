@@ -70,7 +70,7 @@ GizmoSpace make_space(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hud, bool th
 }
 
 ImU32 axis_color(int axis, bool bright) {
-    static const ImU32 normal[3] = {IM_COL32(225, 70, 70, 255), IM_COL32(90, 200, 90, 255), IM_COL32(80, 130, 240, 255)};
+    static const ImU32 normal[3] = {IM_COL32(225, 70, 70, 255), IM_COL32(90, 200, 90, 255), IM_COL32(90, 160, 255, 255)};
     static const ImU32 light[3] = {IM_COL32(255, 150, 150, 255), IM_COL32(160, 255, 160, 255), IM_COL32(150, 185, 255, 255)};
     if (axis < 0 || axis > 2) return bright ? IM_COL32(255, 235, 120, 255) : IM_COL32(235, 235, 235, 255);
     return bright ? light[axis] : normal[axis];
@@ -303,7 +303,7 @@ void Editor::gizmo_draw(ImDrawList* dl) {
             case GizmoShape::Type::Ring: {
                 std::vector<ImVec2> pts;
                 for (const Vec2& p : s.ring) pts.push_back(im(p));
-                dl->AddPolyline(pts.data(), int(pts.size()), IM_COL32(0, 0, 0, 120), ImDrawFlags_Closed, thick + 2.0f);
+                dl->AddPolyline(pts.data(), int(pts.size()), IM_COL32(0, 0, 0, 190), ImDrawFlags_Closed, thick + 3.0f);
                 dl->AddPolyline(pts.data(), int(pts.size()), col, ImDrawFlags_Closed, thick);
                 break;
             }

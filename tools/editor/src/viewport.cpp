@@ -1,4 +1,5 @@
-// Viewport panel: shows the engine's game target, the selection outline and 2D picking (a click = point at something for the AI).
+// Viewport panel: shows the engine's game target, the selection outline, picking (a click = point at something for the AI) and the
+// transform gizmos (viewport_gizmo.cpp).
 #include <algorithm>
 #include <cmath>
 
