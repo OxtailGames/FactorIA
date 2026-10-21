@@ -198,8 +198,7 @@ void Editor::draw_viewport() {
         const bool onHandle = gizmo_frame(*r, imgMin, sz, hovered);
         if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
         if (hovered && gizmoHover_) ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
-        else if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)
-Q / W / E / R: select only, move, rotate, scale the selection");
+        else if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)\nQ / W / E / R: select only, move, rotate, scale the selection");
     } else {
         gizmo_end_drag(false);
         gizmoShapes_.clear();

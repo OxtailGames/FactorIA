@@ -21,7 +21,6 @@ struct GizmoHandle {
     GizmoKind kind = GizmoKind::None;
     int axis = -1;  // 0 x, 1 y, 2 z for the axis kinds
     bool operator==(const GizmoHandle& o) const { return kind == o.kind && axis == o.axis; }
-    bool operator!=(const GizmoHandle& o) const { return !(*this == o); }
     explicit operator bool() const { return kind != GizmoKind::None; }
 };
 std::string gizmo_handle_name(GizmoHandle h);  // "move:x", "move:plane", "rotate:z", "scale:all"...
