@@ -33,7 +33,7 @@ Linux AppImage (a read-only mount: download the newer one). Details:
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
 the **Viewport** in the middle, **AI Assistant** on the right, and Console / Engine Feedback / Audio / Profiler as tabs under
 the view. You can also edit by hand with the Hierarchy and the Inspector, and by dragging gizmos in the Viewport (below). Still
-missing: an asset browser: describe those to the AI. Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+missing: an asset browser: describe it to the AI. Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
 
 | Panel | What it does |
 |---|---|
