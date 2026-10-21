@@ -412,6 +412,7 @@ bool Editor::boot(const std::string& dirIn) {
     feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
     layoutBuilt_ = false;
+    profView_.reset();
     reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
     bootError_.clear();
     projectDir_.clear();
@@ -748,6 +749,7 @@ void Editor::on_frame(double dt) {
             const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
             run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());
         }
+        profile_tick(frameBefore);
     }
 
     const int fbW = sapp_width(), fbH = sapp_height();
@@ -1003,6 +1005,7 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderDockWindow("Console", bottom);
     ImGui::DockBuilderDockWindow("Engine Feedback", bottom);
     ImGui::DockBuilderDockWindow("Audio", bottom);
+    ImGui::DockBuilderDockWindow("Profiler", bottom);
     ImGui::DockBuilderFinish(dockId);
 }
 
@@ -1073,6 +1076,7 @@ void Editor::build_ui() {
         if (showAi_) draw_ai_panel();
         if (showFeedback_) draw_feedback_panel();
         if (showAudio_) draw_audio_panel();
+        if (showProfiler_) draw_profiler_panel();
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
@@ -1187,6 +1191,9 @@ void Editor::draw_main_menu() {
         ImGui::MenuItem("Audio", nullptr, &showAudio_);
         at_track("menu:audio");
         ImGui::SetItemTooltip("The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded");
+        ImGui::MenuItem("Profiler", nullptr, &showProfiler_);
+        at_track("menu:profiler");
+        ImGui::SetItemTooltip("Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory");
         ImGui::Separator();
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::MenuItem("Selection overlay", nullptr, &showOverlay_);
