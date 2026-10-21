@@ -46,6 +46,7 @@
 #include "ai_usage.h"
 #include "editor_tools.h"
 #include "export_job.h"
+#include "gizmo_model.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
@@ -201,6 +202,14 @@ public:
     PickBounds bounds_of(Entity e);
     Entity pick_at(Vec2 designPos);
     bool primary_is_ortho();
+    // Transform gizmos of the viewport (viewport_gizmo.cpp). gizmo_frame runs once per viewport frame (edit and paused): keys,
+    // layout, hover, starting / updating / ending a drag. It returns true when the click was taken by a handle (so it must not
+    // select). gizmo_draw paints the handles with the draw list. Every change is a scene.set_component call on Transform through
+    // edit_command, so undo, the scene file and "lost on Stop" come with it.
+    bool gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);
+    void gizmo_draw(ImDrawList* dl);
+    void gizmo_end_drag(bool cancel);
+    void gizmo_toolbar_buttons();
     Vec2 image_size_of(const std::string& path);
 
     // ---------------------------------------------------------------- panels
@@ -348,6 +357,28 @@ public:
     bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
+    // gizmos (viewport_gizmo.cpp)
+    GizmoMode gizmoMode_ = GizmoMode::Move;
+    std::vector<GizmoShape> gizmoShapes_;  // this frame's handles (panel pixels); empty when no gizmo shows
+    GizmoHandle gizmoHover_;
+    struct GizmoDrag {
+        bool active = false;
+        GizmoHandle handle;
+        GizmoMode mode = GizmoMode::Move;
+        std::string id, key;
+        Vec2 mouseStart{};
+        Transform start;               // the entity's Transform when the drag began
+        Vec3 last{};                   // the last value written (of the field the mode edits)
+        Vec3 pivot{};
+        Vec3 local[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+        Mat4 parentWorld;
+        bool hasParent = false, wrote = false;
+        Vec3 planeStart{};             // free move: where the mouse was on the drag plane
+        AngleTracker angle;
+        float sign = 1;
+        std::vector<Json> redoBefore;
+        bool dirtyBefore = false;
+    } gizmoDrag_;
     bool showOverlay_ = true;
     float dpi_ = 1.0f;
 
@@ -573,6 +604,7 @@ public:
     void inject_key(int type, int keyCode);
     void inject_char(unsigned codepoint);   // a typed character (sapp CHAR event): what an InputText receives
     Vec2 atMouse_{};
+    std::uint32_t atMods_ = 0;     // SAPP_MODIFIER_* the injected events carry (Ctrl held while the script drags)
     std::string atDeleteProject_;  // scratch project the autotest deletes through the Open project dialog
     size_t atUndoBeforeAi_ = 0;
     bool atWaitAi_ = false;
@@ -584,7 +616,7 @@ public:
     std::atomic<std::uint64_t> atHeartbeat_{0};
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
-    int atFrameBudget_ = 3000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+    int atFrameBudget_ = 4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
 };

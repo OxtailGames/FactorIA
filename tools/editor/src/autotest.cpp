@@ -108,6 +108,7 @@ void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
     ev.type = sapp_event_type(type);
     ev.mouse_x = logicalPos.x * dpi_;
     ev.mouse_y = logicalPos.y * dpi_;
+    ev.modifiers = atMods_;
     ev.mouse_button = type == SAPP_EVENTTYPE_MOUSE_MOVE ? SAPP_MOUSEBUTTON_INVALID : (button == 1 ? SAPP_MOUSEBUTTON_RIGHT : SAPP_MOUSEBUTTON_LEFT);
     on_event(&ev);
 }
@@ -174,6 +175,7 @@ void Editor::inject_key(int type, int keyCode) {
     sapp_event ev{};
     ev.type = sapp_event_type(type);
     ev.key_code = sapp_keycode(keyCode);
+    ev.modifiers = atMods_;
     on_event(&ev);
 }
 
