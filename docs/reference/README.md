@@ -211,6 +211,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`scene.remove_component`](commands/scene.md#sceneremove_component-modifies-state): Remove a component from an entity.
 - [`scene.save`](commands/scene.md#scenesave-modifies-state): Save the running world to a scene file (current scene path by default).
 - [`scene.set_component`](commands/scene.md#sceneset_component-modifies-state): Add a component to an entity (if missing) and set the given fields.
+- [`scene.set_parent`](commands/scene.md#sceneset_parent-modifies-state): Move an entity under another entity, or to the top level of the scene. _Not released yet._
 - [`scene.spawn`](commands/scene.md#scenespawn-modifies-state): Create an entity from entity JSON, or instantiate a prefab at a position.
 
 ### [screen](commands/screen.md)

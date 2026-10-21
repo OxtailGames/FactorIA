@@ -120,6 +120,14 @@ void Editor::at_track(const std::string& name, bool enabled) {
     atWidgetShown_[name] = ImGui::IsItemVisible();  // false when a scrolling area (or a collapsed section) hides it
 }
 
+void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
+    if (!autotest_) return;
+    atWidgets_[name] = centre;
+    atWidgetFrame_[name] = uiFrame_;
+    atWidgetEnabled_[name] = enabled;
+    atWidgetShown_[name] = ImGui::IsItemVisible();
+}
+
 bool Editor::at_enabled(const std::string& name) const {
     auto it = atWidgetEnabled_.find(name);
     return at_visible(name) && it != atWidgetEnabled_.end() && it->second;
@@ -155,6 +163,13 @@ void Editor::inject_key(int type, int keyCode) {
     sapp_event ev{};
     ev.type = sapp_event_type(type);
     ev.key_code = sapp_keycode(keyCode);
+    on_event(&ev);
+}
+
+void Editor::inject_char(unsigned codepoint) {
+    sapp_event ev{};
+    ev.type = SAPP_EVENTTYPE_CHAR;
+    ev.char_code = codepoint;
     on_event(&ev);
 }
 
@@ -274,14 +289,21 @@ void Editor::autotest_pre_frame() {
         at_check(w.entity_count() == before, "undo removes the spawned entity");
         select_id("player");
     } else if (f == 16) {
-        // AI thread marshaling: a worker thread calls the PROXY registry; this thread must run it.
+        // AI thread marshaling: a worker thread calls the PROXY registry; this thread must run it. Hold the script until the
+        // call is back: joining while it still waits in the queue (a slow runner starts the thread late) waits forever.
         atMarshalResult_ = std::make_shared<CommandResult>();
+        atMarshalDone_ = false;
         auto proxy = make_proxy_registry();
         auto res = atMarshalResult_;
-        atThread_ = std::thread([proxy, res] { *res = proxy->call("scene.list_entities", Json::object()); });
+        atThread_ = std::thread([this, proxy, res] {
+            *res = proxy->call("scene.list_entities", Json::object());
+            atMarshalDone_ = true;
+        });
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return atMarshalDone_.load(); };
     } else if (f == 22) {
-        if (atThread_.joinable()) atThread_.join();
-        at_check(atMarshalResult_ && atMarshalResult_->ok, "agent-thread command ran on the main thread via the queue");
+        if (atMarshalDone_ && atThread_.joinable()) atThread_.join();
+        at_check(atMarshalDone_ && atMarshalResult_->ok, "agent-thread command ran on the main thread via the queue");
     } else if (f == 24) {
         at_check(save_scene_now() && !dirty(), "save scene clears the dirty flag");
         auto loaded = load_json_file(fs::join(projectDir_, scenePath_));
@@ -420,9 +442,16 @@ void Editor::autotest_pre_frame() {
         at_check(vpFocused_, "clicking the viewport while playing focuses it for game input");
     } else if (f == 101) {
         inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_D);
+        // How far the player gets in N frames depends on real frame times (a fast runner draws 30 frames in 30 ms), so
+        // hold the script until it ran right instead (bounded like every wait; the check below fails if it never does).
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] {
+            Entity e = world().find_by_id("player");
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t && t->position.x > atOriginalPos_.x + 5;
+        };
     } else if (f == 130) {
         Vec3 p = player_pos();
-        // Any rightward motion proves the key reached the game; distance depends on real frame times.
         at_check(p.x > atOriginalPos_.x + 5, "keyboard input reaches the game while playing (player ran right)");
         inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_D);
         stop();

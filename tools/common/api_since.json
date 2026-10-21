@@ -544,6 +544,7 @@
     "publish.itch": "unreleased",
     "publish.steam": "unreleased",
     "scene.ascii_edit": "unreleased",
+    "scene.set_parent": "unreleased",
     "scene.destroy": "0.1.0",
     "scene.format": "0.1.0",
     "scene.get_entity": "0.1.0",

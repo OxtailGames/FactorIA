@@ -1954,6 +1954,20 @@ Add a component to an entity (if missing) and set the given fields.
 | `fields` | object | no | Field name -> value. |
 | `merge` | boolean | no | true = read `fields` as an RFC 7386 JSON merge-patch: objects (Script.props) merge into the current value recursively, null deletes a key (or resets a plain field to its default). false = every given field is replaced as a whole. Default false. |
 
+### `scene.set_parent` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Move an entity under another entity, or to the top level of the scene.
+
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name) to move. |
+| `parent` | any | no | New parent's id (or name); null or empty = top level. |
+| `keepWorldTransform` | boolean | no | true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform. Default true. |
+
 ### `scene.spawn` (modifies state)
 
 Create an entity from entity JSON, or instantiate a prefab at a position.
