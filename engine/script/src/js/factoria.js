@@ -990,7 +990,23 @@
   };
 
   const audio = {
-    play(path, o = {}) { return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? ""); },
+    // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
+    // text, or a localization key that follows a language change) shows on the Captions component while the sound plays and goes
+    // when it ends or is stopped; `speaker` is a name shown before the line; `captionSeconds` shows it for that long instead.
+    // A looping sound never ends, so with `loop` a caption needs captionSeconds.
+    play(path, o = {}) {
+      if (o === null || typeof o !== "object") throw new Error(`audio.play(path, options): the second argument is an options object such as { volume: 0.5, caption: "Hello" }, but got ${inspect(o)}`);
+      for (const k of ["caption", "captionKey", "speaker"])
+        if (o[k] !== undefined && typeof o[k] !== "string") throw new Error(`audio.play(path, { ${k} }): ${k} must be a string, e.g. { caption: "Hello there.", captionKey: "intro.line1", speaker: "Mara" }, but got ${inspect(o[k])}`);
+      if (o.captionSeconds !== undefined && !(typeof o.captionSeconds === "number" && o.captionSeconds > 0))
+        throw new Error(`audio.play(path, { captionSeconds }): captionSeconds must be a number of seconds above 0, e.g. { captionSeconds: 4 }, but got ${inspect(o.captionSeconds)}`);
+      const hasCaption = !!(o.caption || o.captionKey);
+      if (!hasCaption && (o.speaker !== undefined || o.captionSeconds !== undefined))
+        throw new Error(`audio.play(path, { ${o.speaker !== undefined ? "speaker" : "captionSeconds"} }) has no caption to apply it to: add caption: "text" or captionKey: "your.key" (a localization key, docs/TEXT.md, "Captions")`);
+      if (hasCaption && o.loop && o.captionSeconds === undefined)
+        throw new Error(`audio.play(${inspect(path)}, { loop: true, caption }): a looping sound never ends, so its caption would never go. Add captionSeconds: 5 (how long it shows), or play the sound without a caption`);
+      return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0);
+    },
     stop: (id) => N.audioStop(id), stopAll: () => N.audioStopAll(),
     music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5); },
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
@@ -1260,6 +1276,22 @@
       if (o.interrupt !== undefined && typeof o.interrupt !== "boolean") throw new Error(`ui.speak(text, { interrupt }): interrupt must be true (stop what is being said first, the default) or false (queue), but got ${inspect(o.interrupt)}`);
       N.speak(text, o.interrupt ?? true);
     },
+    // caption(text, seconds = 3, { key, speaker }): shows a line on the Captions component for `seconds` of the game clock, for
+    // dialogue or sounds without a sound file of their own (a sound's caption is audio.play(path, { caption })). `key` is a
+    // localization key: the line is then the translation, and follows a language change while it shows (`text` is the fallback
+    // and may be ""). `speaker` is a name drawn before the line. The newest Captions.maxLines lines show; with no Captions entity
+    // the line is only tracked (game.captions() in tests).
+    caption(text, seconds = 3, o = {}) {
+      if (o === null || typeof o !== "object") throw new Error(`ui.caption(text, seconds, { key, speaker }): the third argument is an options object such as { speaker: "Mara" }, but got ${inspect(o)}`);
+      if (typeof text !== "string") throw new Error(`ui.caption(text, seconds, { key, speaker }) expects the text as a string, e.g. ui.caption("Watch out!", 3), but got ${inspect(text)}. For a translated line use ui.caption("", 3, { key: "hint.watch_out" })`);
+      if (typeof seconds !== "number" || !(seconds > 0)) throw new Error(`ui.caption(text, seconds): seconds must be a number above 0 (how long the line shows), e.g. ui.caption(${inspect(text)}, 3), but got ${inspect(seconds)}`);
+      for (const k of ["key", "speaker"])
+        if (o[k] !== undefined && typeof o[k] !== "string") throw new Error(`ui.caption(text, seconds, { ${k} }): ${k} must be a string, but got ${inspect(o[k])}`);
+      if (text === "" && !o.key) throw new Error(`ui.caption("", seconds): there is nothing to show; pass the text or { key: "your.localization.key" }`);
+      N.captionAdd(text, o.key ?? "", o.speaker ?? "", seconds);
+    },
+    // Removes every caption from the screen at once (also the ones that live with a sound; the sound keeps playing).
+    clearCaptions() { N.captionClear(); },
     // Stops what is being said and drops what was queued.
     stopSpeaking() { N.stopSpeaking(); },
     // True when the system can speak (headless runs and tests: always true, they record). Hide a "read menus aloud" option when false.
@@ -1868,6 +1900,10 @@
     // first. Headless runs speak nothing, they only record. Assert with expect(game.spoken().map((l) => l.text)).toEqual([...]).
     spoken() { return N.spokenLog(false); },
     clearSpoken() { N.spokenLog(true); },
+    // The captions on the list now (cleared before each test), oldest first: [{ text, speaker, key, source }]. `text` is in the
+    // current language; `key` is "" for plain text; `source` is "audio:<clip path>" or "ui". The Captions component draws the
+    // newest Captions.maxLines of them. Assert with expect(game.captions().map((c) => c.text)).toEqual([...]).
+    captions() { return N.captionList(); },
     // The fake store, for tests (docs/PLATFORM.md, "Testing"): script its answers, send it events, look at what it holds.
     // They run the platform.* commands, so MCP clients and tests share one implementation.
     platform: {
@@ -1908,6 +1944,7 @@
       N.resetInput();
       N.audioLog(true);
       N.spokenLog(true);
+      N.captionClear();
       N.testAccessibility();
       N.setTimeScale(1); pausedScale = null;
       const start = N.nowMs();

@@ -139,6 +139,19 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   and particles check it), "Read menus aloud" from `screenReader`. The first `save()` stores every setting, so the
   player's own choice wins from then on. Tests set the system with `game.setAccessibility({ textScale: 1.5 })`
   (`tests/accessibility.test.js` checks the first-run values and that a saved choice wins).
+- **Captions (subtitles).** A `Captions` component on one entity of the scene (`captions` in the kit's menu and level
+  scenes) draws the lines the game puts on the caption list: `audio.play(path, { captionKey, speaker })` shows a line while
+  that sound plays (it goes when the sound ends or is stopped; `captionSeconds` overrides, and a looping sound needs it)
+  and `ui.caption(text, seconds, { key, speaker })` shows one without a sound. `caption` is plain text; `captionKey` /
+  `key` is a string-table key, so a line on screen changes language with the game. The component places itself like any
+  widget (anchor, safe area), shows the newest `maxLines` lines on a background that hugs them, and follows
+  `ui.textScale`, the font chain and right-to-left. The kit's `scripts/dialogue.js` is the helper the game calls
+  (`say("captions.welcome", { sound, speaker })`). Options > Audio has a "Subtitles" toggle (`settings.subtitles`, on by
+  default): "off" means the `captions` entity is switched off by `settings.applyScene()` in every scene, so the game
+  keeps making the same calls and the lines are only tracked. A scene with no `Captions` entity draws nothing and the log
+  says so once. In `factoria:test`, `game.captions()` returns `[{ text, speaker, key, source }]` (fixture
+  `tests/captions.test.js`: a sound and a line, in English, Spanish and Arabic, and the toggle). The speaker name is plain
+  text written when the line starts (use `i18n.t`).
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
   `options.js`, and keep it in `settings.js` (`defaults()` and `apply`). The colour filter of the Video tab is such an
   option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
@@ -214,6 +227,7 @@ function defaults() {
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
 }
 
@@ -234,10 +248,22 @@ export function applyColorFilter(s = load()) {
   if (camera) camera.get("Camera").colorFilter = s.colorFilter;
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, text size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Captions follow the "Subtitles" option by switching the scene's "captions" entity on or off. The game keeps calling audio.play({ caption }) and ui.caption(): they are tracked while hidden. */
+export function applySubtitles(s = load()) {
+  const captions = world.find("captions");
+  if (captions) captions.active = s.subtitles;
+}
+
+/** What belongs to the scene's own entities (camera, captions): every scene has new ones, so each scene sets them again. */
+export function applyScene(s = load()) {
+  applyColorFilter(s);
+  applySubtitles(s);
+}
+
+/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
-  applyColorFilter(s);
+  applyScene(s);
   ui.textScale = s.textScale;
   if (s.language && s.language !== i18n.language) {
     try {
@@ -269,7 +295,7 @@ export function apply(s = load()) {
 
 /** apply() the first time it is called in a run: session values outlive scene loads (and each test starts afresh). */
 export function applyOnce() {
-  if (session.settingsApplied) return applyColorFilter(); // a new scene has a new camera
+  if (session.settingsApplied) return applyScene(); // a new scene has a new camera and new captions
   session.settingsApplied = true;
   apply();
 }
@@ -337,6 +363,7 @@ export class MenuStack {
   "format": "factoria.scene/1",
   "entities": [
     { "id": "camera", "components": { "Transform": { "position": [640, 360, 0] }, "Camera": { "clearColor": [0.1, 0.12, 0.18, 1] } } },
+    { "id": "captions", "components": { "Transform": { "position": [0, -24, 0] }, "Captions": { "maxLines": 3, "fontSize": 30 } } },
     { "id": "main_menu",
       "components": {
         "Transform": { "position": [0, 20, 0] },
@@ -449,6 +476,32 @@ export function readMenusAloud() {
     const text = describe(e.entity);
     if (text) ui.speak(text);
   });
+}
+```
+
+### `scripts/dialogue.js`
+
+The helper the game calls for spoken lines and hints, with the captions from the string tables.
+
+```js scripts/dialogue.js
+// @ts-check
+// Subtitles for spoken lines and for hints: say("captions.welcome", { sound: "assets/sfx/hello.wav", speaker: "captions.guide" })
+// plays the sound with its caption, say("captions.hint") shows a caption without a sound. Lines are string-table keys, so a caption
+// that is on screen changes language with the game. The "captions" entity of the scene (a Captions component) draws them; the
+// Subtitles option (settings.js) switches that entity off, the calls here stay the same.
+import { audio, ui, i18n } from "factoria";
+
+/**
+ * @param {string} line  localization key of the line (locales/*.json)
+ * @param {{ sound?: string, speaker?: string, seconds?: number }} [options]
+ *   sound: clip to play (the caption lives as long as it plays); speaker: key of the speaker's name; seconds: how long the caption
+ *   shows (default: the sound's length, or 3 seconds without a sound)
+ */
+export function say(line, { sound, speaker, seconds } = {}) {
+  const who = speaker ? i18n.t(speaker) : undefined; // the name is written when the line starts
+  if (sound) return audio.play(sound, { captionKey: line, speaker: who, captionSeconds: seconds });
+  ui.caption("", seconds ?? 3, { key: line, speaker: who });
+  return 0;
 }
 ```
 
@@ -653,7 +706,8 @@ export default class StoreEvents extends Behaviour {
           { "id": "music_volume", "components": { "Slider": { "autoSize": true, "label": "Music", "key": "options.volume.music", "size": [560, 44], "layer": 302 } } },
           { "id": "sfx_volume", "components": { "Slider": { "autoSize": true, "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
           { "id": "ui_volume", "components": { "Slider": { "autoSize": true, "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } },
-          { "id": "read_aloud", "components": { "Toggle": { "autoSize": true, "label": "Read menus aloud", "key": "options.readAloud", "size": [560, 44], "layer": 302 } } }
+          { "id": "read_aloud", "components": { "Toggle": { "autoSize": true, "label": "Read menus aloud", "key": "options.readAloud", "size": [560, 44], "layer": 302 } } },
+          { "id": "subtitles", "components": { "Toggle": { "autoSize": true, "label": "Subtitles", "key": "options.subtitles", "value": true, "size": [560, 44], "layer": 302 } } }
         ] },
       { "id": "controls_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
@@ -798,6 +852,13 @@ export default class Options extends Behaviour {
       settings.save(this.s);
       if (e.value) ui.speak(readAloud.get("Toggle").label); // so the player hears that it works
       else ui.stopSpeaking();
+    });
+    // Subtitles: captions are drawn by the scene's "captions" entity; the option switches it (settings.applySubtitles).
+    world.find("subtitles").get("Toggle").value = this.s.subtitles;
+    ui.on("change", "subtitles", (e) => {
+      this.s.subtitles = e.value;
+      settings.applySubtitles(this.s);
+      settings.save(this.s);
     });
   }
 
@@ -1017,6 +1078,7 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "back": "Back"
   },
   "loading": { "text": "Loading..." },
+  "captions": { "welcome": "Welcome, traveller.", "hint": "Watch the edge!", "guide": "Guide" },
   "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
   "options": {
     "title": "Options",
@@ -1037,6 +1099,7 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"
@@ -1082,6 +1145,7 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "back": "Atrás"
   },
   "loading": { "text": "Cargando..." },
+  "captions": { "welcome": "Bienvenido, viajero.", "hint": "¡Cuidado con el borde!", "guide": "Guía" },
   "pause": { "title": "En pausa", "resume": "Reanudar", "mainMenu": "Menú principal" },
   "options": {
     "title": "Opciones",
@@ -1102,6 +1166,7 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
+    "subtitles": "Subtítulos",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"
