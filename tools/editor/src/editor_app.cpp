@@ -817,8 +817,10 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
-    for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "scene.save", "scene.format", "scene.import_ascii", "scene.ascii_edit"})
-        if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
+    if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "scene.save", "scene.format", "scene.import_ascii",
+                                   "scene.ascii_edit"})
+            if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
     // it was a dry run, `saved`: the scene file it wrote.
     const Json& res = r.result;
