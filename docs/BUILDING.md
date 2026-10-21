@@ -296,7 +296,10 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   code needs an X display, so run the tests under a virtual one:
   `xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-debug`.
 - **Windows.** Headless rendering uses Direct3D 11. If the machine has no
-  hardware adapter, it falls back to WARP, the software rasterizer. Nothing to install.
+  hardware adapter, it falls back to WARP, the software rasterizer. Nothing to install. The editor autotests
+  (`editor_autotest`, `editor_autotest_welcome`) open a real editor window and read its swap chain back, so they
+  need the logged-in desktop session (hosted runners have one). The hosted Windows runner's desktop is 1024x768, which
+  shrinks the autotest's 1600x900 window and pushes widgets it clicks off screen, so CI raises it to 1920x1080 first.
 - **macOS.** Headless rendering uses Metal. The whole suite runs, GPU tests included, here and in CI. The editor
   autotests (`editor_autotest`, `editor_autotest_welcome`) open a real editor window for a few seconds, so they need the
   logged-in desktop session (hosted runners have one).
