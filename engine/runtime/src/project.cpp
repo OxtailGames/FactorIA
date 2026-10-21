@@ -17,6 +17,23 @@ namespace fa {
 
 namespace stdfs = std::filesystem;
 
+std::string asset_type_of(std::string_view path) {
+    const std::string p = to_lower(path);
+    if (ends_with(p, ".scene.json")) return "scene";
+    if (ends_with(p, ".prefab.json")) return "prefab";
+    if (ends_with(p, ".material.json")) return "material";
+    const auto dot = p.rfind('.');
+    const auto slash = p.find_last_of('/');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return "other";
+    const std::string ext = p.substr(dot);
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") return "texture";
+    if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa") return "audio";
+    if (ext == ".ttf" || ext == ".otf") return "font";
+    if (ext == ".obj" || ext == ".gltf" || ext == ".glb") return "mesh";
+    if (ext == ".js") return "script";
+    return "other";
+}
+
 const char* scale_mode_name(ScaleMode mode) {
     switch (mode) {
         case ScaleMode::Fit: return "fit";

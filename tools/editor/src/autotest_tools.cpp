@@ -1969,6 +1969,241 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    // ------------------------------------------------------------------------------------------ N. Project panel (View > Project)
+    // The acceptance of the file browser: the panel lists the project's files, the type filter and the search narrow the list, a
+    // prefab dragged onto the Viewport spawns an entity at the point under the mouse (one undo step, Ctrl+Z removes it), a picture
+    // dragged onto a Sprite's texture field sets the field (and a sound dragged there does nothing), Delete goes through fs.delete,
+    // and the listing is read from the disk only on a refresh, not per frame.
+    {
+        struct Browse {
+            Vec2 from{}, to{};
+            size_t undo = 0, entities = 0;
+            int scans = 0;
+            Vec3 expected{};
+        };
+        auto bz = std::make_shared<Browse>();
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto right_click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        // Drag a tile (or any tracked widget) to a point: the mouse travels with the button held, as ImGui's drag and drop needs.
+        auto drag_to = [this, &step, bz](const std::string& from, std::function<Vec2()> target) {
+            step(2, [this, from, bz] {
+                bz->from = at_widget(from);
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, bz->from);
+            });
+            step(2, [this, bz] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, bz->from); });
+            step(2, [this, bz] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{bz->from.x + 6, bz->from.y + 14}); });
+            step(2, [this, bz, target] {
+                bz->to = target();
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, bz->to);
+            });
+            step(3, [this, bz] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, bz->to); });
+            step(4, [this, bz] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, bz->to); });
+        };
+        auto type_text = [this, &step](const std::string& text) {
+            step(3, [this, text] {
+                for (char c : text) inject_char(unsigned(static_cast<unsigned char>(c)));
+            });
+        };
+        auto ctrl_z = [this, &step] {
+            step(2, [this] {
+#if defined(__APPLE__)
+                atMods_ = SAPP_MODIFIER_SUPER;  // Dear ImGui swaps Cmd and Ctrl on macOS
+                inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_LEFT_SUPER);
+#else
+                atMods_ = SAPP_MODIFIER_CTRL;
+                inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_LEFT_CONTROL);
+#endif
+            });
+            step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_Z); });
+            step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_Z); });
+            step(2, [this] {
+#if defined(__APPLE__)
+                inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_SUPER);
+#else
+                inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_CONTROL);
+#endif
+                atMods_ = 0;
+            });
+        };
+        // A search that leaves one tile: it is the first, so it is on screen even in a small window.
+        auto search_for = [this, &step, &click_widget, &type_text](const std::string& text) {
+            step(2, [this] { projBrowser_.query.search.clear(); });
+            click_widget("proj:search");
+            type_text(text);
+            step(4, [] {});
+        };
+        const std::string tile_prefab = "proj:file:prefabs/autotest_drop.prefab.json";
+        const std::string tile_png = "proj:file:assets/autotest_drop.png";
+
+        step(2, [this, project_file, bz] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            Image img;
+            img.width = img.height = 16;
+            img.rgba.assign(16 * 16 * 4, 255);
+            for (size_t i = 0; i < img.rgba.size(); i += 4) { img.rgba[i + 1] = 90; img.rgba[i + 2] = 40; }
+            at_check(save_png(img, project_file("assets/autotest_drop.png")).ok(), "a picture was written for the Project panel test");
+            write_file(project_file("assets/autotest_trash.txt"), "delete me");
+            // The prefab comes from the open scene's coin, through the command the AI uses.
+            std::string err;
+            CommandResult r = edit_command("at:prefab", "prefab.save",
+                                           Json::object({{"id", "coin_1"}, {"path", "prefabs/autotest_drop.prefab.json"}, {"overwrite", true}}), &err);
+            at_check(r.ok, "prefab.save made a prefab for the Project panel test: " + err);
+            r = edit_command("at:sprite", "scene.spawn",
+                             Json::object({{"id", "dropsprite"}, {"name", "Drop Sprite"},
+                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
+                                                                        {"Sprite", Json::object()}})}}),
+                             &err);
+            at_check(r.ok, "an entity with a Sprite was spawned: " + err);
+            bz->undo = undo_depth();
+            showProject_ = true;
+            focus_window("Project");
+        });
+        wait_until([this] { return at_visible("proj:refresh") && at_visible("proj:file:assets/blip.wav"); });
+        step(4, [this, bz] {
+            at_check(at_visible("proj:file:assets/blip.wav"), "the Project panel lists a file of the project (assets/blip.wav)");
+            at_check(at_visible("proj:folder:") && at_visible("proj:folder:assets"), "...and a folder tree");
+            bz->scans = projBrowser_.scans;
+        });
+        step(30, [this, bz] { at_check(projBrowser_.scans == bz->scans, "the panel does not read the disk again while nothing changed"); });
+        snap("editor_project_panel.png");
+
+        // The type filter.
+        click_widget("proj:type");
+        step(3, [] {});
+        click_widget("proj:type:audio");
+        step(5, [this] {
+            at_check(at_visible("proj:file:assets/blip.wav"), "the type filter 'audio' keeps the sounds");
+            at_check(!at_visible("proj:file:assets/autotest_drop.png") && !at_visible("proj:file:prefabs/autotest_drop.prefab.json"),
+                     "...and hides the pictures and prefabs");
+        });
+        snap("editor_project_filter.png");
+        step(2, [this] { projBrowser_.query.type = "all"; });
+        // The search.
+        search_for("DROP.p");
+        step(4, [this] {
+            at_check(at_visible("proj:file:assets/autotest_drop.png") && at_visible("proj:file:prefabs/autotest_drop.prefab.json"),
+                     "searching 'DROP.p' (case-insensitive) keeps the files whose path contains it (the prefab.save and the picture written "
+                     "after the panel was created are listed without Refresh)");
+            at_check(!at_visible("proj:file:assets/blip.wav"), "...and hides the others");
+        });
+        snap("editor_project_search.png");
+        click_widget("proj:refresh");
+        step(4, [this] { at_check(projBrowser_.scans > 0, "Refresh reads the folder again"); });
+
+        // A prefab dropped on the viewport: scene.spawn at the world point under the mouse.
+        search_for("autotest_drop.prefab");
+        step(2, [this, bz] {
+            bz->entities = world().entity_count();
+            bz->undo = undo_depth();
+        });
+        drag_to(tile_prefab, [this, bz] {
+            const Vec2 t{vpImageMin_.x + vpImageSize_.x * 0.78f, vpImageMin_.y + vpImageSize_.y * 0.30f};
+            const float tw = float(engine_->renderer()->target_width()), th = float(engine_->renderer()->target_height());
+            bz->expected = engine_->renderer()->screen_to_world(Vec2{(t.x - vpImageMin_.x) / vpImageSize_.x * tw, (t.y - vpImageMin_.y) / vpImageSize_.y * th}, 0.0f);
+            return t;
+        });
+        step(5, [this, bz] {
+            at_check(world().entity_count() == bz->entities + 1, "dropping a prefab on the Viewport adds one entity");
+            at_check(undo_depth() == bz->undo + 1, "...as one undo step");
+            Entity e = selected();
+            at_check(!e.is_null() && world().id_of(e) != "coin_1", "...and the new entity is the selection");
+            const Vec3 p = e.is_null() ? Vec3{9999, 9999, 9999} : world().world_position(e);
+            // A world unit can be less than a pixel in a small window: allow two panel pixels of difference.
+            const float tol = 2.0f * float(engine_->renderer()->target_width()) / std::max(1.0f, vpImageSize_.x);
+            at_check(std::fabs(p.x - bz->expected.x) < tol && std::fabs(p.y - bz->expected.y) < tol && std::fabs(p.z) < 0.01f,
+                     "...at the world point under the mouse on the z = 0 plane (" + std::to_string(p.x) + ", " + std::to_string(p.y) +
+                         " expected " + std::to_string(bz->expected.x) + ", " + std::to_string(bz->expected.y) + ")");
+        });
+        snap("editor_project_drop_prefab.png");
+        step(2, [this] { focus_window("###Viewport"); });
+        step(4, [] {});
+        ctrl_z();
+        step(5, [this, bz] {
+            at_check(world().entity_count() == bz->entities, "Ctrl+Z removes the spawned entity");
+            at_check(undo_depth() == bz->undo, "...and takes the undo step back");
+        });
+
+        // A file that is not a prefab dropped on the viewport does nothing.
+        search_for("autotest_drop.png");
+        drag_to(tile_png, [this] { return Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.5f}; });
+        step(5, [this, bz] {
+            at_check(world().entity_count() == bz->entities && undo_depth() == bz->undo, "a picture dropped on the Viewport does nothing");
+        });
+
+        // A picture dropped on a Sprite's texture field.
+        step(2, [this, bz] {
+            focus_window("Project");
+            select_id("dropsprite");
+            inspScrollTo_ = "Sprite.texture";
+            bz->undo = undo_depth();
+        });
+        wait_until([this] { return at_shown("insp:Sprite.texture") && at_visible(std::string("proj:file:assets/autotest_drop.png")); });
+        drag_to(tile_png, [this] { return at_widget("insp:Sprite.texture"); });
+        step(5, [this, bz] {
+            const Sprite* sp = world().get<Sprite>(world().find_by_id("dropsprite"));
+            at_check(sp && sp->texture == "assets/autotest_drop.png", "a picture dropped on the Sprite's texture field sets it");
+            at_check(undo_depth() == bz->undo + 1, "...as one undo step");
+        });
+        snap("editor_project_drop_texture.png");
+        search_for("blip.wav");
+        step(2, [this, bz] { bz->undo = undo_depth(); });
+        wait_until([this] { return at_shown("insp:Sprite.texture") && at_visible(std::string("proj:file:assets/blip.wav")); });
+        drag_to("proj:file:assets/blip.wav", [this] { return at_widget("insp:Sprite.texture"); });
+        step(5, [this, bz] {
+            const Sprite* sp = world().get<Sprite>(world().find_by_id("dropsprite"));
+            at_check(sp && sp->texture == "assets/autotest_drop.png" && undo_depth() == bz->undo,
+                     "a sound dropped on a texture field is refused (the field keeps its value)");
+        });
+
+        // Delete: the right-click menu, a confirmation, fs.delete; the listing follows without Refresh.
+        search_for("autotest_trash");
+        wait_until([this] { return at_visible("proj:file:assets/autotest_trash.txt"); });
+        right_click_widget("proj:file:assets/autotest_trash.txt");
+        step(3, [this] {
+            at_check(at_visible("proj:ctx:reveal") && at_visible("proj:ctx:copy") && at_visible("proj:ctx:delete"),
+                     "right-clicking a file offers Show in the file manager, Copy path and Delete");
+        });
+        snap("editor_project_menu.png");
+        click_widget("proj:ctx:copy");
+        step(4, [this] { at_check(std::string(ImGui::GetClipboardText() ? ImGui::GetClipboardText() : "") == "assets/autotest_trash.txt", "Copy path puts the project-relative path on the clipboard"); });
+        right_click_widget("proj:file:assets/autotest_trash.txt");
+        step(3, [] {});
+        click_widget("proj:ctx:delete");
+        step(4, [this] { at_check(at_visible("proj:delete-confirm") && stdfs::exists(projectDir_ + "/assets/autotest_trash.txt"), "Delete asks first; the file is still there"); });
+        snap("editor_project_delete.png");
+        click_widget("proj:delete-confirm");
+        wait_until([this] { return !at_visible("proj:file:assets/autotest_trash.txt") && !at_visible("proj:delete-confirm"); });
+        step(4, [this] {
+            at_check(!stdfs::exists(projectDir_ + "/assets/autotest_trash.txt"), "confirming removes the file from disk (fs.delete)");
+            at_check(!at_visible("proj:file:assets/autotest_trash.txt"), "...and the panel stops listing it without a Refresh");
+        });
+
+        step(2, [this, project_file] {  // back to the fixture the next sections expect
+            projBrowser_.query = BrowserQuery{};
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            focus_window("Console");
+        });
+    }
+
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and

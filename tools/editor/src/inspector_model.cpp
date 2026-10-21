@@ -7,6 +7,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/runtime/project.h"
 
 namespace fa::editor {
 
@@ -102,33 +103,27 @@ std::string command_error_text(const Json& error) {
 
 // ---------------------------------------------------------------------------------------------- asset fields
 bool asset_file_matches(std::string_view assetType, std::string_view relPath) {
-    const std::string p = to_lower(relPath);
-    const std::string ext = [&] {
-        const auto dot = p.rfind('.');
-        return dot == std::string::npos ? std::string() : p.substr(dot);
-    }();
-    if (assetType == "texture") return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp";
-    if (assetType == "audio") return ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa";
-    if (assetType == "font") return ext == ".ttf" || ext == ".otf";
-    if (assetType == "mesh") return ext == ".obj" || ext == ".gltf" || ext == ".glb";
-    if (assetType == "script") return ext == ".js";
-    if (assetType == "scene") return ends_with(p, ".scene.json");
-    if (assetType == "prefab") return ends_with(p, ".prefab.json");
-    if (assetType == "material") return ends_with(p, ".material.json");
-    return true;  // "any" and a type this list does not know
+    if (assetType == "any") return true;
+    const std::string type = asset_type_of(relPath);
+    if (type != "other") return type == assetType;
+    return assetType != "texture" && assetType != "audio" && assetType != "font" && assetType != "mesh" &&
+           assetType != "script" && assetType != "scene" && assetType != "prefab" && assetType != "material";  // unknown type: anything
+}
+
+bool skip_project_dir(std::string_view name) {
+    return (!name.empty() && name[0] == '.') || name == "build" || name == "node_modules" || name == "dist" || name == "export";
 }
 
 std::vector<std::string> list_asset_files(const std::string& projectDir, std::string_view assetType, std::size_t limit) {
     std::vector<std::string> out;
     if (projectDir.empty()) return out;
-    static const std::set<std::string> skip = {"build", "node_modules", "dist", "export"};
     std::error_code ec;
     const stdfs::path root = stdfs::path(projectDir);
     stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
     for (; !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         if (it->is_directory(ec)) {
-            if ((!name.empty() && name[0] == '.') || skip.count(name)) it.disable_recursion_pending();
+            if (skip_project_dir(name)) it.disable_recursion_pending();
             continue;
         }
         if (!it->is_regular_file(ec)) continue;

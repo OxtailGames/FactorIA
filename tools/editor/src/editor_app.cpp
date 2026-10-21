@@ -809,13 +809,18 @@ void Editor::restore_scene(const Json& snapshot) {
 }
 
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
-    if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit") return false;  // files only
+    if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
+    if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "scene.save", "scene.format", "scene.import_ascii",
+                                   "scene.ascii_edit"})
+            if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
     // it was a dry run, `saved`: the scene file it wrote.
     const Json& res = r.result;
@@ -873,6 +878,7 @@ bool Editor::save_scene_now() {
         return false;
     }
     dirty_ = false;
+    project_files_changed();
     notify("Saved " + scenePath_);
     return true;
 }
@@ -1026,12 +1032,13 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     // Hand editing: the entity tree over the inspector, in a column left of the view.
     ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.30f, nullptr, &center);
     ImGuiID inspector = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, nullptr, &left);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, nullptr, &center);
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("Inspector", inspector);
     ImGui::DockBuilderDockWindow("###Viewport", center);
     ImGui::DockBuilderDockWindow("AI Assistant", ai);
     ImGui::DockBuilderDockWindow("Console", bottom);
+    ImGui::DockBuilderDockWindow("Project", bottom);
     ImGui::DockBuilderDockWindow("Engine Feedback", bottom);
     ImGui::DockBuilderDockWindow("Audio", bottom);
     ImGui::DockBuilderDockWindow("Profiler", bottom);
@@ -1106,6 +1113,7 @@ void Editor::build_ui() {
         if (showHierarchy_) draw_hierarchy_panel();
         if (showInspector_) draw_inspector_panel();
         if (showConsole_) draw_console();
+        if (showProject_) draw_project_panel();
         if (showAi_) draw_ai_panel();
         if (showFeedback_) draw_feedback_panel();
         if (showAudio_) draw_audio_panel();
@@ -1223,6 +1231,9 @@ void Editor::draw_main_menu() {
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
         at_track("menu:inspector");
         ImGui::MenuItem("Console", nullptr, &showConsole_);
+        ImGui::MenuItem("Project", nullptr, &showProject_);
+        at_track("menu:project");
+        ImGui::SetItemTooltip("The project's files: filter, search, drag onto the Inspector or the Viewport, open scenes");
         ImGui::MenuItem("AI Assistant", nullptr, &showAi_);
         ImGui::MenuItem("Engine Feedback", nullptr, &showFeedback_);
         ImGui::MenuItem("Audio", nullptr, &showAudio_);
