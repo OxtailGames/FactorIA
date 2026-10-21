@@ -1611,7 +1611,7 @@ NATIVE(audioPlay) {
         line.voice = voice;
         if (seconds > 0) line.endsAt = W.time() + seconds;
         else if (voice == 0) line.endsAt = W.time() + 3.0;
-        I->host->captions().add(std::move(line));
+        I->host->captions().add(std::move(line), I->host->i18n());
     }
     return JS_NewInt32(ctx, static_cast<int32_t>(voice));
 }
@@ -1637,7 +1637,7 @@ NATIVE(captionAdd) {  // (text, key, speaker, seconds): a caption without a soun
     line.speaker = arg_str(ctx, argc, argv, 2);
     line.source = "ui";
     line.endsAt = W.time() + arg_num(ctx, argc, argv, 3, 3);
-    I->host->captions().add(std::move(line));
+    I->host->captions().add(std::move(line), I->host->i18n());
     return JS_UNDEFINED;
 }
 NATIVE(captionClear) {
