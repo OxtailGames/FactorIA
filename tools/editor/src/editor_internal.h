@@ -616,7 +616,7 @@ public:
     std::atomic<std::uint64_t> atHeartbeat_{0};
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
-    int atFrameBudget_ = 3000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+    int atFrameBudget_ = 4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
 };
