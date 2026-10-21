@@ -239,18 +239,29 @@ void Editor::at_build_tools_script() {
     auto project_file = [this](const std::string& rel) { return projectDir_ + "/" + rel; };
     // The wheel over (x, y) until a widget is shown in its window with room below it (maxY): what a long page needs, however
     // long it is on this computer (a warning that wraps onto more lines moves everything down). A click never lands on a widget
-    // that is scrolled out of its window: at_widget refuses it.
+    // that is scrolled out of its window: at_widget refuses it. dy is the way to try first (> 0 up); when the widget does not
+    // move (the window is already at that end, as a section run alone finds it), the wheel turns the other way.
     auto scroll_until = [this, &step](const std::string& name, float dy, Vec2 at, float maxY) {
         step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at); });
+        struct Wheel {
+            float dy, lastY = -1e9f;
+            int stuck = 0;
+        };
+        auto wheel = std::make_shared<Wheel>(Wheel{dy});
         for (int i = 0; i < 60; ++i)
-            step(1, [this, name, dy, at, maxY] {
+            step(1, [this, name, wheel, at, maxY] {
                 auto it = atWidgets_.find(name);
                 if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > 120) return;
+                if (it != atWidgets_.end() && at_visible(name)) {
+                    wheel->stuck = it->second.y == wheel->lastY ? wheel->stuck + 1 : 0;
+                    wheel->lastY = it->second.y;
+                    if (wheel->stuck == 2) wheel->dy = -wheel->dy;
+                }
                 sapp_event ev{};
                 ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
                 ev.mouse_x = at.x * dpi_;
                 ev.mouse_y = at.y * dpi_;
-                ev.scroll_y = dy;
+                ev.scroll_y = wheel->dy;
                 on_event(&ev);
             });
     };
@@ -816,8 +827,8 @@ void Editor::at_build_tools_script() {
     });
     click("toolbar:export");
     step(4, [this] { at_check(at_visible("export:settings:android"), "the Export window has a Settings... button on the Android row"); });
-    // The window is scrolled down to the export report it just showed: on a smaller screen (the macOS runner's 1024x642) the
-    // Android row is above the visible part, so scroll up to it.
+    // On a smaller screen (the macOS runner's 1024x642) the Android row can be out of view: above it after section H (the
+    // window stays scrolled down to the report it showed), below it when this section runs alone. Scroll to it.
     scroll_until("export:settings:android", 6, Vec2{700, 400}, 560);
     click("export:settings:android");
     step(4, [this] {
