@@ -10,6 +10,7 @@
     "back": "Back"
   },
   "loading": { "text": "Loading..." },
+  "captions": { "welcome": "Welcome, traveller.", "hint": "Watch the edge!", "guide": "Guide" },
   "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
   "options": {
     "title": "Options",
@@ -30,6 +31,7 @@
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"

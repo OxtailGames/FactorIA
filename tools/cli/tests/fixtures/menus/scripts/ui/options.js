@@ -122,6 +122,13 @@ export default class Options extends Behaviour {
       if (e.value) ui.speak(readAloud.get("Toggle").label); // so the player hears that it works
       else ui.stopSpeaking();
     });
+    // Subtitles: captions are drawn by the scene's "captions" entity; the option switches it (settings.applySubtitles).
+    world.find("subtitles").get("Toggle").value = this.s.subtitles;
+    ui.on("change", "subtitles", (e) => {
+      this.s.subtitles = e.value;
+      settings.applySubtitles(this.s);
+      settings.save(this.s);
+    });
   }
 
   // --------------------------------------------------------------------------------------------------------- controls

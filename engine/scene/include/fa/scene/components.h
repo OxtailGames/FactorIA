@@ -353,6 +353,28 @@ struct TouchButton : UiBox {
     }
 };
 
+// The subtitles of the game: shows the lines that audio.play(path, { caption }) and ui.caption(text, seconds) put on the
+// caption list (fa/scene/captions.h). The box is the area the captions may use (placement like any widget: anchor, pivot,
+// safeArea, layer); the block of lines sits at its bottom edge and its background hugs the lines.
+struct Captions : UiBox {
+    std::int32_t maxLines = 3;                // lines shown at once; a new line drops the oldest
+    Vec4 padding{16, 8, 16, 8};               // left, top, right, bottom between the background edge and the text
+    std::string font;                         // asset path to .ttf; "" = built-in font
+    float fontSize = 28.0f;
+    Color textColor{1, 1, 1, 1};
+    Color speakerColor{1.0f, 0.82f, 0.35f, 1};
+    Align align = Align::Center;
+    float spacing = 4.0f;                     // gap between lines
+    Json lines = Json::array();               // runtime: [{text, speaker}] drawn now, oldest first (written by the engine)
+    Captions() {
+        size = {960, 180};
+        anchor = {0.5f, 1.0f};
+        pivot = {0.5f, 0.0f};
+        safeArea = true;
+        color = {0, 0, 0, 0.7f};
+    }
+};
+
 // ------------------------------------------------------------------- 3D ---
 // mesh: "cube" | "sphere" | "plane" | "cylinder" | "capsule" | "cone" | "quad"
 //       or an asset path to a .gltf/.glb file ("assets/models/ship.glb").

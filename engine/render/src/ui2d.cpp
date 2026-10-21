@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <vector>
 
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
@@ -143,11 +144,66 @@ void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox&
     }
 }
 
+// Captions: the newest lines (Captions.lines, written by the engine) in a block at the bottom of the rectangle, on a
+// background that hugs them. Each line is "Speaker:" in speakerColor then the text; a long text wraps and its next lines stay
+// under the first one's text. In a right-to-left language the speaker goes to the right of the text.
+void draw_captions(const Ctx& c, const World& world, const Captions& cap, const UiBox& b, const Rect& r) {
+    if (!cap.lines.is_array() || cap.lines.empty()) return;
+    const bool rtl = world.rtl();
+    Align a = cap.align;  // start / end are the edges of the current language's direction; the font layer only knows left / right
+    if (a == Align::Start || a == Align::End) a = (a == Align::Start) != rtl ? Align::Left : Align::Right;
+    const float padL = cap.padding.x, padT = cap.padding.y, padR = cap.padding.z, padB = cap.padding.w;
+    const float availW = std::max(1.0f, r.w - padL - padR);
+    const float gap = cap.fontSize * c.f.textScale * 0.35f;
+    struct Entry {
+        TextLayout speaker, body;
+        float speakerW = 0, w = 0, h = 0;
+    };
+    std::vector<Entry> entries;
+    float contentW = 0, contentH = 0;
+    for (const Json& j : cap.lines) {
+        if (!j.is_object()) continue;
+        Entry e;
+        const std::string speaker = j.value("speaker", std::string()), text = j.value("text", std::string());
+        if (!speaker.empty()) {
+            e.speaker = line(c, speaker + ":", cap.font, cap.fontSize);
+            e.speakerW = e.speaker.size.x + gap;
+        }
+        const float limit = std::max(availW - e.speakerW, cap.fontSize * c.f.textScale * 2.0f);
+        e.body = line(c, text, cap.font, cap.fontSize);
+        if (e.body.size.x > limit) e.body = line(c, text, cap.font, cap.fontSize, limit, a);
+        e.w = e.speakerW + e.body.size.x;
+        e.h = std::max(e.speaker.size.y, e.body.size.y);
+        contentW = std::max(contentW, e.w);
+        contentH += e.h + (entries.empty() ? 0.0f : cap.spacing);
+        entries.push_back(std::move(e));
+    }
+    if (entries.empty()) return;
+    const float w = std::min(r.w, contentW + padL + padR), h = contentH + padT + padB;
+    const float x = a == Align::Left ? r.x : a == Align::Right ? r.x + r.w - w : r.x + (r.w - w) * 0.5f;
+    const Rect box{x, r.y + r.h - h, w, h};
+    background(c, b, box, b.color);
+    float y = box.y + padT;
+    for (const Entry& e : entries) {
+        const float room = box.w - padL - padR;
+        const float ex = box.x + padL + (a == Align::Left ? 0.0f : a == Align::Right ? room - e.w : (room - e.w) * 0.5f);
+        if (rtl) {
+            text(c, e.body, ex, y, cap.textColor, b.layer + 1, c.clip);
+            if (!e.speaker.quads.empty()) text(c, e.speaker, ex + e.w - e.speaker.size.x, y, cap.speakerColor, b.layer + 1, c.clip);
+        } else {
+            if (!e.speaker.quads.empty()) text(c, e.speaker, ex, y, cap.speakerColor, b.layer + 1, c.clip);
+            text(c, e.body, ex + e.speakerW, y, cap.textColor, b.layer + 1, c.clip);
+        }
+        y += e.h + cap.spacing;
+    }
+}
+
 void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBox& b) {
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
     const Rect r = *ui_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});
     if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
+    if (kind == UiKind::Captions) return draw_captions(c, world, *world.get<Captions>(e), b, r);
     const UiControl* ctl = ui_control(world, e);
     Color tint = b.color;
     if (ctl) {
@@ -216,7 +272,7 @@ void gather_ui(World& world, Frame& f) {
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
                               &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
-                              &World::type_of<TouchButton>()})
+                              &World::type_of<TouchButton>(), &World::type_of<Captions>()})
         any = any || !world.entities_with(t).empty();
     if (!any) return;
     for (Entity root : world.roots()) visit(f, world, root);
