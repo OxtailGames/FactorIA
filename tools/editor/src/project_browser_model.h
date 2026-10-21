@@ -65,6 +65,7 @@ Vec3 drop_point_3d(Vec3 rayOrigin, Vec3 rayDir, float fallbackDistance = 10.0f, 
 // The panel's state (kept by the editor for the whole run).
 struct ProjectBrowser {
     ProjectListing listing;
+    FolderNode tree;                    // build_folder_tree(listing), rebuilt with each scan
     BrowserQuery query;
     bool stale = true;                  // rescan before the next draw: set by Refresh, window focus, and the editor's own file writes
     bool scanned = false;

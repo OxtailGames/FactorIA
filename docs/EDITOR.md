@@ -328,9 +328,9 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
 - **Type filter** (all, texture, audio, font, mesh, script, scene, prefab, material; the same types as `assets.list` and the
   Inspector's file lists, one classifier: `asset_type_of`) and **search** (case-insensitive part of the path; a search looks
   through the whole project, not only the chosen folder). **Sort** by name, type or size.
-- The listing is cached: the panel does not read the disk every frame. It reads again on **Refresh**, when the panel gains focus
-  (or the window does) and after the editor itself writes or deletes a file (a command such as `fs.*`, `assets.*`,
-  `prefab.save`, `scene.save`, or Save).
+- The listing is cached: the panel does not read the disk every frame. It reads again on **Refresh**, when you click into the
+  panel and after the editor itself writes or deletes a file (a command that changes files, such as `fs.write`, `fs.delete`,
+  `prefab.save` or `scene.save`, from you, the Console or the AI; or Save). A file another program adds shows up on Refresh.
 - **Drag a file** (the payload `FA_ASSET` is its project-relative path). Onto an Inspector file field: only a file of the field's
   type is taken (a picture on `Sprite.texture`; a sound there is refused) and it is written like picking it from the list.
   Onto the Viewport: a `.prefab.json` is spawned with `scene.spawn {prefab, position}` and the new entity is selected (one Undo

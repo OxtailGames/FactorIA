@@ -57,6 +57,7 @@ void Editor::draw_project_panel() {
     }
     if (pb.stale || !pb.scanned) {
         pb.listing = scan_project(projectDir_);
+        pb.tree = build_folder_tree(pb.listing);
         pb.stale = false;
         pb.scanned = true;
         ++pb.scans;
@@ -96,7 +97,7 @@ void Editor::draw_project_panel() {
     }
     ImGui::SetItemTooltip("Sort the files by name, type or size");
     ImGui::SameLine();
-    if (ImGui::Checkbox("Desc", &q.descending)) {}
+    ImGui::Checkbox("Desc", &q.descending);
     ImGui::SetItemTooltip("Reverse the order");
 
     const std::vector<std::size_t> shown = query_files(pb.listing, q);
@@ -106,7 +107,6 @@ void Editor::draw_project_panel() {
     // ---- folder tree | files
     const float treeW = std::clamp(ImGui::GetContentRegionAvail().x * 0.22f, 130.0f, 240.0f);
     ImGui::BeginChild("##projtree", ImVec2(treeW, 0), ImGuiChildFlags_Borders);
-    const FolderNode tree = build_folder_tree(pb.listing);
     auto draw_node = [&](auto&& self, const FolderNode& n, bool isRoot) -> void {
         ImGuiTreeNodeFlags fl = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
         if (n.children.empty()) fl |= ImGuiTreeNodeFlags_Leaf;
@@ -122,7 +122,7 @@ void Editor::draw_project_panel() {
             ImGui::TreePop();
         }
     };
-    draw_node(draw_node, tree, true);
+    draw_node(draw_node, pb.tree, true);
     ImGui::EndChild();
     ImGui::SameLine();
 
