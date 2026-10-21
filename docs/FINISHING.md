@@ -237,9 +237,17 @@ shape, an icon or a word); keep every action a single press unless a hold is tru
 input device. Tests check each option is saved, applied and effective, and that a run with assist on is flagged
 (`tests/accessibility.test.js`).
 
-Not in the engine: a colour-blind or greyscale preview or filter, reading the operating system's accessibility settings,
-a screen reader or text-to-speech for menus, and subtitles (there is no speech or caption system). A game that needs them
-builds them itself; record the gap in `ENGINE_FEEDBACK.json`.
+The engine also has these; the menu kit ([MENUS.md](MENUS.md)) has an option for each, so copy it from there:
+
+| Feature | How |
+|---|---|
+| **Colour filter** | `Camera.colorFilter` (`greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) on the scene's camera, chosen by the player and set again in every scene. To check how a colour-blind player sees the game without changing it: `factoria run --headless --screenshot-at 60 --screenshot-simulate deuteranopia` ([CLI.md](CLI.md)), or `simulate` of `game.screenshot` |
+| **Start from the system's settings** | `game.accessibility` (`textScale`, `reduceMotion`, `highContrast`, `screenReader`) gives the first-run values of text size, reduced effects and "read menus aloud"; save the player's own choice, which wins from then on |
+| **Read menus aloud** | `ui.speak(text)` with the system's text to speech, speaking the focused widget on each `ui.focus` event; tests read `game.spoken()` ([SCRIPTING.md](SCRIPTING.md)) |
+| **Subtitles** | a `Captions` entity, then `audio.play(path, { caption })` for a voice line, or `ui.caption(text)` for a line with no sound; an option turns the entity off. Tests read `game.captions()` ([TEXT.md](TEXT.md), "Captions") |
+
+Not in the engine: handing the game's widgets to the system's screen reader (it does not see them; `ui.speak` talks
+instead). A game that needs more builds it itself; record the gap in `ENGINE_FEEDBACK.json`.
 
 ## 6. Achievements, stats, leaderboards, cloud saves
 

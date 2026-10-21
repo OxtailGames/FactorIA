@@ -3,16 +3,17 @@
 Status: the four jam-sized example games reported 73 entries, all verified fixed-in-engine. Lantern Keep, the M21
 reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
-(M24.1-M24.16, 2026-10-20), two of them found on the way; the 4 still open are ranked below, all in M20-M23. M1-M11 and
-M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile
-store-ready), M17 (web export), M18 (animation and production 3D) and M21 (docs and material for shipping) are done;
-M24 is done (M24.1-M24.16); M22 is planned (M22.1-M22.6, 2026-10-20); M19, M20 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
-2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can
-close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this
-file keeps what they left open and the decisions to respect.
+(M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three and M22 two; the 2 still open are ranked below, in
+M20 and M23. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
+backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M21 (docs and material for
+shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M19, M20 and M23 are not started (M10-M23
+come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
+What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
+milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
+respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-4 entries from 5 project(s), 4 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+2 entries from 5 project(s), 2 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
 ## 1. No Microsoft Store packaging (MSIX) or publish command
 
@@ -35,28 +36,6 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Suggestion:** Let scene.import_ascii (or a new scene.ascii_edit command) take operations on an existing map: fill/replace a rectangle, insert or delete columns, place a glyph at (column, height above the ground), so an AI changes a map without rewriting every row; and report the column and row of every glyph in the result so it can be located again.
 - **Workarounds seen:**
   - Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.
-
-## 3. No colour-blind or greyscale preview or filter
-
-- **Category:** rendering-2d
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0037
-- **Suggestion:** Camera.colorFilter enum (none, greyscale, protanopia, deuteranopia, tritanopia, high contrast) as a post-process that game.screenshot also applies, so players and AIs can use it.
-- **Workarounds seen:**
-  - Hazards and pickups differ by shape and outline (spikes = triangles, enemies = rounded boxes with eyes, ember = diamond, checkpoint = ring, exit = star in a lamp). The greyscale check was made outside the engine with Python Pillow on a screenshot (screenshots/a11y-hazards-colour-and-grey.png). No colour-blind filter option was built.
-
-## 4. No way to read the operating system accessibility settings or to speak UI text
-
-- **Category:** platform
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0038
-- **Suggestion:** Read-only platform.accessibility { textScale, reduceMotion, highContrast, screenReader }, plus ui.speak(text) or a focus-change event a screen reader plugin can use.
-- **Workarounds seen:**
-  - Lantern Keep starts with its own saved options only (text 100%, shake on) and has no spoken menus.
 
 # Next engine milestones
 
@@ -106,6 +85,10 @@ Re-triage 2026-10-20, after M21's #115-#117 (merges `02b1555`, `0e49b93`, `97f69
 LK/FB-0022 are fixed, each with a `Fixed in <commit>` note, and Lantern Keep dropped its workarounds
 (tools/make_icon.py, tools/make_screenshots.py) in those PRs. 4 Lantern Keep entries are open: LK/FB-0009 in M20;
 LK/FB-0037 and LK/FB-0038 in M22; LK/FB-0023 in M23, for MSIX (its Microsoft Store docs are in, from #115).
+
+Re-triage 2026-10-21, after M22 (merges `972974b`, `8d40daa`, `441405b`, `67fe125`, `40ebbeb` and #132): LK/FB-0037 and
+LK/FB-0038 are fixed, each with a `Fixed in <commit>` note; Lantern Keep does not use those features yet. 2 Lantern Keep
+entries are open: LK/FB-0009 in M20 and LK/FB-0023 in M23, for MSIX.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK).
@@ -161,6 +144,16 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   game's own screens and the fake store; Steam, the App Store and Google Play keep theirs in their own consoles.
   M24.15-M24.16 (2026-10-20): the fallback layout (`fallbackLayout`) is chosen again every frame, and the deepest panels
   switch first; `uniformSize` counts only `autoSize` widgets; a script's `ui.layout()` does not log the fit warning.
+- M22 (2026-10-21): the system's accessibility settings are `game.accessibility`, not `platform.accessibility`
+  (`platform` is the store services); like the language (M14), only a game in its own window reads them, headless runs,
+  tests and the editor get the defaults, and the engine applies none of them: the game starts its options from them and
+  saves its own choice. `Camera.colorFilter` is the last pass of the frame (HUD included) and is not saved by itself;
+  `simulate` changes only the saved screenshot. Headless runs and tests speak nothing and record the lines
+  (`game.spoken()`); the web prefers voices on the device, because an online voice sends the text to its provider. A
+  caption's lifetime is its sound's unless `captionSeconds` is given (a looping sound needs it). Performance budgets: a
+  time over its limit fails only in CI and is measured twice first, memory, draw calls and entities always fail, and the
+  engine's own CI fails on a runner with no baseline (`requireBaseline`); a game's check passes there with the entry to
+  commit.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -207,7 +200,7 @@ Left open:
 - Window control on macOS, iOS, Android and a real Linux desktop is compiled in CI but was not run on those systems
   (Windows was). Android pads always report `generic`; X11 `displaySize` is the whole screen, not the usable area; on
   macOS vsync off tears but keeps the display's frame rate (sokol paces frames with a display link).
-- Save slots with their menu are M19; a GDPR/COPPA consent screen on these menus is M22.
+- Save slots with their menu are M19; a GDPR/COPPA consent screen on these menus is M12's (ads with consent).
 
 ## M11. Native plugins per game (L, blocker for M12 and the consoles) — DONE (PR #49 and the `m11/plugins-mobile` PR)
 
@@ -538,72 +531,26 @@ Left open:
 - Store facts (docs/PUBLISHING.md, the `assets.draw_capsules` sizes) are as of 2026-10; the GOG and itch.io sizes have
   no official page.
 
-## M22. Production quality and legal (M, high)
+## M22. Production quality and legal (M, high) — DONE (PRs #126-#132 and the `m22/bookkeeping` PR)
 
-Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14), and LK/FB-0037 and LK/FB-0038.
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M22.
 
-Planned 2026-10-20 against `4553805`, after checking what earlier milestones already built:
-- Already done, not a package: versioned saves with migration (M21's recipe, docs/FINISHING.md section 3, and Lantern
-  Keep's `tests/saves.test.js`); the game's version is `factoria.json` `version` (E-02); age ratings (IARC, Steam's
-  content survey, Apple's questionnaire) are in docs/PUBLISHING.md.
-- Moved to M12's "ads with consent": the GDPR/COPPA consent screen. The engine collects nothing and has no ads or
-  analytics yet; Google UMP and Apple ATT bring their own consent forms, so a screen of our own only matters for desktop
-  or web analytics, once there are any.
-- Not `platform.accessibility`: `platform` is the store services (every call a Promise). The OS settings are
-  `game.accessibility`, next to `game.platform`.
-
-Six packages, none needing another's result. At most three workers build at once: M22.1, M22.2 and M22.4 (the largest)
-first, then M22.3, M22.5 and M22.6. They share `factoria.js`, `api.json` and the generated reference (`docs/reference/`,
-`docs/COMPONENTS.md`): whoever merges second merges `origin/main` and regenerates the reference (`docs.write_reference`).
-No package edits docs/FINISHING.md section 5 ("Not in the engine") or Lantern Keep: the bookkeeping PR after them does,
-marks LK/FB-0037 and LK/FB-0038, and lets Lantern Keep use the filters, the OS settings and speech.
-
-- **M22.1 Performance budgets in CI (M; Q-04).** The `factoria run --headless --json` report gains `perf`: the engine's
-  CPU time per frame (avg, p95, max; process CPU time, not wall clock, so a busy machine moves it less), the process's
-  peak memory, and draw calls and entities (max). A ctest per example (`example_<name>_perf`: a fixed number of frames,
-  with the GPU renderer where there is one) compares it with a committed baseline per runner and fails past a tolerance
-  (memory and draw calls tight, time loose). Outside CI (no `CI` variable) the time limits only warn: the full `ctest`
-  also runs on loaded machines. A command writes or refreshes the baselines (a capability for tools and game AIs, not a
-  CLI flag), and its docs say how a game sets a budget of its own. Runners: Linux GCC, Windows MSVC, macOS; web and the
-  mobile jobs are left open. Acceptance: on each runner the check fails on a fixture made heavier than its baseline and
-  passes on main.
-- **M22.2 Colour filters (M; LK/FB-0037).** For players, `Camera.colorFilter` (`none`, `greyscale`, `highContrast`, and
-  `protanopia`, `deuteranopia`, `tritanopia` as daltonize corrections) as the last post-process pass on every backend
-  (a shader in `engine/render/shaders/`, headers regenerated), so screenshots and `--record-video` show it. For checks,
-  `game.screenshot` and `--screenshot-at` take a `simulate` option (`greyscale`, `protanopia`, `deuteranopia`,
-  `tritanopia`; Machado 2009 matrices on the CPU), so an AI checks that hazards read without colour without changing what
-  the player sees. Acceptance: a golden per filter, a test per simulation against known colours, and the menus fixture's
-  options screen switches the filter (test).
-- **M22.3 Operating-system accessibility settings (M; LK/FB-0038, first half).** Read-only `game.accessibility`
-  (`textScale`, `reduceMotion`, `highContrast`, `screenReader`), read like the system language
-  (`engine/platform/src/system_language_*`: Windows, Apple for macOS and iOS, Android, Linux, web) and again when the
-  window regains focus or the app resumes. Headless runs and tests give the defaults (1, false, false, false), and
-  `factoria:test` sets them (`game.setAccessibility`). The engine applies none of them: the game starts its options from
-  them on the first run and saves its own choice (M14's rule); the recipe is in docs/MENUS.md. Acceptance: a fixture test
-  reads values set through the test API; the platform code builds in every CI job.
-- **M22.4 Text to speech (L; LK/FB-0038, second half).** `ui.speak(text, { interrupt })`, `ui.stopSpeaking()` and
-  `ui.speechAvailable`, in the current language: SAPI 5 on Windows, AVSpeechSynthesizer on macOS and iOS, Android's
-  TextToSpeech through JNI, speech-dispatcher on Linux loaded at run time (missing: one warning, `speechAvailable` false),
-  `speechSynthesis` on the web. Headless runs and tests speak nothing and record the lines (`game.spoken()` in
-  `factoria:test`). The UI `focus` event already exists: the docs/MENUS.md recipe speaks the focused widget's text when
-  the game's "read menus aloud" option is on. Acceptance: the menus fixture's test reads a menu by moving the focus; the
-  platform code builds in every CI job and is heard on Windows (manual check, steps in the docs); what was not heard on
-  other systems is listed as left open.
-- **M22.5 Captions (M; Q-06 subtitles).** A `Captions` UI component (where captions appear, how many lines, background;
-  text styled like `Text`, with `ui.textScale`, localization and right to left) fed two ways: `audio.play(path,
-  { caption, speaker })` (a localization key or plain text, shown while the sound plays) and `ui.caption(text, seconds)`
-  for lines without a sound. `game.captions()` in `factoria:test` lists what is on screen. Acceptance: a fixture test
-  captions a sound and a line in two languages, and a golden shows the component.
-- **M22.6 Privacy policy and EULA templates (S; Q-05).** `docs/LEGAL.md`: a privacy policy for a game that collects
-  nothing (the engine sends nothing by itself; `log.txt` and crash reports stay on the device), the paragraphs to add for
-  analytics, ads, accounts, cloud saves or a crash upload, and when a game needs an EULA of its own beyond the stores'
-  (Steam's subscriber agreement, Apple's standard EULA, Google Play's terms). It says it is not legal advice;
-  docs/PUBLISHING.md links it. Acceptance: the docs tests pass (it is embedded) and `docs.search "privacy policy"`
-  finds it first.
-
-Acceptance criteria: a CI check fails when an example's CPU time, memory or draw calls regress past its baseline
-(M22.1); a golden shows each colour filter (M22.2); a test reads `game.accessibility` set through the test API (M22.3);
-the menus fixture reads a menu aloud in a test (M22.4) and shows captions (M22.5).
+Left open:
+- Performance budgets run where ctest runs: Linux GCC (llvmpipe), Windows MSVC (D3D11 WARP) and macOS. The web, Android
+  and iOS jobs have none. A GitHub runner whose time differs from the committed baseline gets its entry refreshed from
+  that runner's output, never looser tolerances.
+- Text to speech was not heard by ear anywhere: on Windows SAPI reports available and speaks with the en-US and es-ES
+  voices; the macOS, iOS, Android, Linux and web backends are only built by CI. docs/MENUS.md has the manual check.
+- The system's accessibility settings: on Windows the reader returned the defaults, matching the registry; no setting
+  was toggled to see a change on any system. macOS gives text size 1 (it has no system text size for apps), Linux reads
+  GNOME only (through `gsettings`), the web has no text size and no screen reader.
+- The game's widgets are not handed to the system's screen reader (UI Automation, NSAccessibility, TalkBack): `ui.speak`
+  talks instead, behind the game's "read menus aloud" option.
+- Captions: the speaker name does not follow a language change (no `speakerKey`; pass `i18n.t(...)`), and a sound
+  shorter than one frame never shows its caption.
+- The colour filter goldens were made on WARP; Metal, GLES and WebGL2 are checked by CI only.
+- Lantern Keep does not use M22's features yet (the colour filter, the system's settings, reading menus aloud,
+  captions); the menus fixture does.
 
 ## M23. Closed stores and consoles (L each, later)
 
@@ -643,7 +590,7 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: M22.
+Next: M20 (LK/FB-0009 is its only entry from a game).
 
 ## Out of scope: Roblox
 
