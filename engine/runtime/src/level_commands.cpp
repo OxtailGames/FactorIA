@@ -1199,7 +1199,6 @@ Json ascii_edit(Engine::Impl& I, const Json& a) {
     const std::string text = dump_json(edited);
     if (auto r = fs::write_bytes(file, text.data(), text.size()); !r.ok())
         throw CommandError("failed", "Writing '" + file + "' failed: " + r.error().message, r.error().hint);
-    out["saved"] = file;
     return out;
 }
 
@@ -1296,8 +1295,9 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "line, every other key and the key order kept). With `rebuild` (default true) and a `path` in the file, the level is then "
          "rebuilt exactly like `factoria call scene.import_ascii @file` and its result is merged into this one (`spawned` lists id, "
          "glyph and cell [col,row] of every object). `dryRun` writes nothing and returns the edited `rows` (and the import's dry run). "
-         "Returns {file, width, height, ops (applied), changedCells (cells whose glyph changed; inserted/deleted columns count all "
-         "their cells), dryRun, rows? (dryRun), saved?} plus the import result when it ran. Example: scene.ascii_edit "
+         "Returns {file (written unless dryRun), width, height, ops (applied), changedCells (cells whose glyph changed; "
+         "inserted/deleted columns count all their cells), dryRun, rows? (dryRun)} plus the import result when it ran (its "
+         "`path` and `saved` name the scene file). Example: scene.ascii_edit "
          "{\"file\":\"levels/1-1.json\",\"ops\":[{\"op\":\"put\",\"col\":40,\"glyph\":\"o\",\"above\":1},"
          "{\"op\":\"insertColumns\",\"at\":60,\"count\":5}]}",
          parse_schema(R"json({"type":"object","required":["file","ops"],"properties":{

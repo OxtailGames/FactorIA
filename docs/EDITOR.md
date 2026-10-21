@@ -220,9 +220,10 @@ While the game runs, clicks and keys go to the game instead (click the viewport 
 
 ## Scene files rebuilt on disk
 
-A command that rebuilds the scene file that is open (`scene.import_ascii` with `path` set to it, from the AI or the Console) is
-followed by a reload, so the viewport shows the result. Whatever was on screen before is one Ctrl+Z away, and commands that only write
-files (`prefab.save`, `scene.format`, `scene.import_ascii` with `path`) neither take an undo step nor mark the scene as changed.
+A command that rebuilds the scene file that is open (`scene.import_ascii` with `path` set to it, or `scene.ascii_edit` on the level
+file that builds it, from the AI or the Console) is followed by a reload, so the viewport shows the result. Whatever was on screen
+before is one Ctrl+Z away, and commands that only write files (`prefab.save`, `scene.format`, `scene.ascii_edit`,
+`scene.import_ascii` with `path`) neither take an undo step nor mark the scene as changed.
 
 ## View > Audio
 The Audio panel shows `audio.log`: sequence number, frame, clip path, bus, volume, the entity that played it (`source`) and whether the
