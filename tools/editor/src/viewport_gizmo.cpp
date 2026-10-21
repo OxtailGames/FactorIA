@@ -18,12 +18,6 @@ constexpr float kHitPx = 7.0f;  // how close to a line the mouse has to be to gr
 
 float round4(float v) { return std::round(v * 10000.0f) / 10000.0f; }
 
-Vec3 unit_axis(int i) {
-    Vec3 a{};
-    (&a.x)[i] = 1.0f;
-    return a;
-}
-
 // Where things are on screen for one entity: the panel's mapping of world points and of the mouse onto the drag plane.
 struct GizmoSpace {
     Renderer* r = nullptr;
@@ -244,12 +238,13 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                     if (threeD) value.z = scale_apply(value.z, f, step);
                 } else {
                     const int i = d.handle.axis;
-                    const Vec2 s = space.project(d.pivot + d.local[i] * 1.0f) ;
+                    const Vec2 s = space.project(d.pivot + d.local[i] * 1.0f);
                     Vec2 dir{s.x - p0.x, s.y - p0.y};
                     const float l = std::sqrt(dir.x * dir.x + dir.y * dir.y);
                     if (l > 1e-6f) {
                         dir = {dir.x / l, dir.y / l};
-                        (&value.x)[i] = scale_apply((&d.start.scale.x)[i], scale_axis_factor(p0, dir, d.mouseStart, mouse), step);
+                        value = with_axis(value, i, scale_apply(axis_value(d.start.scale, i),
+                                                                scale_axis_factor(p0, dir, d.mouseStart, mouse), step));
                     }
                 }
             }

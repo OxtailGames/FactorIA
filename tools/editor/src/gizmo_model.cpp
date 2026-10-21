@@ -30,6 +30,15 @@ float ring_distance(Vec2 p, const std::vector<Vec2>& ring) {
 
 }  // namespace
 
+Vec3 unit_axis(int i) { return {i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f}; }
+float axis_value(Vec3 v, int i) { return i == 0 ? v.x : i == 1 ? v.y : v.z; }
+Vec3 with_axis(Vec3 v, int i, float value) {
+    if (i == 0) v.x = value;
+    else if (i == 1) v.y = value;
+    else v.z = value;
+    return v;
+}
+
 const char* gizmo_mode_name(GizmoMode m) {
     switch (m) {
         case GizmoMode::Select: return "select";
@@ -60,9 +69,7 @@ std::vector<GizmoShape> gizmo_layout(GizmoMode mode, const GizmoView& view, cons
     // Screen pixels per world unit around the pivot: the best of the three world axes (one of them is never foreshortened much).
     float pxPerUnit = 0;
     for (int i = 0; i < 3; ++i) {
-        Vec3 e{};
-        (&e.x)[i] = 1.0f;
-        pxPerUnit = std::max(pxPerUnit, len2(sub(view.project(frame.pivot + e), p0)));
+        pxPerUnit = std::max(pxPerUnit, len2(sub(view.project(frame.pivot + unit_axis(i)), p0)));
     }
     if (pxPerUnit < 1e-6f) pxPerUnit = 1.0f;
 
@@ -88,11 +95,7 @@ std::vector<GizmoShape> gizmo_layout(GizmoMode mode, const GizmoView& view, cons
     const bool move = mode == GizmoMode::Move;
     const float unit = view.armPx / pxPerUnit;  // world length of about one arm
     for (int i = 0; i < (view.threeD ? 3 : 2); ++i) {
-        Vec3 axis = frame.local[i];
-        if (move) {
-            axis = {};
-            (&axis.x)[i] = 1.0f;
-        }
+        const Vec3 axis = move ? unit_axis(i) : frame.local[i];
         const Vec2 d = sub(view.project(frame.pivot + axis * unit), p0);
         const float l = len2(d);
         if (l < 0.15f * view.armPx) continue;  // pointing at the camera
@@ -166,9 +169,8 @@ bool ray_plane(Vec3 o, Vec3 d, Vec3 p, Vec3 n, Vec3& out) {
 float snap_to(float v, float step) { return step > 0 ? std::round(v / step) * step : v; }
 
 Vec3 snap_move(Vec3 start, Vec3 moved, float step) {
-    for (int i = 0; i < 3; ++i)
-        if (std::fabs((&moved.x)[i] - (&start.x)[i]) > 1e-6f) (&moved.x)[i] = snap_to((&moved.x)[i], step);
-    return moved;
+    auto snap = [step](float s, float m) { return std::fabs(m - s) > 1e-6f ? snap_to(m, step) : m; };
+    return {snap(start.x, moved.x), snap(start.y, moved.y), snap(start.z, moved.z)};
 }
 
 Vec3 world_to_local_position(const Mat4& parentWorld, Vec3 world) { return parentWorld.inverse().transform_point(world); }
@@ -190,9 +192,7 @@ float rotation_sign(const ProjectFn& project, Vec3 pivot, Vec3 u, Vec3 v) {
 
 Vec3 rotate_local_euler(Vec3 e, int axis, float deg) {
     if (axis == 2) return {e.x, e.y, e.z + deg};  // R * Rz(d) = Ry Rx Rz(z + d): exact, and keeps turning past 180
-    Vec3 a{};
-    (&a.x)[axis] = 1.0f;
-    return (Quat::from_euler_deg(e) * Quat::axis_angle_deg(a, deg)).to_euler_deg();
+    return (Quat::from_euler_deg(e) * Quat::axis_angle_deg(unit_axis(axis), deg)).to_euler_deg();
 }
 
 float scale_axis_factor(Vec2 pivot, Vec2 dir, Vec2 a, Vec2 b) {
