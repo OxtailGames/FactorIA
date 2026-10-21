@@ -83,7 +83,9 @@ All three work on the project they run in (`--project DIR`) and are also MCP too
 - `factoria call perf.measure` just measures.
 
 Peak memory is the whole process's, so run the check the same way each time; the engine's own tests use
-`factoria call --no-graphics --project <game> perf.check @args.json` (the second engine inside the command has the GPU).
+`factoria call --project <game> perf.check @args.json` (`factoria call` gives `perf.*` no GPU of its own; the engine the command starts inside has it).
+A process has one graphics device, so a `perf.*` command called where one is already in use (the editor's Console or AI, a
+window) fails with the error `gpu_busy` and says so, instead of crashing: run it from a terminal.
 
 ### Setting a budget for your game
 
@@ -100,3 +102,51 @@ expects `perf_budget_exceeded`. After a change that makes an example heavier on 
 with `factoria call perf.baseline` (see the file's `runners`) in the same PR.
 
 Not covered yet: the web and Android players report memory and time with the limits above but have no CI baseline.
+
+## Finding what is slow: the profiler
+
+A budget says THAT the game got slower. The profiler says WHERE the time goes. It measures the CPU time of every engine
+system and of every script behaviour class, the GPU time of drawing, and memory. It is off unless you ask (when off it
+costs one branch per probe) and it only measures: `game.state`, replays, saves and screenshots are byte-identical with it
+on or off.
+
+Three ways to read it, all with the same `profile` section:
+
+- `factoria call perf.profile '{"frames":300,"warmup":30,"input":"replays/play.json"}'` runs the game headless with the
+  profiler on. (Inside the editor it answers `gpu_busy`: the editor already holds the graphics device. Use View > Profiler
+  there, or `play.report`'s `profile`.)
+- `play.report` of an editor play session has a `profile` section covering the whole session (Play .. Stop).
+- The editor's **View > Profiler** panel shows it live while the game plays (EDITOR.md).
+
+```
+profile: {
+  frames, clock: "wall",
+  frameMs: {avg, p95, max},                       // engine time of one frame
+  systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio,
+            scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}},
+  behaviours: [{class, path, avgMs, maxMs, callsPerFrame}],   // slowest first
+  gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
+  memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}
+}
+```
+
+Reading it:
+
+- Times are wall-clock milliseconds of the engine's own work and vary a little between runs: compare the order and the
+  big gaps, not the decimals. `p95Ms` is over the last 20000 frames.
+- A system includes what it runs: `scriptsUpdate` holds every `onUpdate` and the timers. A behaviour class's `avgMs` is per
+  frame (a class that runs on one frame of four with 8 ms shows 2 ms) and covers every callback of it (`onStart`,
+  `onUpdate`, `onFixedUpdate`, `onLateUpdate`, collision and trigger handlers, `onEvent`, `onEnable`/`onDisable`/`onDestroy`),
+  without the time of other behaviours it triggered. Timers, `world.on` handlers and promise jobs belong to no behaviour:
+  they are the class `(timers, events and promises)`. `callsPerFrame` above 1 means fixed steps or many handlers.
+- Start with `frameMs`, then the biggest `systems`, then the first `behaviours`. A game that is slow in `render` with a small
+  `gpu` time spends it recording many separate draws (see `drawCalls` in `play.report`); a big `gpu` time means the pictures
+  are heavy (resolution, bloom, lights, overdraw).
+- `gpu` is the time the GPU took to draw the world (not the final copy to the window). It is read from timer queries that
+  come back a few frames late and are never waited for, so it describes recent frames, not the exact one. It is measured on
+  Direct3D 11 (Windows) and desktop OpenGL (Linux). Everywhere else the numbers are `null` and `reason` says why: Metal
+  (macOS, iOS) exposes no GPU times through the graphics layer the engine uses, and OpenGL ES 3 and WebGL2 (Android, web)
+  would need the `EXT_disjoint_timer_query` extension, which is not used. A run with no GPU at all also gives `null`.
+- `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio
+  and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
+- Measuring has a small cost of its own (a few microseconds per behaviour callback); with it off there is none.

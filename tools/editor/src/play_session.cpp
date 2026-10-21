@@ -19,6 +19,9 @@ void Editor::session_begin() {
     s.scene = scenePath_;
     s.fixedHz = engine_->fixed_dt() > 0 ? 1.0 / engine_->fixed_dt() : 60.0;
     playNotice_.clear();
+    profView_.reset();
+    Profiler::get().set_enabled(true);  // the session records where the time goes; profile_tick() keeps it on until Stop
+    run_.profile.add_memory(engine_->profile_memory());
 }
 
 void Editor::session_frame(double dt, std::uint64_t frameBefore) {
@@ -27,6 +30,7 @@ void Editor::session_frame(double dt, std::uint64_t frameBefore) {
         run_.skipNext = false;
         return;
     }
+    if (Profiler::on() && engine_->frame_index() > frameBefore) run_.profile.add_frame(Profiler::get().last());
     const double ms = dt * 1000.0;
     run_.frameMs.push_back(ms);
     run_.session.durationSec += dt;
@@ -48,6 +52,10 @@ void Editor::session_end() {
     s.frames = engine_->frame_index() - run_.startFrame;
     if (s.frames == 0 && s.marks.empty()) return;  // nothing was played
     s.perf = compute_frame_stats(run_.frameMs);
+    if (run_.profile.frames() > 0) {
+        run_.profile.add_memory(engine_->profile_memory());
+        s.profile = run_.profile.to_json();
+    }
     for (const LogEntry& l : recent_logs(200, LogLevel::Warn, run_.logSeq))
         s.logs.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame >= run_.startFrame ? l.frame - run_.startFrame : 0},
                                        {"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));

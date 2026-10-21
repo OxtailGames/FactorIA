@@ -48,6 +48,21 @@ Runs the project in a second headless engine inside this process, drawing every 
 | `input` | string | no | Project-relative input replay JSON applied during the run. |
 | `repeats` | integer | no | Run this many times; time metrics are the median, memory/draw calls/entities the max. Default 1. |
 
+## `perf.profile`
+
+Not released yet (on main after 0.1.6).
+
+Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.
+
+Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the profiler on and returns {runner, graphics, profile}. profile = {frames, clock:"wall", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, world.on handlers and promise jobs are the bucket "(timers, events and promises)"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}}. Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds every onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames load assets. Use `input` (an input replay) to reach the heavy part of the game. The profiler only measures: game.state, replays and saves are identical with it on. The editor's play sessions record the same section in play.report, and View > Profiler shows it live. Example: {"frames":300,"input":"replays/play.json"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `frames` | integer | no | How many frames to profile (fixed step), after the warm-up. Default 300. |
+| `warmup` | integer | no | Frames to run first and leave out of the numbers (assets load, caches fill). Default 30. |
+| `scene` | string | no | Start scene (default: the project's mainScene). |
+| `input` | string | no | Project-relative input replay JSON applied during the run. |
+
 ## `project.create` (modifies state)
 
 Create a new game project from a template.

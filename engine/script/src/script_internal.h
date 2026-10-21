@@ -13,6 +13,8 @@
 
 #include <quickjs.h>
 
+#include "fa/core/profiler.h"
+
 #include "fa/platform/accessibility.h"
 #include "fa/script/script.h"
 #include "fa/services/platform.h"
@@ -48,6 +50,8 @@ private:
     JSContext* ctx_ = nullptr;
     JSValue v_ = JS_UNDEFINED;
 };
+
+inline const std::string kProfOtherName{kProfOtherClass}, kProfNoPath;  // profiler bucket for script time of no behaviour
 
 struct Behaviour {
     Entity entity;
@@ -171,7 +175,7 @@ struct ScriptSystem::Impl {
                  std::initializer_list<JSValue> args, bool* failed = nullptr, double limitSeconds = -1,
                  bool quiet = false);
     JSValue call_method(const std::string& label, const std::string& entityId, JSValueConst obj, const char* method,
-                        std::initializer_list<JSValue> args, bool* failed = nullptr);
+                        std::initializer_list<JSValue> args, bool* failed = nullptr, const Behaviour* profile = nullptr);
     void push_guard(const std::string& label, double seconds);
     void pop_guard();
     bool check_interrupt();

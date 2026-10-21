@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/platform/app.h"
 #include "fa/runtime/engine.h"
 #include "fa/tooling/shaders.h"
 #include "util.h"
@@ -162,8 +163,12 @@ std::string abs_path(const std::string& projectDir, const std::string& p) {
     return fs::is_absolute(p) ? p : (std::filesystem::path(projectDir) / p).generic_string();
 }
 
-// One headless run with the GPU renderer (when there is one), drawing every frame; returns the report's perf object.
-PerfSample measure_once(const std::string& projectDir, const RunSpec& spec) {
+// One headless run with the GPU renderer (when there is one), drawing every frame; returns the run's report (`needKey` must be in it).
+Json run_report(const std::string& projectDir, const RunSpec& spec, HeadlessRunOptions ho, const char* needKey) {
+    // The run starts its own engine with its own GPU, and a process has one graphics device: asking sokol for a second one aborts.
+    if (gfx_device_active())
+        throw CommandError("gpu_busy", "This process already uses the graphics card (the editor, a window or an engine with graphics), and a measured run needs a second engine with its own.",
+                           "Run it from a terminal: factoria call --no-graphics perf.measure (perf.profile, perf.check...; plain 'factoria call perf.*' does that by itself). In the editor use View > Profiler or play.report's profile instead.");
     EngineConfig cfg;
     cfg.projectDir = projectDir;
     cfg.shaderCompiler = make_engine_shader_compiler(projectDir);
@@ -174,20 +179,24 @@ PerfSample measure_once(const std::string& projectDir, const RunSpec& spec) {
     cfg.renderMode = RenderMode::Always;
     cfg.memoryStorage = true;
     cfg.platformBackend = "fake";
-    HeadlessRunOptions ho;
-    ho.frames = spec.frames;
     if (!spec.input.empty()) ho.inputReplayPath = abs_path(projectDir, spec.input);
     Json report;
     const int code = run_headless(cfg, ho, &report);
-    if (code != 0 || !report.contains("perf")) {
+    if (code != 0 || !report.contains(needKey)) {
         std::string why = report.value("error", std::string());
         if (report.contains("scriptErrors") && report["scriptErrors"].is_array() && !report["scriptErrors"].empty())
             why += (why.empty() ? "" : " ") + std::string("Script error: ") + report["scriptErrors"][0].dump();
         throw CommandError("failed", "The measured run did not finish cleanly (exit code " + std::to_string(code) + "): " + why,
-                           "Run 'factoria run --headless --frames " + std::to_string(spec.frames) +
+                           "Run 'factoria run --headless --frames " + std::to_string(ho.frames) +
                                "' to see the problem; a budget needs a game that runs.");
     }
-    return perf_sample_from_json(report["perf"]);
+    return report;
+}
+
+PerfSample measure_once(const std::string& projectDir, const RunSpec& spec) {
+    HeadlessRunOptions ho;
+    ho.frames = spec.frames;
+    return perf_sample_from_json(run_report(projectDir, spec, ho, "perf")["perf"]);
 }
 
 double median(std::vector<double> v) {
@@ -273,6 +282,41 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         const RunSpec spec = spec_from_args(a, RunSpec{});
         const PerfSample s = measure(projectDir, spec, int(tooling_detail::arg_int(a, "repeats", 1)));
         return Json::object({{"runner", perf_runner_id(s.graphics)}, {"sample", perf_sample_json(s)}});
+    });
+
+    CommandInfo pr;
+    pr.name = "perf.profile";
+    pr.category = "project";
+    pr.readOnly = true;
+    pr.summary = "Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.";
+    pr.description =
+        "Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the "
+        "profiler on and returns {runner, graphics, profile}. profile = {frames, clock:\"wall\", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, "
+        "scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), "
+        "maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, "
+        "world.on handlers and promise jobs are the bucket \"(timers, events and promises)\"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` "
+        "where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}}. "
+        "Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds "
+        "every onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames load assets. Use `input` (an input replay) to reach the heavy part of the game. "
+        "The profiler only measures: game.state, replays and saves are identical with it on. The editor's play sessions record the same section in play.report, and View > Profiler shows it live. "
+        "Example: {\"frames\":300,\"input\":\"replays/play.json\"}.";
+    pr.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "frames":{"type":"integer","default":300,"minimum":1,"description":"How many frames to profile (fixed step), after the warm-up."},
+        "warmup":{"type":"integer","default":30,"minimum":0,"description":"Frames to run first and leave out of the numbers (assets load, caches fill)."},
+        "scene":{"type":"string","description":"Start scene (default: the project's mainScene)."},
+        "input":{"type":"string","description":"Project-relative input replay JSON applied during the run."}}})");
+    registry.add(pr, [projectDir](const Json& a) {
+        require_project(projectDir);
+        const RunSpec spec = spec_from_args(a, RunSpec{});
+        const int warmup = int(tooling_detail::arg_int(a, "warmup", 30));
+        if (warmup < 0) throw CommandError("invalid_argument", "warmup must be >= 0.", "Use 0 to count every frame, or about 30.");
+        HeadlessRunOptions ho;
+        ho.frames = spec.frames + warmup;
+        ho.profile = true;
+        ho.profileWarmup = warmup;
+        const Json report = run_report(projectDir, spec, ho, "profile");
+        const std::string graphics = report["perf"].value("graphics", std::string("none"));
+        return Json::object({{"runner", perf_runner_id(graphics)}, {"graphics", graphics}, {"profile", report["profile"]}});
     });
 
     CommandInfo b;

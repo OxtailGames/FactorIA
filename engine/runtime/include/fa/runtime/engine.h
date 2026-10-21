@@ -29,6 +29,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/core/command.h"
+#include "fa/core/profiler.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/app.h"
 #include "fa/platform/input.h"
@@ -174,6 +175,13 @@ public:
 
     ScriptSystem& scripts();
 
+    // Profiler (switch it with Profiler::get().set_enabled; fa/core/profiler.h, docs/PERFORMANCE.md). Measurement only:
+    // nothing it records reaches the simulation, game.state or replays.
+    ProfMemory profile_memory();  // memory now: process, JS heap, textures, decoded audio, entities
+    // Appends the GPU milliseconds that came back since the last call; `supported` / `reason` say whether this backend times
+    // the GPU and, when not, why. Results arrive a few frames late.
+    void profile_gpu(std::vector<double>& msOut, bool* supported, std::string* reason);
+
     struct Impl;
     Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)
 
@@ -224,6 +232,11 @@ struct HeadlessRunOptions {
     std::string videoOutPath;
     std::string ffmpegPath;
     bool failOnScriptError = true;
+    // Profile the run (fa/core/profiler.h): report["profile"] summarises the frames after `profileWarmup` (the first frames
+    // load assets and warm caches): per system and per behaviour class ms, GPU ms or null + reason, memory. Wall-clock
+    // numbers, never part of the state or replay. perf.profile uses it.
+    bool profile = false;
+    int profileWarmup = 0;
 };
 int run_headless(const EngineConfig& config, const HeadlessRunOptions& options, Json* report = nullptr);
 

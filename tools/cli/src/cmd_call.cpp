@@ -204,6 +204,11 @@ Command make_call_command() {
             requests.push_back(Json::object({{"command", ctx.args.pos(0)}, {"args", parse_call_args(ctx, ctx.args.pos(1))}}));
         }
         SessionOptions so = session_options(ctx);
+        // perf.* run their own engine with the GPU inside this process, and a process has one graphics device: the outer
+        // engine must not take it.
+        bool allPerf = true;
+        for (const Json& r : requests) allPerf = allPerf && r.value("command", std::string()).rfind("perf.", 0) == 0;
+        if (allPerf) so.gfx = Gfx::None;
         auto session = open_tool_session(ctx, so.gfx, &so);
         prepare_session(ctx, *session);
         if (!batch) {
