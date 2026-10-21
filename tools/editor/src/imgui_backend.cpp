@@ -123,6 +123,7 @@ void setup(const char* iniFile) {
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.ConfigDockingTransparentPayload = true;
+    io.ConfigDragClickToInputText = true;  // the Inspector: a click on a number types a value, a drag changes it
     ImFontConfig cfg;
     cfg.FontDataOwnedByAtlas = false;
     ImFont* font = nullptr;

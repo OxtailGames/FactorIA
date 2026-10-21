@@ -30,14 +30,16 @@ Linux AppImage (a read-only mount: download the newer one). Details:
 
 ## Layout
 
-The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Viewport** on the left, **AI Assistant** on the
-right, and Console / Engine Feedback / Audio / Profiler as tabs under the view. There is no panel for editing by hand (no entity tree,
-property editor or asset browser, and nothing moves by dragging): describe the change to the AI, and use Undo to take back
-what it did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
+the **Viewport** in the middle, **AI Assistant** on the right, and Console / Engine Feedback / Audio / Profiler as tabs under
+the view. You can also edit by hand with the Hierarchy and the Inspector (below). Still missing: an asset browser and moving
+things by dragging in the view (gizmos): describe those to the AI. Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
 
 | Panel | What it does |
 |---|---|
 | Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo. |
+| Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
+| Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at. Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
@@ -62,9 +64,40 @@ and logs ONE error with `file:line` and the quoted line, once per save: it shows
 `game.state` (`recentLogs`), where the AI reads it, and `renderStats.materialFallbacks` lists a material that never
 compiled (it is drawn magenta). Changing a material's `materialParams` is a scene edit like any other: it is undoable.
 Compiling a snippet needs sokol-shdc: the factoria downloads carry it next to `factoria`; a factoria built from source
-gets it with `factoria setup shaders` ([SHADERS.md](SHADERS.md)). There is no
-inspector for a material's fields yet: that panel arrives with the reflected inspector of milestone M20, so for now
-describe the change to the AI.
+gets it with `factoria setup shaders` ([SHADERS.md](SHADERS.md)). The
+[Inspector](#hierarchy-and-inspector) edits a MeshRenderer's `material` and `materialParams` and shows a build error under
+the material field.
+
+## Hierarchy and Inspector
+
+Hand editing uses the commands the AI uses (`scene.set_component`, `scene.set_parent`, `scene.spawn`, `scene.destroy`...), so
+every change is an Undo step (a drag is one step), marks the scene dirty, and Save writes it to the scene file. Both panels
+are in the View menu.
+
+**Hierarchy.** Roots and children with their names and ids. Click an entity to select it (the viewport outline follows,
+and a click in the viewport scrolls the tree to the entity). Drag an entity onto another to make it a child
+(`scene.set_parent`: it keeps its place on screen) or onto the empty space under the tree to make it a root; a cycle is
+refused with the reason. Right-click: Create empty child, Duplicate (the entity and its children get new ids), Rename,
+Active, Move to the top level, Delete (also the Del key). **+** and the right-click menu of the empty space create a
+top-level entity. The search box keeps the entities whose name or id contains every word typed.
+
+**Inspector.** One collapsing header per component of the selected entity (hover the header for the component's
+description, the x removes it; Transform and EntityInfo stay). One row per field, built from reflection: tick box for
+bool, drag for numbers (the field's range limits the drag; click a number to type it), vectors and rects as one drag per
+number, a colour picker, a drop-down for enums and for entity references (by id), a text box plus a file list for assets
+(only files of the right type), and a multi-line text box for free-form JSON (`Script.props`...) that is applied when you
+click away and refuses invalid JSON, showing the parse error. Hover a name for the field's doc string and range. Read-only
+fields (the entity id) are disabled and runtime-only state is not shown. A value the command refuses (outside the range)
+changes nothing and its message shows under the field. **Add Component** lists the components the entity lacks.
+
+**MeshRenderer.** `material` is a file list of `*.material.json`. `materialParams` is typed by the material's `material.info`:
+one widget per param (drag with its `min`/`max`, vectors, a colour picker), an `*` and a **Reset** button when this entity
+overrides the default (written with `scene.set_component` and `merge: true`). Under the material field a material that does
+not compile shows its error with the snippet's file and line; it disappears when the material builds again. Texture params
+of a material are not editable here yet (use the Console or the AI).
+
+**While the game plays** both panels edit the running game; an orange note says the edits are lost on Stop (and they add no
+Undo step).
 
 ## AI Assistant
 

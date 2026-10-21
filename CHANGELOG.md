@@ -4,6 +4,23 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Edit by hand in the editor
+
+- The editor has a Hierarchy and an Inspector now. The Hierarchy lists every entity as a tree: click one to select it (a
+  click in the game view selects it there too), drag it onto another to make it a child, drop it on the empty space to
+  make it a top-level entity, and right-click for create child, duplicate, rename, active and delete. There is a search box.
+- The Inspector shows the selected entity's components with a field for every value: tick boxes, number drags that
+  respect each field's range, vectors, colour pickers, drop-downs for choices and for other entities, file pickers for
+  pictures, sounds and materials, and a text box for free-form JSON. Hover a name to read what it does. Add Component and
+  the x on a component's header add and remove components.
+- Everything you change by hand goes through the same commands the AI uses, so Undo works (one drag is one step) and a
+  value a field does not accept is refused with the reason. While the game plays you can edit the running game; Stop
+  takes those edits back.
+- A `MeshRenderer` shows its material's settings with the right widgets (sliders, vectors, colour pickers) and a Reset
+  button for each, and a material that does not compile shows its error right under the material field.
+- New command `scene.set_parent` moves an entity under another one (or to the top level), for the AI too.
+- Still to come: moving things by dragging in the game view and a browser for the project's files.
+
 Find out what makes your game slow
 
 - A profiler: it tells you where the time of a frame goes, per part of the engine (physics, scripts, sound, drawing...) and
