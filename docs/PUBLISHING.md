@@ -141,8 +141,8 @@ Do these once, in this order. Each is a full section elsewhere.
 - Make the MSIX with the Windows SDK (`makeappx`), with the tile and store logos, as in
   [Microsoft Store](EXPORTING.md#microsoft-store). Upload it unsigned: Microsoft signs it after certification.
 - Store listing: texts, screenshots, optional trailer, store logos (see
-  [Store page material](EXPORTING.md#store-page-material)). Privacy policy URL, age rating (IARC questionnaire in
-  Partner Center), pricing, markets and availability.
+  [Store page material](EXPORTING.md#store-page-material)). Privacy policy URL ([LEGAL.md](LEGAL.md)), age rating
+  (IARC questionnaire in Partner Center), pricing, markets and availability.
 - Certification: Microsoft tests the package; a few days. Blocks the release. An update raises the manifest `Version`.
 
 ## Google Play
@@ -229,7 +229,8 @@ Do these once, in this order. Each is a full section elsewhere.
   not from a file ([Web](EXPORTING.md#web)).
 - Test the browsers you care about (WebGL 2 is required), audio after the first click, touch controls on phones,
   first-load size.
-- A privacy policy and, in the EU, a cookie/consent note when you add analytics or ads; the game itself collects nothing.
+- A privacy policy ([LEGAL.md](LEGAL.md)) and, in the EU, a cookie/consent note when you add analytics or ads; the game
+  itself collects nothing.
 - Payments, accounts and updates are yours: this route has no store behind it.
 
 ## Before you release: checklist for every store
@@ -245,7 +246,8 @@ Do these once, in this order. Each is a full section elsewhere.
 - [ ] `publish.<store>` dry run is clean for each store.
 - [ ] AI content answered the same in every store form (`assets.disclosure`).
 - [ ] Privacy: what the game collects is known and the same in every form; a privacy policy page exists and its URL is
-      ready (Google Play, App Store and Microsoft Store require one).
+      ready (Google Play, App Store and Microsoft Store require one); templates and the full checklist are in
+      [LEGAL.md](LEGAL.md#checklist).
 - [ ] Age rating questionnaires filled (IARC covers Google Play, Microsoft and Epic; Steam and Apple have their own).
 - [ ] Store page texts in every language you ship, screenshots made from the real game, store images at each store's sizes
       ([Store page material](EXPORTING.md#store-page-material)), trailer if the store wants one.
