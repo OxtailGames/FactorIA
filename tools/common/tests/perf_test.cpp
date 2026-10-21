@@ -118,6 +118,11 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
     CHECK(perf_runner_id("none").find("-nogpu") != std::string::npos);
     CHECK(perf_runner_id("D3D11 hardware / AMD Radeon").find("-d3d11") != std::string::npos);
     const std::string id = perf_runner_id("none");
+#if defined(NDEBUG)
+    CHECK_FALSE(id.ends_with("-debug"));
+#else
+    CHECK(id.ends_with("-nogpu-debug"));  // a Debug build is a kind of its own: it never meets a release build's baseline
+#endif
 #if defined(_WIN32)
     CHECK(id.rfind("windows-msvc-", 0) == 0);
     _putenv_s("FACTORIA_PERF_RUNNER", "my-box");
@@ -128,6 +133,25 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
     setenv("FACTORIA_PERF_RUNNER", "my-box", 1);
     CHECK(perf_runner_id("none") == "my-box");
     unsetenv("FACTORIA_PERF_RUNNER");
+#endif
+}
+
+TEST_CASE("perf_runner_id: GitHub's macOS VM and a Mac's own GPU are different kinds") {
+#if defined(_WIN32)
+    _putenv_s("FACTORIA_PERF_RUNNER", "");
+#else
+    unsetenv("FACTORIA_PERF_RUNNER");
+#endif
+    // The CI runner's Metal device costs ~6 MB less memory than an M5 on the same build: a baseline of one would fail the other.
+    const std::string vm = perf_runner_id("Metal / Apple Paravirtual device");
+    const std::string mac = perf_runner_id("Metal / Apple M5");
+    CHECK(vm != mac);
+#if defined(NDEBUG)
+    CHECK(vm.ends_with("-metal-paravirtual"));
+    CHECK(mac.ends_with("-metal"));
+#else
+    CHECK(vm.ends_with("-metal-paravirtual-debug"));
+    CHECK(mac.ends_with("-metal-debug"));
 #endif
 }
 
