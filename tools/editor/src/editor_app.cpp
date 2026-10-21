@@ -1269,6 +1269,7 @@ void Editor::draw_toolbar() {
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Edit);
     if (ImGui::Button("Save")) save_scene_now();
+    at_track("toolbar:save");
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("Save the scene to %s (Ctrl+S)", scenePath_.c_str());
     ImGui::SameLine();
@@ -1299,6 +1300,7 @@ void Editor::draw_toolbar() {
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Edit || undo_.empty());
     if (ImGui::Button("Undo")) undo();
+    at_track("toolbar:undo");
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Edit || redo_.empty());
