@@ -169,3 +169,37 @@ TEST_CASE("audio feed: polls only newer plays, keeps failed loads visible, filte
     CHECK(a.after == 0);
     CHECK(poll_audio_log(s.commands(), a) == 3);
 }
+
+TEST_CASE("profiler view: smooths the per-frame profile, sorts the behaviour classes, keeps a bounded history") {
+    ProfilerView v;
+    auto frame = [](double total, double busy, double idle) {
+        ProfFrame f;
+        f.totalMs = total;
+        f.systemMs[std::size_t(ProfSystem::ScriptsUpdate)] = busy + idle;
+        f.classes = {{"Idle", "idle.js", idle, 1}, {"Busy", "busy.js", busy, 2}};
+        return f;
+    };
+    CHECK(v.frames == 0);
+    for (int i = 0; i < 50; ++i) v.add_frame(frame(10.0, 4.0, 0.1));
+    CHECK(v.frames == 50);
+    CHECK(v.smoothFrameMs == doctest::Approx(10.0));
+    CHECK(v.systemMs[std::size_t(ProfSystem::ScriptsUpdate)] == doctest::Approx(4.1));
+    REQUIRE(v.rows.size() == 2);
+    CHECK(v.rows[0].className == "Busy");  // sorted by time, whatever the order the engine sent
+    CHECK(v.rows[0].ms == doctest::Approx(4.0));
+    CHECK(v.rows[0].calls == doctest::Approx(2.0));
+    CHECK(v.rows[1].className == "Idle");
+
+    // A class that stops running fades away instead of freezing at its last value.
+    ProfFrame only;
+    only.totalMs = 5;
+    only.classes = {{"Idle", "idle.js", 0.1, 1}};
+    for (int i = 0; i < 400; ++i) v.add_frame(only);
+    REQUIRE(v.rows.size() == 1);
+    CHECK(v.rows[0].className == "Idle");
+
+    CHECK(v.frameMs.size() == ProfilerView::kHistory);
+    v.reset();
+    CHECK(v.frames == 0);
+    CHECK(v.rows.empty());
+}
