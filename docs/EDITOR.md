@@ -81,7 +81,7 @@ the key) and the keys work while the Viewport is hovered or focused and no text 
 | Scale | R | One handle per LOCAL axis ending in a box, and a centre box for uniform scale. A factor never goes below 0.01, so a drag cannot reach 0 or flip the sign. |
 
 A click on a handle starts a drag and does not change the selection; a click anywhere else selects as before. Handles keep
-their size in screen pixels at any zoom and light up under the mouse. **Hold Ctrl while dragging to snap the value**: move to
+their size in screen pixels at any zoom and light up under the mouse. **Hold Ctrl (Cmd on macOS) while dragging to snap the value**: move to
 whole world units with an orthographic camera and 0.25 with a perspective one, rotate to 15 degrees, scale to 0.1.
 **Esc while dragging** puts the start value back and leaves no Undo step. They work for 2D and 3D scenes and for screen-space
 (HUD) entities, whose values are design pixels. The gizmo works in world space and writes the entity's LOCAL values, so a

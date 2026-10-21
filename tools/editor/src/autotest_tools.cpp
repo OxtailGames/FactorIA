@@ -1550,8 +1550,14 @@ void Editor::at_build_tools_script() {
         };
         auto ctrl = [this, &step](bool down) {
             step(2, [this, down] {
+#if defined(__APPLE__)
+                // Dear ImGui swaps Cmd and Ctrl on macOS (io.KeyCtrl is Cmd): the key a Mac user holds to snap is Cmd.
+                atMods_ = down ? SAPP_MODIFIER_SUPER : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_SUPER);
+#else
                 atMods_ = down ? SAPP_MODIFIER_CTRL : 0;
                 inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_CONTROL);
+#endif
             });
         };
         auto wait_until = [this, &step](std::function<bool()> cond) {
