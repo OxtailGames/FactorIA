@@ -27,6 +27,7 @@ function defaults() {
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
 }
 
@@ -47,10 +48,22 @@ export function applyColorFilter(s = load()) {
   if (camera) camera.get("Camera").colorFilter = s.colorFilter;
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, text size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Captions follow the "Subtitles" option by switching the scene's "captions" entity on or off. The game keeps calling audio.play({ caption }) and ui.caption(): they are tracked while hidden. */
+export function applySubtitles(s = load()) {
+  const captions = world.find("captions");
+  if (captions) captions.active = s.subtitles;
+}
+
+/** What belongs to the scene's own entities (camera, captions): every scene has new ones, so each scene sets them again. */
+export function applyScene(s = load()) {
+  applyColorFilter(s);
+  applySubtitles(s);
+}
+
+/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
-  applyColorFilter(s);
+  applyScene(s);
   ui.textScale = s.textScale;
   if (s.language && s.language !== i18n.language) {
     try {
@@ -82,7 +95,7 @@ export function apply(s = load()) {
 
 /** apply() the first time it is called in a run: session values outlive scene loads (and each test starts afresh). */
 export function applyOnce() {
-  if (session.settingsApplied) return applyColorFilter(); // a new scene has a new camera
+  if (session.settingsApplied) return applyScene(); // a new scene has a new camera and new captions
   session.settingsApplied = true;
   apply();
 }

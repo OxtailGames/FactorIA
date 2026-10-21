@@ -33,6 +33,7 @@
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
+#include "fa/scene/captions.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -144,9 +145,14 @@ public:
     // system's speech (set_backend_factory), headless runs and tests only record (`game.spoken()`).
     Speech& speech() { return speech_; }
 
+    // The subtitles on screen (`audio.play(path, { caption })`, `ui.caption`, game.captions()). The engine updates it every
+    // frame (CaptionList::update) and the Captions components draw it.
+    CaptionList& captions() { return captions_; }
+
 private:
     float textScale_ = 1.0f;
     Speech speech_;
+    CaptionList captions_;
 };
 
 // Where `storage.*` keeps its data. Persistent: <user dir>/storage.json (default). Memory: never touches disk

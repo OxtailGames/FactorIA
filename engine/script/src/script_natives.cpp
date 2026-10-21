@@ -1597,17 +1597,60 @@ NATIVE(audioPlay) {
     pp.loop = arg_bool(ctx, argc, argv, 4, false);
     std::string bus = arg_str(ctx, argc, argv, 5);
     if (!bus.empty()) pp.bus = bus;
-    return JS_NewInt32(ctx, static_cast<int32_t>(I->host->audio().play(path, pp)));
+    const VoiceId voice = I->host->audio().play(path, pp);
+    // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
+    // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s.
+    const std::string captionText = arg_str(ctx, argc, argv, 6), captionKey = arg_str(ctx, argc, argv, 7);
+    if (!captionText.empty() || !captionKey.empty()) {
+        const double seconds = arg_num(ctx, argc, argv, 9, 0);
+        CaptionLine line;
+        line.text = captionText.empty() ? captionKey : captionText;
+        line.key = captionKey;
+        line.speaker = arg_str(ctx, argc, argv, 8);
+        line.source = "audio:" + path;
+        line.voice = voice;
+        if (seconds > 0) line.endsAt = W.time() + seconds;
+        else if (voice == 0) line.endsAt = W.time() + 3.0;
+        I->host->captions().add(std::move(line), I->host->i18n());
+    }
+    return JS_NewInt32(ctx, static_cast<int32_t>(voice));
 }
 NATIVE(audioStop) {
     SETUP;
-    I->host->audio().stop(static_cast<VoiceId>(arg_num(ctx, argc, argv, 0)));
+    const VoiceId voice = static_cast<VoiceId>(arg_num(ctx, argc, argv, 0));
+    I->host->audio().stop(voice);
+    I->host->captions().remove_voice(voice);
     return JS_UNDEFINED;
 }
 NATIVE(audioStopAll) {
     SETUP;
     I->host->audio().stop_all();
+    I->host->captions().remove_all_voices();
     return JS_UNDEFINED;
+}
+NATIVE(captionAdd) {  // (text, key, speaker, seconds): a caption without a sound
+    SETUP;
+    CaptionLine line;
+    line.key = arg_str(ctx, argc, argv, 1);
+    line.text = arg_str(ctx, argc, argv, 0);
+    if (line.text.empty()) line.text = line.key;
+    line.speaker = arg_str(ctx, argc, argv, 2);
+    line.source = "ui";
+    line.endsAt = W.time() + arg_num(ctx, argc, argv, 3, 3);
+    I->host->captions().add(std::move(line), I->host->i18n());
+    return JS_UNDEFINED;
+}
+NATIVE(captionClear) {
+    SETUP;
+    I->host->captions().clear();
+    return JS_UNDEFINED;
+}
+NATIVE(captionList) {  // () -> [{text, speaker, key, source}], oldest first
+    SETUP;
+    Json list = Json::array();
+    for (const CaptionLine& l : I->host->captions().lines())
+        list.push_back(Json::object({{"text", l.text}, {"speaker", l.speaker}, {"key", l.key}, {"source", l.source}}));
+    return I->from_json(list);
 }
 NATIVE(audioMusic) {
     SETUP;
@@ -2236,8 +2279,8 @@ const Reg kRegs[] = {
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
     R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
-    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
-    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
+    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
+    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
