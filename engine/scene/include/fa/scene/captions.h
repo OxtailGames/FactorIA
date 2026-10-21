@@ -26,7 +26,8 @@ class CaptionList {
 public:
     static constexpr std::size_t kMaxLines = 32;  // the oldest are dropped beyond this
 
-    void add(CaptionLine line);
+    // With `i18n`, a keyed line is translated at once (game.captions() right after the call); update() does it again every frame.
+    void add(CaptionLine line, const I18n* i18n = nullptr);
     void remove_voice(std::uint32_t voice);   // audio.stop(voice)
     void remove_all_voices();                 // audio.stopAll()
     void clear() { lines_.clear(); }
@@ -40,6 +41,7 @@ public:
     bool update(World& world, const I18n& i18n, const std::function<bool(std::uint32_t)>& voicePlaying);
 
 private:
+    static void translate(CaptionLine& line, const I18n& i18n);
     std::vector<CaptionLine> lines_;
     bool hinted_ = false;
 };

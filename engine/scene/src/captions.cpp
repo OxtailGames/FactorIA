@@ -8,7 +8,21 @@
 
 namespace fa {
 
-void CaptionList::add(CaptionLine line) {
+void CaptionList::translate(CaptionLine& l, const I18n& i18n) {
+    if (l.key.empty()) return;
+    if (std::optional<std::string> t = i18n.translate(l.key)) {
+        l.text = std::move(*t);
+    } else {
+        const std::string hint = i18n.enabled()
+            ? "add the key to locales/" + i18n.default_language() + ".json"
+            : std::string("factoria.json has no \"localization\" section, so nothing is translated: add one (docs/LOCALIZATION.md)");
+        i18n.warn_once("caption|" + l.key, "The caption key '" + l.key + "' is in no string table, so the caption shows its own text \"" +
+                                               l.text + "\" (hint: " + hint + ")");
+    }
+}
+
+void CaptionList::add(CaptionLine line, const I18n* i18n) {
+    if (i18n) translate(line, *i18n);
     lines_.push_back(std::move(line));
     if (lines_.size() > kMaxLines) lines_.erase(lines_.begin());
 }
@@ -28,18 +42,7 @@ bool CaptionList::update(World& world, const I18n& i18n, const std::function<boo
         if (l.endsAt >= 0.0) return now >= l.endsAt;
         return l.voice != 0 && !voicePlaying(l.voice);
     });
-    for (CaptionLine& l : lines_) {
-        if (l.key.empty()) continue;
-        if (std::optional<std::string> t = i18n.translate(l.key)) {
-            l.text = std::move(*t);
-        } else {
-            const std::string hint = i18n.enabled()
-                ? "add the key to locales/" + i18n.default_language() + ".json"
-                : std::string("factoria.json has no \"localization\" section, so nothing is translated: add one (docs/LOCALIZATION.md)");
-            i18n.warn_once("caption|" + l.key, "The caption key '" + l.key + "' is in no string table, so the caption shows its own text \"" +
-                                                   l.text + "\" (hint: " + hint + ")");
-        }
-    }
+    for (CaptionLine& l : lines_) translate(l, i18n);
     bool any = false, changed = false;
     world.each<Captions>([&](Entity, Captions& c) {
         any = true;

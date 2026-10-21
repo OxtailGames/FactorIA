@@ -2,6 +2,29 @@
 
 # Commands: ui
 
+## `ui.caption` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Show a subtitle line on the Captions component for a few seconds.
+
+The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line without a sound, drawn by the Captions component (docs/TEXT.md, "Captions") for `seconds` of the game clock; the newest Captions.maxLines lines show. With `key` (a localization key) the line is the translation and follows a language change. Without a Captions entity the line is only tracked and the log says so once. Example: ui.caption {"text":"Watch out!","seconds":2,"speaker":"Mara"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | no | The line (the fallback when `key` is set and no string table has it). |
+| `key` | string | no | Localization key of the line. |
+| `speaker` | string | no | Name drawn before the line. |
+| `seconds` | number | no | How long it shows, in game-clock seconds (default 3). |
+
+## `ui.clear_captions` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Remove every subtitle from the screen now.
+
+The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
+
 ## `ui.set_text_scale` (modifies state)
 
 Not released yet (on main after 0.1.6).

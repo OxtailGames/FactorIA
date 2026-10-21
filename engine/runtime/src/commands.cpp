@@ -667,7 +667,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               line.speaker = a.value("speaker", std::string());
               line.source = "ui";
               line.endsAt = engine.world().time() + a.value("seconds", 3.0);
-              engine.captions().add(std::move(line));
+              engine.captions().add(std::move(line), engine.i18n());
               return Json::object({{"captions", engine.captions().size()}});
           });
 
