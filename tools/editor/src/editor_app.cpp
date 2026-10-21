@@ -64,6 +64,22 @@ Key map_key(sapp_keycode k) {
     }
 }
 
+// The autotest types and clicks through its own events (inject_*), which go straight to on_event. The OS's input and
+// focus events would get in its way: someone moving the mouse over the window moves the autotest's mouse, and another
+// window taking focus makes ImGui drop the keys and characters typed in that frame.
+bool autotest_ignores(const sapp_event* e) {
+    switch (e->type) {
+        case SAPP_EVENTTYPE_KEY_DOWN: case SAPP_EVENTTYPE_KEY_UP: case SAPP_EVENTTYPE_CHAR:
+        case SAPP_EVENTTYPE_MOUSE_DOWN: case SAPP_EVENTTYPE_MOUSE_UP: case SAPP_EVENTTYPE_MOUSE_SCROLL:
+        case SAPP_EVENTTYPE_MOUSE_MOVE: case SAPP_EVENTTYPE_MOUSE_ENTER: case SAPP_EVENTTYPE_MOUSE_LEAVE:
+        case SAPP_EVENTTYPE_TOUCHES_BEGAN: case SAPP_EVENTTYPE_TOUCHES_MOVED: case SAPP_EVENTTYPE_TOUCHES_ENDED:
+        case SAPP_EVENTTYPE_TOUCHES_CANCELLED: case SAPP_EVENTTYPE_FOCUSED: case SAPP_EVENTTYPE_UNFOCUSED:
+            return true;
+        default:
+            return false;
+    }
+}
+
 }  // namespace
 
 std::string home_dir() {
@@ -212,7 +228,9 @@ int Editor::run() {
     d.cleanup = [this] { on_cleanup(); };
     d.exit_code = [this] { return atFailures_.empty() ? 0 : 1; };  // the autotest fails the process (ctest)
     sapp_desc s = to_sapp_desc(d);
-    s.event_cb = [](const sapp_event* e) { if (g_editor) g_editor->on_event(e); };
+    s.event_cb = [](const sapp_event* e) {
+        if (g_editor && !(g_editor->autotest_active() && autotest_ignores(e))) g_editor->on_event(e);
+    };
     // Copy and paste: sokol_imgui pastes on sokol_app's CLIPBOARD_PASTED event (it swallows the Ctrl+V key), and both
     // need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
     s.enable_clipboard = true;
