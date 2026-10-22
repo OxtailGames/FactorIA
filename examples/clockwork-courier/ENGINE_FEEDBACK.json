@@ -722,14 +722,14 @@
       "category": "platform",
       "severity": "minor",
       "title": "Products.storekit exists only with a built Apple plugin and has one locale",
-      "missing": "factoria export --platform ios writes Products.storekit only when the Apple plugin is declared AND built (plugins/apple/ios/*/libapple.a), so a game that has not run platform.add_backend on a Mac gets no local StoreKit file and no hint that the catalog was skipped. The file has one en_US localization: the titleKey translations (es) never reach it.",
+      "missing": "factoria export --platform ios writes Products.storekit only when the Apple plugin is declared AND built (plugins/apple/ios/*/libapple.a), so a game that has not run platform.add_backend on a Mac gets no local StoreKit file and no hint that the catalog was skipped. The file has one en_US localization: the titleKey translations (es) never reach it. P6 (clockwork-courier-p6) hit it again: platform.add_backend apple on the real project (a Mac with Xcode tools) wrote plugins/apple and the next ios export wrote Products.storekit; Xcode opens it only from that file, so the in-app purchase check could not be done in the simulator by the export alone.",
       "workaround": "Checked on a scratch copy: add_backend apple, cmake build of the plugin, export; the four products came out right (ids, types, prices). The real project does not declare the plugin.",
       "workaroundFiles": [
         "factoria.json"
       ],
       "suggestion": "Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.",
       "effort": "small",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -815,6 +815,135 @@
         "tests/comfort.test.js"
       ],
       "suggestion": "Add game.quitRequested to the test API and make game.quit() only set it in tests.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0039",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "platform.add_backend ignores dryRun and rewrites the whole factoria.json",
+      "missing": "platform.add_backend {\"backend\":\"apple\",\"dryRun\":true} still wrote plugins/apple/ and the \"plugins\" entry, and the factoria.json came back reformatted (every array re-indented), so the diff of one added block is hundreds of lines.",
+      "workaround": "Kept the real result (it is what makes the export write Products.storekit) and committed it; the reformatting is in the same commit as the plugin.",
+      "workaroundFiles": [
+        "factoria.json"
+      ],
+      "suggestion": "Honour dryRun (print what would be written) and edit factoria.json in place without reformatting. Also exclude plugins/apple/build from the folder it creates, or say it is a build dir to ignore.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0040",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Android export needs the exact CMake 3.31.6 in the SDK and a JDK, with no offline way around it",
+      "missing": "factoria export --platform android (source mode) failed because the SDK had no CMake 3.31.6 (Gradle tries to download it) and the machine had no JAVA_HOME. The error says what is missing but not how to point at another CMake or JDK.",
+      "workaround": "Scratch scripts outside the repo: a cmake.dir in local.properties pointing at the system CMake (4.4.4), -Pfactoria.cmakeVersion=4.4.4 and JAVA_HOME from a JDK that was already installed (the one bundled with Unity Hub); then Gradle --offline built a 52.8 MB apk in 2m23s.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Accept any CMake >= the minimum (read from `cmake --version` or `export.android.cmake`), print the cmake.dir / JAVA_HOME / --offline recipe in the error, and let `factoria doctor` list both.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0041",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "macOS export: the app does not find its game, or runs an older engine than the project",
+      "missing": "factoria export --platform macos --release: the .app starts and stops with \"no factoria.json in '/'\" (it looks for the project in the working directory, not next to the executable, when opened from Finder or `open`). Without --release the app runs, but the bundled factoria_player is the one next to factoria (dated six days before the factoria binary here) and does not know Text.key, Text.safeArea or the Button component, so scripts/intro.js throws \"not a function\". Could not tell the engine apart from a stale local build, so this may be only my machine; the export prints no player version.",
+      "workaround": "None: macOS could not be verified running. iOS (simulator), Android (device) and web were verified with input; macOS is exported but untested.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Make the .app locate game.pak inside Contents/Resources (or next to the executable) whatever the working directory, and have the export refuse (or warn) when the player's version differs from the factoria that exports; print the player version and path in the export report.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0042",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "perf.measure and the test API give no triangles or lights, and renderStats is zero headless",
+      "missing": "A render budget for a phone wants triangles, lights, texture memory and draw calls. perf.measure reports only draw calls and entities; game.state.renderStats is all zeros in a headless call; the test API cannot read draw calls at all.",
+      "workaround": "tests/budget.test.js counts entities, MeshRenderer, Light and ParticleEmitter of every level in the running scene (static numbers); perf.json holds the draw-call budget of the heaviest level.",
+      "workaroundFiles": [
+        "tests/budget.test.js",
+        "perf.json"
+      ],
+      "suggestion": "Add triangles, lights, shadowCasters and textureMB to perf.measure and to a `game.renderStats()` in factoria:test (the headless EGL/Metal renderer has them after one frame).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0043",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "nice-to-have",
+      "title": "No video playback, and --record-video writes a very large AVI",
+      "missing": "A studio intro or a store trailer is a video file in most games; the engine cannot play one, and --record-video writes an AVI of 183 MB for 43.6 s at 1280x720 that every store needs converted (ffmpeg is not part of the toolchain).",
+      "workaround": "The intro is an animated scene (scenes/intro.scene.json, scripts/intro.js). The trailer is a scripted director scene recorded with --record-video; SHIPPING.md has the ffmpeg command to make the mp4.",
+      "workaroundFiles": [
+        "scripts/intro.js",
+        "store/trailer/trailer.js",
+        "SHIPPING.md"
+      ],
+      "suggestion": "A Video component (mp4/webm with the platform decoder) and an --record-video output that is already H.264 mp4 when the OS offers an encoder (VideoToolbox, Media Foundation, MediaCodec).",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0044",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "Web player: typing in a TextInput from the browser pane did not fill it",
+      "missing": "In the web export opened in a browser pane, key events sent with the pane's typing tool did not put letters in the name field of the name screen (the on-screen keyboard buttons did). It may be the pane's synthetic events rather than the player, and there is no documented way to tell.",
+      "workaround": "Filled the name with the on-screen keyboard of the game (scripts/profile.js) for the check.",
+      "workaroundFiles": [
+        "scripts/profile.js"
+      ],
+      "suggestion": "Document how the web player receives text (keydown vs the text input event, hidden input element for mobile keyboards) so a game can test it, and add an autotest page to the web player.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"

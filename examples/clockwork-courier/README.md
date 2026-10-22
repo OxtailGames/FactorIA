@@ -12,7 +12,7 @@ contracts below.
 factoria validate
 factoria run                      # windowed
 factoria run --headless --frames 120 --screenshot-at 119 --json
-factoria test                     # 165 headless tests (the six levels are played by a bot)
+factoria test                     # 424 headless tests (the six levels are played by a bot)
 ```
 
 The title screen (`scenes/main.scene.json`) goes through Play and `scenes/loading.scene.json` to the first level of the
@@ -171,7 +171,10 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/services.js`, `store.js`, `paints.js`, `shortcuts.js` | P4 store services: achievements, stats and score submissions that listen to the events; purchases and the wallet; robot paints; the shortcut zones (see "Contract: store services"). |
 | `scripts/ads.js`, `ad_stub.js`, `more_time.js` | P4 rewarded "more time" on the retry screen: the ad provider interface, the stub overlay, the button and the continue. |
 | `scripts/ui/shop.js`, `achievements.js`, `leaderboards.js`, `toast.js` | P4 screens of the title (Shop, Achievements, Leaderboards) and the achievement toast. |
-| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js` (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
+| `scripts/intro.js` | P6 studio intro (`scenes/intro.scene.json`, the `mainScene`): about 4.8 s, plays once (`introSeen` in storage), ends early on a tap, key, pad button, Skip or Back, then goes to the title. |
+| `store/` | P6 store material: `en/`, `es/`, `ja/` listing texts (`store/check_store.py` checks lengths), `keyart.png`, `capsules/`, `screenshots/` (phone, tablet, desktop) and `trailer/` (director script and generator, see SHIPPING.md). Kept out of the shipped game by `export.exclude`. |
+| `perf.json` | P6 performance budget (`factoria call perf.check`): the heaviest level, `market_3`, on the macOS Metal runner. |
+| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js`, P6: `intro.test.js`, `budget.test.js` (entity, mesh, light and emitter budget per level, exact sizes of the icon and every store image), the Back-at-title quit question is in `comfort.test.js` (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
 
 ### Contract: levels (`scripts/levels.js`)

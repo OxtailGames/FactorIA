@@ -1,0 +1,18 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "scene": "scenes/market_3.scene.json",
+  "runners": {
+    "macos-clang-metal": {
+      "frames": 300,
+      "cpuMsAvg": 1.085,
+      "cpuMsP95": 1.029,
+      "cpuMsMax": 96.016,
+      "peakMemoryMB": 82.4,
+      "drawCalls": 119,
+      "entities": 416,
+      "graphics": "Metal / Apple M5"
+    }
+  }
+}
+
