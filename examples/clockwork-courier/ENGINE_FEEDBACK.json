@@ -332,8 +332,11 @@
       "workaround": "Always pass `{\"paths\": [...]}`; level generators write canonical JSON themselves and the project notes say never to run it bare.",
       "suggestion": "Make `paths` required (or default to `check: true`), and print how many files it will change before writing more than a few.",
       "effort": "small",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-22: Always pass explicit paths; reverted the three files with git and re-applied only the edits."
+      ]
     },
     {
       "id": "FB-0017",
@@ -417,8 +420,11 @@
         "scenes/profile.scene.json"
       ],
       "suggestion": "A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin."
+      ]
     },
     {
       "id": "FB-0021",
@@ -618,8 +624,11 @@
       ],
       "suggestion": "platform.catalog (read only: ids, types, titles) and nameKey on leaderboards.",
       "effort": "small",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-22: Board titles are built from the level-name keys of the locale files (board.time, board.daily, board.stars), as in P4."
+      ]
     },
     {
       "id": "FB-0030",
@@ -816,6 +825,164 @@
       ],
       "suggestion": "Add game.quitRequested to the test API and make game.quit() only set it in tests.",
       "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0039",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No locale-aware number formatting",
+      "missing": "i18n.t fills {placeholders} with String(value): a decimal always has a point, there are no thousands separators, no ordinals and no locale rule for time or list formatting. Spanish needs 1,5 and 1:15,0.",
+      "workaround": "Each locale file states format.decimal and scripts/fmt.js applies it (decimal, clock) before the value goes into i18n.t.",
+      "workaroundFiles": [
+        "scripts/fmt.js",
+        "locales/es.json"
+      ],
+      "suggestion": "Number, percent and duration formatters in i18n (i18n.number(v, {digits}), i18n.duration) following the active language, and {value:number} style placeholders.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0040",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "TouchButton has no localization key",
+      "missing": "TouchButton.text cannot take `key`, so its label stays in one language and a language switch does not rewrite it.",
+      "workaround": "scripts/hud.js writes the label in the current language at start and at every i18n change, and sizes the font to fit the 96 px disc.",
+      "workaroundFiles": [
+        "scripts/hud.js"
+      ],
+      "suggestion": "A `key` field on TouchButton, like Text and Button.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0041",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Toggle and Slider labels do not wrap or shrink",
+      "missing": "A Toggle or Slider label never wraps (Button does with maxWidth). A Slider with autoSize and a long label grows to about 1800 px at 200 percent text in Spanish; with a fixed size the label overlaps the track.",
+      "workaround": "Sliders are fixed size with an empty label and a Text above each one (maxWidth wraps it); the options list width follows ui.textScale (fitWidth in scripts/ui/options.js); the Toggle labels stay short in every locale.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "maxWidth on Toggle and Slider (wrap the label, grow the height), and a Slider label placed above the track.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0042",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No shrink-to-fit or per-screen text scale cap",
+      "missing": "ui.textScale multiplies every screen-space text, but widgets that sit at fixed places or have a fixed size (cards, HUD rows, headings, round touch buttons) clip or overlap at 200 percent, and Spanish and Japanese labels differ in length from English. There is no autoShrink on Text or Button, no per-entity scale cap and no way to know a label overflowed.",
+      "workaround": "Four screens cap the effective size of their fixed-place texts in script (level_select capSizes, hud layoutHud, touch labels in hud.js, toast panel fit); menus use fit Panels with fallbackLayout and ScrollLists with fill.",
+      "workaroundFiles": [
+        "scripts/level_select.js",
+        "scripts/hud.js",
+        "scripts/ui/toast.js"
+      ],
+      "suggestion": "Text.autoShrink (minFontSize) and Button.autoShrink, plus Widget.maxTextScale so a heading or a disc label can stop growing.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0043",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "No overflow or pseudo-localisation check",
+      "missing": "validate checks glyph coverage but not whether a translated label fits its widget; layout problems at 200 percent or in a long language were found only by looking at screenshots one by one.",
+      "workaround": "A tour script drove factoria session through every screen per language and scale and listed widgets whose ui.state rect left the screen; tests/i18n.test.js repeats the key screens.",
+      "workaroundFiles": [
+        "tests/i18n.test.js"
+      ],
+      "suggestion": "`factoria validate --pseudo-loc` (or a ui.overflowing() query) that lists clipped labels and widgets outside the screen at a given text scale and language.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0044",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "A headless test cannot set the system language",
+      "missing": "i18n.systemLanguages is always empty headless and no test hook sets it, so the first-run language choice (system language, else default) cannot be tested end to end; game.setAccessibility exists for the text size but nothing for the language.",
+      "workaround": "The rule is a pure function, settings.pickLanguage(systemLanguages, supported, fallback), tested with lists; the engine's own pick is not exercised.",
+      "workaroundFiles": [
+        "scripts/settings.js",
+        "tests/i18n.test.js"
+      ],
+      "suggestion": "game.setSystemLanguages([...]) in the test API, like setAccessibility, applied by the next scene load.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0045",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "assets.set_provenance re-sorts the whole assets.json",
+      "missing": "Recording one asset's provenance rewrites and re-sorts every entry of assets.json, so a one-line change is a diff of the whole file and conflicts with parallel work.",
+      "workaround": "The font entry was inserted by hand in assets.json, in the same shape.",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Keep the file order and touch only the entry.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0046",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A fill ScrollList makes its whole panel screen-tall",
+      "missing": "A fit Panel that contains a ScrollList with fill becomes exactly as tall as the screen, whatever the list holds, so a short list leaves a big empty panel and the Panel can no longer centre on its content.",
+      "workaround": "Each list gets a design size and fill: the panel uses the screen height only when the content is taller (credits, achievements, leaderboards, shop, options).",
+      "workaroundFiles": [
+        "scenes/main.scene.json",
+        "prefabs/ui/options.prefab.json"
+      ],
+      "suggestion": "fill should take only the room left (maxHeight = screen minus the other rows), and let the panel shrink below it.",
+      "effort": "medium",
       "occurrences": 1,
       "status": "open"
     }
