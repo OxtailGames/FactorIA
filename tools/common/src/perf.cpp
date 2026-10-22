@@ -12,6 +12,7 @@
 #include "fa/platform/app.h"
 #include "fa/runtime/engine.h"
 #include "fa/tooling/shaders.h"
+#include "headless_run.h"
 #include "util.h"
 
 namespace fa {
@@ -168,9 +169,7 @@ struct RunSpec {
     std::string scene, input;
 };
 
-std::string abs_path(const std::string& projectDir, const std::string& p) {
-    return fs::is_absolute(p) ? p : (std::filesystem::path(projectDir) / p).generic_string();
-}
+std::string abs_path(const std::string& projectDir, const std::string& p) { return tooling_detail::project_path(projectDir, p); }
 
 // One headless run with the GPU renderer (when there is one), drawing every frame; returns the run's report (`needKey` must be in it).
 Json run_report(const std::string& projectDir, const RunSpec& spec, HeadlessRunOptions ho, const char* needKey) {
@@ -178,16 +177,7 @@ Json run_report(const std::string& projectDir, const RunSpec& spec, HeadlessRunO
     if (gfx_device_active())
         throw CommandError("gpu_busy", "This process already uses the graphics card (the editor, a window or an engine with graphics), and a measured run needs a second engine with its own.",
                            "Run it from a terminal: factoria call --no-graphics perf.measure (perf.profile, perf.check...; plain 'factoria call perf.*' does that by itself). In the editor use View > Profiler or play.report's profile instead.");
-    EngineConfig cfg;
-    cfg.projectDir = projectDir;
-    cfg.shaderCompiler = make_engine_shader_compiler(projectDir);
-    cfg.scene = spec.scene;
-    cfg.headless = true;
-    cfg.audioDevice = false;
-    cfg.hotReload = false;
-    cfg.renderMode = RenderMode::Always;
-    cfg.memoryStorage = true;
-    cfg.platformBackend = "fake";
+    EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, spec.scene, true, RenderMode::Always);
     if (!spec.input.empty()) ho.inputReplayPath = abs_path(projectDir, spec.input);
     Json report;
     const int code = run_headless(cfg, ho, &report);
@@ -236,11 +226,7 @@ PerfSample measure(const std::string& projectDir, const RunSpec& spec, int repea
     return out;
 }
 
-void require_project(const std::string& projectDir) {
-    if (projectDir.empty() || !std::filesystem::exists(fs::os_path(std::filesystem::path(projectDir) / "factoria.json")))
-        throw CommandError("not_found", "perf.* needs a project (factoria.json not found).",
-                           "Run it inside a game folder or pass --project <folder>.");
-}
+void require_project(const std::string& projectDir) { tooling_detail::require_project_dir(projectDir, "perf.*"); }
 
 RunSpec spec_from_args(const Json& a, const RunSpec& def) {
     RunSpec s = def;
