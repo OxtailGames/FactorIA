@@ -9,7 +9,7 @@ closes the loop between those games and the engine team.
    doc in the game's `ENGINE_FEEDBACK.json` (MCP tool `feedback_report`, `factoria feedback add`, or by hand;
    the format is in `docs/ENGINE_FEEDBACK.md` and `schemas/engine-feedback.schema.json`). Each entry says what
    was missing, the workaround used, and a suggested fix. Similar open entries merge and raise `occurrences`.
-2. **Collect.** `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` groups
+2. **Collect.** `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` groups
    similar entries across games and ranks them by `sum(occurrences) x severity weight`
    (blocker 8, major 4, minor 2, nice-to-have 1). Only `open` entries count.
 3. **Triage.** For each entry, check it against the current engine (a scratch project, `factoria call`, or a

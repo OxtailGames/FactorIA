@@ -12,7 +12,7 @@ M25, a second reference game (3D, mobile first), is in progress: it is how M19 a
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
-Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
+Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
 0 entries from 5 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
