@@ -3,6 +3,7 @@
 // past its maximum) with a burst of sparks and a bell. Spring.wind() sends spring_wound.
 import { Behaviour, world, audio } from "factoria";
 import * as fx from "./fx.js";
+import { isReduced } from "./accessibility.js";
 
 export default class WindKey extends Behaviour {
   /** Seconds of spring the key gives. */
@@ -19,10 +20,12 @@ export default class WindKey extends Behaviour {
   }
 
   onUpdate(dt) {
-    this.t += dt;
+    // Reduced motion (scripts/accessibility.js): the key stands turned a little, so it keeps its shape but does not move.
+    const calm = isReduced();
+    if (!calm) this.t += dt;
     const tr = this.entity.get("Transform");
-    tr.position = [tr.position.x, this.baseY + Math.sin(this.t * 2.6) * this.bobHeight, tr.position.z];
-    tr.rotation = [0, (this.t * this.spin) % 360, 0];
+    tr.position = [tr.position.x, this.baseY + (calm ? 0 : Math.sin(this.t * 2.6) * this.bobHeight), tr.position.z];
+    tr.rotation = [0, calm ? 30 : (this.t * this.spin) % 360, 0];
   }
 
   onTriggerEnter(other) {
@@ -32,7 +35,7 @@ export default class WindKey extends Behaviour {
     if (spring) spring.wind(this.seconds);
     const p = this.entity.worldPosition;
     fx.burst("sparks", [p.x, p.y, p.z]);
-    audio.play("assets/audio/impactBell_heavy_000.ogg", { bus: "sfx", volume: 0.8, pitch: 1.3 });
+    audio.play("assets/audio/impactBell_heavy_000.ogg", { bus: "sfx", volume: 0.8, pitch: 1.3, caption: "[Bell: the spring is wound]", captionKey: "captions.key" });
     this.entity.destroy();
   }
 }

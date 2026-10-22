@@ -19,6 +19,7 @@
 import { Behaviour, input, physics, world, audio } from "factoria";
 import { EVENTS, emit } from "./events.js";
 import * as fx from "./fx.js";
+import * as haptics from "./haptics.js";
 
 const DEG = Math.PI / 180;
 
@@ -231,6 +232,7 @@ export default class Courier extends Behaviour {
       audio.play("assets/audio/impactSoft_heavy_000.ogg", { bus: "sfx", volume: Math.min(0.8, -before / 20) });
       const p = r.position;
       fx.burst("dust", [p.x, p.y - 0.5, p.z]);
+      haptics.pulse("land");
     }
     if (this.grounded && this.vy > 0) this.vy = 0;
     this.speed = Math.hypot(this.vx, this.vz);
@@ -365,7 +367,7 @@ export default class Courier extends Behaviour {
     this.caughtTimer = this.caughtTime;
     this.autoPath = null;
     this.locked = true;
-    audio.play("assets/audio/impactMetal_light_000.ogg", { bus: "sfx", volume: 0.8 });
+    audio.play("assets/audio/impactMetal_light_000.ogg", { bus: "sfx", volume: 0.8, caption: "[Thud: the dog caught you]", captionKey: "captions.caught" });
     if (this.anim) this.anim.trigger("caught");
     emit(EVENTS.courierCaught, { by });
   }

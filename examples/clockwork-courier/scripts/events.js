@@ -35,6 +35,8 @@ export const EVENTS = Object.freeze({
   gamePaused: "game_paused",
   /** The pause menu closed. */
   gameResumed: "game_resumed",
+  /** The daily route was finished: { date: "YYYY-MM-DD", level: level id, time: seconds }. Sent by whoever runs the daily route. */
+  dailyRouteFinished: "daily_route_finished",
 });
 
 /** Sends an event to every listener of the scene (world.emit with a name from EVENTS). */

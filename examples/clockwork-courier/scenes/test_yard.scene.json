@@ -1,47 +1,19 @@
 {
   "format": "factoria.scene/1",
   "settings": {
-    "ambientLight": [
-      0.3,
-      0.34,
-      0.42,
-      1
-    ],
-    "fogColor": [
-      0.72,
-      0.8,
-      0.88,
-      1
-    ],
+    "ambientLight": [0.3, 0.34, 0.42, 1],
+    "fogColor": [0.72, 0.8, 0.88, 1],
     "fogDensity": 0.012,
-    "skyColor": [
-      0.32,
-      0.55,
-      0.88,
-      1
-    ],
-    "horizonColor": [
-      0.82,
-      0.88,
-      0.94,
-      1
-    ]
+    "skyColor": [0.32, 0.55, 0.88, 1],
+    "horizonColor": [0.82, 0.88, 0.94, 1]
   },
   "entities": [
     {
       "id": "camera",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            3.5,
-            22
-          ],
-          "rotation": [
-            -22,
-            0,
-            0
-          ]
+          "position": [0, 3.5, 22],
+          "rotation": [-22, 0, 0]
         },
         "Camera": {
           "projection": "perspective",
@@ -62,26 +34,13 @@
       "id": "sun",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            20,
-            0
-          ],
-          "rotation": [
-            -50,
-            -35,
-            0
-          ]
+          "position": [0, 20, 0],
+          "rotation": [-50, -35, 0]
         },
         "Light": {
           "type": "directional",
           "intensity": 0.9,
-          "color": [
-            1,
-            0.95,
-            0.86,
-            1
-          ],
+          "color": [1, 0.95, 0.86, 1],
           "castShadows": true
         }
       }
@@ -117,30 +76,13 @@
       "id": "ground",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            -0.5,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            44,
-            1,
-            56
-          ]
+          "position": [0, -0.5, 0],
+          "rotation": [0, 0, 0],
+          "scale": [44, 1, 56]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.42,
-            0.46,
-            0.43,
-            1
-          ],
+          "color": [0.42, 0.46, 0.43, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -154,30 +96,13 @@
       "id": "ground_stripe",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            0.005,
-            4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.02,
-            40
-          ]
+          "position": [0, 0.005, 4],
+          "rotation": [0, 0, 0],
+          "scale": [3, 0.02, 40]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.62,
-            0.5,
-            0.14,
-            1
-          ],
+          "color": [0.62, 0.5, 0.14, 1],
           "roughness": 0.8,
           "metallic": 0.0
         }
@@ -187,30 +112,13 @@
       "id": "walkway",
       "components": {
         "Transform": {
-          "position": [
-            -8,
-            0.075,
-            9
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            2,
-            0.15,
-            10
-          ]
+          "position": [-8, 0.075, 9],
+          "rotation": [0, 0, 0],
+          "scale": [2, 0.15, 10]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.55,
-            0.36,
-            0.2,
-            1
-          ],
+          "color": [0.55, 0.36, 0.2, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -219,38 +127,19 @@
           "friction": 0.6
         }
       },
-      "tags": [
-        "wood"
-      ]
+      "tags": ["wood"]
     },
     {
       "id": "walkway_rail_0",
       "components": {
         "Transform": {
-          "position": [
-            -9.05,
-            0.55,
-            5.3
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.12,
-            0.8,
-            0.12
-          ]
+          "position": [-9.05, 0.55, 5.3],
+          "rotation": [0, 0, 0],
+          "scale": [0.12, 0.8, 0.12]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.4,
-            0.26,
-            0.14,
-            1
-          ],
+          "color": [0.4, 0.26, 0.14, 1],
           "roughness": 0.8,
           "metallic": 0.0
         }
@@ -260,30 +149,13 @@
       "id": "walkway_rail_1",
       "components": {
         "Transform": {
-          "position": [
-            -9.05,
-            0.55,
-            7.4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.12,
-            0.8,
-            0.12
-          ]
+          "position": [-9.05, 0.55, 7.4],
+          "rotation": [0, 0, 0],
+          "scale": [0.12, 0.8, 0.12]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.4,
-            0.26,
-            0.14,
-            1
-          ],
+          "color": [0.4, 0.26, 0.14, 1],
           "roughness": 0.8,
           "metallic": 0.0
         }
@@ -293,30 +165,13 @@
       "id": "walkway_rail_2",
       "components": {
         "Transform": {
-          "position": [
-            -9.05,
-            0.55,
-            9.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.12,
-            0.8,
-            0.12
-          ]
+          "position": [-9.05, 0.55, 9.5],
+          "rotation": [0, 0, 0],
+          "scale": [0.12, 0.8, 0.12]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.4,
-            0.26,
-            0.14,
-            1
-          ],
+          "color": [0.4, 0.26, 0.14, 1],
           "roughness": 0.8,
           "metallic": 0.0
         }
@@ -326,30 +181,13 @@
       "id": "walkway_rail_3",
       "components": {
         "Transform": {
-          "position": [
-            -9.05,
-            0.55,
-            11.600000000000001
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.12,
-            0.8,
-            0.12
-          ]
+          "position": [-9.05, 0.55, 11.600000000000001],
+          "rotation": [0, 0, 0],
+          "scale": [0.12, 0.8, 0.12]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.4,
-            0.26,
-            0.14,
-            1
-          ],
+          "color": [0.4, 0.26, 0.14, 1],
           "roughness": 0.8,
           "metallic": 0.0
         }
@@ -359,30 +197,13 @@
       "id": "walkway_rail_4",
       "components": {
         "Transform": {
-          "position": [
-            -9.05,
-            0.55,
-            13.7
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.12,
-            0.8,
-            0.12
-          ]
+          "position": [-9.05, 0.55, 13.7],
+          "rotation": [0, 0, 0],
+          "scale": [0.12, 0.8, 0.12]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.4,
-            0.26,
-            0.14,
-            1
-          ],
+          "color": [0.4, 0.26, 0.14, 1],
           "roughness": 0.8,
           "metallic": 0.0
         }
@@ -392,30 +213,13 @@
       "id": "ramp",
       "components": {
         "Transform": {
-          "position": [
-            8,
-            0.9976607542601508,
-            7.690684985402391
-          ],
-          "rotation": [
-            19.0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.3,
-            7.0
-          ]
+          "position": [8, 0.9976607542601508, 7.690684985402391],
+          "rotation": [19.0, 0, 0],
+          "scale": [3, 0.3, 7.0]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.45,
-            0.6,
-            0.75,
-            1
-          ],
+          "color": [0.45, 0.6, 0.75, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -429,30 +233,13 @@
       "id": "ramp_platform",
       "components": {
         "Transform": {
-          "position": [
-            8,
-            1.1394885406000483,
-            2.3813699708047817
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4,
-            2.2789770812000967,
-            4
-          ]
+          "position": [8, 1.1394885406000483, 2.3813699708047817],
+          "rotation": [0, 0, 0],
+          "scale": [4, 2.2789770812000967, 4]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.4,
-            0.55,
-            0.7,
-            1
-          ],
+          "color": [0.4, 0.55, 0.7, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -466,30 +253,13 @@
       "id": "step_0",
       "components": {
         "Transform": {
-          "position": [
-            14,
-            0.1,
-            11.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.2,
-            1
-          ]
+          "position": [14, 0.1, 11.5],
+          "rotation": [0, 0, 0],
+          "scale": [3, 0.2, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.75,
-            0.55,
-            0.4,
-            1
-          ],
+          "color": [0.75, 0.55, 0.4, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -503,30 +273,13 @@
       "id": "step_1",
       "components": {
         "Transform": {
-          "position": [
-            14,
-            0.2,
-            10.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.4,
-            1
-          ]
+          "position": [14, 0.2, 10.5],
+          "rotation": [0, 0, 0],
+          "scale": [3, 0.4, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.75,
-            0.55,
-            0.4,
-            1
-          ],
+          "color": [0.75, 0.55, 0.4, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -540,30 +293,13 @@
       "id": "step_2",
       "components": {
         "Transform": {
-          "position": [
-            14,
-            0.30000000000000004,
-            9.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.6000000000000001,
-            1
-          ]
+          "position": [14, 0.30000000000000004, 9.5],
+          "rotation": [0, 0, 0],
+          "scale": [3, 0.6000000000000001, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.75,
-            0.55,
-            0.4,
-            1
-          ],
+          "color": [0.75, 0.55, 0.4, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -577,30 +313,13 @@
       "id": "step_top",
       "components": {
         "Transform": {
-          "position": [
-            14,
-            0.3,
-            7.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.6,
-            3
-          ]
+          "position": [14, 0.3, 7.5],
+          "rotation": [0, 0, 0],
+          "scale": [3, 0.6, 3]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.7,
-            0.5,
-            0.36,
-            1
-          ],
+          "color": [0.7, 0.5, 0.36, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -614,30 +333,13 @@
       "id": "steep_slope",
       "components": {
         "Transform": {
-          "position": [
-            -14,
-            1.632050807568877,
-            9.0
-          ],
-          "rotation": [
-            60.0,
-            0,
-            0
-          ],
-          "scale": [
-            3,
-            0.3,
-            4.0
-          ]
+          "position": [-14, 1.632050807568877, 9.0],
+          "rotation": [60.0, 0, 0],
+          "scale": [3, 0.3, 4.0]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.8,
-            0.35,
-            0.3,
-            1
-          ],
+          "color": [0.8, 0.35, 0.3, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -651,30 +353,13 @@
       "id": "wall",
       "components": {
         "Transform": {
-          "position": [
-            5.5,
-            1.5,
-            -3
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            6,
-            3,
-            0.4
-          ]
+          "position": [5.5, 1.5, -3],
+          "rotation": [0, 0, 0],
+          "scale": [6, 3, 0.4]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.7,
-            0.68,
-            0.62,
-            1
-          ],
+          "color": [0.7, 0.68, 0.62, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -688,30 +373,13 @@
       "id": "hurdle",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            0.45,
-            -5.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4,
-            0.9,
-            0.5
-          ]
+          "position": [0, 0.45, -5.5],
+          "rotation": [0, 0, 0],
+          "scale": [4, 0.9, 0.5]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.9,
-            0.55,
-            0.15,
-            1
-          ],
+          "color": [0.9, 0.55, 0.15, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -725,30 +393,13 @@
       "id": "passage_wall_l",
       "components": {
         "Transform": {
-          "position": [
-            -0.95,
-            1.2,
-            -11
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.4,
-            2.4,
-            6
-          ]
+          "position": [-0.95, 1.2, -11],
+          "rotation": [0, 0, 0],
+          "scale": [0.4, 2.4, 6]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.6,
-            0.58,
-            0.55,
-            1
-          ],
+          "color": [0.6, 0.58, 0.55, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -762,30 +413,13 @@
       "id": "passage_wall_r",
       "components": {
         "Transform": {
-          "position": [
-            0.95,
-            1.2,
-            -11
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.4,
-            2.4,
-            6
-          ]
+          "position": [0.95, 1.2, -11],
+          "rotation": [0, 0, 0],
+          "scale": [0.4, 2.4, 6]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.6,
-            0.58,
-            0.55,
-            1
-          ],
+          "color": [0.6, 0.58, 0.55, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -799,30 +433,13 @@
       "id": "passage_roof",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            2.55,
-            -11
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            2.4,
-            0.3,
-            6
-          ]
+          "position": [0, 2.55, -11],
+          "rotation": [0, 0, 0],
+          "scale": [2.4, 0.3, 6]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.5,
-            0.48,
-            0.46,
-            1
-          ],
+          "color": [0.5, 0.48, 0.46, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -836,30 +453,13 @@
       "id": "door_post_l",
       "components": {
         "Transform": {
-          "position": [
-            -1.25,
-            1.25,
-            -20
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.3,
-            2.5,
-            0.4
-          ]
+          "position": [-1.25, 1.25, -20],
+          "rotation": [0, 0, 0],
+          "scale": [0.3, 2.5, 0.4]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.3,
-            0.3,
-            0.34,
-            1
-          ],
+          "color": [0.3, 0.3, 0.34, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -873,30 +473,13 @@
       "id": "door_post_r",
       "components": {
         "Transform": {
-          "position": [
-            1.25,
-            1.25,
-            -20
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.3,
-            2.5,
-            0.4
-          ]
+          "position": [1.25, 1.25, -20],
+          "rotation": [0, 0, 0],
+          "scale": [0.3, 2.5, 0.4]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.3,
-            0.3,
-            0.34,
-            1
-          ],
+          "color": [0.3, 0.3, 0.34, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -910,30 +493,13 @@
       "id": "door_lintel",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            2.65,
-            -20
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            2.8,
-            0.3,
-            0.4
-          ]
+          "position": [0, 2.65, -20],
+          "rotation": [0, 0, 0],
+          "scale": [2.8, 0.3, 0.4]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.3,
-            0.3,
-            0.34,
-            1
-          ],
+          "color": [0.3, 0.3, 0.34, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -947,38 +513,16 @@
       "id": "door_glow",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            1.15,
-            -20
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            2.0,
-            2.3,
-            0.1
-          ]
+          "position": [0, 1.15, -20],
+          "rotation": [0, 0, 0],
+          "scale": [2.0, 2.3, 0.1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.2,
-            0.8,
-            0.4,
-            1
-          ],
+          "color": [0.2, 0.8, 0.4, 1],
           "roughness": 0.8,
           "metallic": 0.0,
-          "emissive": [
-            0.05,
-            0.4,
-            0.15,
-            1
-          ]
+          "emissive": [0.05, 0.4, 0.15, 1]
         }
       }
     },
@@ -986,16 +530,8 @@
       "id": "door",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            1.15,
-            -20
-          ],
-          "scale": [
-            2.1,
-            2.3,
-            1.4
-          ]
+          "position": [0, 1.15, -20],
+          "scale": [2.1, 2.3, 1.4]
         },
         "Collider3D": {
           "shape": "box",
@@ -1013,36 +549,19 @@
       "id": "parcel_1",
       "components": {
         "Transform": {
-          "position": [
-            -8,
-            0.8,
-            1.5
-          ],
-          "scale": [
-            0.45,
-            0.45,
-            0.45
-          ]
+          "position": [-8, 0.8, 1.5],
+          "scale": [0.45, 0.45, 0.45]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.85,
-            0.62,
-            0.3,
-            1
-          ],
+          "color": [0.85, 0.62, 0.3, 1],
           "roughness": 0.7,
           "castShadows": true
         },
         "Collider3D": {
           "shape": "box",
           "isTrigger": true,
-          "size": [
-            2.4,
-            2.4,
-            2.4
-          ]
+          "size": [2.4, 2.4, 2.4]
         },
         "Script": {
           "path": "scripts/parcel.js"
@@ -1053,30 +572,13 @@
       "id": "crate_0",
       "components": {
         "Transform": {
-          "position": [
-            -18,
-            0.5,
-            -4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "position": [-18, 0.5, -4],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.3,
-            0.5,
-            0.8,
-            1
-          ],
+          "color": [0.3, 0.5, 0.8, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -1090,30 +592,13 @@
       "id": "crate_1",
       "components": {
         "Transform": {
-          "position": [
-            -17,
-            0.5,
-            -5.2
-          ],
-          "rotation": [
-            0,
-            20,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "position": [-17, 0.5, -5.2],
+          "rotation": [0, 20, 0],
+          "scale": [1, 1, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.8,
-            0.5,
-            0.3,
-            1
-          ],
+          "color": [0.8, 0.5, 0.3, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -1127,30 +612,13 @@
       "id": "crate_2",
       "components": {
         "Transform": {
-          "position": [
-            18,
-            0.5,
-            -12
-          ],
-          "rotation": [
-            0,
-            40,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "position": [18, 0.5, -12],
+          "rotation": [0, 40, 0],
+          "scale": [1, 1, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.5,
-            0.7,
-            0.4,
-            1
-          ],
+          "color": [0.5, 0.7, 0.4, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -1164,30 +632,13 @@
       "id": "crate_3",
       "components": {
         "Transform": {
-          "position": [
-            -16,
-            0.5,
-            -16
-          ],
-          "rotation": [
-            0,
-            60,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "position": [-16, 0.5, -16],
+          "rotation": [0, 60, 0],
+          "scale": [1, 1, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.75,
-            0.7,
-            0.3,
-            1
-          ],
+          "color": [0.75, 0.7, 0.3, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -1201,30 +652,13 @@
       "id": "crate_4",
       "components": {
         "Transform": {
-          "position": [
-            17,
-            0.5,
-            4
-          ],
-          "rotation": [
-            0,
-            80,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "position": [17, 0.5, 4],
+          "rotation": [0, 80, 0],
+          "scale": [1, 1, 1]
         },
         "MeshRenderer": {
           "mesh": "cube",
-          "color": [
-            0.6,
-            0.4,
-            0.7,
-            1
-          ],
+          "color": [0.6, 0.4, 0.7, 1],
           "roughness": 0.8,
           "metallic": 0.0
         },
@@ -1238,25 +672,12 @@
       "id": "pillar_0",
       "components": {
         "Transform": {
-          "position": [
-            -20,
-            2.5,
-            20
-          ],
-          "scale": [
-            1.2,
-            5,
-            1.2
-          ]
+          "position": [-20, 2.5, 20],
+          "scale": [1.2, 5, 1.2]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.72,
-            0.5,
-            0.35,
-            1
-          ],
+          "color": [0.72, 0.5, 0.35, 1],
           "roughness": 0.7
         },
         "Collider3D": {
@@ -1268,25 +689,12 @@
       "id": "pillar_1",
       "components": {
         "Transform": {
-          "position": [
-            20,
-            2.5,
-            20
-          ],
-          "scale": [
-            1.2,
-            5,
-            1.2
-          ]
+          "position": [20, 2.5, 20],
+          "scale": [1.2, 5, 1.2]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.72,
-            0.5,
-            0.35,
-            1
-          ],
+          "color": [0.72, 0.5, 0.35, 1],
           "roughness": 0.7
         },
         "Collider3D": {
@@ -1298,25 +706,12 @@
       "id": "pillar_2",
       "components": {
         "Transform": {
-          "position": [
-            -20,
-            2.5,
-            -24
-          ],
-          "scale": [
-            1.2,
-            5,
-            1.2
-          ]
+          "position": [-20, 2.5, -24],
+          "scale": [1.2, 5, 1.2]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.72,
-            0.5,
-            0.35,
-            1
-          ],
+          "color": [0.72, 0.5, 0.35, 1],
           "roughness": 0.7
         },
         "Collider3D": {
@@ -1328,25 +723,12 @@
       "id": "pillar_3",
       "components": {
         "Transform": {
-          "position": [
-            20,
-            2.5,
-            -24
-          ],
-          "scale": [
-            1.2,
-            5,
-            1.2
-          ]
+          "position": [20, 2.5, -24],
+          "scale": [1.2, 5, 1.2]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.72,
-            0.5,
-            0.35,
-            1
-          ],
+          "color": [0.72, 0.5, 0.35, 1],
           "roughness": 0.7
         },
         "Collider3D": {
@@ -1358,25 +740,12 @@
       "id": "pillar_4",
       "components": {
         "Transform": {
-          "position": [
-            10,
-            2.5,
-            -18
-          ],
-          "scale": [
-            1.2,
-            5,
-            1.2
-          ]
+          "position": [10, 2.5, -18],
+          "scale": [1.2, 5, 1.2]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.72,
-            0.5,
-            0.35,
-            1
-          ],
+          "color": [0.72, 0.5, 0.35, 1],
           "roughness": 0.7
         },
         "Collider3D": {
@@ -1388,25 +757,12 @@
       "id": "pillar_5",
       "components": {
         "Transform": {
-          "position": [
-            -10,
-            2.5,
-            -22
-          ],
-          "scale": [
-            1.2,
-            5,
-            1.2
-          ]
+          "position": [-10, 2.5, -22],
+          "scale": [1.2, 5, 1.2]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.72,
-            0.5,
-            0.35,
-            1
-          ],
+          "color": [0.72, 0.5, 0.35, 1],
           "roughness": 0.7
         },
         "Collider3D": {
@@ -1416,16 +772,10 @@
     },
     {
       "id": "courier",
-      "tags": [
-        "courier"
-      ],
+      "tags": ["courier"],
       "components": {
         "Transform": {
-          "position": [
-            0,
-            0.62,
-            16
-          ]
+          "position": [0, 0.62, 16]
         },
         "CharacterController3D": {
           "radius": 0.3,
@@ -1442,21 +792,9 @@
           "id": "model",
           "components": {
             "Transform": {
-              "position": [
-                0,
-                -0.55,
-                0
-              ],
-              "rotation": [
-                0,
-                180,
-                0
-              ],
-              "scale": [
-                0.23,
-                0.23,
-                0.23
-              ]
+              "position": [0, -0.55, 0],
+              "rotation": [0, 180, 0],
+              "scale": [0.23, 0.23, 0.23]
             },
             "MeshRenderer": {
               "mesh": "assets/models/robot.glb"
@@ -1677,25 +1015,12 @@
               "id": "carried_parcel",
               "components": {
                 "Transform": {
-                  "position": [
-                    0,
-                    2.6,
-                    -1.35
-                  ],
-                  "scale": [
-                    1.5,
-                    1.4,
-                    1.0
-                  ]
+                  "position": [0, 2.6, -1.35],
+                  "scale": [1.5, 1.4, 1.0]
                 },
                 "MeshRenderer": {
                   "mesh": "cube",
-                  "color": [
-                    0.85,
-                    0.62,
-                    0.3,
-                    1
-                  ],
+                  "color": [0.85, 0.62, 0.3, 1],
                   "roughness": 0.7
                 }
               }
@@ -1716,33 +1041,15 @@
       "id": "spring_bg",
       "components": {
         "Transform": {
-          "position": [
-            24,
-            24,
-            0
-          ]
+          "position": [24, 24, 0]
         },
         "Shape2D": {
-          "anchor": [
-            0,
-            0
-          ],
+          "anchor": [0, 0],
           "safeArea": true,
           "space": "screen",
-          "size": [
-            308,
-            26
-          ],
-          "color": [
-            0,
-            0,
-            0,
-            0.55
-          ],
-          "pivot": [
-            0,
-            1
-          ],
+          "size": [308, 26],
+          "color": [0, 0, 0, 0.55],
+          "pivot": [0, 1],
           "layer": 90
         }
       }
@@ -1751,33 +1058,15 @@
       "id": "spring_fill",
       "components": {
         "Transform": {
-          "position": [
-            28,
-            28,
-            0
-          ]
+          "position": [28, 28, 0]
         },
         "Shape2D": {
-          "anchor": [
-            0,
-            0
-          ],
+          "anchor": [0, 0],
           "safeArea": true,
           "space": "screen",
-          "size": [
-            300,
-            18
-          ],
-          "color": [
-            1,
-            0.76,
-            0.2,
-            1
-          ],
-          "pivot": [
-            0,
-            1
-          ],
+          "size": [300, 18],
+          "color": [1, 0.76, 0.2, 1],
+          "pivot": [0, 1],
           "layer": 91
         }
       }
@@ -1786,28 +1075,16 @@
       "id": "spring_label",
       "components": {
         "Transform": {
-          "position": [
-            24,
-            56,
-            0
-          ]
+          "position": [24, 56, 0]
         },
         "Text": {
-          "anchor": [
-            0,
-            0
-          ],
+          "anchor": [0, 0],
           "safeArea": true,
           "space": "screen",
           "text": "Spring",
           "key": "hud.spring",
           "fontSize": 20,
-          "color": [
-            1,
-            1,
-            1,
-            0.85
-          ],
+          "color": [1, 1, 1, 0.85],
           "layer": 100
         }
       }
@@ -1816,17 +1093,10 @@
       "id": "spring_text",
       "components": {
         "Transform": {
-          "position": [
-            342,
-            24,
-            0
-          ]
+          "position": [342, 24, 0]
         },
         "Text": {
-          "anchor": [
-            0,
-            0
-          ],
+          "anchor": [0, 0],
           "safeArea": true,
           "space": "screen",
           "text": "60",
@@ -1839,17 +1109,10 @@
       "id": "parcel_text",
       "components": {
         "Transform": {
-          "position": [
-            24,
-            84,
-            0
-          ]
+          "position": [24, 84, 0]
         },
         "Text": {
-          "anchor": [
-            0,
-            0
-          ],
+          "anchor": [0, 0],
           "safeArea": true,
           "space": "screen",
           "text": "Parcels 0 / 1",
@@ -1862,27 +1125,12 @@
       "id": "touch_stick",
       "components": {
         "Transform": {
-          "position": [
-            150,
-            -150,
-            0
-          ]
+          "position": [150, -150, 0]
         },
         "TouchStick": {
-          "anchor": [
-            0,
-            1
-          ],
-          "size": [
-            220,
-            220
-          ],
-          "color": [
-            1,
-            1,
-            1,
-            0.18
-          ]
+          "anchor": [0, 1],
+          "size": [220, 220],
+          "color": [1, 1, 1, 0.18]
         }
       }
     },
@@ -1890,23 +1138,13 @@
       "id": "touch_jump",
       "components": {
         "Transform": {
-          "position": [
-            -130,
-            -130,
-            0
-          ]
+          "position": [-130, -130, 0]
         },
         "TouchButton": {
-          "anchor": [
-            1,
-            1
-          ],
+          "anchor": [1, 1],
           "button": "A",
           "text": "Jump",
-          "size": [
-            110,
-            110
-          ]
+          "size": [110, 110]
         }
       }
     },
@@ -1914,23 +1152,13 @@
       "id": "touch_action",
       "components": {
         "Transform": {
-          "position": [
-            -270,
-            -80,
-            0
-          ]
+          "position": [-270, -80, 0]
         },
         "TouchButton": {
-          "anchor": [
-            1,
-            1
-          ],
+          "anchor": [1, 1],
           "button": "X",
           "text": "Act",
-          "size": [
-            84,
-            84
-          ]
+          "size": [84, 84]
         }
       }
     },
@@ -1938,23 +1166,13 @@
       "id": "touch_pause",
       "components": {
         "Transform": {
-          "position": [
-            -56,
-            56,
-            0
-          ]
+          "position": [-56, 56, 0]
         },
         "TouchButton": {
-          "anchor": [
-            1,
-            0
-          ],
+          "anchor": [1, 0],
           "button": "Start",
           "text": "II",
-          "size": [
-            64,
-            64
-          ]
+          "size": [64, 64]
         }
       }
     },
@@ -1963,21 +1181,10 @@
       "active": false,
       "components": {
         "Panel": {
-          "size": [
-            1280,
-            720
-          ],
-          "anchor": [
-            0.5,
-            0.5
-          ],
+          "size": [1280, 720],
+          "anchor": [0.5, 0.5],
           "layer": 290,
-          "color": [
-            0,
-            0,
-            0,
-            0.6
-          ],
+          "color": [0, 0, 0, 0.6],
           "layout": "column",
           "justify": "center"
         }
@@ -1990,12 +1197,7 @@
               "layer": 300,
               "layout": "column",
               "spacing": 12,
-              "padding": [
-                40,
-                28,
-                40,
-                36
-              ],
+              "padding": [40, 28, 40, 36],
               "fit": true
             }
           },
@@ -2009,12 +1211,7 @@
                   "layer": 301,
                   "space": "screen",
                   "key": "results.title",
-                  "color": [
-                    1,
-                    0.85,
-                    0.3,
-                    1
-                  ]
+                  "color": [1, 0.85, 0.3, 1]
                 }
               }
             },
@@ -2026,12 +1223,7 @@
                   "fontSize": 56,
                   "layer": 301,
                   "space": "screen",
-                  "color": [
-                    1,
-                    0.85,
-                    0.3,
-                    1
-                  ]
+                  "color": [1, 0.85, 0.3, 1]
                 }
               }
             },
@@ -2100,21 +1292,10 @@
       "active": false,
       "components": {
         "Panel": {
-          "size": [
-            1280,
-            720
-          ],
-          "anchor": [
-            0.5,
-            0.5
-          ],
+          "size": [1280, 720],
+          "anchor": [0.5, 0.5],
           "layer": 290,
-          "color": [
-            0,
-            0,
-            0,
-            0.6
-          ],
+          "color": [0, 0, 0, 0.6],
           "layout": "column",
           "justify": "center"
         }
@@ -2127,12 +1308,7 @@
               "layer": 300,
               "layout": "column",
               "spacing": 12,
-              "padding": [
-                40,
-                28,
-                40,
-                36
-              ],
+              "padding": [40, 28, 40, 36],
               "fit": true
             }
           },
@@ -2146,12 +1322,7 @@
                   "layer": 301,
                   "space": "screen",
                   "key": "retry.title",
-                  "color": [
-                    1,
-                    0.45,
-                    0.35,
-                    1
-                  ]
+                  "color": [1, 0.45, 0.35, 1]
                 }
               }
             },
