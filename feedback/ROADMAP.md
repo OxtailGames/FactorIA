@@ -6,16 +6,612 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 (M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two, M20 one and M23 the last one (MSIX,
 2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
 backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
-M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M23 has the Mac
+M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24 and M25 are done; M23 has the Mac
 App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 is not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
+M25, the second reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055
+came from the CI fix of its rope bridges): one fixed on the way (CC/FB-0033) and 54 open, ranked below (11 major, 36
+minor, 7 nice-to-have, no blocker). Their triage is the next
+milestone, and it also ranks M19 and the rest of M12.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
-Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
+Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-0 entries from 5 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+54 entries from 6 project(s), 54 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-_No open feedback entries._
+## 1. glTF animation of rigid (non-skinned) meshes parented to bone nodes is ignored
+
+- **Category:** animation
+- **Severity:** major (score 8)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0001
+- **Suggestion:** Support node-transform animation of non-skinned mesh nodes in the Animator (drive the node world matrix of a MeshRenderer model's nodes), or auto-convert rigid-per-bone meshes to a skin at load. At least print a warning when a model has clips but no skin.
+- **Workarounds seen:**
+  - Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it. [P2] The same happens with Kenney cube-pets animal-dog.glb, where the MESH nodes themselves are the animated bones (8 clips, no skin): the dog stood frozen in every clip. tools/skinify.py now also treats an animated mesh node as its own bone (7 joints), and the Animator then plays walk/run/idle. Second asset of two in this game with the same layout, so it is common in CC0 packs.
+
+## 2. scene.format without paths rewrites every scene and prefab of the project
+
+- **Category:** tooling
+- **Severity:** major (score 8)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0016
+- **Suggestion:** Make `paths` required (or default to `check: true`), and print how many files it will change before writing more than a few.
+- **Workarounds seen:**
+  - Always pass `{"paths": [...]}`; level generators write canonical JSON themselves and the project notes say never to run it bare.
+
+## 3. A CharacterController3D is not carried by a kinematic platform it stands on
+
+- **Category:** physics
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0010
+- **Suggestion:** physics.moveCharacter should add the displacement of the kinematic body it is grounded on (the way it already treats dynamic bodies), with an option to turn it off.
+- **Workarounds seen:**
+  - scripts/courier.js reads the velocity of the kinematic body under its feet (the ground entity of the last move) and adds it to its own move every frame; scripts/mover.js drives the platform by velocity only, so the numbers agree.
+
+## 4. Catalog is not readable from scripts and leaderboards have no localizable name
+
+- **Category:** platform
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0029
+- **Suggestion:** platform.catalog (read only: ids, types, titles) and nameKey on leaderboards.
+- **Workarounds seen:**
+  - scripts/store.js keeps a TYPES table; the leaderboards screen builds its titles from the level name keys; a test compares the code's lists with game.platform.state().catalog.
+
+## 5. Characters do not weigh on dynamic bodies and push them aside
+
+- **Category:** physics
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0011
+- **Suggestion:** Let the character controller optionally apply its weight (mass x gravity) to the dynamic body below, and expose `pushStrength` or a layer rule so it does not shove bodies that are jointed.
+- **Workarounds seen:**
+  - scripts/seesaw.js simulates the weight: while the courier is grounded on the plank the hinge motor drives the end it stands on down, and the plank's own velocity is zeroed every fixed step so the courier cannot push it off its pivot. scripts/rope_bridge.js lets the planks be walked on without reacting to the load (heavy damping keeps it calm).
+
+## 6. No ads API: no rewarded ad, no consent or tracking-permission flow, no dev/release flag
+
+- **Category:** platform
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0028
+- **Suggestion:** A platform.ads service next to purchases: ads.available(placement), ads.showRewarded(placement) -> {rewarded}, ads.consent() (with the ATT/UMP sheets) and a platform.release boolean; the fake backend answers with a scripted test ad so games and tests share one path.
+- **Workarounds seen:**
+  - scripts/ads.js defines the provider interface (name, available(), showRewarded(placement) -> {rewarded, reason}) and a stub overlay (scripts/ad_stub.js) used only while platform.backend is 'fake'; any other backend has no provider and the retry screen shows no ad offer. A real SDK plugin would call ads.setProvider().
+
+## 7. No calendar date API and no way to pin the date in tests
+
+- **Category:** scripting
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0019
+- **Suggestion:** Add `time.calendar()` (or `game.today()`) returning {year, month, day, utcOffsetMinutes, iso} from the real clock, recorded in replays, plus `game.setDate("2026-10-22")` in factoria:test (and a --date flag for headless runs) so date-driven logic is deterministic. Document the rule in the scripting guide next to rng.
+- **Workarounds seen:**
+  - scripts/clock.js is the only place that reads `new Date()`; everything else asks clock.today(), and tests pin the day with clock.setToday() (stored in `session`). Dates are YYYY-MM-DD of the local day.
+
+## 8. No on-screen keyboard for gamepad players
+
+- **Category:** ui
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0020
+- **Suggestion:** A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).
+- **Workarounds seen:**
+  - profile.scene.json has a grid of 36 buttons built at runtime (key_A..key_9, space, delete) that edit the TextField text; d-pad focus walks the grid.
+
+## 9. No path finding or navmesh for 3D characters
+
+- **Category:** physics
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0009
+- **Suggestion:** A `nav.findPath(from, to, {radius, stepHeight})` API (and a NavGrid/navmesh component baked from static colliders, with a dirty flag for moving obstacles) next to physics.raycast3d.
+- **Workarounds seen:**
+  - scripts/nav.js: a lazy height-field grid over the physics world (a ray straight down for the ground height, physics.overlapSphere for obstacles, a step-height rule for connections, A* with line-of-sight smoothing). It works but is slow to write, must be rebuilt when a gate or crate moves, and cannot know about doors or one-way drops.
+
+## 10. No shrink-to-fit or per-screen text scale cap
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0042
+- **Suggestion:** Text.autoShrink (minFontSize) and Button.autoShrink, plus Widget.maxTextScale so a heading or a disc label can stop growing.
+- **Workarounds seen:**
+  - Four screens cap the effective size of their fixed-place texts in script (level_select capSizes, hud layoutHud, touch labels in hud.js, toast panel fit); menus use fit Panels with fallbackLayout and ScrollLists with fill.
+
+## 11. Products.storekit exists only with a built Apple plugin and has one locale
+
+- **Category:** platform
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0034
+- **Suggestion:** Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.
+- **Workarounds seen:**
+  - Checked on a scratch copy: add_backend apple, cmake build of the plugin, export; the four products came out right (ids, types, prices). The real project does not declare the plugin.
+
+## 12. Scene loads are synchronous and there is no progress or preload API
+
+- **Category:** assets
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0012
+- **Suggestion:** scene.preload(path) returning a handle with progress 0..1 (loading assets on a worker), or scene.loadAsync plus an `onProgress` callback; the same for assets.preload([paths]).
+- **Workarounds seen:**
+  - scenes/loading.scene.json draws a step bar that counts the three frames the script really runs before the blocking scene.load; it is honest about being steps, not a percentage.
+
+## 13. Scripts cannot see the app being suspended, resumed or losing focus
+
+- **Category:** platform
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0035
+- **Suggestion:** Expose game.onSuspend/onResume (and window focus) to scripts, and have a project setting that pauses the game on suspend by default.
+- **Workarounds seen:**
+  - scripts/comfort.js watches time.unscaledDt: a single frame longer than 0.75 s means the app was away, and it opens the pause menu. It cannot tell a suspend from a long hitch and cannot react before the suspend.
+
+## 14. assets.import of a .glb does not copy the texture file it references
+
+- **Category:** assets
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0008
+- **Suggestion:** assets.import for .glb/.gltf should copy every external uri it references (keeping the relative layout under a folder named after the model or the pack), add provenance for them, and warn when the destination folder already holds a different file of the same name. validate should report a model whose external texture is missing.
+- **Workarounds seen:**
+  - Moved each kit into its own folder (assets/models/town, props, pets), copied that kit's Textures/colormap.png next to it by hand and re-keyed assets.json (with provenance for the png).
+
+## 15. storage and the platform fake keep their state between tests of a run
+
+- **Category:** tooling
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0026
+- **Suggestion:** An option (or the default) that clears storage and resets game.platform before each test, or game.resetState().
+- **Workarounds seen:**
+  - tests/helpers/store.js: fresh() before and cleanup() after every test.
+
+## 16. validate keeps the audio loudness warnings after defaults.audio.normalize is set
+
+- **Category:** tooling
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0004
+- **Suggestion:** Make the loudness check read the effective import settings (defaults merged with per-asset), or say in the warning that the default is already applied and the warning is about the source file.
+- **Workarounds seen:**
+  - Left the two warnings (they are not errors). [P2] P2 sounds: validate still warns for loopcity_0.ogg (peaks at 0.3 dBFS), pluck_001.ogg and toggle_001.ogg (loudness) although assets.json sets normalize: true for them; the warning should read the import settings.
+
+## 17. 3D physics is not identical across platforms
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0055
+- **Suggestion:** Document that physics is deterministic per build, not across platforms; offer a robustness check (run a test N times with tiny perturbations) so games find chaotic spots before CI does; consider strict floating point (no FMA contraction) in the physics module.
+- **Workarounds seen:**
+  - Made the bridges settle (ends off the slabs) and checked the level route under small position nudges (±0.2 mm to ±1.5 cm of every plank and of the courier) so it passes whatever the rounding.
+
+## 18. A chain of hinged planks rings for a long time; a rope bridge needs heavy damping and wide planks
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0017
+- **Suggestion:** A `Rope`/`Chain` component (or solver iterations per joint chain) that is stable by default, or a documented recipe for bridges in the physics guide.
+- **Workarounds seen:**
+  - scripts/rope_bridge.js uses linearDamping 3 and angularDamping 8, width 2 m, sag 0.35 and 9 planks; with these it hangs still and holds the courier.
+
+## 19. A fill ScrollList makes its whole panel screen-tall
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0046
+- **Suggestion:** fill should take only the room left (maxHeight = screen minus the other rows), and let the panel shrink below it.
+- **Workarounds seen:**
+  - Each list gets a design size and fill: the panel uses the screen height only when the content is taller (credits, achievements, leaderboards, shop, options).
+
+## 20. A headless test cannot set the system language
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0044
+- **Suggestion:** game.setSystemLanguages([...]) in the test API, like setAccessibility, applied by the next scene load.
+- **Workarounds seen:**
+  - The rule is a pure function, settings.pickLanguage(systemLanguages, supported, fallback), tested with lists; the engine's own pick is not exercised.
+
+## 21. A joint-driven body is silently stopped by an overlapping static collider
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0015
+- **Suggestion:** A validate or debug-draw warning when a Joint3D body overlaps a static collider it is not connected to at the start pose, or a `game_state` field listing joints that are stalled against the motor.
+- **Workarounds seen:**
+  - Levels leave 0.2 m of clearance around every hinge gate and the arena's gate sits between two walls with that gap.
+
+## 22. A localized Text cannot take parameters and is rewritten every frame
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0021
+- **Suggestion:** Text.keyArgs (an object of replacements) or a {name} placeholder filled from a bound value, re-localized on language change.
+- **Workarounds seen:**
+  - Scripts clear Text.key and write the string built from i18n.t with replacements (level_flow.setText, results_view.js, level_select.js).
+
+## 23. Android export needs the exact CMake 3.31.6 in the SDK and a JDK, with no offline way around it
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0048
+- **Suggestion:** Accept any CMake >= the minimum (read from `cmake --version` or `export.android.cmake`), print the cmake.dir / JAVA_HOME / --offline recipe in the error, and let `factoria doctor` list both.
+- **Workarounds seen:**
+  - Scratch scripts outside the repo: a cmake.dir in local.properties pointing at the system CMake (4.4.4), -Pfactoria.cmakeVersion=4.4.4 and JAVA_HOME from a JDK that was already installed (the one bundled with Unity Hub); then Gradle --offline built a 52.8 MB apk in 2m23s.
+
+## 24. Desktop export does not check that the bundled player matches the factoria that exports
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0049
+- **Suggestion:** Print the player path and version in the export report, and warn (or refuse without --allow-player-mismatch) when the player's version or build id differs from the factoria that exports. The Windows export already reads the player's version information; do the same on macOS and Linux (factoria_player --version).
+- **Workarounds seen:**
+  - Rebuilt the engine so factoria and factoria_player match (or pass --player <build dir>/player/factoria_player) and exported again; macOS verified running. SHIPPING.md says how to check.
+
+## 25. Joint3D chains never come fully to rest and unrelated chains affect each other
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0054
+- **Suggestion:** Let jointed bodies sleep as a group once all of them are calm, and solve separate joint islands independently so one island cannot disturb another.
+- **Workarounds seen:**
+  - None in the engine: the autoplay route crosses the see-saw with smaller, more careful steps (tests/helpers/routes.js).
+
+## 26. Joint3D connected empty string is rejected by the scene validator but documented as 'the world'
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0014
+- **Suggestion:** Accept the empty string as the world (as documented), or change the doc to say 'leave the field out'.
+- **Workarounds seen:**
+  - scripts/rope_bridge.js only sets `connected` when there is a next plank; the last plank's joint omits the field.
+
+## 27. MeshRenderer tints the whole model: no per-material colour
+
+- **Category:** rendering-3d
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0031
+- **Suggestion:** MeshRenderer.materialColors: {materialName: [r,g,b,a]} overrides, or a colour per glTF material slot.
+- **Workarounds seen:**
+  - scripts/paints.js stores a dark tint plus an emissive per paint, tuned by looking at screenshots.
+
+## 28. No animal sounds (bark, growl) in the CC0 sound kits the engine suggests
+
+- **Category:** assets
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0013
+- **Suggestion:** Document a CC0 animal/creature pack in the assets guide, or add an `audio.synth` helper (noise burst plus filtered sweep) for simple barks, growls and whooshes.
+- **Workarounds seen:**
+  - A pitched heavy impact (impactPunch_heavy_000.ogg) stands in for the bark; the dog also flashes a red view cone and shows an exclamation mark, so the warning does not depend on sound.
+
+## 29. No command to scaffold the menu kit; it can only be extracted from the docs by hand
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0003
+- **Suggestion:** Add a command (and MCP tool) that writes the kit into the project, optionally with a choice of parts (pause only, settings only).
+- **Workarounds seen:**
+  - Wrote a small script that splits the doc's fenced blocks (```lang path) into files.
+
+## 30. No graphics quality API: no render scale, no GPU info and the frame cap throws on phones
+
+- **Category:** performance
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0036
+- **Suggestion:** Add window.renderScale (0.5..1) and a read-only game.deviceTier or gpu info, and make window.frameCap a no-op that returns the real cap on phones instead of throwing.
+- **Workarounds seen:**
+  - The quality preset (scripts/accessibility.js) only changes what scripts own: Light.castShadows, view distance fog, particle counts and lantern lights. The frame cap option is disabled on phones (scripts/ui/options.js) and a phone starts at medium quality by a screen-size guess (scripts/settings.js).
+
+## 31. No locale-aware number formatting
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0039
+- **Suggestion:** Number, percent and duration formatters in i18n (i18n.number(v, {digits}), i18n.duration) following the active language, and {value:number} style placeholders.
+- **Workarounds seen:**
+  - Each locale file states format.decimal and scripts/fmt.js applies it (decimal, clock) before the value goes into i18n.t.
+
+## 32. No per-day or per-season leaderboards: the catalog is static
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0030
+- **Suggestion:** A `period` (daily, weekly) on a leaderboard that the backends map to their recurring boards, or leaderboards.submit(id, score, {suffix: date}).
+- **Workarounds seen:**
+  - One 'daily_route' board holds the best time ever; the day is only in the daily_route_finished event.
+
+## 33. No warning when a dynamic body starts inside a static collider
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0053
+- **Suggestion:** Warn once (entity id, collider it overlaps, depth) when a dynamic body overlaps a static collider on its first physics step, and let project.validate report it for scenes.
+- **Workarounds seen:**
+  - Moved both ends of each bridge 0.2 m off the slabs and wrote the rule in the header of scripts/rope_bridge.js.
+
+## 34. No way to share a UI panel between scenes
+
+- **Category:** scene
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0023
+- **Suggestion:** Document or support UI prefabs with child overrides, or a scene include, in the menus guide.
+- **Workarounds seen:**
+  - The layout stays duplicated; texts are written at runtime from one script (results_view.js).
+
+## 35. Slider value set from a script sends no ui.change and shows the raw number
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0037
+- **Suggestion:** Add a test helper game.setSlider(id, value) that behaves like the user, and Slider.format (for example "{value:0%}").
+- **Workarounds seen:**
+  - tests/comfort.test.js clicks the middle of the track and checks the saved value is inside the range; the options show the multiplier as a plain number.
+
+## 36. Test API cannot hold a mouse button or turn the wheel, so mouse drag orbit and wheel zoom are untestable end to end
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0005
+- **Suggestion:** Add game.mouse(x, y), game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) to the test API (same as game.input mouse/buttons).
+- **Workarounds seen:**
+  - tests/camera.test.js calls orbit() and zoom() directly; the drag and wheel reading in follow_camera.js readInput() has no test.
+
+## 37. The fake store cannot simulate a refund or a revoked purchase
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0024
+- **Suggestion:** game.platform.revoke(productId) (and an equivalent dev command) that removes the product from restore() and emits no event, like the Apple 'refunded transaction is never delivered' rule.
+- **Workarounds seen:**
+  - store.reconcile({authoritative:true}) revokes products the store no longer lists; tests call game.platform.reset() and then reconcile. On the fake backend the start-up reconcile is not authoritative (a dev run would lose its purchases at each start).
+
+## 38. The test API cannot observe a quit request
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0038
+- **Suggestion:** Add game.quitRequested to the test API and make game.quit() only set it in tests.
+- **Workarounds seen:**
+  - tests/comfort.test.js patches the quit function of the engine object for the duration of the test and restores it.
+
+## 39. Toggle and Slider labels do not wrap or shrink
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0041
+- **Suggestion:** maxWidth on Toggle and Slider (wrap the label, grow the height), and a Slider label placed above the track.
+- **Workarounds seen:**
+  - Sliders are fixed size with an empty label and a Text above each one (maxWidth wraps it); the options list width follows ui.textScale (fitWidth in scripts/ui/options.js); the Toggle labels stay short in every locale.
+
+## 40. TouchButton has no localization key
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0040
+- **Suggestion:** A `key` field on TouchButton, like Text and Button.
+- **Workarounds seen:**
+  - scripts/hud.js writes the label in the current language at start and at every i18n change, and sizes the font to fit the 96 px disc.
+
+## 41. Validator flags a method named start() as a lifecycle-hook lookalike
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0006
+- **Suggestion:** Only warn for names that differ from a hook by case or prefix (OnStart, onstart, on_start), not for generic verbs like start.
+- **Workarounds seen:**
+  - Renamed it to fill().
+
+## 42. Web player: typing in a TextInput from the browser pane did not fill it
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0052
+- **Suggestion:** Document how the web player receives text (keydown vs the text input event, hidden input element for mobile keyboards) so a game can test it, and add an autotest page to the web player.
+- **Workarounds seen:**
+  - Filled the name with the on-screen keyboard of the game (scripts/profile.js) for the check.
+
+## 43. assets.set_provenance re-sorts the whole assets.json
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0045
+- **Suggestion:** Keep the file order and touch only the entry.
+- **Workarounds seen:**
+  - The font entry was inserted by hand in assets.json, in the same shape.
+
+## 44. glTF with two skins sharing the same joints: second skin is drawn wrong, no way to fix without editing the file
+
+- **Category:** animation
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0002
+- **Suggestion:** Merge skins that have the same joints/IBMs at load, or animate every skin of the file; the 'first skin' limit is a trap for exported characters.
+- **Workarounds seen:**
+  - Dropped the two hand meshes from the glb in the same script (the arms end in balls anyway).
+
+## 45. perf.measure and the test API give no triangles or lights, and renderStats is zero headless
+
+- **Category:** performance
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0050
+- **Suggestion:** Add triangles, lights, shadowCasters and textureMB to perf.measure and to a `game.renderStats()` in factoria:test (the headless EGL/Metal renderer has them after one frame).
+- **Workarounds seen:**
+  - tests/budget.test.js counts entities, MeshRenderer, Light and ParticleEmitter of every level in the running scene (static numbers); perf.json holds the draw-call budget of the heaviest level.
+
+## 46. platform.add_backend ignores dryRun and rewrites the whole factoria.json
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0047
+- **Suggestion:** Honour dryRun (print what would be written) and edit factoria.json in place without reformatting. Also exclude plugins/apple/build from the folder it creates, or say it is a build dir to ignore.
+- **Workarounds seen:**
+  - Kept the real result (it is what makes the export write Products.storekit) and committed it; the reformatting is in the same commit as the plugin.
+
+## 47. purchases.finish() throws synchronously for an unknown transaction instead of rejecting
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0025
+- **Suggestion:** Return a rejected Promise with the same message and hint, like the rest of the platform API.
+- **Workarounds seen:**
+  - store.grant wraps the call in try/await/catch.
+
+## 48. A Button or Text with `key` loses its dynamic text, and keys with {placeholders} warn in validate
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0027
+- **Suggestion:** A `keyArgs` object (or a Text/Button `args` field scripts can set) so the engine formats the key with placeholders.
+- **Workarounds seen:**
+  - The dynamic buttons of the shop have no `key`; scripts/ui/shop.js sets the text with i18n.t(key, args) at every refresh.
+
+## 49. Default UI font has no star glyph
+
+- **Category:** ui
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0022
+- **Suggestion:** Ship a symbols font or a Rating widget (n of max, filled/empty sprites).
+- **Workarounds seen:**
+  - Stars are drawn as * (earned) and - (missing) in results_view.starText.
+
+## 50. Entity animator facade does not expose the parameter values
+
+- **Category:** scripting
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0007
+- **Suggestion:** Expose animator.values (read-only) or animator.get(name) on the facade.
+- **Workarounds seen:**
+  - tests/animator.test.js uses game.find(id).get("Animator").values.
+
+## 51. No control over the sibling order of a spawned UI child
+
+- **Category:** ui
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0032
+- **Suggestion:** A `index` (or `before`) option in world.spawn's options and entity.setParent(parent, index).
+- **Workarounds seen:**
+  - scripts/more_time.js spawns the new button and then calls setParent again on the two stock buttons so they come after it.
+
+## 52. No overflow or pseudo-localisation check
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0043
+- **Suggestion:** `factoria validate --pseudo-loc` (or a ui.overflowing() query) that lists clipped labels and widgets outside the screen at a given text scale and language.
+- **Workarounds seen:**
+  - A tour script drove factoria session through every screen per language and scale and listed widgets whose ui.state rect left the screen; tests/i18n.test.js repeats the key screens.
+
+## 53. No video playback, and --record-video writes a very large AVI
+
+- **Category:** assets
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0051
+- **Suggestion:** A Video component (mp4/webm with the platform decoder) and an --record-video output that is already H.264 mp4 when the OS offers an encoder (VideoToolbox, Media Foundation, MediaCodec).
+- **Workarounds seen:**
+  - The intro is an animated scene (scenes/intro.scene.json, scripts/intro.js). The trailer is a scripted director scene recorded with --record-video; SHIPPING.md has the ffmpeg command to make the mp4.
+
+## 54. scene.load called from a test only takes effect in the next frame
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0018
+- **Suggestion:** Document the difference in the testing guide, or make scene.load from a test start the scene immediately like game.load.
+- **Workarounds seen:**
+  - tests step two frames after scene.load before reading anything.
 
 # Next engine milestones
 
@@ -595,8 +1191,26 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: no milestone is in progress. The MSIX package waits for an install on a Windows PC (M23's acceptance criterion); M19
-and M23's consoles wait for a game that needs them. No ranked entry is open.
+Next: M25 below, a second reference game, to find what M19 and M12's next packages should be. The MSIX package waits for
+an install on a Windows PC (M23's acceptance criterion); M23's consoles wait for a game that needs them. No ranked entry
+is open.
+
+## M25. A second reference game: 3D and mobile (L, high) — DONE (the `m25/reference-game` PR)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M25.
+
+Left open:
+- The 51 open Clockwork Courier entries (`CC/FB-n`, ranked above) are not triaged yet: that is the next milestone. The 11
+  major ones: rigid glTF meshes parented to bones are not animated (FB-0001), `assets.import` of a .glb does not copy its
+  texture (FB-0008), no navmesh or path finding (FB-0009), a `CharacterController3D` is not carried by a kinematic
+  platform (FB-0010) and does not push dynamic bodies (FB-0011), scene loads are synchronous with no progress (FB-0012),
+  `scene.format` without paths rewrites the whole project (FB-0016), no calendar date API (FB-0019), no ads API
+  (FB-0028), scripts cannot see the app being suspended (FB-0035), no shrink-to-fit text (FB-0042).
+- The exports ran on the iOS Simulator, an Android emulator, a browser pane and macOS on one Mac, not on real phones;
+  the Windows and Linux exports were not run. In-app purchases were tested on the engine's fake store only: StoreKit
+  needs Xcode and `Products.storekit`.
+- The trailer replays of `rooftops_3` and `market_3` drift after about 700 frames; the shots are cut before
+  (examples/clockwork-courier/SHIPPING.md, "Trailer").
 
 ## Out of scope: Roblox
 

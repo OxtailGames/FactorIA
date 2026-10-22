@@ -991,6 +991,44 @@ the commands the AI uses, so Undo and the scene file work as they do for any com
   `notes` (text, `--json`, `project.validate`, the editor's Validation window) with one note naming the files whose
   layout differs from `scene.save`'s and the optional `scene.format`.
 
+## M25. A second reference game: 3D and mobile — DONE (the `m25/reference-game` PR)
+
+Lantern Keep (M21) is a 2D desktop game, so the feedback loop had never seen production 3D (M18), touch as the main
+input, a game on phones and in a browser, the asset import pipeline (M15) with real packs, captions and
+`game.accessibility` (M22) in a game, or a CJK language. **Clockwork Courier** (`examples/clockwork-courier`, its README
+and `SHIPPING.md`; feedback ids `CC/FB-n`) is that game: a wind-up robot delivers parcels across six short 3D levels in two
+districts, the Rooftops by day and the Night Market by night, before its spring runs down, while guard dogs patrol and
+chase it. It was built like Lantern Keep, by game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs`
+and the public commands, in seven packages (planned 2026-10-22 against `3eeac02`):
+
+- P1 courier, camera and touch: `CharacterController3D`, an `Animator` state machine with footstep events, a follow
+  camera that does not go through walls, touch orbit and pinch, the on-screen controls, and the contracts the other
+  packages build on (level list, progress, game events).
+- P2 world: six levels from the kits, parcels, delivery doors, wind-up keys, checkpoints, guard dogs, crates, hinge gates,
+  a seesaw, a rope bridge, day and night lighting, music per district, 3D particles, a loading screen, and a bot that
+  finishes every level by its main route and its expert shortcut.
+- P3 progress and saves: stars per level, the level select, a named profile with an on-screen keyboard, cloud saves, a
+  daily route.
+- P4 store services: achievements, leaderboards and a paint shop on the fake store, a rewarded "more time" offer and a
+  "remove ads" purchase.
+- P5 mobile comfort and accessibility: graphics quality and a frame-rate cap, haptics, pause on suspend, Android Back
+  everywhere, a left-handed layout, control size and opacity, camera sensitivity, reduced motion, assist mode, captions
+  for sound cues, markers readable without colour.
+- P6 shipping: a studio intro, the icon, key art and capsules, store texts in three languages, store screenshots and a
+  trailer recorded by the engine (both rebuilt by scripts, not in git), the Apple plugin (`Products.storekit` on export),
+  a render and perf budget, and the exports run on the iOS Simulator, an Android emulator, a browser pane and macOS.
+- P7 languages: Spanish and Japanese (a Noto Sans JP subset, line breaks without spaces), every screen at 100 % and
+  200 % text.
+
+Assets are CC0 only, imported with `assets.import` and recorded in `assets.json`: Quaternius' RobotExpressive, Kenney's
+Fantasy Town Kit, Platformer Kit, Cube Pets, Impact Sounds, Interface Sounds and Music Jingles, and three OpenGameArt
+loops. `factoria test` runs 444 tests; ctest runs the game as `example_clockwork-courier_*` (validate, test, perf).
+
+It reported 52 entries, 11 of them major: unlike Lantern Keep, a complete 3D phone game still needs workarounds the
+engine should remove (the ranked list in [ROADMAP.md](ROADMAP.md)). One was fixed on the way: CC/FB-0033 (`cc2f059`),
+3D joints were solved in the order of their entity ids, so a rope bridge behaved differently after other scenes; they are
+now solved in the scene's entity order and `Physics3D::reset()` drops joint state.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

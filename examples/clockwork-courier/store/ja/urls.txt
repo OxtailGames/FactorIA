@@ -1,0 +1,4 @@
+サポートURL: https://example.com/clockwork-courier/ja/support  (仮: 申請前に差し替え)
+マーケティングURL: https://example.com/clockwork-courier/ja  (仮)
+プライバシーポリシーURL: https://example.com/clockwork-courier/ja/privacy  (仮: データを集めないゲームでも両ストアで必須)
+サポートメール: support@example.com  (仮)

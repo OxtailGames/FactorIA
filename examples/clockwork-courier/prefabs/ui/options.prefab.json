@@ -1,0 +1,685 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Options",
+    "components": {
+      "Panel": {
+        "anchor": [0.5, 0.5],
+        "safeArea": true,
+        "layer": 300,
+        "layout": "column",
+        "direction": "auto",
+        "align": "start",
+        "spacing": 12,
+        "padding": [24, 16, 24, 16],
+        "fit": true
+      },
+      "Script": {
+        "path": "scripts/ui/options.js"
+      }
+    },
+    "children": [
+      {
+        "name": "Title",
+        "components": {
+          "Text": {
+            "text": "Options",
+            "key": "options.title",
+            "fontSize": 36,
+            "space": "screen",
+            "layer": 301
+          }
+        }
+      },
+      {
+        "name": "Tabs",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "direction": "auto",
+            "padding": [0, 0, 0, 0],
+            "spacing": 6,
+            "fit": true,
+            "fallbackLayout": "grid",
+            "columns": 3,
+            "uniformSize": true
+          }
+        },
+        "children": [
+          {
+            "id": "tab_video",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Video",
+                "key": "options.tab.video",
+                "size": [112, 44],
+                "layer": 302,
+                "fontSize": 20,
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "tab_audio",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Audio",
+                "key": "options.tab.audio",
+                "size": [112, 44],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          },
+          {
+            "id": "tab_play",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Play",
+                "key": "options.tab.play",
+                "size": [112, 44],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          },
+          {
+            "id": "tab_touch",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Touch",
+                "key": "options.tab.touch",
+                "size": [112, 44],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          },
+          {
+            "id": "tab_controls",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Keys",
+                "key": "options.tab.controls",
+                "size": [112, 44],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          },
+          {
+            "id": "tab_language",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Language",
+                "key": "options.tab.language",
+                "size": [112, 44],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "video_section",
+        "components": {
+          "ScrollList": {
+            "size": [712, 360],
+            "layer": 301,
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
+          }
+        },
+        "children": [
+          {
+            "id": "quality",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Quality",
+                "size": [696, 38],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "frame_cap",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Frame cap",
+                "size": [696, 38],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "color_filter",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Color filter",
+                "size": [696, 38],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "fullscreen",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Full screen",
+                "key": "options.fullscreen",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "resolution",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Window size",
+                "size": [696, 38],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "vsync",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "VSync",
+                "key": "options.vsync",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "video_note",
+            "components": {
+              "Text": {
+                "text": "Video settings apply when the game runs in its own window.",
+                "key": "options.videoNote",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 560,
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "audio_section",
+        "components": {
+          "ScrollList": {
+            "size": [712, 360],
+            "layer": 301,
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
+          }
+        },
+        "children": [
+          {
+            "id": "master_volume_name",
+            "components": {
+              "Text": {
+                "text": "Master",
+                "key": "options.volume.master",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "master_volume",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "music_volume_name",
+            "components": {
+              "Text": {
+                "text": "Music",
+                "key": "options.volume.music",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "music_volume",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "sfx_volume_name",
+            "components": {
+              "Text": {
+                "text": "Effects",
+                "key": "options.volume.effects",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "sfx_volume",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "ui_volume_name",
+            "components": {
+              "Text": {
+                "text": "Interface",
+                "key": "options.volume.interface",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "ui_volume",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "read_aloud",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Read menus aloud",
+                "key": "options.readAloud",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "subtitles",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Subtitles",
+                "key": "options.subtitles",
+                "size": [696, 38],
+                "layer": 302,
+                "value": true
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "play_section",
+        "components": {
+          "ScrollList": {
+            "size": [712, 360],
+            "layer": 301,
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
+          }
+        },
+        "children": [
+          {
+            "id": "assist",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Assist mode",
+                "key": "options.assist",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "assist_note",
+            "components": {
+              "Text": {
+                "text": "Slower spring, slower dogs, a wider jump grace.",
+                "key": "options.assistNote",
+                "fontSize": 18,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696,
+                "color": [0.75, 0.8, 0.9, 1]
+              }
+            }
+          },
+          {
+            "id": "reduced_motion",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Reduced motion",
+                "key": "options.reducedMotion",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "haptics",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Vibration",
+                "key": "options.haptics",
+                "size": [696, 38],
+                "layer": 302,
+                "value": true
+              }
+            }
+          },
+          {
+            "id": "tap_to_move",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Tap to move",
+                "key": "options.tapToMove",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "text_size",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Text size",
+                "size": [696, 38],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "touch_section",
+        "components": {
+          "ScrollList": {
+            "size": [712, 360],
+            "layer": 301,
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
+          }
+        },
+        "children": [
+          {
+            "id": "left_handed",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Left-handed layout",
+                "key": "options.leftHanded",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "control_size_name",
+            "components": {
+              "Text": {
+                "text": "Control size",
+                "key": "options.controlSize",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "control_size",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "control_opacity_name",
+            "components": {
+              "Text": {
+                "text": "Control opacity",
+                "key": "options.controlOpacity",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "control_opacity",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "camera_sensitivity_name",
+            "components": {
+              "Text": {
+                "text": "Camera speed",
+                "key": "options.cameraSensitivity",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
+            "id": "camera_sensitivity",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "invert_y",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Invert camera Y",
+                "key": "options.invertY",
+                "size": [696, 38],
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "controls_section",
+        "components": {
+          "ScrollList": {
+            "size": [712, 360],
+            "layer": 301,
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
+          }
+        },
+        "children": [
+          {
+            "id": "bindings",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 8,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            }
+          },
+          {
+            "id": "reset_controls",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Reset to defaults",
+                "size": [696, 38],
+                "layer": 302,
+                "fontSize": 22,
+                "key": "options.resetControls"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "language_section",
+        "components": {
+          "ScrollList": {
+            "size": [712, 360],
+            "layer": 301,
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
+          }
+        },
+        "children": [
+          {
+            "id": "language_title",
+            "components": {
+              "Text": {
+                "text": "Language",
+                "key": "options.language",
+                "fontSize": 24,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 560,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "language_note",
+            "components": {
+              "Text": {
+                "text": "The language is saved and used the next time you open the game too.",
+                "key": "options.languageNote",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 560,
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "options_back",
+        "tags": ["back"],
+        "components": {
+          "Button": {
+            "autoSize": true,
+            "text": "Back",
+            "key": "menu.back",
+            "layer": 302
+          }
+        }
+      }
+    ]
+  }
+}

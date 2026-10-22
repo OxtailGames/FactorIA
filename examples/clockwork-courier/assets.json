@@ -1,0 +1,744 @@
+{
+  "format": "factoria.assets/1",
+  "defaults": {
+    "audio": {
+      "normalize": true
+    }
+  },
+  "assets": {
+    "assets/audio/back_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/bong_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/click_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/close_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/confirmation_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/confirmation_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/cozy_puzzle_title_bpm95_0.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://opengameart.org/sites/default/files/cozy_puzzle_title_bpm95_0.ogg",
+        "license": "CC0-1.0",
+        "author": "MintoDog"
+      },
+      "import": {
+        "stream": "always",
+        "normalize": true,
+        "targetLufs": -18
+      }
+    },
+    "assets/audio/error_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_003.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_003.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactBell_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactGeneric_light_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactMetal_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactMetal_light_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactPlank_medium_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactPlank_medium_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactPunch_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactPunch_medium_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactSoft_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactSoft_medium_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/jingles_HIT03.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/music-jingles",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/jingles_HIT07.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/music-jingles",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/jingles_PIZZI02.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/music-jingles",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/jingles_SAX05.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/music-jingles",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/jingles_STEEL03.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/music-jingles",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/loopcity_0.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://opengameart.org/sites/default/files/loopcity_0.ogg",
+        "license": "CC0-1.0",
+        "author": "Fupi"
+      },
+      "import": {
+        "stream": "always",
+        "normalize": true,
+        "targetLufs": -18
+      }
+    },
+    "assets/audio/open_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/pluck_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/select_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/toggle_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/urban_shop_bpm92_0.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://opengameart.org/sites/default/files/urban_shop_bpm92_0.ogg",
+        "license": "CC0-1.0",
+        "author": "MintoDog"
+      },
+      "import": {
+        "stream": "always",
+        "normalize": true,
+        "targetLufs": -18
+      }
+    },
+    "assets/fonts/NotoSansJP-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosansjp",
+        "license": "OFL-1.1",
+        "author": "Google Fonts / Adobe (Noto Sans JP)",
+        "notes": "Variable font NotoSansJP[wght].ttf instanced to wght 400 and subset to the characters of locales/*.json with assets/fonts/make_subset.py. Licence text: assets/fonts/OFL.txt."
+      }
+    },
+    "assets/models/robot.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
+        "license": "CC0-1.0",
+        "author": "Quaternius (modified by Don McCurdy)",
+        "notes": "Modified for this project: scaled, hands removed, and the rigid meshes skinned to the bones (tools/skinify.py) because the engine ignores rigid-mesh animation under bones (ENGINE_FEEDBACK FB-0001)."
+      }
+    },
+    "assets/models/pets/animal-dog.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/cube-pets",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/balcony-wall-fence.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/banner-green.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/banner-red.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/barrel.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/block-moving.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/cart.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/chimney.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/crate.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/fence-rope.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/fence.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/flag.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/fountain-square.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/key.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/lantern.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/lever.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/overhang.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/pillar-wood.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/planks.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/platform-ramp.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/platform.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/road.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/roof-flat.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/roof-gable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/roof.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/sign.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/stairs-wide-stone.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/stairs-wide-wood.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/stall-green.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/stall-red.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/tree.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/wall-block.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/wall-door.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/wall-window-shutters.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/wall-wood-block.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/town/Textures/colormap.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/Textures/colormap.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/pets/Textures/colormap.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/cube-pets",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-22",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-22",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    }
+  }
+}

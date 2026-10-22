@@ -1,0 +1,43 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": { "position": [0, 1.5, 8] },
+        "Camera": { "projection": "perspective", "fov": 40, "primary": true, "clearColor": [0.09, 0.11, 0.17, 1] }
+      }
+    },
+    {
+      "id": "profile_box",
+      "components": {
+        "Transform": { "position": [0, 0, 0] },
+        "Panel": { "anchor": [0.5, 0.5], "pivot": [0.5, 0.5], "layer": 150, "layout": "column", "fit": true, "spacing": 14, "padding": [36, 24, 36, 28], "color": [0.05, 0.07, 0.12, 0.75] }
+      },
+      "children": [
+        { "id": "profile_title", "components": { "Text": { "text": "Who is delivering?", "key": "profile.title", "fontSize": 40, "space": "screen", "layer": 300, "color": [1, 0.85, 0.3, 1] } } },
+        { "id": "profile_hint", "components": { "Text": { "text": "Type a name or pick the letters.", "key": "profile.hint", "fontSize": 22, "space": "screen", "layer": 300, "color": [1, 1, 1, 0.75] } } },
+        { "id": "profile_field", "components": { "TextField": { "size": [420, 56], "text": "", "placeholder": "Your name", "key": "profile.placeholder", "maxLength": 12, "fontSize": 28, "layer": 210, "autoFocus": true } } },
+        { "id": "profile_keys", "components": { "Panel": { "layer": 160, "layout": "grid", "columns": 9, "fit": true, "spacing": 6, "padding": [0, 0, 0, 0], "color": [0, 0, 0, 0] } } },
+        {
+          "id": "profile_actions",
+          "components": { "Panel": { "layer": 160, "layout": "row", "fit": true, "spacing": 14, "padding": [0, 0, 0, 0], "color": [0, 0, 0, 0] } },
+          "children": [
+            { "id": "key_space", "components": { "Button": { "autoSize": true, "size": [150, 52], "color": [0.24, 0.27, 0.36, 0.95], "text": "Space", "key": "profile.space", "layer": 210 } } },
+            { "id": "key_back", "components": { "Button": { "autoSize": true, "size": [150, 52], "color": [0.24, 0.27, 0.36, 0.95], "text": "Delete", "key": "profile.delete", "layer": 210 } } },
+            { "id": "profile_ok", "components": { "Button": { "autoSize": true, "size": [150, 52], "color": [0.24, 0.27, 0.36, 0.95], "text": "Done", "key": "profile.done", "layer": 210, "accentColor": [0.4, 1, 0.5, 1] } } },
+            { "id": "profile_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "size": [150, 52], "color": [0.24, 0.27, 0.36, 0.95], "text": "Back", "key": "menu.back", "layer": 210 } } }
+          ]
+        },
+        { "id": "profile_error", "components": { "Text": { "text": "", "fontSize": 22, "space": "screen", "layer": 300, "color": [1, 0.5, 0.4, 1] } } }
+      ]
+    },
+    { "id": "profile", "components": { "Script": { "path": "scripts/profile.js" } } },
+    { "id": "music", "components": { "Script": { "path": "scripts/music.js" } } }
+  ],
+  "settings": {
+    "ambientLight": [0.4, 0.44, 0.52, 1],
+    "skyColor": [0.16, 0.2, 0.3, 1],
+    "horizonColor": [0.45, 0.5, 0.58, 1]
+  }
+}

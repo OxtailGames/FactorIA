@@ -1,0 +1,36 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "runners": {
+    "linux-gcc-llvmpipe": {
+      "frames": 300,
+      "cpuMsAvg": 6.308,
+      "cpuMsP95": 10.164,
+      "cpuMsMax": 166.984,
+      "peakMemoryMB": 202.7,
+      "drawCalls": 43,
+      "entities": 106,
+      "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)"
+    },
+    "macos-clang-metal-paravirtual": {
+      "frames": 300,
+      "cpuMsAvg": 0.804,
+      "cpuMsP95": 0.685,
+      "cpuMsMax": 118.67,
+      "peakMemoryMB": 39.0,
+      "drawCalls": 43,
+      "entities": 106,
+      "graphics": "Metal / Apple Paravirtual device"
+    },
+    "windows-msvc-d3d11-warp": {
+      "frames": 300,
+      "cpuMsAvg": 3.436,
+      "cpuMsP95": 3.358,
+      "cpuMsMax": 303.148,
+      "peakMemoryMB": 103.1,
+      "drawCalls": 43,
+      "entities": 106,
+      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)"
+    }
+  }
+}

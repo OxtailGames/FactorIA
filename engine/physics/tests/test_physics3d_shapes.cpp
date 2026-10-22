@@ -914,3 +914,87 @@ TEST_CASE("3d joints: a pendulum run is deterministic") {
     CHECK(std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0);
     for (float v : a) CHECK(std::isfinite(v));
 }
+
+namespace {
+
+// A rope bridge (planks chained with hinges from a post) plus boxes dropped on it, created in a fixed order.
+std::vector<Entity> build_bridge_scene(World& w) {
+    std::vector<Entity> all;
+    auto post = [&](const char* id, float x) {
+        Entity e = w.create(id, id);
+        w.get<Transform>(e)->position = {x, 0, 0};
+        w.add<Collider3D>(e).size = {0.4f, 1.0f, 1.0f};
+        all.push_back(e);
+        return e;
+    };
+    Entity previous = post("postL", 0.0f);
+    const int planks = 7;
+    for (int i = 0; i < planks; ++i) {
+        const std::string name = "plank" + std::to_string(i);
+        Entity e = w.create(name, name);
+        w.get<Transform>(e)->position = {0.7f + 0.6f * float(i), 0.5f, 0};
+        w.add<Collider3D>(e).size = {0.6f, 0.1f, 0.8f};
+        w.add<RigidBody3D>(e).linearDamping = 0.1f;
+        Joint3D& j = w.add<Joint3D>(e);
+        j.anchor = {-0.3f, 0, 0};
+        j.axis = {0, 0, 1};
+        j.connected = previous;
+        j.autoAnchor = true;
+        previous = e;
+        all.push_back(e);
+    }
+    post("postR", 0.7f + 0.6f * float(planks - 1) + 0.7f);
+    for (int i = 0; i < 5; ++i) {
+        const std::string name = "box" + std::to_string(i);
+        Entity e = w.create(name, name);
+        w.get<Transform>(e)->position = {1.0f + 0.7f * float(i), 1.5f + 0.4f * float(i), 0.05f * float(i)};
+        w.add<Collider3D>(e).size = {0.3f, 0.3f, 0.3f};
+        w.add<RigidBody3D>(e);
+        all.push_back(e);
+    }
+    return all;
+}
+
+std::vector<float> run_bridge(Sim& s, const std::vector<Entity>& all, int frames) {
+    s.run(frames);
+    std::vector<float> out;
+    for (Entity e : all) {
+        const Transform* t = s.world.get<Transform>(e);
+        out.insert(out.end(), {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("3d physics: a scene simulates the same whatever the World and the physics held before it") {
+    Sim fresh;
+    const std::vector<float> reference = run_bridge(fresh, build_bridge_scene(fresh.world), 240);
+    REQUIRE(reference.size() > 30);
+
+    SUBCASE("after entities were created and destroyed (recycled slots)") {
+        Sim s;
+        std::vector<Entity> junk;
+        for (int i = 0; i < 37; ++i) junk.push_back(s.world.create("junk" + std::to_string(i), "junk"));
+        for (std::size_t i = 0; i < junk.size(); i += 2) s.world.destroy(junk[i]);
+        s.world.flush();
+        for (std::size_t i = 1; i < junk.size(); i += 2) s.world.destroy(junk[i]);
+        s.world.flush();
+        CHECK(run_bridge(s, build_bridge_scene(s.world), 240) == reference);
+    }
+    SUBCASE("after another scene ran and was cleared (World::clear + Physics::reset, like a scene load)") {
+        Sim s;
+        build_bridge_scene(s.world);
+        for (int i = 0; i < 4; ++i) {  // extra entities so the slot numbers differ
+            Entity e = s.world.create("extra" + std::to_string(i), "extra");
+            s.world.add<Collider3D>(e);
+            s.world.add<RigidBody3D>(e);
+        }
+        s.run(90);
+        s.world.clear();
+        s.physics.reset();
+        for (int i = 0; i < 9; ++i) s.world.destroy(s.world.create("tmp" + std::to_string(i), "tmp"));
+        s.world.flush();
+        CHECK(run_bridge(s, build_bridge_scene(s.world), 240) == reference);
+    }
+}

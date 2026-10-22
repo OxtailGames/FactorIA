@@ -205,7 +205,7 @@ bool is_plugin_name(const std::string& n) {
     return std::all_of(n.begin(), n.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
 }
 
-// One entry of "plugins": {"path": "...", "platforms": [...]}.
+// One entry of "plugins": {"path": "...", "platforms": [...], "optional": false}.
 Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
     const std::string ptr = "/plugins/" + name;
     if (!is_plugin_name(name))
@@ -241,6 +241,7 @@ Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
             p.platforms.push_back(name_k);
         }
     }
+    FA_TRY(read_bool(v, "optional", ptr, p.optional));
     return p;
 }
 
@@ -732,6 +733,10 @@ constexpr const char* kSchemaText =
                 "web"
               ]
             }
+          },
+          "optional": {
+            "type": "boolean",
+            "description": "true: the game runs without this plugin, so a missing build for this computer is a warning in `factoria validate`, not an error. Without the build, `plugins.<name>` still exists but throws \"the native plugin is not loaded\" when a function is used (wrap calls in try/catch, or reach the plugin only through what it provides, e.g. the `platform` API falls back to the development fake store), and the runtime only logs a warning. `factoria export` still fails without the build for the target platform, so a store build cannot ship without it by accident. Default false."
           }
         }
       }

@@ -1,0 +1,1217 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [0.36, 0.4, 0.5, 1],
+    "fogColor": [0.72, 0.8, 0.9, 1],
+    "fogDensity": 0.008,
+    "skyColor": [0.32, 0.55, 0.9, 1],
+    "horizonColor": [0.85, 0.9, 0.96, 1]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [0, 4.12, 16],
+          "rotation": [-22, 0, 0]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "fov": 60,
+          "nearPlane": 0.1,
+          "farPlane": 260,
+          "primary": true
+        },
+        "Script": {
+          "path": "scripts/follow_camera.js",
+          "props": {
+            "targetId": "courier",
+            "yaw": 0.0
+          }
+        }
+      }
+    },
+    {
+      "id": "sun",
+      "components": {
+        "Transform": {
+          "position": [0, 20, 0],
+          "rotation": [-52, -35, 0]
+        },
+        "Light": {
+          "type": "directional",
+          "intensity": 1.0,
+          "color": [1, 0.95, 0.86, 1],
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": "spring",
+      "components": {
+        "Script": {
+          "path": "scripts/spring.js"
+        }
+      }
+    },
+    {
+      "id": "pause_menu",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    },
+    {
+      "id": "level",
+      "components": {
+        "Script": {
+          "path": "scripts/level_flow.js",
+          "props": {
+            "levelId": "test_arena"
+          }
+        }
+      }
+    },
+    {
+      "id": "music",
+      "components": {
+        "Script": {
+          "path": "scripts/music.js"
+        }
+      }
+    },
+    {
+      "id": "tap_move",
+      "components": {
+        "Script": {
+          "path": "scripts/tap_move.js"
+        }
+      }
+    },
+    {
+      "id": "courier",
+      "tags": ["courier"],
+      "components": {
+        "Transform": {
+          "position": [0, 0.62, 10]
+        },
+        "CharacterController3D": {
+          "radius": 0.3,
+          "height": 1.1,
+          "stepOffset": 0.35,
+          "slopeLimit": 45
+        },
+        "Script": {
+          "path": "scripts/courier.js"
+        }
+      },
+      "children": [
+        {
+          "id": "model",
+          "components": {
+            "Transform": {
+              "position": [0, -0.55, 0],
+              "rotation": [0, 180, 0],
+              "scale": [0.23, 0.23, 0.23]
+            },
+            "MeshRenderer": {
+              "mesh": "assets/models/robot.glb"
+            },
+            "Animator": {
+              "params": {
+                "speed": 0,
+                "grounded": true,
+                "vy": 0,
+                "jump": false,
+                "celebrate": false,
+                "caught": false,
+                "wind_down": false,
+                "recover": false
+              },
+              "states": {
+                "idle": {
+                  "clip": "Idle"
+                },
+                "walk": {
+                  "clip": "Walking"
+                },
+                "run": {
+                  "clip": "Running"
+                },
+                "jump": {
+                  "clip": "Jump",
+                  "loop": false
+                },
+                "fall": {
+                  "clip": "Jump",
+                  "loop": false,
+                  "speed": 0.6
+                },
+                "land": {
+                  "clip": "Sitting",
+                  "loop": false,
+                  "speed": 2.5
+                },
+                "celebrate": {
+                  "clip": "Dance",
+                  "onEnter": "courier_celebrates"
+                },
+                "caught": {
+                  "clip": "Death",
+                  "loop": false
+                },
+                "wound_down": {
+                  "clip": "Sitting",
+                  "loop": false,
+                  "speed": 0.5
+                }
+              },
+              "transitions": [
+                {
+                  "to": "caught",
+                  "when": "caught",
+                  "fade": 0.1
+                },
+                {
+                  "to": "celebrate",
+                  "when": "celebrate",
+                  "fade": 0.15
+                },
+                {
+                  "to": "wound_down",
+                  "when": "wind_down",
+                  "fade": 0.4
+                },
+                {
+                  "from": "caught",
+                  "to": "idle",
+                  "when": "recover",
+                  "fade": 0.15
+                },
+                {
+                  "from": "idle",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "walk",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "run",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "land",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "fall",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "jump",
+                  "to": "land",
+                  "when": "grounded && vy <= 0.1",
+                  "fade": 0.05
+                },
+                {
+                  "from": "fall",
+                  "to": "land",
+                  "when": "grounded && vy <= 0.1",
+                  "fade": 0.05
+                },
+                {
+                  "from": "idle",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "run",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "land",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "land",
+                  "to": "run",
+                  "when": "speed > 3.6",
+                  "fade": 0.1
+                },
+                {
+                  "from": "land",
+                  "to": "walk",
+                  "when": "speed > 0.3",
+                  "fade": 0.1
+                },
+                {
+                  "from": "land",
+                  "to": "idle",
+                  "onFinish": true,
+                  "fade": 0.15
+                },
+                {
+                  "from": "idle",
+                  "to": "walk",
+                  "when": "speed > 0.3",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "run",
+                  "when": "speed > 3.6",
+                  "fade": 0.15
+                },
+                {
+                  "from": "run",
+                  "to": "walk",
+                  "when": "speed <= 3.2 && speed > 0.3",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "idle",
+                  "when": "speed <= 0.3",
+                  "fade": 0.2
+                },
+                {
+                  "from": "run",
+                  "to": "idle",
+                  "when": "speed <= 0.3",
+                  "fade": 0.2
+                }
+              ],
+              "events": [
+                {
+                  "clip": "Walking",
+                  "time": 0.1,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "Walking",
+                  "time": 0.58,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "Running",
+                  "time": 0.05,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "Running",
+                  "time": 0.53,
+                  "name": "footstep"
+                }
+              ],
+              "state": "idle"
+            }
+          },
+          "children": [
+            {
+              "id": "carried_parcel",
+              "components": {
+                "Transform": {
+                  "position": [0, 2.6, -1.35],
+                  "scale": [1.5, 1.4, 1.0]
+                },
+                "MeshRenderer": {
+                  "mesh": "cube",
+                  "color": [0.85, 0.62, 0.3, 1],
+                  "roughness": 0.7
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "components": {
+        "Script": {
+          "path": "scripts/hud.js"
+        }
+      }
+    },
+    {
+      "id": "spring_bg",
+      "components": {
+        "Transform": {
+          "position": [24, 24, 0]
+        },
+        "Shape2D": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "size": [308, 26],
+          "color": [0, 0, 0, 0.55],
+          "pivot": [0, 1],
+          "layer": 90
+        }
+      }
+    },
+    {
+      "id": "spring_fill",
+      "components": {
+        "Transform": {
+          "position": [28, 28, 0]
+        },
+        "Shape2D": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "size": [300, 18],
+          "color": [1, 0.76, 0.2, 1],
+          "pivot": [0, 1],
+          "layer": 91
+        }
+      }
+    },
+    {
+      "id": "spring_label",
+      "components": {
+        "Transform": {
+          "position": [24, 56, 0]
+        },
+        "Text": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "text": "Spring",
+          "key": "hud.spring",
+          "fontSize": 20,
+          "color": [1, 1, 1, 0.85],
+          "layer": 100
+        }
+      }
+    },
+    {
+      "id": "spring_text",
+      "components": {
+        "Transform": {
+          "position": [342, 24, 0]
+        },
+        "Text": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "text": "60",
+          "fontSize": 28,
+          "layer": 100
+        }
+      }
+    },
+    {
+      "id": "parcel_text",
+      "components": {
+        "Transform": {
+          "position": [24, 84, 0]
+        },
+        "Text": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "text": "Parcels 0 / 1",
+          "fontSize": 24,
+          "layer": 100
+        }
+      }
+    },
+    {
+      "id": "touch_stick",
+      "components": {
+        "Transform": {
+          "position": [150, -150, 0]
+        },
+        "TouchStick": {
+          "anchor": [0, 1],
+          "size": [220, 220],
+          "color": [1, 1, 1, 0.18]
+        }
+      }
+    },
+    {
+      "id": "touch_jump",
+      "components": {
+        "Transform": {
+          "position": [-130, -130, 0]
+        },
+        "TouchButton": {
+          "anchor": [1, 1],
+          "button": "A",
+          "text": "Jump",
+          "size": [110, 110]
+        }
+      }
+    },
+    {
+      "id": "touch_action",
+      "components": {
+        "Transform": {
+          "position": [-270, -80, 0]
+        },
+        "TouchButton": {
+          "anchor": [1, 1],
+          "button": "X",
+          "text": "Act",
+          "size": [84, 84]
+        }
+      }
+    },
+    {
+      "id": "touch_pause",
+      "components": {
+        "Transform": {
+          "position": [-56, 56, 0]
+        },
+        "TouchButton": {
+          "anchor": [1, 0],
+          "button": "Start",
+          "text": "II",
+          "size": [64, 64]
+        }
+      }
+    },
+    {
+      "id": "results_panel",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [1280, 720],
+          "anchor": [0.5, 0.5],
+          "layer": 290,
+          "color": [0, 0, 0, 0.6],
+          "layout": "column",
+          "justify": "center"
+        }
+      },
+      "children": [
+        {
+          "id": "results_panel_box",
+          "components": {
+            "Panel": {
+              "layer": 300,
+              "layout": "column",
+              "spacing": 8,
+              "padding": [24, 16, 24, 20],
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "results_heading",
+              "components": {
+                "Text": {
+                  "text": "Delivered!",
+                  "fontSize": 40,
+                  "layer": 301,
+                  "space": "screen",
+                  "key": "results.title",
+                  "color": [1, 0.85, 0.3, 1]
+                }
+              }
+            },
+            {
+              "id": "results_stars",
+              "components": {
+                "Text": {
+                  "text": "---",
+                  "fontSize": 34,
+                  "layer": 301,
+                  "space": "screen",
+                  "color": [1, 0.85, 0.3, 1]
+                }
+              }
+            },
+            {
+              "id": "results_time",
+              "components": {
+                "Text": {
+                  "text": "Time",
+                  "fontSize": 28,
+                  "layer": 301,
+                  "space": "screen",
+                  "maxWidth": 1180
+                }
+              }
+            },
+            {
+              "id": "results_spring",
+              "components": {
+                "Text": {
+                  "text": "Spring",
+                  "fontSize": 28,
+                  "layer": 301,
+                  "space": "screen",
+                  "maxWidth": 1180
+                }
+              }
+            },
+            {
+              "id": "results_buttons",
+              "components": {
+                "Panel": {
+                  "layer": 300,
+                  "color": [0, 0, 0, 0],
+                  "layout": "column",
+                  "spacing": 12,
+                  "padding": [0, 0, 0, 0],
+                  "fit": true,
+                  "uniformSize": true,
+                  "fallbackLayout": "row"
+                }
+              },
+              "children": [
+                {
+                  "id": "results_next",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Next level",
+                      "key": "results.next",
+                      "layer": 302,
+                      "autoFocus": true,
+                      "maxWidth": 340
+                    }
+                  }
+                },
+                {
+                  "id": "results_retry",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Play again",
+                      "key": "results.retry",
+                      "layer": 302,
+                      "maxWidth": 340
+                    }
+                  }
+                },
+                {
+                  "id": "results_title",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Quit to title",
+                      "key": "results.toTitle",
+                      "layer": 302,
+                      "maxWidth": 340
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retry_panel",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [1280, 720],
+          "anchor": [0.5, 0.5],
+          "layer": 290,
+          "color": [0, 0, 0, 0.6],
+          "layout": "column",
+          "justify": "center"
+        }
+      },
+      "children": [
+        {
+          "id": "retry_panel_box",
+          "components": {
+            "Panel": {
+              "layer": 300,
+              "layout": "column",
+              "spacing": 12,
+              "padding": [40, 28, 40, 36],
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "retry_heading",
+              "components": {
+                "Text": {
+                  "text": "The spring ran down",
+                  "fontSize": 44,
+                  "layer": 301,
+                  "space": "screen",
+                  "key": "retry.title",
+                  "color": [1, 0.45, 0.35, 1]
+                }
+              }
+            },
+            {
+              "id": "retry_hint",
+              "components": {
+                "Text": {
+                  "text": "Be quicker.",
+                  "fontSize": 26,
+                  "layer": 301,
+                  "space": "screen",
+                  "key": "retry.hint",
+                  "maxWidth": 900
+                }
+              }
+            },
+            {
+              "id": "retry_buttons",
+              "components": {
+                "Panel": {
+                  "layer": 300,
+                  "color": [0, 0, 0, 0],
+                  "layout": "column",
+                  "spacing": 12,
+                  "padding": [0, 0, 0, 0],
+                  "fit": true,
+                  "uniformSize": true,
+                  "fallbackLayout": "row"
+                }
+              },
+              "children": [
+                {
+                  "id": "retry_retry",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Try again",
+                      "key": "retry.retry",
+                      "layer": 302,
+                      "autoFocus": true
+                    }
+                  }
+                },
+                {
+                  "id": "retry_title",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Quit to title",
+                      "key": "retry.toTitle",
+                      "layer": 302
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ground_0",
+      "components": {
+        "Transform": {
+          "position": [-28.0, -0.5, -25.0],
+          "rotation": [0, 0, 0],
+          "scale": [24, 1, 130]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "ground_1",
+      "components": {
+        "Transform": {
+          "position": [16.0, -0.5, -25.0],
+          "rotation": [0, 0, 0],
+          "scale": [56, 1, 130]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "ground_2",
+      "components": {
+        "Transform": {
+          "position": [98.0, -0.5, -25.0],
+          "rotation": [0, 0, 0],
+          "scale": [84, 1, 130]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "ground_3",
+      "components": {
+        "Transform": {
+          "position": [50.0, -0.5, -80.0],
+          "rotation": [0, 0, 0],
+          "scale": [12, 1, 20]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "ground_4",
+      "components": {
+        "Transform": {
+          "position": [50.0, -0.5, -9.0],
+          "rotation": [0, 0, 0],
+          "scale": [12, 1, 98]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "ground_5",
+      "components": {
+        "Transform": {
+          "position": [-14.0, -0.5, -55.0],
+          "rotation": [0, 0, 0],
+          "scale": [4, 1, 70]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "ground_6",
+      "components": {
+        "Transform": {
+          "position": [-14.0, -0.5, 16.0],
+          "rotation": [0, 0, 0],
+          "scale": [4, 1, 48]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.5, 0.55, 0.5, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "crate_0",
+      "prefab": "prefabs/crate.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [-4, 0.5, 4]
+        }
+      }
+    },
+    {
+      "id": "crate_1",
+      "prefab": "prefabs/crate.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [4, 0.5, 4]
+        }
+      }
+    },
+    {
+      "id": "crate_2",
+      "prefab": "prefabs/crate.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [0, 0.5, 1]
+        }
+      }
+    },
+    {
+      "id": "gate_wall_l",
+      "components": {
+        "Transform": {
+          "position": [-4.7, 1.5, -6],
+          "rotation": [0, 0, 0],
+          "scale": [7, 3, 0.4]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "gate_wall_r",
+      "components": {
+        "Transform": {
+          "position": [4.6, 1.5, -6],
+          "rotation": [0, 0, 0],
+          "scale": [7, 3, 0.4]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "gate_lintel",
+      "components": {
+        "Transform": {
+          "position": [0, 2.7, -6],
+          "rotation": [0, 0, 0],
+          "scale": [2, 0.6, 0.4]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "gate_1",
+      "prefab": "prefabs/gate.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [-1, 0, -6]
+        },
+        "Script": {
+          "props": {
+            "openAngle": 100,
+            "direction": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "lever_1",
+      "prefab": "prefabs/lever.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [3, 0, -3]
+        },
+        "Script": {
+          "props": {
+            "targets": ["gate_1"]
+          }
+        }
+      }
+    },
+    {
+      "id": "seesaw_1",
+      "prefab": "prefabs/seesaw.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [-14, 0.9, -14]
+        },
+        "Script": {
+          "props": {
+            "along": "x",
+            "maxAngle": 14,
+            "rest": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "bridge_a",
+      "components": {
+        "Transform": {
+          "position": [20, 1.5, -30],
+          "rotation": [0, 0, 0],
+          "scale": [6, 3, 6]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "bridge_b",
+      "components": {
+        "Transform": {
+          "position": [20, 1.5, -46],
+          "rotation": [0, 0, 0],
+          "scale": [6, 3, 6]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "bridge_ramp",
+      "components": {
+        "Transform": {
+          "position": [20, 1.3577, -22.5474],
+          "rotation": [18.4349, 0, 0],
+          "scale": [4, 0.3, 9.4868]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.7, 0.55, 0.4, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "bridge_1",
+      "components": {
+        "Script": {
+          "path": "scripts/rope_bridge.js",
+          "props": {
+            "from": [20, 3, -33],
+            "to": [20, 3, -43],
+            "planks": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "mover_1",
+      "prefab": "prefabs/mover.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [50, -0.15, -60]
+        },
+        "Script": {
+          "props": {
+            "offset": [0, 0, -8],
+            "speed": 2,
+            "wait": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "dog_wall",
+      "components": {
+        "Transform": {
+          "position": [80, 1.1, -6],
+          "rotation": [0, 0, 0],
+          "scale": [8, 2.2, 0.6]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "dog_1",
+      "prefab": "prefabs/dog.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [80, 0.5, -14]
+        },
+        "Script": {
+          "props": {
+            "route": [
+              [80, -14],
+              [88, -14]
+            ],
+            "sightRange": 10
+          }
+        }
+      }
+    },
+    {
+      "id": "dog_pillar",
+      "components": {
+        "Transform": {
+          "position": [86, 1.5, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1.2, 3, 1.2]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.6, 0.64, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "key_1",
+      "prefab": "prefabs/wind_key.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [100, 1, 0]
+        },
+        "Script": {
+          "props": {
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "id": "checkpoint_1",
+      "prefab": "prefabs/checkpoint.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [104, 0, 0]
+        }
+      }
+    },
+    {
+      "id": "parcel_1",
+      "prefab": "prefabs/parcel.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [108, 1, 0]
+        }
+      }
+    },
+    {
+      "id": "parcel_2",
+      "prefab": "prefabs/parcel_bonus.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [110, 1, 3]
+        },
+        "Script": {
+          "props": {
+            "optional": true
+          }
+        }
+      }
+    },
+    {
+      "id": "door_1",
+      "prefab": "prefabs/delivery_door.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [114, 0, 0]
+        }
+      }
+    }
+  ]
+}

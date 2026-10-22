@@ -1,0 +1,95 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "parcel_bonus",
+    "tags": ["parcel", "optional"],
+    "components": {
+      "Collider3D": {
+        "shape": "box",
+        "isTrigger": true,
+        "size": [1.3, 1.3, 1.3]
+      },
+      "Script": {
+        "path": "scripts/parcel.js",
+        "props": {
+          "optional": true
+        }
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "tube",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0],
+            "scale": [0.34, 0.6, 0.34]
+          },
+          "MeshRenderer": {
+            "mesh": "cylinder",
+            "color": [0.95, 0.78, 0.2, 1],
+            "roughness": 0.4,
+            "castShadows": true,
+            "emissive": [0.3, 0.2, 0.0, 1]
+          }
+        }
+      },
+      {
+        "name": "band_a",
+        "components": {
+          "Transform": {
+            "position": [0, 0.18, 0],
+            "scale": [0.38, 0.07, 0.38]
+          },
+          "MeshRenderer": {
+            "mesh": "cylinder",
+            "color": [0.25, 0.45, 0.9, 1],
+            "roughness": 0.8,
+            "castShadows": true,
+            "emissive": [0.0, 0.05, 0.25, 1]
+          }
+        }
+      },
+      {
+        "name": "band_b",
+        "components": {
+          "Transform": {
+            "position": [0, -0.18, 0],
+            "scale": [0.38, 0.07, 0.38]
+          },
+          "MeshRenderer": {
+            "mesh": "cylinder",
+            "color": [0.25, 0.45, 0.9, 1],
+            "roughness": 0.8,
+            "castShadows": true,
+            "emissive": [0.0, 0.05, 0.25, 1]
+          }
+        }
+      },
+      {
+        "name": "sparkle",
+        "components": {
+          "Transform": {
+            "position": [0, 0.3, 0]
+          },
+          "ParticleEmitter": {
+            "is3D": true,
+            "rate": 4,
+            "lifetime": 1.2,
+            "speed": 0.3,
+            "spread": 180,
+            "gravity": [0, 0.2, 0],
+            "startSize": 0.09,
+            "endSize": 0,
+            "startColor": [0.6, 0.8, 1, 1],
+            "endColor": [0.4, 0.6, 1, 0],
+            "blend": "additive",
+            "maxParticles": 12
+          }
+        }
+      }
+    ]
+  }
+}

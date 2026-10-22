@@ -145,6 +145,8 @@ void Physics3D::reset() {
     index_.clear();
     touching_.clear();
     warm_.clear();
+    joints_.clear();
+    jointOrder_.clear();
     lastWorld_ = nullptr;
     nextSeq_ = 1;
     carry_ = 0.0f;

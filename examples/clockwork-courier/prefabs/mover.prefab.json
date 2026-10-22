@@ -1,0 +1,38 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "mover",
+    "tags": ["mover", "platform"],
+    "components": {
+      "RigidBody3D": {
+        "type": "kinematic"
+      },
+      "Collider3D": {
+        "shape": "box",
+        "size": [3, 0.3, 3],
+        "friction": 0.9
+      },
+      "Script": {
+        "path": "scripts/mover.js"
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "model",
+        "components": {
+          "Transform": {
+            "position": [0, -0.15, 0],
+            "rotation": [0, 0, 0],
+            "scale": [3, 1, 3]
+          },
+          "MeshRenderer": {
+            "mesh": "assets/models/props/block-moving.glb"
+          }
+        }
+      }
+    ]
+  }
+}
