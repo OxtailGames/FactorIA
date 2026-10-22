@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Small leftovers
+
+- The editor's Screenshot toast has a "Show in Finder" / "Show in Explorer" button (it names your file manager) that reveals
+  the new PNG, and File > Open Screenshots Folder opens the hidden `.factoria/screenshots/` folder (creating it if needed).
+  A toast with a button stays longer and does not vanish while the mouse is over it.
+- `factoria validate` no longer warns that a hand-written scene or prefab is "not in the canonical layout": such a file is
+  valid. The report has a new informational `notes` list (`note:` lines in the text, `notes` in `--json`, the
+  `project.validate` result and the editor's Validation report) with ONE entry naming those files and the optional
+  `factoria call scene.format`. `scene.format {check, strict}` is still the CI gate.
+
 Edit by hand in the editor
 
 - The editor has a Hierarchy and an Inspector now. The Hierarchy lists every entity as a tree: click one to select it (a

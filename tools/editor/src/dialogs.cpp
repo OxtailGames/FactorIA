@@ -209,14 +209,16 @@ void Editor::draw_validation_window() {
         const auto& v = validation_;
         ImGui::TextColored(v.ok ? ImVec4(0.5f, 0.9f, 0.55f, 1) : ImVec4(1, 0.45f, 0.4f, 1), v.ok ? "Project is valid" : "Project has errors");
         ImGui::SameLine();
-        ImGui::TextDisabled("%zu error(s), %zu warning(s), %d scene(s), %d script(s) checked", v.errors.size(), v.warnings.size(), v.scenesChecked, v.scriptsChecked);
+        ImGui::TextDisabled("%zu error(s), %zu warning(s)%s, %d scene(s), %d script(s) checked", v.errors.size(), v.warnings.size(),
+                            v.notes.empty() ? "" : (", " + std::to_string(v.notes.size()) + " note(s)").c_str(), v.scenesChecked, v.scriptsChecked);
         if (ImGui::Button("Re-run")) validation_ = validate_project(projectDir_);
         ImGui::Separator();
         ImGui::BeginChild("##vr");
         ImGui::PushTextWrapPos(0);
         for (const auto& i : v.errors) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "error  %s", i.to_string().c_str());
         for (const auto& i : v.warnings) ImGui::TextColored(ImVec4(1, 0.8f, 0.35f, 1), "warn   %s", i.to_string().c_str());
-        if (v.errors.empty() && v.warnings.empty()) ImGui::TextDisabled("Nothing to report.");
+        for (const auto& i : v.notes) ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.95f, 1), "note   %s", i.to_string().c_str());
+        if (v.errors.empty() && v.warnings.empty() && v.notes.empty()) ImGui::TextDisabled("Nothing to report.");
         ImGui::PopTextWrapPos();
         ImGui::EndChild();
     }
@@ -307,7 +309,10 @@ void Editor::draw_update_popup() {
 }
 
 void Editor::draw_toasts() {
+    for (Toast& t : toasts_)  // a toast with a button stays while the mouse is over it
+        if (!t.actionLabel.empty() && t.expires < time_ && toastHover_) t.expires = time_ + 1.0;
     toasts_.erase(std::remove_if(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.expires < time_; }), toasts_.end());
+    toastHover_ = false;
     if (toasts_.empty()) return;
     ImGuiViewport* vp = ImGui::GetMainViewport();
     float y = vp->WorkPos.y + ImGui::GetFrameHeight() * 2 + 18;
@@ -321,10 +326,22 @@ void Editor::draw_toasts() {
         std::string name = "##toast" + std::to_string(i);
         ImGui::Begin(name.c_str(), nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoDocking);
+                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | (it->actionLabel.empty() ? ImGuiWindowFlags_NoInputs : 0) | ImGuiWindowFlags_NoDocking);
         ImGui::PushTextWrapPos(460);
         ImGui::TextUnformatted(it->text.c_str());
         ImGui::PopTextWrapPos();
+        bool fire = false;
+        if (!it->actionLabel.empty()) {
+            if (ImGui::SmallButton((it->actionLabel + "##toastAction").c_str())) fire = true;
+            at_track(it->actionId);
+            if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)) toastHover_ = true;
+        }
+        if (fire) {
+            auto act = std::move(it->action);
+            it->actionLabel.clear();
+            it->expires = 0;
+            if (act) act();
+        }
         y += ImGui::GetWindowHeight() + 6;
         ImGui::End();
         ImGui::PopStyleVar(2);

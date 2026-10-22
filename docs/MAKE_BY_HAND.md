@@ -264,8 +264,9 @@ The new ideas:
 - The score text is in `space: "screen"` with `anchor` `[0, 0]` (the top-left corner of the window) and a `pivot` of
   `[0, 1]` (its own top-left corner sits on that point), 24 pixels in.
 
-`validate` may now say the two scene files "are not in the canonical layout": they are valid, only the spacing differs
-from what the engine writes. Fix it with one command, which rewrites whitespace only:
+`validate` may now print a `note:` that the two scene files "are formatted by hand": they are valid (it is a note, not a
+warning), only the spacing differs from what the engine writes. Running `scene.format` is optional; it rewrites whitespace
+only, so later diffs stay small:
 
 ```bash
 factoria call scene.format

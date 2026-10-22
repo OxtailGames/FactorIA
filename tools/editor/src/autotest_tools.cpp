@@ -378,6 +378,7 @@ void Editor::at_build_tools_script() {
         for (const auto& e : stdfs::directory_iterator(projectDir_ + "/.factoria/screenshots", ec))
             if (e.path().extension() == ".png") found = true;
         at_check(found, "the toolbar Screenshot button saves a PNG into the project's .factoria/screenshots");
+        at_check(at_visible("toast:screenshot-reveal"), std::string("the screenshot toast offers Show in ") + file_manager_name());
         toasts_.clear();
     });
 
