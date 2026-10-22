@@ -1,0 +1,4 @@
+Version 1.0.0
+- First release: six levels in the Rooftops and the Night Market, with shortcuts and guard dogs.
+- Stars, achievements, best-time boards and a daily route.
+- Touch, gamepad and keyboard controls, accessibility options and English and Spanish.

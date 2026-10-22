@@ -2,9 +2,9 @@
   "format": "factoria.project/1",
   "name": "Clockwork Courier",
   "id": "com.factoria.examples.clockworkcourier",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "engine": "0.2.0",
-  "mainScene": "scenes/main.scene.json",
+  "mainScene": "scenes/intro.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
   "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ja"], "fallbackFonts": ["assets/fonts/NotoSansJP-Regular-subset.ttf"] },
@@ -72,5 +72,17 @@
     "backend": "auto"
   },
   "platforms": ["windows", "macos", "linux", "ios", "android"],
-  "feedbackFile": "ENGINE_FEEDBACK.json"
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "icon": "assets/icon.png",
+  "export": {
+    "exclude": ["store/**", "screenshots/**"],
+    "android": {"versionCode": 10000, "adaptiveIcon": {"foreground": "assets/icon_fg.png", "background": "#1d2240"}},
+    "ios": {"iconBackground": "#1d2240", "buildNumber": "1", "usesNonExemptEncryption": false, "privacy": {"tracking": false}},
+    "macos": {"category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 Oxtail Games",
+              "buildNumber": "1", "usesNonExemptEncryption": false},
+    "linux": {"categories": ["Game", "AdventureGame"]}
+  },
+  "plugins": {
+    "apple": {"path": "plugins/apple", "platforms": ["ios", "macos"]}
+  }
 }

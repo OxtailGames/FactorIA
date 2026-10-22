@@ -721,6 +721,24 @@
         "license": "CC0-1.0",
         "author": "Kenney"
       }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-22",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-22",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
     }
   }
 }
