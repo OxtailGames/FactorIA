@@ -1,10 +1,10 @@
 # Clockwork Courier
 
 A 3D mobile-first game about a wind-up robot courier who delivers parcels before its spring runs down. It is the
-second reference game of the FactorIA engine (milestone M25). P1 is the playable core (movement, camera, spring
-timer, touch controls, game flow). P2 (this state) adds the world: six levels in two districts, guard dogs, physics
-props, music, particles and a loading screen. Menus polish, saves UI and publishing come later and build on the
-contracts below.
+second reference game of the FactorIA engine (milestone M25), built in seven packages: the playable core (P1), the
+world: six levels in two districts, guard dogs, physics props, music and particles (P2), progress, profile and saves
+(P3), store services (P4), mobile comfort and accessibility (P5), shipping (P6, `SHIPPING.md`) and Spanish and Japanese
+(P7). The later packages build on the contracts below.
 
 ## Run
 
