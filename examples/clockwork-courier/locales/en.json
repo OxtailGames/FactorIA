@@ -15,6 +15,13 @@
   "loading": {
     "text": "Loading..."
   },
+  "intro": {
+    "studio": "Oxtail Games",
+    "presents": "presents",
+    "title": "Clockwork Courier",
+    "skip": "Skip",
+    "hint": "Tap or press any key to skip"
+  },
   "pause": {
     "title": "Paused",
     "resume": "Resume",
