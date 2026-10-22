@@ -4,7 +4,13 @@
 set(FA_TOOLING_TARGET_NAME tooling)
 add_library(fa_tooling STATIC)
 file(GLOB_RECURSE tooling_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
-_fa_filter_platform_sources(tooling_srcs ${tooling_srcs})  # script_instrument_thread_posix.cpp / _win32.cpp
+# Host-platform files (script_instrument_thread_posix.cpp / _win32.cpp). Not _fa_filter_platform_sources: here
+# _android / _web name an export target (export_android.cpp, setup_android.cpp), built on every host.
+if(WIN32)
+    list(FILTER tooling_srcs EXCLUDE REGEX "_posix\\.cpp$")
+else()
+    list(FILTER tooling_srcs EXCLUDE REGEX "_win32\\.cpp$")
+endif()
 target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # The Basis Universal encoder and stb_rect_pack make the compressed textures and atlases of `factoria export`.
