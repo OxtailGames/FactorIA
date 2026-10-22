@@ -8,7 +8,7 @@
 //   step 2  bar at 2/3
 //
 // The level comes from session.nextScene (set by the main menu and by the results panel's "Next level").
-import { Behaviour, scene, session, world, input } from "factoria";
+import { Behaviour, scene, session, world, input, i18n } from "factoria";
 import * as levels from "./levels.js";
 
 /** Frames shown before the blocking load (each one is one step of the bar). */
@@ -28,7 +28,7 @@ export default class Loading extends Behaviour {
     this.loaded = false;
     const lvl = levels.byScene(session.nextScene);
     const t = world.find(this.title);
-    if (t && lvl) t.get("Text").text = lvl.name;
+    if (t && lvl) t.get("Text").text = i18n.t(lvl.nameKey);
     this.show();
     // Android Back while the level loads (three frames): ignored, so it cannot close the app in the middle of the load.
     this.offBack = input.onBack(() => true);

@@ -110,7 +110,7 @@ following the system (`game.accessibility`, the platform).
 | Assist mode (`assist`) | Spring drains at 60 percent, dogs run at 75 percent, give up after half the time, bark 1.6 times longer, coyote time and jump buffer 0.25 s. The numbers are `accessibility.ASSIST`. |
 | Reduced motion (`reducedMotion`) | Follows `game.accessibility.reducedMotion` until the player chooses; props stop bobbing and spinning, the camera follows softer, particles and the low-spring pulse stop. |
 | Vibration (`haptics`) | `input.vibrate` pulses (`scripts/haptics.js`): a landing, a catch, a delivery, the spring running low. |
-| Text size (`textScale`) | `ui.textScale`: 85 to 150 percent; starts from the system's text size. |
+| Text size (`textScale`) | `ui.textScale`: 85 to 200 percent; starts from the system's text size. Every screen is checked at 200 percent in the three languages (see "Languages"). |
 | Left-handed layout, Control size, Control opacity (`leftHanded`, `controlSize`, `controlOpacity`) | Mirror the touch controls; scale them (0.8 to 1.4) and their distance to the edge; scale their opacity (0.3 to 1). |
 | Camera speed, Invert camera Y (`cameraSensitivity`, `invertY`) | Scale the orbit speed (0.4 to 2.5) and flip the tilt. |
 | Tap to move (`tapToMove`) | See above. |
@@ -127,6 +127,48 @@ how it knows); Android Back closes the top screen everywhere (an options tab or 
 in a level, is ignored on the loading screen and, on the title with nothing open, asks "Quit the game?" first
 (`prefabs/ui/quit_confirm.prefab.json`). Every screen is laid out inside the safe area (`tests/comfort.test.js` checks
 the rectangles with a notch).
+
+### Languages (P7)
+
+English, Spanish and Japanese. Every player-facing string is a key of `locales/<tag>.json` (`en.json` is the reference;
+`es.json` and `ja.json` have exactly its keys and placeholders, a test checks it). Options > Language lists the languages
+each in its own name; the choice is saved (`settings.language`) and applied at every start. A first run with nothing
+saved starts in the system language (`settings.pickLanguage` states the rule: the first system language the game has,
+whole tag or first part, else English). A switch rewrites everything on display at once, an open options menu included.
+
+Conventions of the locale files:
+
+- Plurals are objects (`one`, `other`) selected by `count`: `select.districtLocked`, `shop.state.stars`, `ads.moreTimeAd`.
+  Japanese has `other` only.
+- Numbers and times go through `scripts/fmt.js` (`decimal`, `clock`), which reads `format.decimal` of the locale (`.` or
+  `,`), because `i18n.t` has no number formatting (FB-0039).
+- Text that scripts write (the options menu values, the results panel, the cards) is written again in an `i18n.on("change")`
+  listener; texts with a `key` are rewritten by the engine. `touch.jump` and `touch.action` label the on-screen buttons
+  (TouchButton has no `key`, FB-0040).
+- Product, paint, achievement and level names are locale keys too (`shop.product.*`, `shop.paint.*`, `ach.*`, `levels.*`).
+
+**Japanese font.** The default font has no kana or kanji, so `factoria.json` lists
+`assets/fonts/NotoSansJP-Regular-subset.ttf` in `localization.fallbackFonts` (English and Spanish still use the built-in
+font). It is Noto Sans JP (SIL Open Font License 1.1, `assets/fonts/OFL.txt`, credited on the credits screen) instanced at
+weight 400 and cut down to the characters the game uses (about 580 glyphs, 290 KB instead of 5 MB). After adding text to a
+locale file run
+
+```
+python3 assets/fonts/make_subset.py --source "NotoSansJP[wght].ttf"     # rebuilds the subset from the locales
+python3 assets/fonts/make_subset.py --check                              # lists locale characters missing from it
+```
+
+(needs `fontTools`; the source is the variable font of Google Fonts, whose default weight is 100, so the script instances
+it at 400). `factoria validate` errors on any character of a locale that no font of the chain has, naming the key and the
+character, and `tests/i18n.test.js` measures every Japanese character to catch the same in a run.
+
+**Layout.** Menus use `fit` Panels with `fallbackLayout` (a row becomes a column or a grid when it would leave the screen),
+buttons use `autoSize` with `maxWidth` (the label wraps), and lists are ScrollLists with `fill`. The level select, the HUD and
+the touch buttons have fixed places, so they stop their text at 1.15 to 1.3 times the design size (`capSizes`,
+`layoutHud`; FB-0042). At 200 percent, in each language, `tests/i18n.test.js` checks that every button of the title, the
+credits, the shop, the achievements, the leaderboards, every options tab, the pause menu, and the results and retry screens
+is on the screen. Toggle and Slider labels do not wrap (FB-0041), so the options list gets wider with the text size and the
+slider names are Texts above the sliders.
 
 ### Music, sounds and effects
 
@@ -166,12 +208,13 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/save_data.js`, `progress.js`, `cloud_sync.js` | Save format v2 (parse, migrate, merge), the progress API over it, cloud upload / download with conflict merge. |
 | `scripts/level_select.js`, `profile.js`, `results_view.js` | Level select, name screen with the on-screen keyboard, the text of the results panel. |
 | `scripts/daily.js`, `clock.js` | The daily route (seeded by the date) and the calendar date (pinnable in tests). |
+| `scripts/fmt.js`, `locales/`, `assets/fonts/make_subset.py` | P7 languages: number and time formatting by locale, the three locale files, the script that builds the Japanese font subset. |
 | `scripts/settings.js`, `accessibility.js`, `haptics.js`, `comfort.js` | Saved options and what they change in a scene; assist, reduced motion and quality numbers; vibration pulses; per-level comfort entity (suspend pause, low-spring warning, catch and delivery haptics). |
 | `scripts/hud.js`, `parcel.js`, `delivery_door.js` | Spring bar, parcel counter, pickup and delivery. |
 | `scripts/services.js`, `store.js`, `paints.js`, `shortcuts.js` | P4 store services: achievements, stats and score submissions that listen to the events; purchases and the wallet; robot paints; the shortcut zones (see "Contract: store services"). |
 | `scripts/ads.js`, `ad_stub.js`, `more_time.js` | P4 rewarded "more time" on the retry screen: the ad provider interface, the stub overlay, the button and the continue. |
 | `scripts/ui/shop.js`, `achievements.js`, `leaderboards.js`, `toast.js` | P4 screens of the title (Shop, Achievements, Leaderboards) and the achievement toast. |
-| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js` (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
+| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js`, P7: `i18n.test.js` (locale parity, runtime switch, persistence, system language, 200 percent layout in three languages, Japanese glyphs) (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
 
 ### Contract: levels (`scripts/levels.js`)
@@ -315,6 +358,8 @@ products, their types (NonConsumable, Consumable), prices and English titles com
   info API (FB-0036). The pause on suspend is a long-frame heuristic (FB-0035).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
   FB-0033); the level tests allow 10 percent between the main route and the shortcut.
+- The profile keyboard has the letters A to Z only: a Japanese name is typed with the system keyboard (FB-0020).
+- Leaderboard titles are built from the level-name keys; the catalog's `name` has no key (FB-0029).
 - Control size and camera speed sliders show the plain multiplier (1), not a percentage (FB-0037).
 
 ### From P1
@@ -326,6 +371,7 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 
 ## Credits
 
+- Japanese text: Noto Sans JP, (c) 2014-2021 Adobe, SIL Open Font License 1.1 (`assets/fonts/OFL.txt`).
 - Level kits: Kenney "Fantasy Town Kit", "Platformer Kit" and "Cube Pets" (CC0), https://kenney.nl.
 - Music: "Cozy Puzzle Title" and "Urban Shop" by MintoDog, "Loop City" by Fupi (CC0), https://opengameart.org.
 - Jingles: Kenney "Music Jingles" (CC0).

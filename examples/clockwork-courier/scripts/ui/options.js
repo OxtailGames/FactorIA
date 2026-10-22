@@ -2,7 +2,7 @@
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (graphics
 // quality, frame cap, colour filter and the window), Audio (one slider per bus, read aloud, subtitles), Play (assist mode,
 // reduced motion, vibration, tap to move, text size), Touch (left-handed layout, control size and opacity, camera speed and
-// invert Y), Keys (rebinding; hidden on a phone) and Language (cycles through the game's languages). Every change is
+// invert Y), Keys (rebinding; hidden on a phone) and Language (one button per language). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
@@ -230,24 +230,49 @@ export default class Options extends Behaviour {
   }
 
   // ------------------------------------------------------------------------------------------------------- language
+  /** One button per language of the game, each in its own name ("English", "Espa\u00f1ol", "\u65e5\u672c\u8a9e"); the one in use is marked. */
   setupLanguage() {
-    ui.on("click", "language", () => {
-      const all = i18n.languages;
-      const next = all[(all.indexOf(i18n.language) + 1) % all.length];
-      i18n.setLanguage(next); // every Text and widget with a key changes at once; "change" listeners run next frame
-      this.s.language = next;
-      settings.save(this.s);
-    });
+    const section = world.find("language_section");
+    for (const tag of i18n.languages) {
+      world.spawn({ id: `language_${tag}`, components: { Button: { size: [560, 48], text: i18n.name(tag), fontSize: 24, layer: 302 } } }, { parent: section });
+      ui.on("click", `language_${tag}`, () => this.chooseLanguage(tag));
+    }
+    this.refreshLanguage();
+  }
+
+  /** Switches the language now and keeps the choice: settings.language is applied again at every start (settings.apply). */
+  chooseLanguage(tag) {
+    if (tag === i18n.language) return;
+    i18n.setLanguage(tag); // every Text and widget with a key changes at once; "change" listeners run next frame
+    this.s.language = tag;
+    settings.save(this.s);
     this.refreshLanguage();
   }
 
   refreshLanguage() {
-    const button = world.find("language").get("Button");
-    button.text = i18n.t("options.language", { language: i18n.name(i18n.language) });
-    button.interactable = i18n.languages.length > 1; // a game with one language has nothing to choose
+    for (const tag of i18n.languages) {
+      const button = world.find(`language_${tag}`)?.get("Button");
+      if (!button) continue;
+      const current = tag === i18n.language;
+      button.text = (current ? "> " : "") + i18n.name(tag); // the mark does not rely on colour
+      button.color = current ? TAB_SELECTED : TAB_COLOR;
+    }
+  }
+
+  /**
+   * The sections are as wide as the text size asks: 712 px at 100 %, more at a big text size (a Toggle or Slider label does not
+   * wrap, FB-0041), never wider than the screen leaves.
+   */
+  fitWidth() {
+    const width = Math.round(Math.min(1140, 712 * Math.max(1, ui.textScale)));
+    for (const tab of TABS) {
+      const list = world.find(`${tab}_section`).get("ScrollList");
+      if (list.size[0] !== width) list.size = [width, list.size[1]];
+    }
   }
 
   onUpdate() {
+    this.fitWidth();
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
       MenuStack.busy = this.release = false;

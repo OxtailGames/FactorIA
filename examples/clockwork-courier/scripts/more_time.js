@@ -36,13 +36,21 @@ export function onRetryShown(flow) {
   const offer = flow.moreTimeUsed ? { mode: "none" } : ads.moreTimeOffer();
   button.active = offer.mode !== "none";
   if (!button.active) return;
-  const key = offer.mode === "free" ? "ads.moreTimeFree" : "ads.moreTimeAd";
-  button.get("Button").text = i18n.t(key, { seconds: ads.MORE_TIME_SECONDS });
+  flow.moreTimeMode = offer.mode;
+  refreshLabel(flow);
   try {
     ui.focus(button);
   } catch (e) {
     /* not focusable right now: the mouse and touch still work */
   }
+}
+
+/** Writes the button's label again (the offer's mode is kept in flow.moreTimeMode): also when the player changes language. */
+export function refreshLabel(flow) {
+  const button = world.find(BUTTON);
+  if (!button || !button.active) return;
+  const key = flow.moreTimeMode === "free" ? "ads.moreTimeFree" : "ads.moreTimeAd";
+  button.get("Button").text = i18n.t(key, { count: ads.MORE_TIME_SECONDS });
 }
 
 /** Runs the offer; on success the level carries on. */

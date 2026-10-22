@@ -26,10 +26,13 @@ export default class Profile extends Behaviour {
     ui.on("submit", "profile_field", () => this.done());
     ui.on("cancel", () => this.back());
     this.offBack = input.onBack(() => this.back());
+    // The error line is written by script: write it again in the new language.
+    this.offLanguage = i18n.on("change", () => this.setError(this.errorKey ? i18n.t(this.errorKey) : ""));
   }
 
   onDestroy() {
     this.offBack?.();
+    this.offLanguage?.();
   }
 
   /** Spawns the letter grid (9 columns) as children of the grid Panel. */
@@ -55,13 +58,15 @@ export default class Profile extends Behaviour {
   edit(fn) {
     const f = this.field.get("TextField");
     f.text = Array.from(fn(f.text)).slice(0, saveData.NAME_MAX).join("");
+    this.errorKey = "";
     this.setError("");
   }
 
   done() {
     const clean = progress.setName(this.field.get("TextField").text);
     if (clean === "") {
-      this.setError(i18n.t("profile.empty"));
+      this.errorKey = "profile.empty";
+      this.setError(i18n.t(this.errorKey));
       return;
     }
     scene.load(session.profileReturn ?? "scenes/level_select.scene.json");
