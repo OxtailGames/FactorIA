@@ -145,7 +145,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Quality",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -157,7 +157,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Frame cap",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -169,7 +169,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Color filter",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -182,7 +182,7 @@
                 "autoSize": true,
                 "label": "Full screen",
                 "key": "options.fullscreen",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -193,7 +193,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Window size",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -206,7 +206,7 @@
                 "autoSize": true,
                 "label": "VSync",
                 "key": "options.vsync",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -249,7 +249,7 @@
                 "autoSize": true,
                 "label": "Master",
                 "key": "options.volume.master",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -261,7 +261,7 @@
                 "autoSize": true,
                 "label": "Music",
                 "key": "options.volume.music",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -273,7 +273,7 @@
                 "autoSize": true,
                 "label": "Effects",
                 "key": "options.volume.effects",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -285,7 +285,7 @@
                 "autoSize": true,
                 "label": "Interface",
                 "key": "options.volume.interface",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -297,7 +297,7 @@
                 "autoSize": true,
                 "label": "Read menus aloud",
                 "key": "options.readAloud",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -309,7 +309,7 @@
                 "autoSize": true,
                 "label": "Subtitles",
                 "key": "options.subtitles",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "value": true
               }
@@ -338,7 +338,7 @@
                 "autoSize": true,
                 "label": "Assist mode",
                 "key": "options.assist",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -350,7 +350,7 @@
                 "autoSize": true,
                 "label": "Reduced motion",
                 "key": "options.reducedMotion",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -362,7 +362,7 @@
                 "autoSize": true,
                 "label": "Vibration",
                 "key": "options.haptics",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "value": true
               }
@@ -375,7 +375,7 @@
                 "autoSize": true,
                 "label": "Tap to move",
                 "key": "options.tapToMove",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -386,7 +386,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Text size",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -415,7 +415,7 @@
                 "autoSize": true,
                 "label": "Left-handed layout",
                 "key": "options.leftHanded",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -427,7 +427,7 @@
                 "autoSize": true,
                 "label": "Control size",
                 "key": "options.controlSize",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -439,7 +439,7 @@
                 "autoSize": true,
                 "label": "Control opacity",
                 "key": "options.controlOpacity",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -451,7 +451,7 @@
                 "autoSize": true,
                 "label": "Camera speed",
                 "key": "options.cameraSensitivity",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -463,7 +463,7 @@
                 "autoSize": true,
                 "label": "Invert camera Y",
                 "key": "options.invertY",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302
               }
             }
@@ -503,7 +503,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Reset to defaults",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22,
                 "key": "options.resetControls"
@@ -532,7 +532,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Language: English",
-                "size": [560, 38],
+                "size": [696, 38],
                 "layer": 302,
                 "fontSize": 22
               }

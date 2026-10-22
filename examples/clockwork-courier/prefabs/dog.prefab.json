@@ -39,7 +39,7 @@
         "name": "alert",
         "components": {
           "Transform": {
-            "position": [0, 1.35, 0]
+            "position": [0, 0.48, 0]
           }
         },
         "children": [

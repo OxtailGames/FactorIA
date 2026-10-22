@@ -202,7 +202,7 @@ export default class Options extends Behaviour {
   setupControls() {
     const list = world.find("bindings");
     for (const action of this.actions) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [696, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };
