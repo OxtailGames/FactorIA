@@ -92,8 +92,41 @@ height, `physics.overlapSphere` for obstacles, step height limit). It serves the
 ### Tap to move
 
 `scripts/tap_move.js` (one `tap_move` entity per level): tap the ground and the courier walks there around obstacles.
-Off by default; it is the `tapToMove` field of `settings.load()` (P5 puts a switch in the options menu). The stick or a
-jump cancels the walk.
+Off by default; it is the `tapToMove` field of `settings.load()` and the "Tap to move" switch of Options > Play. The
+stick or a jump cancels the walk.
+
+### Comfort and accessibility (P5)
+
+Everything is an option on one of the Options tabs (Video, Audio, Play, Touch, Controls, Language; the Controls tab
+is hidden on a phone). Each option is saved at once and applied at once, in the title, in the pause menu and in a level.
+`settings.load()` returns the defaults plus the player's saved differences, so a key the player never touched keeps
+following the system (`game.accessibility`, the platform).
+
+| Option (`settings` key) | What it does |
+|---|---|
+| Quality (`quality`: low, medium, high) | Sun shadows, view distance (fog), ambient particle counts and one lantern light in three on low. A phone starts at medium. |
+| Frame cap (`frameCap`: 30, 60, 0) | Where the platform lets the game set it (greyed out on a phone, which starts at 30). |
+| Color filter (`colorFilter`) | `Camera.colorFilter`: greyscale, high contrast and three kinds of colour blindness. |
+| Assist mode (`assist`) | Spring drains at 60 percent, dogs run at 75 percent, give up after half the time, bark 1.6 times longer, coyote time and jump buffer 0.25 s. The numbers are `accessibility.ASSIST`. |
+| Reduced motion (`reducedMotion`) | Follows `game.accessibility.reducedMotion` until the player chooses; props stop bobbing and spinning, the camera follows softer, particles and the low-spring pulse stop. |
+| Vibration (`haptics`) | `input.vibrate` pulses (`scripts/haptics.js`): a landing, a catch, a delivery, the spring running low. |
+| Text size (`textScale`) | `ui.textScale`: 85 to 150 percent; starts from the system's text size. |
+| Left-handed layout, Control size, Control opacity (`leftHanded`, `controlSize`, `controlOpacity`) | Mirror the touch controls; scale them (0.8 to 1.4) and their distance to the edge; scale their opacity (0.3 to 1). |
+| Camera speed, Invert camera Y (`cameraSensitivity`, `invertY`) | Scale the orbit speed (0.4 to 2.5) and flip the tilt. |
+| Tap to move (`tapToMove`) | See above. |
+
+Captions: every sound that matters (a key, a delivery, a dog's bark, a catch, the spring running low) is played with
+`caption` and `captionKey` (`captions.*` in the locales), drawn by the `Captions` entity inside the safe area, and the
+Subtitles option of the Audio tab switches them. The spring-low warning is a yellow triangle with "!" and the word
+"Low" next to the bar, so it reads without colour; doors, keys and gates differ by shape (a gate has a diagonal brace, a
+key a T handle on a base) and a dog that noticed the courier shows a bright "!" on a dark ball over its head, as well
+as barking.
+
+On a phone: the game pauses when the app goes to the background (`scripts/comfort.js`, see ENGINE_FEEDBACK FB-0020 for
+how it knows); Android Back closes the top screen everywhere (an options tab or panel, the pause menu, credits), pauses
+in a level, is ignored on the loading screen and, on the title with nothing open, asks "Quit the game?" first
+(`prefabs/ui/quit_confirm.prefab.json`). Every screen is laid out inside the safe area (`tests/comfort.test.js` checks
+the rectangles with a notch).
 
 ### Music, sounds and effects
 
@@ -129,7 +162,8 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/dog.js`, `nav.js`, `tap_move.js` | Guard dogs, the grid path finder, tap-to-move. |
 | `scripts/gate.js`, `lever.js`, `seesaw.js`, `rope_bridge.js`, `mover.js`, `crate.js` | Physics props (joints, kinematic platforms, dynamic bodies). |
 | `scripts/wind_key.js`, `checkpoint.js`, `stars.js`, `loading.js`, `music.js`, `fx.js` | Keys, checkpoints, star rules, loading screen, music director, particles. |
-| `scripts/main_menu.js`, `scripts/ui/` | Title screen and the menu kit (menu stack, options, interface sounds). |
+| `scripts/main_menu.js`, `scripts/ui/` | Title screen and the menu kit (menu stack, options, interface sounds). The title asks before quitting on Android Back. |
+| `scripts/settings.js`, `accessibility.js`, `haptics.js`, `comfort.js` | Saved options and what they change in a scene; assist, reduced motion and quality numbers; vibration pulses; per-level comfort entity (suspend pause, low-spring warning, catch and delivery haptics). |
 | `scripts/hud.js`, `parcel.js`, `delivery_door.js` | Spring bar, parcel counter, pickup and delivery. |
 | `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
@@ -168,6 +202,7 @@ A damaged save loads as empty.
 | `level_completed` | `{ level, time, springLeft, stars, goals: { fast, springy, thorough }, best }` |
 | `level_failed` | `{ level, reason }` (`spring_empty`; a catch and a fall respawn at the last checkpoint) |
 | `game_paused`, `game_resumed` | none |
+| `daily_route_finished` | `{ date: "YYYY-MM-DD", level, time }`, sent by whoever runs the daily route (not sent by P5) |
 
 ### Contract: the autoplay bot (`tests/helpers/autoplay.js`)
 
@@ -186,6 +221,11 @@ yard's parcel; `tests/helpers/routes.js` has `ROUTES[levelId] = { main, shortcut
   seesaw, the bridge and the moving platforms emulate both in script (ENGINE_FEEDBACK).
 - The rope bridge needs heavy damping to stop ringing; narrower planks than 2 m are unstable.
 - The loading bar counts steps, not real progress.
+- Quality presets only change what scripts own (shadows, fog, particles, lights): the engine has no render scale or GPU
+  info API (FB-0021). The pause on suspend is a long-frame heuristic (FB-0020).
+- The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
+  FB-0019); the level tests allow 10 percent between the main route and the shortcut.
+- Control size and camera speed sliders show the plain multiplier (1), not a percentage (FB-0022).
 
 ### From P1
 
