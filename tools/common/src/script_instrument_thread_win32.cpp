@@ -15,7 +15,9 @@ unsigned __stdcall trampoline(void* p) {
     s.entry(s.arg);
     return 0;
 }
-bool spawn(void (*entry)(void*), void* arg, std::size_t stackBytes, bool detached) {
+}  // namespace
+
+bool start_big_stack_thread(void (*entry)(void*), void* arg, std::size_t stackBytes) {
     auto* s = new Start{entry, arg};
     HANDLE h = reinterpret_cast<HANDLE>(
         _beginthreadex(nullptr, static_cast<unsigned>(stackBytes), trampoline, s, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr));
@@ -23,14 +25,8 @@ bool spawn(void (*entry)(void*), void* arg, std::size_t stackBytes, bool detache
         delete s;
         return false;
     }
-    if (!detached) WaitForSingleObject(h, INFINITE);
     CloseHandle(h);
     return true;
-}
-}  // namespace
-
-bool start_big_stack_thread(void (*entry)(void*), void* arg, std::size_t stackBytes) {
-    return spawn(entry, arg, stackBytes, true);
 }
 
 }  // namespace fa
