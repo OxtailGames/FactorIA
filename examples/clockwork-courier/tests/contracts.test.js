@@ -54,7 +54,7 @@ describe("progress.js", () => {
 
   test("starts empty", () => {
     expect(progress.resultFor("test_yard")).toBeNull();
-    expect(progress.load()).toEqual({ version: 1, results: {} });
+    expect(progress.load()).toEqual({ version: 2, counter: 0, name: "", results: {}, daily: null, dailyTimes: {} }); // P3: save format 2
   });
 
   test("record keeps the first result and returns true", () => {
@@ -81,7 +81,7 @@ describe("progress.js", () => {
 
   test("survives a damaged save", () => {
     game.setStorageText('{"progress": 5}');
-    expect(progress.load()).toEqual({ version: 1, results: {} });
+    expect(progress.load()).toEqual({ version: 2, counter: 0, name: "", results: {}, daily: null, dailyTimes: {} }); // P3: save format 2
     game.setStorageText(null);
   });
 
@@ -98,6 +98,7 @@ describe("events.js", () => {
       [
         "checkpoint_reached",
         "courier_caught",
+        "daily_route_finished",
         "dog_alerted",
         "dog_gave_up",
         "game_paused",

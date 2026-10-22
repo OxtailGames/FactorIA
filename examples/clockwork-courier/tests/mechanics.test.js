@@ -8,6 +8,7 @@ import { ROUTES } from "./helpers/routes.js";
 import * as settings from "../scripts/settings.js";
 import * as levels from "../scripts/levels.js";
 import * as stars from "../scripts/stars.js";
+import * as progress from "../scripts/progress.js";
 import { NavGrid } from "../scripts/nav.js";
 import { STEPS } from "../scripts/loading.js";
 
@@ -499,7 +500,10 @@ describe("loading screen", () => {
   test("Play shows a bar that fills in steps, then loads the level", () => {
     game.load("scenes/main.scene.json");
     game.step(5);
+    progress.setName("Ana"); // P3: Play opens the level select, a card starts the level
     game.click("play");
+    game.step(5);
+    game.click("card_rooftops_1");
     expect(scene.current).toBe("scenes/loading.scene.json");
     expect(session.nextScene).toBe(levels.first().scene);
     const seen = [];

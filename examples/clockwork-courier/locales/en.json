@@ -3,6 +3,7 @@
   "menu": {
     "title": "Clockwork Courier",
     "play": "Play",
+    "continue": "Continue",
     "options": "Options",
     "credits": "Credits",
     "quit": "Quit",
@@ -88,11 +89,58 @@
   },
   "results": {
     "title": "Delivered!",
+    "titleNamed": "Delivered, {name}!",
     "time": "Time: {time} s",
+    "best": "Best: {time} s",
+    "newBest": "New best!",
     "spring": "Spring left: {seconds} s",
+    "goal": {
+      "fast": "Fast: under {par} s",
+      "springy": "Springy: {percent} percent of the spring left",
+      "thorough": "Thorough: every bonus parcel"
+    },
     "next": "Next level",
     "retry": "Play again",
     "toTitle": "Quit to title"
+  },
+  "select": {
+    "title": "Choose a level",
+    "total": "Stars {stars} / {max}",
+    "name": "Courier: {name}",
+    "noName": "Set your name",
+    "locked": "Locked",
+    "new": "New",
+    "district": {
+      "rooftops": "Rooftops",
+      "market": "Market"
+    },
+    "districtLocked": "(needs {needed} stars, you have {have})",
+    "hintLevel": "Win {level} first.",
+    "hintDistrict": "Needs {needed} stars from the earlier districts (you have {have}).",
+    "daily": "Daily route",
+    "dailyDone": "Daily route: {time} s",
+    "cloud": {
+      "synced": "Cloud save: up to date",
+      "uploaded": "Cloud save: uploaded",
+      "downloaded": "Cloud save: loaded from the cloud",
+      "merged": "Cloud save: joined both copies",
+      "offline": "Cloud save: could not reach the store",
+      "unreadable": "Cloud save: could not be read, left untouched"
+    }
+  },
+  "profile": {
+    "title": "Who is delivering?",
+    "hint": "Type a name or pick the letters.",
+    "anonymous": "Courier",
+    "space": "Space",
+    "delete": "Delete",
+    "done": "Done",
+    "empty": "Pick a name with at least one letter or digit."
+  },
+  "daily": {
+    "done": "Daily route done!",
+    "doneNamed": "Daily route done, {name}!",
+    "best": "Best today: {time} s"
   },
   "retry": {
     "title": "The spring ran down",

@@ -1,13 +1,15 @@
 // @ts-check
-// The title screen (scenes/main.scene.json): Play, Options, Credits, Quit. Panels open over each other with MenuStack;
-// a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel. Play starts the first level
-// of scripts/levels.js through the loading screen. Android Back opens the previous panel (nothing to close: quits).
+// The title screen (scenes/main.scene.json): Continue, Play, Options, Credits, Quit. Panels open over each other with
+// MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel. Play opens the level
+// select (the name screen first when there is no name); Continue starts the next unfinished level through the loading
+// screen. Android Back opens the previous panel (nothing to close: quits).
 import { Behaviour, ui, game, scene, session, input } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
 import { installUiSounds } from "./ui/ui_sounds.js";
-import * as levels from "./levels.js";
+import * as progress from "./progress.js";
+import * as daily from "./daily.js";
 
 export default class MainMenu extends Behaviour {
   onStart() {
@@ -16,8 +18,18 @@ export default class MainMenu extends Behaviour {
     installUiSounds();
     this.menus = new MenuStack("main_menu");
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
+    // P3: Play opens the level select (the name screen first for a new player); Continue starts the next unfinished level.
+    daily.clear();
+    const next = progress.nextUnfinished();
+    const cont = this.world.find("continue_button");
+    if (cont) cont.active = next !== null && progress.hasName() && Object.keys(progress.load().results).length > 0;
     ui.on("click", "play", () => {
-      session.nextScene = levels.first().scene; // scenes/loading.scene.json shows a step bar for three frames, then loads it
+      session.profileReturn = "scenes/level_select.scene.json";
+      scene.load(progress.hasName() ? "scenes/level_select.scene.json" : "scenes/profile.scene.json");
+    });
+    ui.on("click", "continue_button", () => {
+      if (!next) return;
+      session.nextScene = next.scene; // scenes/loading.scene.json shows a step bar for three frames, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
