@@ -408,15 +408,15 @@
         "model": "claude-sonnet-5-5"
       },
       "category": "ui",
-      "severity": "major",
-      "title": "No on-screen keyboard or text input for gamepad and touch",
-      "missing": "TextField only takes typed characters from a keyboard. A first-run name screen on a gamepad-only or touch device (consoles, phones without the OS keyboard in headless/desktop) has no way to enter text, and nothing tells a game how to ask the OS for one.",
+      "severity": "minor",
+      "title": "No on-screen keyboard for gamepad players",
+      "missing": "A first-run name screen must work with a gamepad alone (TV, handheld, desktop without a keyboard). A focused TextField raises the phone's own keyboard (docs/MOBILE.md, 'The on-screen keyboard'), but there is nothing for a gamepad: no virtual keyboard widget, no call to a platform one (Steam's, a console's), so the game cannot take a name without keys.",
       "workaround": "profile.scene.json has a grid of 36 buttons built at runtime (key_A..key_9, space, delete) that edit the TextField text; d-pad focus walks the grid.",
       "workaroundFiles": [
         "scripts/profile.js",
         "scenes/profile.scene.json"
       ],
-      "suggestion": "A built-in OnScreenKeyboard widget or ui.openKeyboard(field) that uses the platform keyboard on mobile and a focus-navigable grid elsewhere.",
+      "suggestion": "A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).",
       "occurrences": 1,
       "status": "open"
     },
