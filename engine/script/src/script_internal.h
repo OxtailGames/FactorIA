@@ -73,6 +73,8 @@ struct ToolEntry {
 
 struct ScriptSystem::Impl {
     ScriptHost* host = nullptr;
+    ScriptSystem* owner = nullptr;
+    std::shared_ptr<ScriptDebugger> debugger;  // debug mode (set_debugger); null for a normal run
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     int observerId = -1;

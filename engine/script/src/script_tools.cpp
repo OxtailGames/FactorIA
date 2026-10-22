@@ -9,6 +9,7 @@
 #include "fa/platform/input.h"
 #include "fa/script/bytecode.h"
 #include <cstdio>
+#include "debugger_internal.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -189,6 +190,7 @@ Result<Json> Impl::eval(std::string_view code) {
     static const char kWrapper[] = "(function(__fa_code){ with (globalThis.factoria) { return eval(__fa_code); } })";
     JsVal fn(ctx, JS_Eval(ctx, kWrapper, sizeof(kWrapper) - 1, "<eval>", JS_EVAL_TYPE_GLOBAL));
     JsVal codeV(ctx, JS_NewStringLen(ctx, code.data(), code.size()));
+    auto debugEntry = debug_entry(*this);
     push_guard("eval", 5.0);
     timedOut = false;
     JSValue arg = codeV.get();

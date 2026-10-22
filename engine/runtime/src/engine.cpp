@@ -474,6 +474,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     else FA_DEBUG("platform", "backend '{}'", choice.backend->name());
     I.platform.set_backend(std::move(choice.backend), choice.why);
     std::string serr;
+    if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     if (!I.scripts.init(*this, &serr)) {
         FA_ERROR("script", "Script system init failed: {}", serr);
         I.startupProblems.push_back("script: " + serr);
