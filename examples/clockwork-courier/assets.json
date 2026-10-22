@@ -1,0 +1,227 @@
+{
+  "format": "factoria.assets/1",
+  "defaults": {
+    "audio": {
+      "normalize": true
+    }
+  },
+  "assets": {
+    "assets/audio/back_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/bong_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/click_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/close_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/confirmation_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/confirmation_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/error_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_003.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_003.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactMetal_light_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactPunch_medium_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactSoft_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactSoft_medium_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/open_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/pluck_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/select_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/toggle_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/robot.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
+        "license": "CC0-1.0",
+        "author": "Quaternius (modified by Don McCurdy)",
+        "notes": "Modified for this project: scaled, hands removed, and the rigid meshes skinned to the bones (tools/skinify.py) because the engine ignores rigid-mesh animation under bones (ENGINE_FEEDBACK FB-0001)."
+      }
+    }
+  }
+}
