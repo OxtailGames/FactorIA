@@ -223,11 +223,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`script.errors`](commands/script.md#scripterrors): List script errors (load/runtime) and scene load problems.
 - [`script.eval`](commands/script.md#scripteval-modifies-state): Evaluate JavaScript in the running game context (REPL) and return the value.
 - [`script.reload`](commands/script.md#scriptreload-modifies-state): Re-import script modules edited on disk and restart the behaviours (the world is kept).
+- [`script.trace`](commands/script.md#scripttrace): Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run. _Not released yet._
 
 ### [setup](commands/setup.md)
 
-- [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc (or open Xcode's App Store page). _Since 0.1.4._
-- [`setup.status`](commands/setup.md#setupstatus): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc. _Since 0.1.4._
+- [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension (or open Xcode's App Store page). _Since 0.1.4._
+- [`setup.status`](commands/setup.md#setupstatus): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension. _Since 0.1.4._
 
 ### [shader](commands/shader.md)
 

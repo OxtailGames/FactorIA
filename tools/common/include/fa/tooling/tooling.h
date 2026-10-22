@@ -15,6 +15,7 @@
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/publish.h"
 #include "fa/tooling/scaffold.h"
+#include "fa/tooling/script_trace.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 #include "fa/tooling/setup_parse.h"

@@ -91,6 +91,10 @@ struct EngineConfig {
     // `factoria` and the editor pass the tooling's compile_material (fa_runtime cannot depend on fa_tooling); empty = an
     // exported game, which reads the compiled twins shipped next to each material.
     ShaderCompiler shaderCompiler;
+    // The script debugger (fa/script/debugger.h): when set, the engine runs the game's scripts in debug mode (instrumented,
+    // breakpoints and stepping, the stopped game inspected through the debugger's DebugClient). Null = a normal run, with
+    // no cost. `factoria dap` and `script.trace` create it; the Engine hands it to its ScriptSystem before the scripts start.
+    std::shared_ptr<ScriptDebugger> scriptDebugger;
 };
 
 class Engine final : public ScriptHost {

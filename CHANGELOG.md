@@ -28,7 +28,22 @@ Edit by hand in the editor
   appear on it; Q goes back to just selecting. The four buttons next to Undo do the same. Hold Ctrl to snap, press Esc in
   the middle of a drag to cancel it. A whole drag is one Undo step, it works for 2D and 3D, for things on the screen (like
   a score) and for things inside another, and while the game is paused it edits the running game.
-- Still to come: a browser for the project's files.
+
+Debug your scripts in VS Code
+
+- Press F5 in VS Code on a FactorIA project: the game starts and stops on your breakpoints. Step through your code line
+  by line, look at every variable and at `this`, watch expressions, and type JavaScript in the debug console to read or
+  change the running game. `factoria setup vscode` (or Install in the editor's Setup window) adds the extension to VS
+  Code, and to Insiders, VSCodium and Cursor when you have them; new projects come with a `.vscode/launch.json`.
+- Breakpoints can have a condition, a hit count or a message to print instead of stopping (a logpoint, with
+  `{expressions}` filled in). The debugger can stop on every error your scripts throw or only on the ones nothing
+  catches, and Pause stops the game wherever it is, even in an endless loop.
+- Three ways to start: play the game in its window, run it without a window for a number of frames (with an input
+  replay), or run your tests and stop inside them.
+- For the AI: `script.trace` puts the same breakpoints on a headless run and returns what it saw as JSON (the call stack,
+  the local variables and your watch expressions at each hit, and the logpoint lines), so it can find out why a script
+  misbehaves without guessing. See `factoria docs read debugging`.
+- Exported games cannot be debugged: debug the project.
 
 Find out what makes your game slow
 

@@ -50,6 +50,7 @@ std::vector<Command> build_commands() {
     v.push_back(make_commands_command());
     v.push_back(make_api_command());
     v.push_back(make_mcp_command());
+    v.push_back(make_dap_command());
     v.push_back(make_ai_command());
     v.push_back(make_feedback_command());
     v.push_back(make_docs_command());

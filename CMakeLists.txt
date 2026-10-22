@@ -121,6 +121,7 @@ endif()
 if(FA_BUILD_TOOLS)
     add_subdirectory(tools/common)  # fa_tooling   project scaffolding, validation, feedback, docs
     add_subdirectory(tools/mcp)     # fa_mcp       Model Context Protocol server (stdio)
+    add_subdirectory(tools/dap)     # fa_dap      Debug Adapter Protocol server of the script debugger (stdio)
     add_subdirectory(tools/ai)      # fa_ai        AI providers (API keys + Claude Code/Codex CLIs), agent loop
     if(FA_BUILD_EDITOR)
         add_subdirectory(tools/editor)  # fa_editor  ImGui editor with AI assistant panel

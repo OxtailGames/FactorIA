@@ -236,10 +236,12 @@
       "suggestion": "Let scene.import_ascii (or a new scene.ascii_edit command) take operations on an existing map: fill/replace a rectangle, insert or delete columns, place a glyph at (column, height above the ground), so an AI changes a map without rewriting every row; and report the column and row of every glyph in the result so it can be located again.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M20 (ASCII map edits for AIs) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package of M20 (ASCII map edits for AIs) in feedback/ROADMAP.md.",
+        "Fixed in 9b92c45 (M20.1): scene.ascii_edit {file, ops, rebuild?, dryRun?} edits the rows of a scene.import_ascii args file with fill, replace (whole map or a rect), insertColumns, deleteColumns and put (at a row, or above the ground of a column), all or nothing, and rebuilds the level when the file has a path; its result lists every object's glyph and cell. Lantern Keep's maps stay as they are (levels/<id>.json was already the source of truth)."
+      ],
+      "engineIssue": "#134"
     },
     {
       "id": "FB-0010",

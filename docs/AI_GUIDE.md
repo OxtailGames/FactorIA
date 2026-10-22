@@ -1398,6 +1398,10 @@ Patterns that work:
 | `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
+| `script.trace` | `script_trace` | Run the project headless and record the stack, locals and watch expressions every time given script lines run (with an optional condition), or collect logpoint lines: `{"points":[{"file":"scripts/player.js","line":17,"condition":"this.body.velocity.y > 0","watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}`. Returns `hits`, `logs`, `errors`, `framesRun`, `truncated`. Use it instead of adding `console.log` and re-running. `docs_read {"name":"debugging"}`. |
+
+A person debugs the same scripts with breakpoints and stepping in VS Code (F5; `factoria setup vscode` installs the
+extension): [DEBUGGING.md](DEBUGGING.md).
 
 ### 11.1 Stateful debugging: `factoria session` and `call --batch`
 

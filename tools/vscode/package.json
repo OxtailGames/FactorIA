@@ -1,0 +1,99 @@
+{
+  "name": "factoria",
+  "displayName": "FactorIA",
+  "description": "Debug the JavaScript of a FactorIA game: breakpoints, stepping, variables and the debug console, from F5.",
+  "version": "0.0.0",
+  "publisher": "oxtailgames",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/OxtailGames/FactorIA" },
+  "categories": ["Debuggers"],
+  "keywords": ["factoria", "game", "debugger", "javascript"],
+  "engines": { "vscode": "^1.75.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onDebugResolve:factoria", "onDebugDynamicConfigurations:factoria"],
+  "contributes": {
+    "breakpoints": [{ "language": "javascript" }],
+    "debuggers": [
+      {
+        "type": "factoria",
+        "label": "FactorIA",
+        "languages": ["javascript"],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["play", "headless", "test"],
+                "default": "play",
+                "description": "What to run. play: the game in its window, like `factoria run`. headless: a fixed number of frames without a window, optionally replaying an input file, like `factoria run --headless`. test: the project's tests/*.test.js, like `factoria test`."
+              },
+              "project": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "The project folder (the one with factoria.json)."
+              },
+              "scene": {
+                "type": "string",
+                "default": "",
+                "description": "play, headless: the scene to start in (default: the project's main scene)."
+              },
+              "frames": {
+                "type": "number",
+                "default": 600,
+                "description": "headless: how many frames to run."
+              },
+              "input": {
+                "type": "string",
+                "default": "",
+                "description": "headless: an input replay file to play back."
+              },
+              "tests": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": [],
+                "description": "test: the test files to run (default: every tests/*.test.js)."
+              },
+              "filter": {
+                "type": "string",
+                "default": "",
+                "description": "test: only run tests whose name contains this text."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": false,
+                "description": "Stop at the first statement of the first script that runs."
+              },
+              "factoriaPath": {
+                "type": "string",
+                "default": "",
+                "description": "The factoria executable to start as the debug adapter (`factoria dap`). Default: the one `factoria setup vscode` recorded when it installed this extension, else `factoria` on the PATH."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          { "type": "factoria", "request": "launch", "name": "Play", "mode": "play", "project": "${workspaceFolder}" },
+          { "type": "factoria", "request": "launch", "name": "Headless (600 frames)", "mode": "headless", "project": "${workspaceFolder}", "frames": 600 },
+          { "type": "factoria", "request": "launch", "name": "Tests", "mode": "test", "project": "${workspaceFolder}" }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "FactorIA: Play",
+            "description": "Run the game in its window and debug its scripts.",
+            "body": { "type": "factoria", "request": "launch", "name": "Play", "mode": "play", "project": "\\${workspaceFolder}" }
+          },
+          {
+            "label": "FactorIA: Headless",
+            "description": "Run the game for a number of frames without a window and debug its scripts.",
+            "body": { "type": "factoria", "request": "launch", "name": "Headless", "mode": "headless", "project": "\\${workspaceFolder}", "frames": 600 }
+          },
+          {
+            "label": "FactorIA: Tests",
+            "description": "Run the project's tests/*.test.js and debug them.",
+            "body": { "type": "factoria", "request": "launch", "name": "Tests", "mode": "test", "project": "\\${workspaceFolder}" }
+          }
+        ]
+      }
+    ]
+  }
+}
