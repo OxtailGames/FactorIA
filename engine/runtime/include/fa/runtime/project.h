@@ -47,6 +47,7 @@ struct PluginSettings {
     std::string name;                    // the key: [a-z][a-z0-9_]*, the plugins.<name> of scripts and the prefix of its commands
     std::string path;                    // its folder as written: project-relative or absolute, ${VAR} = an environment variable
     std::vector<std::string> platforms;  // the platforms it is built for; empty = the project's `platforms` (all five without)
+    bool optional = false;               // the game runs without it: a missing build for this computer is a validate warning, not an error
 };
 
 // The "localization" section (docs/LOCALIZATION.md). No section = `languages` is empty = localization is off and the game behaves as

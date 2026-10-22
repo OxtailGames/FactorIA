@@ -13,6 +13,8 @@ There are no `stats` and no `presence` on Apple's platforms: the engine answers 
 
 ## Build it
 
+The plugin is `"optional": true` in `factoria.json`: without its libraries the game runs with the local stub and `factoria validate` only warns, but the App Store export needs them built.
+
 On a Mac with Xcode (the build calls `xcrun`; `factoria call platform.add_backend '{"backend":"apple"}'` does all of this):
 
 ```bash

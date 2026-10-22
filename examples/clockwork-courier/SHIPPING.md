@@ -64,7 +64,7 @@ Engine: the Xcode project and the app, icon from `assets/icon.png`, `ITSAppUsesN
 `tracking` false, `Products.storekit` for the in-app purchases (written on export because `plugins/apple` is declared:
 `platform.add_backend apple` put it in `factoria.json` and built `plugins/apple`). The plugin's libraries are not in git:
 build them once on a Mac before exporting for iOS or macOS, `cmake -S plugins/apple -B plugins/apple/build && cmake --build
-plugins/apple/build` (`plugins/apple/README.md`); without them the export says which file is missing. Test purchases: open the exported Xcode project, Edit Scheme, Options, StoreKit Configuration =
+plugins/apple/build` (`plugins/apple/README.md`); without them the game still runs with the local stub and `factoria validate` only warns (the plugin is `"optional": true`), but the export says which file is missing and stops. Test purchases: open the exported Xcode project, Edit Scheme, Options, StoreKit Configuration =
 `Products.storekit`. StoreKit cannot be checked without Xcode.
 
 By hand: App Store Connect record (bundle id `com.factoria.examples.clockworkcourier`), team and signing in Xcode,

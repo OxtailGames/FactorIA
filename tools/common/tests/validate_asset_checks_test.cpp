@@ -6,6 +6,7 @@
 
 #include "asset_test_helpers.h"
 #include "fa/core/json.h"
+#include "fa/runtime/project.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/validate.h"
 
@@ -186,5 +187,29 @@ TEST_CASE("validate: a project without assets has no asset warnings") {
     for (const ValidationIssue& w : g.report().warnings) {
         CHECK(w.file.rfind("assets", 0) != 0);
         CHECK(w.pointer != "/platforms");
+    }
+}
+
+TEST_CASE("validate: a missing build of an optional plugin for this computer is a warning, not an error") {
+    for (const bool optional : {true, false}) {
+        Game g(Json::array({std::string(runtime_platform())}));
+        auto project = load_json_file(g.dir + "/factoria.json");
+        REQUIRE(project.ok());
+        (*project)["plugins"] = Json::object({{"native", Json::object({{"path", "plugins/native"}, {"optional", optional}})}});
+        REQUIRE(save_json_file(g.dir + "/factoria.json", *project).ok());
+        const ValidationReport r = g.report();
+        auto about_plugin = [](const std::vector<ValidationIssue>& v) -> const ValidationIssue* {
+            for (const ValidationIssue& i : v)
+                if (i.pointer == "/plugins/native") return &i;
+            return nullptr;
+        };
+        if (optional) {
+            CHECK(about_plugin(r.errors) == nullptr);
+            REQUIRE(about_plugin(r.warnings) != nullptr);
+            CHECK(about_plugin(r.warnings)->message.find("runs without it") != std::string::npos);
+        } else {
+            CHECK(about_plugin(r.errors) != nullptr);
+            CHECK(about_plugin(r.warnings) == nullptr);
+        }
     }
 }
