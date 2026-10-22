@@ -700,6 +700,11 @@ fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiV
   environment. A variable keeps a private SDK outside the repository: each developer sets it to their own copy.
 - **`platforms`.** The platforms it is built for. Without it, the game's `platforms`, or all five. On a platform it is
   not built for, `plugins.<name>` is `undefined`, so scripts can test for it.
+- **`optional`.** `true` when the game runs without the plugin (default `false`). A missing build for this computer is then
+  a warning in `factoria validate`, not an error. Without the build, `plugins.<name>` still exists but throws "the native
+  plugin is not loaded" when a function is used, and the runtime logs a warning and goes on, so wrap calls in
+  `try`/`catch` or rely on what the plugin provides (a store backend falls back to the development fake store).
+  `factoria export` still fails without the build for the target platform, so a store build cannot ship without it by accident.
 
 The folder holds one build per platform:
 

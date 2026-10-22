@@ -200,7 +200,17 @@ TEST_CASE("plugins: factoria.json errors name the field and say how to fix it") 
     CHECK(std::find(all.begin(), all.end(), "web") == all.end());
     CHECK(platform_names().back() == "web");
 
-    auto bad = load(R"({"Steam": {"path": "s"}})");
+    CHECK_FALSE(ok->plugins[0].optional);
+    auto opt = load(R"({"a": {"path": "a", "optional": true}, "b": {"path": "b", "optional": false}, "c": {"path": "c"}})");
+    REQUIRE(opt.ok());
+    CHECK(opt->plugins[0].optional);
+    CHECK_FALSE(opt->plugins[1].optional);
+    CHECK_FALSE(opt->plugins[2].optional);
+
+    auto bad = load(R"({"steam": {"path": "s", "optional": "yes"}})");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("#/plugins/steam/optional") != std::string::npos);
+    bad = load(R"({"Steam": {"path": "s"}})");
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("#/plugins/Steam: 'Steam' is not a plugin name") != std::string::npos);
     bad = load(R"({"scene": {"path": "s"}})");

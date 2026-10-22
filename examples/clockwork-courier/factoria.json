@@ -83,6 +83,6 @@
     "linux": {"categories": ["Game", "AdventureGame"]}
   },
   "plugins": {
-    "apple": {"path": "plugins/apple", "platforms": ["ios", "macos"]}
+    "apple": {"path": "plugins/apple", "platforms": ["ios", "macos"], "optional": true}
   }
 }
