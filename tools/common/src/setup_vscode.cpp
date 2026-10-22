@@ -6,6 +6,15 @@
 // The same folder goes into the extensions folder of VS Code Insiders (.vscode-insiders), VSCodium (.vscode-oss) and Cursor
 // (.cursor) when that editor has a folder in the user's home. Older oxtailgames.factoria-* folders are removed. Nothing is
 // downloaded: the extension is part of the binary, so the copy always matches the installed engine.
+//
+// extensions.json: when <extensions>/extensions.json exists, VS Code reads ONLY that list and ignores folders it does not
+// name (checked with VS Code 1.140); when it does not exist, VS Code scans the folder and writes the file itself. So an
+// install adds our entry (identifier, version, an absolute `location` URI, relativeLocation, metadata) to an existing file,
+// keeping every other entry as it is, replacing any older entry of ours, and writing the file atomically. A missing file is
+// not created: an incomplete one would hide the other extensions placed by hand. `.obsolete` (a JSON object of folders
+// VS Code deletes at its next start) must not name our folder, or the fresh copy would be removed.
+#include <cctype>
+#include <chrono>
 #include <fstream>
 
 #include "fa/core/json.h"
@@ -19,6 +28,7 @@ namespace {
 
 constexpr const char* kPrefix = "oxtailgames.factoria-";
 constexpr const char* kPathFile = "factoria-path.txt";
+constexpr const char* kExtensionId = "oxtailgames.factoria";
 constexpr const char* kEmbeddedDir = "tools/vscode/";
 
 struct EditorTarget {
@@ -65,10 +75,103 @@ std::string read_text(const stdfs::path& p) {
     return s;
 }
 
-// "installed" (this version, pointing at this factoria), "stale" (this version, but the recorded factoria is another),
-// "missing".
-std::string copy_state(const SetupContext& ctx, const stdfs::path& folder) {
+std::string lower(std::string s) {
+    for (char& ch : s) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    return s;
+}
+
+// The path part of the file URI VS Code stores in extensions.json: forward slashes; on Windows "/c:/Users/...".
+std::string uri_path(const stdfs::path& folder) {
+    std::string p = folder.generic_string();
+    if (p.size() >= 2 && p[1] == ':') p = "/" + lower(p.substr(0, 1)) + p.substr(1);
+    return p;
+}
+
+bool is_ours(const Json& entry) {
+    if (!entry.is_object() || !entry.contains("identifier") || !entry["identifier"].is_object()) return false;
+    const Json& id = entry["identifier"].value("id", Json());
+    return id.is_string() && lower(id.get<std::string>()) == kExtensionId;
+}
+
+// extensions.json parsed; null when the file does not exist; discarded (is_discarded) when it is not a JSON array.
+Json read_registry(const stdfs::path& extDir, bool& exists) {
+    const stdfs::path file = extDir / "extensions.json";
+    exists = is_file(file);
+    if (!exists) return Json();
+    Json j = Json::parse(read_text(file), nullptr, false);
+    if (!j.is_array()) return Json(Json::value_t::discarded);
+    return j;
+}
+
+bool write_atomic(const stdfs::path& file, const std::string& text, std::string* err) {
+    const stdfs::path tmp = file.string() + ".fa-tmp";
+    if (!tooling_detail::write_file(tmp, text, err)) return false;
+    std::error_code ec;
+    stdfs::rename(tmp, file, ec);
+    if (ec) {
+        if (err) *err = "Cannot replace " + file.string() + ": " + ec.message();
+        stdfs::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
+// Adds our entry to an existing extensions.json (see the comment at the top). Returns an error text, "" when fine.
+std::string register_extension(const stdfs::path& extDir, const stdfs::path& folder, const std::string& version) {
+    bool exists = false;
+    Json list = read_registry(extDir, exists);
+    if (!exists) return {};
+    if (list.is_discarded())
+        return (extDir / "extensions.json").string() + " is not a JSON array, so VS Code's list of extensions was left alone: "
+               "restart VS Code once, delete that file, and run `factoria setup vscode` again.";
+    Json out = Json::array();
+    for (const Json& e : list)
+        if (!is_ours(e)) out.push_back(e);
+    Json entry = Json::object();
+    entry["identifier"] = Json::object({{"id", kExtensionId}});
+    entry["version"] = version;
+    entry["location"] = Json::object({{"$mid", 1}, {"path", uri_path(folder)}, {"scheme", "file"}});
+    entry["relativeLocation"] = folder.filename().string();
+    entry["metadata"] = Json::object(
+        {{"installedTimestamp", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
+         {"source", "vsix"}});
+    out.push_back(entry);
+    std::string err;
+    if (!write_atomic(extDir / "extensions.json", out.dump(2), &err)) return err;
+    return {};
+}
+
+// Removes our folders from .obsolete (a JSON object folder name -> true).
+void clean_obsolete(const stdfs::path& extDir) {
+    const stdfs::path file = extDir / ".obsolete";
+    if (!is_file(file)) return;
+    Json j = Json::parse(read_text(file), nullptr, false);
+    if (!j.is_object()) return;
+    bool changed = false;
+    for (auto it = j.begin(); it != j.end();) {
+        if (it.key().rfind(kPrefix, 0) == 0) {
+            it = j.erase(it);
+            changed = true;
+        } else {
+            ++it;
+        }
+    }
+    if (changed) write_atomic(file, j.dump(), nullptr);
+}
+
+// "installed" (this version, pointing at this factoria, listed in extensions.json when there is one), "stale" (this
+// version, but the recorded factoria is another), "missing".
+std::string copy_state(const SetupContext& ctx, const stdfs::path& extDir, const stdfs::path& folder) {
     if (!is_file(folder / "package.json") || !is_file(folder / "extension.js")) return "missing";
+    bool exists = false;
+    const Json list = read_registry(extDir, exists);
+    if (exists) {
+        bool listed = false;
+        if (list.is_array())
+            for (const Json& e : list)
+                if (is_ours(e) && e.value("version", "") == ctx.version()) listed = true;
+        if (!listed) return "missing";
+    }
     const stdfs::path exe = factoria_exe(ctx);
     if (is_file(exe) && read_text(folder / kPathFile) != exe.string()) return "stale";
     return "installed";
@@ -92,7 +195,7 @@ SetupComponent vscode_status(const SetupContext& ctx) {
     int installed = 0, stale = 0;
     for (const EditorTarget* t : targets) {
         const stdfs::path folder = extensions_dir(home, *t) / extension_folder_name(ctx);
-        const std::string s = copy_state(ctx, folder);
+        const std::string s = copy_state(ctx, extensions_dir(home, *t), folder);
         if (s == "missing") {
             c.problems.push_back(t->label + " does not have the FactorIA extension " + ctx.version() + " (" + folder.string() + ").");
             continue;
@@ -172,7 +275,7 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
         const stdfs::path dest = extDir / folderName;
         std::error_code ec;
         s.path = dest.string();
-        if (!opt.force && copy_state(ctx, dest) == "installed") {
+        if (!opt.force && copy_state(ctx, extDir, dest) == "installed") {
             s.outcome = "skipped";
             s.detail = "already installed";
         } else {
@@ -186,6 +289,7 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
             if (auto f = replace_dir(incoming, dest)) return in.fail(*f);
             s.outcome = "installed";
             s.detail = "extension " + ctx.version() + " copied";
+            if (const std::string e = register_extension(extDir, dest, ctx.version()); !e.empty()) in.report.warnings.push_back(e);
         }
         // Older versions are no longer used (and VS Code would load the newest of them otherwise).
         std::vector<stdfs::path> old;
@@ -199,6 +303,7 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
             if (!rm) s.detail += "; removed " + p.filename().string();
             else in.report.warnings.push_back("Could not remove the old extension " + p.string() + ": " + rm.message());
         }
+        clean_obsolete(extDir);
         s.seconds = stepTimer.seconds();
         in.add_step(s);
         if (t->always) in.report.paths.emplace_back("extension", dest.string());

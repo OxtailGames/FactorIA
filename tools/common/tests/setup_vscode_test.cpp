@@ -133,6 +133,64 @@ TEST_CASE("setup vscode: a new version replaces the old folder") {
     CHECK_FALSE(stdfs::exists(w.ext(".vscode", "9.8.7")));
 }
 
+TEST_CASE("setup vscode: an existing extensions.json keeps the other entries, replaces ours and gains the new one") {
+    VsWorld w;
+    const stdfs::path reg = w.home() / ".vscode" / "extensions" / "extensions.json";
+    testing::write_all(reg, R"([
+      {"identifier":{"id":"someone.else"},"version":"1.0.0","relativeLocation":"someone.else-1.0.0","location":{"$mid":1,"path":"/x","scheme":"file"}},
+      {"identifier":{"id":"OxtailGames.Factoria"},"version":"1.0.0","relativeLocation":"oxtailgames.factoria-1.0.0"}
+    ])");
+    testing::write_all(w.ext(".vscode", "1.0.0") / "package.json", "{}");
+    CHECK(w.state() == "missing");
+
+    SetupInstallOptions o;
+    o.component = "vscode";
+    const SetupResult r = setup_install(o, w.ctx);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    CHECK(r.report.warnings.empty());
+    const Json list = Json::parse(testing::read_all(reg));
+    REQUIRE(list.is_array());
+    REQUIRE(list.size() == 2);
+    CHECK(list[0]["identifier"]["id"] == "someone.else");
+    CHECK(list[0]["relativeLocation"] == "someone.else-1.0.0");
+    CHECK(list[1]["identifier"]["id"] == "oxtailgames.factoria");
+    CHECK(list[1]["version"] == "9.8.7");
+    CHECK(list[1]["relativeLocation"] == "oxtailgames.factoria-9.8.7");
+    CHECK(list[1]["location"]["scheme"] == "file");
+    CHECK(list[1]["location"]["path"].get<std::string>().find("oxtailgames.factoria-9.8.7") != std::string::npos);
+    CHECK(list[1]["metadata"]["installedTimestamp"].is_number());
+    CHECK(w.state() == "installed");
+
+    // Installing again does not duplicate it.
+    SetupInstallOptions force = o;
+    force.force = true;
+    REQUIRE(setup_install(force, w.ctx).ok);
+    CHECK(Json::parse(testing::read_all(reg)).size() == 2);
+}
+
+TEST_CASE("setup vscode: a missing extensions.json is not created; .obsolete loses our folders") {
+    VsWorld w;
+    const stdfs::path extDir = w.home() / ".vscode" / "extensions";
+    testing::write_all(extDir / ".obsolete", R"({"oxtailgames.factoria-9.8.7":true,"someone.else-1.0.0":true})");
+    SetupInstallOptions o;
+    o.component = "vscode";
+    REQUIRE(setup_install(o, w.ctx).ok);
+    CHECK_FALSE(stdfs::exists(extDir / "extensions.json"));
+    CHECK(w.state() == "installed");
+    const Json obsolete = Json::parse(testing::read_all(extDir / ".obsolete"));
+    CHECK_FALSE(obsolete.contains("oxtailgames.factoria-9.8.7"));
+    CHECK(obsolete.contains("someone.else-1.0.0"));
+}
+
+TEST_CASE("setup vscode: the folder alone is not installed when extensions.json does not list it") {
+    VsWorld w;
+    SetupInstallOptions o;
+    o.component = "vscode";
+    REQUIRE(setup_install(o, w.ctx).ok);
+    testing::write_all(w.home() / ".vscode" / "extensions" / "extensions.json", "[]");
+    CHECK(w.state() == "missing");
+}
+
 TEST_CASE("setup vscode: the unknown-component error lists vscode") {
     VsWorld w;
     SetupInstallOptions o;
