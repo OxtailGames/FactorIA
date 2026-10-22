@@ -13,6 +13,10 @@
 #include <map>
 #include <sstream>
 #include <thread>
+
+#if !defined(_WIN32)
+#include <pthread.h>
+#endif
 #include <string>
 #include <vector>
 
@@ -678,3 +682,61 @@ TEST_CASE("script_instrument: speed on a ~1000 line file") {
     std::cout << "[script_instrument] " << count_lines(big) << " lines: " << ms << " ms per run after warm-up\n";
     CHECK(ms < 1000);  // generous: debug builds on loaded CI machines; the number is printed above
 }
+
+// ---------------------------------------------------------------------------------------------------- import cycle
+TEST_CASE("script_instrument: a function called from an import cycle before the module prologue ran") {
+    // main -> a -> b -> a: b's top level calls a's hoisted function while a has not run yet.
+    const std::map<std::string, std::string> files = {
+        {"main.js", "import { res } from './a.js';\nglobalThis.__result = res;\n"},
+        {"a.js", "import { gb } from './b.js';\nexport function fa() {\n  const x = 'fa';\n  return x;\n}\nexport const res = gb + '/' + fa();\n"},
+        {"b.js", "import { fa } from './a.js';\nexport const gb = fa() + '!';\n"},
+    };
+    Vm plain;
+    plain.sources = files;
+    std::string expected = plain.run("", files.at("main.js"));
+    REQUIRE(expected == "fa!/fa");
+
+    bool ok = false;
+    auto instrumented = instrument_all(files, ok);
+    REQUIRE(ok);
+    Vm dbg;
+    dbg.sources = instrumented;
+    CHECK(dbg.run(kQuietStub, instrumented.at("main.js")) == expected);
+}
+
+// ---------------------------------------------------------------------------------------------------- stacks
+#if !defined(_WIN32)
+TEST_CASE("script_instrument: callers on a small stack and deeply nested sources never crash") {
+    struct Arg {
+        std::string source;
+        bool ok = false;
+        bool answered = false;
+        std::string err;
+    } arg;
+    for (int i = 0; i < 300; i++) arg.source += "[";
+    arg.source += "1";
+    for (int i = 0; i < 300; i++) arg.source += "]";
+    arg.source = "const deep = " + arg.source + ";\n";
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 256 * 1024);
+    pthread_t t;
+    REQUIRE(pthread_create(
+                &t, &attr,
+                [](void* p) -> void* {
+                    auto* a = static_cast<Arg*>(p);
+                    auto r = instrument_script("deep.js", a->source, 1);
+                    a->answered = true;  // success or an Error, but we got here
+                    a->ok = r.ok();
+                    if (!r.ok()) a->err = r.error().to_string().substr(0, 400);
+                    return nullptr;
+                },
+                &arg) == 0);
+    pthread_join(t, nullptr);
+    pthread_attr_destroy(&attr);
+    CHECK(arg.answered);
+    // Either outcome is fine (Debug builds of QuickJS use big frames and may report the overflow as an Error).
+    MESSAGE("deep source: " << (arg.ok ? std::string("instrumented") : arg.err));
+}
+#endif
