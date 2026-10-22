@@ -194,11 +194,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [publish](commands/publish.md)
 
-- [`publish.appstore`](commands/publish.md#publishappstore-modifies-state): Upload the iOS build (.ipa) to App Store Connect / TestFlight (xcrun altool, macOS only). _Since 0.2.0._
+- [`publish.appstore`](commands/publish.md#publishappstore-modifies-state): Upload the iOS build (.ipa) or the Mac App Store package (.pkg) to App Store Connect (xcrun altool, macOS only). _Since 0.2.0._
 - [`publish.epic`](commands/publish.md#publishepic-modifies-state): Upload the desktop exports to the Epic Games Store (BuildPatchTool UploadBinary, one artifact per platform). _Since 0.2.0._
 - [`publish.gog`](commands/publish.md#publishgog-modifies-state): Upload the desktop exports to GOG (Galaxy Pipeline Builder build-game, one project file per platform). _Since 0.2.0._
 - [`publish.googleplay`](commands/publish.md#publishgoogleplay-modifies-state): Upload the release Android App Bundle (.aab) to Google Play (fastlane supply). _Since 0.2.0._
 - [`publish.itch`](commands/publish.md#publishitch-modifies-state): Upload the desktop exports to itch.io (butler push, one channel per platform). _Since 0.2.0._
+- [`publish.microsoft`](commands/publish.md#publishmicrosoft-modifies-state): Upload the Windows MSIX package to the Microsoft Store (msstore publish). _Not released yet._
 - [`publish.steam`](commands/publish.md#publishsteam-modifies-state): Upload the desktop exports to Steam (steamcmd, one depot per platform). _Since 0.2.0._
 
 ### [scene](commands/scene.md)
@@ -240,7 +241,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [sign](commands/sign.md)
 
-- [`sign.macos`](commands/sign.md#signmacos-modifies-state): Sign, notarize and staple the exported macOS app (Developer ID), and zip it for sharing. _Since 0.2.0._
+- [`sign.macos`](commands/sign.md#signmacos-modifies-state): Sign, notarize and staple the exported macOS app (Developer ID), or sandbox and sign it as a .pkg for the Mac App Store. _Since 0.2.0._
+- [`sign.windows`](commands/sign.md#signwindows-modifies-state): Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside the Microsoft Store. _Not released yet._
 
 ### [ui](commands/ui.md)
 

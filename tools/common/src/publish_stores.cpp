@@ -20,6 +20,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
+#include "export_zip.h"
 #include "fa/tooling/project_fs.h"
 #include "publish_internal.h"
 #include "util.h"
@@ -337,6 +338,9 @@ std::string env_first(const Context& c, const char* a, const char* b) {
 
 Result<std::vector<Job>> plan_appstore(Context& c) {
     AppStorePublishSettings s = c.settings.appstore;
+    const bool mac = c.appstoreTarget == "macos";  // the Mac App Store .pkg of sign.macos, else the iOS .ipa
+    const std::string kind = mac ? "macOS" : "iOS";
+    const std::string build = mac ? c.macosBuild : c.iosBuild;
     if (s.appleId.empty()) {
         if (auto e = dry_missing(c, err("appstore: factoria.json#/publish/appstore/appleId is not set",
                    pointer_hint("the Apple ID of your app", "\"publish\": {\"appstore\": {\"appleId\": \"6448277777\"}}") +
@@ -352,8 +356,8 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
     }
     static const std::regex versionRe("^[0-9]+(\\.[0-9]+){0,2}$");
     if (!std::regex_match(c.version, versionRe))
-        return err("appstore: the version '" + c.version + "' of factoria.json cannot be an iOS version (CFBundleShortVersionString)",
-                   "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in factoria.json and export the game for iOS again.");
+        return err("appstore: the version '" + c.version + "' of factoria.json cannot be " + std::string(mac ? "a macOS" : "an iOS") + " version (CFBundleShortVersionString)",
+                   "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in factoria.json and export the game for " + kind + " again.");
 
     std::string keyPath = env_first(c, kAppStoreKeyVar, "FACTORIA_NOTARY_API_KEY");
     std::string keyId = env_first(c, kAppStoreKeyIdVar, "FACTORIA_NOTARY_API_KEY_ID");
@@ -381,18 +385,22 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
 
     Job job;
     job.title = "xcrun altool --upload-package (app " + s.appleId + ")";
-    job.argv = {"", "altool", "--upload-package", generic(c.artifact), "--type", "ios", "--apple-id", s.appleId, "--bundle-id", c.bundleId,
-                "--bundle-version", c.iosBuild, "--bundle-short-version-string", c.version, "--apiKey", keyId, "--apiIssuer", issuer};
+    job.argv = {"", "altool", "--upload-package", generic(c.artifact), "--type", mac ? "macos" : "ios", "--apple-id", s.appleId, "--bundle-id", c.bundleId,
+                "--bundle-version", build, "--bundle-short-version-string", c.version, "--apiKey", keyId, "--apiIssuer", issuer};
     job.shown = job.argv;
     job.env["API_PRIVATE_KEYS_DIR"] = generic(key.parent_path());  // where altool looks for AuthKey_<KeyID>.p8
-    job.uploads.push_back({"ios", "App Store Connect app " + s.appleId + " (" + c.bundleId + "), version " + c.version + " build " + c.iosBuild});
+    job.uploads.push_back({mac ? "macos" : "ios", "App Store Connect app " + s.appleId + " (" + c.bundleId + "), version " + c.version + " build " + build});
     job.failureHint = "altool reports the reason in its output: 'Unable to authenticate' means a wrong Key ID/Issuer ID or a key without the App Manager role; a bundle id or version that does not match "
-                      "the .ipa means the .ipa was built from other settings (export again and archive again); 'build number already used' means raise export.ios.buildNumber, export, archive and upload again.";
-    c.warnings.push_back("altool checks --bundle-id, --bundle-version and --bundle-short-version-string against the .ipa: they are read from factoria.json (id " + c.bundleId + ", version " + c.version +
-                         ", export.ios.buildNumber " + c.iosBuild + "), so the .ipa must come from an iOS export made with the same factoria.json.");
+                      "the package means it was built from other settings (export again and " + std::string(mac ? "sign again" : "archive again") + "); 'build number already used' means raise export." +
+                      (mac ? "macos" : "ios") + ".buildNumber, export, " + (mac ? "sign" : "archive") + " and upload again.";
+    c.warnings.push_back("altool checks --bundle-id, --bundle-version and --bundle-short-version-string against the " + std::string(mac ? ".pkg" : ".ipa") + ": they are read from factoria.json (id " + c.bundleId +
+                         ", version " + c.version + ", export." + (mac ? "macos" : "ios") + ".buildNumber " + build + "), so the " + (mac ? ".pkg must come from a macOS export signed with sign.macos distribution appStore" : ".ipa must come from an iOS export") +
+                         " made with the same factoria.json.");
+    if (mac && c.artifactGiven)
+        c.warnings.push_back("The .pkg was given by `artifact`: FactorIA cannot tell how it was signed. App Store Connect refuses a package that is not signed with a \"3rd Party Mac Developer Installer\" / \"Mac Installer Distribution\" certificate (`pkgutil --check-signature <pkg>` shows it).");
     c.nextSteps.push_back("App Store Connect now processes the build (a few minutes to an hour; it e-mails you if it is rejected). When it shows under App Store Connect > your app > TestFlight, add it to a "
                           "tester group; to submit it for review pick it on the version page of the App Store tab.");
-    c.nextSteps.push_back("App Store Connect takes each build number once per version: raise export.ios.buildNumber in factoria.json before the next export and archive.");
+    c.nextSteps.push_back("App Store Connect takes each build number once per version: raise export." + std::string(mac ? "macos" : "ios") + ".buildNumber in factoria.json before the next export and " + (mac ? "sign." : "archive."));
     return std::vector<Job>{std::move(job)};
 }
 
@@ -485,6 +493,76 @@ Result<std::vector<Job>> plan_googleplay(Context& c) {
     return std::vector<Job>{std::move(job)};
 }
 
+// ---- Microsoft Store ----------------------------------------------------------------------------------------------
+
+// Partner Center credentials (an Azure AD application with the Manager role; docs/EXPORTING.md, "Microsoft Store"). Environment only.
+const char* const kMsTenantVar = "FACTORIA_MSSTORE_TENANT_ID";
+const char* const kMsSellerVar = "FACTORIA_MSSTORE_SELLER_ID";
+const char* const kMsClientVar = "FACTORIA_MSSTORE_CLIENT_ID";
+const char* const kMsSecretVar = "FACTORIA_MSSTORE_CLIENT_SECRET";
+
+Result<std::vector<Job>> plan_microsoft(Context& c) {
+    std::string productId = c.settings.microsoft.productId;
+    if (productId.empty()) {
+        if (auto e = dry_missing(c, err("microsoft: factoria.json#/publish/microsoft/productId is not set",
+                   pointer_hint("the Store ID of your app", "\"publish\": {\"microsoft\": {\"productId\": \"9NBLGGH4NNS1\"}}") +
+                       " It is in Partner Center > your app > Product identity > Store ID. Create the app there first (reserve its name): the first submission is made by hand.")))
+            return *e;
+        productId = "MISSING_PRODUCT_ID";
+    }
+    const std::string tenant = env_of(c, kMsTenantVar), seller = env_of(c, kMsSellerVar), client = env_of(c, kMsClientVar), secret = env_of(c, kMsSecretVar);
+    std::vector<std::string> missing;
+    if (tenant.empty()) missing.push_back(kMsTenantVar);
+    if (seller.empty()) missing.push_back(kMsSellerVar);
+    if (client.empty()) missing.push_back(kMsClientVar);
+    if (secret.empty()) missing.push_back(kMsSecretVar);
+    if (!missing.empty()) {
+        if (auto e = dry_missing(c, err("microsoft: the Partner Center credentials are not set: " + join(missing, ", ") + (missing.size() == 1 ? " is" : " are") + " empty",
+                   "Partner Center > Account settings > Tenants links your Microsoft Entra tenant; Account settings > User management > Azure AD applications > Add Azure AD application "
+                   "(role Manager) gives the client id and a client secret; the tenant id and the seller id are on the same pages. Put them in the environment variables " +
+                       join(std::vector<std::string>{kMsTenantVar, kMsSellerVar, kMsClientVar, kMsSecretVar}, ", ") + " (never in factoria.json; they are not written, shown or logged).")))
+            return *e;
+    }
+    const std::string status = c.options.releaseStatus.empty() ? "draft" : c.options.releaseStatus;
+    if (status != "draft" && status != "completed")
+        return err("microsoft: '" + status + "' is not a release status",
+                   did_you_mean(status, std::vector<std::string>{"draft", "completed"}) + " draft prepares the submission in Partner Center without sending it to certification; completed also submits it.");
+
+    // The package is checked as far as a zip can be: Partner Center refuses an identity that is not the app's.
+    auto manifest = export_detail::zip_read_entry(c.artifact, "AppxManifest.xml");
+    if (!manifest.ok())
+        return err("microsoft: " + generic(c.artifact) + " is not an MSIX package: " + manifest.error().message,
+                   "Export it again: project.export {\"platform\":\"windows\",\"format\":\"msix\"} writes build/export/<game-slug>-windows.msix.");
+    if (manifest->find("Publisher=\"CN=FactorIA Developer\"") != std::string::npos)
+        c.warnings.push_back("The package carries the placeholder identity (no export.windows.msix identity in factoria.json): Partner Center rejects it. Copy Package/Identity/Name, "
+                             "Package/Identity/Publisher and Package/Properties/PublisherDisplayName from Partner Center > your app > Product identity into export.windows.msix and export again.");
+
+    Job reconfigure;
+    reconfigure.title = "msstore reconfigure (Partner Center credentials)";
+    reconfigure.argv = {"", "reconfigure", "--tenantId", tenant.empty() ? "MISSING_TENANT_ID" : tenant, "--sellerId", seller.empty() ? "MISSING_SELLER_ID" : seller,
+                        "--clientId", client.empty() ? "MISSING_CLIENT_ID" : client, "--clientSecret", secret.empty() ? "MISSING_CLIENT_SECRET" : secret};
+    reconfigure.shown = reconfigure.argv;
+    reconfigure.shown.back() = kRedacted;
+    reconfigure.secrets = {secret};
+    reconfigure.failureHint = "Check the tenant id, seller id, client id and client secret (the secret expires: Partner Center > Account settings > Azure AD applications). msstore keeps the credentials itself.";
+
+    Job publish;
+    publish.title = "msstore publish (" + productId + ")";
+    publish.argv = {"", "publish", generic(c.artifact.parent_path()), "--inputFile", generic(c.artifact), "--appId", productId};
+    if (status == "draft") publish.argv.push_back("--noCommit");
+    publish.shown = publish.argv;
+    publish.secrets = {secret};
+    publish.uploads.push_back({"windows", "Microsoft Store " + productId + " (" + status + ")"});
+    publish.failureHint = "Typical causes: 'identity does not match' - copy Name, Publisher and PublisherDisplayName from Partner Center > Product identity into export.windows.msix and export again; "
+                          "'a submission is already in progress' - finish or delete the pending submission in Partner Center; 'version must be higher' - raise \"version\" in factoria.json "
+                          "(every submission needs a higher package version); the very first submission of an app has to be made by hand in Partner Center.";
+    c.nextSteps.push_back(status == "draft"
+                              ? "The submission is prepared, not sent: open Partner Center > your app > the pending submission, check it (and fill in the Store listing and the age rating if it is the first one) and submit it for certification."
+                              : "The submission was sent for certification; follow it in Partner Center > your app > Submission. Certification can take a few days.");
+    c.nextSteps.push_back("The package is uploaded unsigned: the Store signs it. Every submission needs a higher \"version\" in factoria.json (export again).");
+    return std::vector<Job>{std::move(reconfigure), std::move(publish)};
+}
+
 }  // namespace
 
 const Store* find_store(const std::string& name) {
@@ -509,6 +587,12 @@ const Store* find_store(const std::string& name) {
                          "https://docs.fastlane.tools/getting-started/android/setup/ (gem install fastlane, or brew install fastlane)", false, always_configured, plan_googleplay};
         googleplay.mobile = "android";
         v.push_back(googleplay);
+        Store microsoft{"microsoft", "msstore", "FACTORIA_MSSTORE", "msstore", {"msstore"},
+                        "https://aka.ms/msstoredevcli/releases (Microsoft Store Developer CLI; needs the .NET runtime. macOS: brew install microsoft/msstore-cli/msstore-cli; "
+                        "Windows: winget install \"Microsoft Store Developer CLI\")",
+                        false, always_configured, plan_microsoft};
+        microsoft.mobile = "windows";  // uploads one built file (the .msix), not the export folders
+        v.push_back(microsoft);
         return v;
     }();
     for (const Store& s : stores)

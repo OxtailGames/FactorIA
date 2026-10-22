@@ -279,6 +279,44 @@ void windows_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& probl
     icon_field(ed, "windows-icon", ps.project.windows.icon, ps.project.icon, kRecommendedIconSize, "No icon: the .exe keeps the engine's default icon and the export warns.",
                problems, "/export/windows/icon", "A square PNG or JPG inside the project. Empty: the game icon (General tab).");
     ed.draw_setup_buttons("windows", "tab", true);  // a Windows player, when this computer is not a Windows one and has none
+
+    ImGui::SeparatorText("Microsoft Store (MSIX)");
+    WindowsExportSettings& w = ps.project.windows;
+    note("An MSIX is the package of the Microsoft Store (and of Add-AppxPackage on a PC). It is built on any computer, unsigned: the Store signs it. "
+         "Copy the identity from Partner Center > your app > Product identity.");
+    Form store("##windows_msix");
+    store.row("Format", "factoria.json: export.windows.format. folder: only the folder. msix: also <name>-windows.msix next to it. The Export window's format menu changes this same setting.");
+    const SettingsChoice* cur = find_choice(windows_formats(), w.format);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+    if (ImGui::BeginCombo("##windowsformat", cur ? cur->label : w.format.c_str())) {
+        for (const SettingsChoice& c : windows_formats()) {
+            if (ImGui::Selectable(c.label, w.format == c.value)) w.format = c.value;
+            tip(c.note);
+        }
+        ImGui::EndCombo();
+    }
+    ed.at_track("platform:windows-format");
+    if (cur) tip(cur->note);
+    field_problems(problems, "/export/windows/format");
+    WindowsMsixSettings& m = w.msix;
+    text_row(store, "Identity name", "factoria.json: export.windows.msix.identityName. Package/Identity/Name of Partner Center (Product identity), e.g. 12345MyStudio.MyGame.",
+             "##msixname", m.identityName, "12345MyStudio.MyGame", problems, "/export/windows/msix/identityName");
+    text_row(store, "Publisher", "factoria.json: export.windows.msix.publisher. Package/Identity/Publisher of Partner Center, copied exactly (CN=...).",
+             "##msixpublisher", m.publisher, "CN=0123ABCD-4567-89EF-0123-456789ABCDEF", problems, "/export/windows/msix/publisher");
+    text_row(store, "Publisher name", "factoria.json: export.windows.msix.publisherDisplayName. The publisher name players see (Package/Properties/PublisherDisplayName).",
+             "##msixpubname", m.publisherDisplayName, "My Studio", problems, "/export/windows/msix/publisherDisplayName");
+    text_row(store, "Display name", "factoria.json: export.windows.msix.displayName. The name of the app in the Start menu. Empty: the game's name.",
+             "##msixdisplay", m.displayName, "", problems, "/export/windows/msix/displayName");
+    text_row(store, "Description", "factoria.json: export.windows.msix.description. The short description Windows shows. Empty: the display name.",
+             "##msixdesc", m.description, "", problems, "/export/windows/msix/description");
+    text_row(store, "Tile color", "factoria.json: export.windows.msix.backgroundColor. #RRGGBB or transparent.",
+             "##msixcolor", m.backgroundColor, "transparent", problems, "/export/windows/msix/backgroundColor");
+    text_row(store, "Package version", "factoria.json: export.windows.msix.version. Four numbers (1.2.3.0); the Store needs the fourth to be 0. Empty: the game's version with .0 added.",
+             "##msixversion", m.version, "1.2.3.0", problems, "/export/windows/msix/version");
+    text_row(store, "Minimum Windows", "factoria.json: export.windows.msix.minVersion. The oldest Windows 10 build (10.0.17763.0 = version 1809).",
+             "##msixmin", m.minVersion, "10.0.17763.0", problems, "/export/windows/msix/minVersion");
+    if (w.format == "msix" && (m.identityName.empty() || m.publisher.empty() || m.publisherDisplayName.empty()))
+        wrapped(kWarn, "The identity is not complete: the package gets a placeholder identity, which installs on your own PC but the Microsoft Store rejects.");
 }
 
 void macos_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problems) {
@@ -309,6 +347,11 @@ void macos_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problem
              "##minmac", m.minimumSystemVersion, "11.0", problems, "/export/macos/minimumSystemVersion");
     text_row(form, "Copyright", "factoria.json: export.macos.copyright (NSHumanReadableCopyright). The notice shown in the app's About information. Empty: none.",
              "##copyright", m.copyright, "Copyright 2026 My Studio", problems, "/export/macos/copyright");
+    const std::string macBuildHint = ps.info.version.empty() ? "the game's version" : ps.info.version + " (the game's version)";
+    text_row(form, "Build number", "factoria.json: export.macos.buildNumber (CFBundleVersion). Up to three whole numbers separated by dots, e.g. 42 or 1.2.3; the "
+                                   "Mac App Store needs it to grow with every upload of the same version. Empty: the game's version. The sandbox capabilities "
+                                   "(export.macos.entitlements) are edited in factoria.json.",
+             "##macbuild", m.buildNumber, macBuildHint.c_str(), problems, "/export/macos/buildNumber");
     ed.draw_setup_buttons("macos", "tab", true);
 }
 
@@ -677,6 +720,15 @@ void Editor::reset_platform_settings_state() {
 void Editor::request_close_platform_settings() {
     if (platformSettings_.dirty()) platformCloseAsk_ = true;
     else showPlatformSettings_ = false;
+}
+
+void Editor::set_windows_format(const std::string& format) {
+    if (auto r = save_windows_format(projectDir_, format); !r.ok()) {
+        notify("Cannot change the Windows format: " + r.error().message + " " + r.error().hint, 2);
+        return;
+    }
+    platformSettings_.note_saved_windows_format(format);
+    exportChecked_ = -100;
 }
 
 void Editor::set_android_format(const std::string& format) {

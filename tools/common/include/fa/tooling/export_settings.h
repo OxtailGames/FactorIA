@@ -24,8 +24,25 @@ namespace fa {
 // factoria.json: "icon" and "export"
 // ---------------------------------------------------------------------------
 
+// export.windows.msix: what the Microsoft Store (Partner Center > Product identity) knows the app as, and the manifest texts.
+// Empty = derived (see ProjectExportSettings::msix_*). The identity fields have no default: the Store assigns them.
+struct WindowsMsixSettings {
+    std::string identityName;           // Package/Identity/Name, e.g. "12345Studio.MyGame" (Partner Center); "" = not set
+    std::string publisher;              // Package/Identity/Publisher, "CN=..." exactly as Partner Center shows it; "" = not set
+    std::string publisherDisplayName;   // the publisher name players see; "" = not set
+    std::string displayName;            // "" = the game's name
+    std::string description;            // "" = the display name
+    std::string backgroundColor = "transparent";  // tile background: "#RRGGBB" or "transparent"
+    std::string version;                // "major.minor.build.revision"; "" = the project's "version" with revision 0 (1.2.3 -> 1.2.3.0)
+    std::string minVersion = "10.0.17763.0";  // oldest Windows 10 build the package installs on (1809)
+    std::vector<std::string> languages;  // resource languages (BCP 47, "en-us"); empty = localization.languages of the project, else en-us
+    bool operator==(const WindowsMsixSettings&) const = default;
+};
+
 struct WindowsExportSettings {
     std::string icon;  // project-relative; "" = the project's `icon`
+    std::string format = "folder";  // "folder" | "msix" (also writes <slug>-windows.msix next to the folder)
+    WindowsMsixSettings msix;
     bool operator==(const WindowsExportSettings&) const = default;
 };
 
@@ -34,6 +51,9 @@ struct MacosExportSettings {
     std::string category = "public.app-category.games";  // LSApplicationCategoryType
     std::string minimumSystemVersion = "11.0";            // LSMinimumSystemVersion, 11.0 or newer
     std::string copyright;                                // NSHumanReadableCopyright; "" = none
+    std::string buildNumber;                              // CFBundleVersion; "" = the project's "version"
+    bool usesNonExemptEncryption = false;                 // ITSAppUsesNonExemptEncryption in Info.plist
+    Json entitlements = Json::object();                   // sandbox capabilities added to the Mac App Store signature (sign.macos)
     bool operator==(const MacosExportSettings&) const = default;
 };
 
@@ -107,7 +127,7 @@ struct IosExportSettings {
 };
 
 // What `icon` and `export` of factoria.json say, with every default filled in. Fields that are "derived" when empty
-// (Android versionCode, iOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
+// (Android versionCode, iOS and macOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
 struct ProjectExportSettings {
     std::string icon;  // the icon of every platform that has no icon of its own; "" = none
     bool scriptBytecode = true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
@@ -119,6 +139,7 @@ struct ProjectExportSettings {
     AndroidExportSettings android;
     IosExportSettings ios;
     std::string projectVersion;  // "version" of factoria.json as read (not written back); derived defaults use it
+    std::vector<std::string> projectLanguages;  // localization.languages of factoria.json as read (not written back)
 
     // The icon of `platform` ("windows" | "macos" | "linux" | "android" | "ios"): its own, else `icon`, else "".
     std::string icon_for(const std::string& platform) const;
@@ -126,7 +147,16 @@ struct ProjectExportSettings {
     int android_version_code() const;
     // ios.buildNumber when set, else projectVersion.
     std::string ios_build_number() const;
+    // windows.msix.version when set, else projectVersion with a 0 revision ("1.2.3" -> "1.2.3.0", "2" -> "2.0.0.0").
+    std::string msix_version() const;
+    // windows.msix.languages when set, else projectLanguages, else {"en-us"} (lower case, as the manifest wants them).
+    std::vector<std::string> msix_languages() const;
+    // macos.buildNumber when set, else projectVersion.
+    std::string macos_build_number() const;
 };
+
+// True for "a.b.c.d": four whole numbers from 0 to 65535 (an MSIX package version, a Windows build number).
+bool is_msix_version(const std::string& v);
 
 // "1.2.3" -> 10203 (major * 10000 + minor * 100 + patch, each part capped at 99, at least 1): the Android versionCode
 // derived from a game version.

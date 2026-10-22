@@ -59,7 +59,7 @@ error, not a warning), and `factoria call scene.format` is the optional fix that
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
+### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of

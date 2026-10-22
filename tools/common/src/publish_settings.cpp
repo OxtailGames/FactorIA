@@ -11,7 +11,7 @@
 namespace fa {
 
 const std::vector<std::string>& publish_stores() {
-    static const std::vector<std::string> stores = {"steam", "itch", "epic", "gog", "appstore", "googleplay"};
+    static const std::vector<std::string> stores = {"steam", "itch", "epic", "gog", "appstore", "googleplay", "microsoft"};
     return stores;
 }
 
@@ -202,6 +202,19 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
             }
         unknown_keys(o, base, {"track", "releaseStatus", "changelogs"});
     }
+
+    void microsoft(const Json& o, const std::string& base, MicrosoftPublishSettings& s) {
+        std::string id;
+        if (text(o, base, "productId", id, "Copy the Store ID from Partner Center (your app > Product identity), 12 letters and digits, e.g. \"9NBLGGH4NNS1\".")) {
+            static const std::regex re("^[A-Za-z0-9]{12}$");
+            if (!std::regex_match(id, re))
+                error(base + "/productId", "'" + id + "' is not a Microsoft Store ID",
+                      "It has 12 letters and digits, e.g. \"9NBLGGH4NNS1\" (Partner Center > your app > Product identity > Store ID; not the package name and not your seller id).");
+            else
+                s.productId = id;
+        }
+        unknown_keys(o, base, {"productId"});
+    }
 };
 
 }  // namespace
@@ -225,6 +238,7 @@ PublishSettingsParse parse_publish_settings(const Json& pj) {
     if (const Json* o = r.object_member(pub, "/publish", "gog", "{\"productId\": \"1234567890\"}")) r.gog(*o, "/publish/gog", s.gog);
     if (const Json* o = r.object_member(pub, "/publish", "appstore", "{\"appleId\": \"6448277777\"}")) r.appstore(*o, "/publish/appstore", s.appstore);
     if (const Json* o = r.object_member(pub, "/publish", "googleplay", "{\"track\": \"internal\", \"releaseStatus\": \"draft\"}")) r.googleplay(*o, "/publish/googleplay", s.googleplay);
+    if (const Json* o = r.object_member(pub, "/publish", "microsoft", "{\"productId\": \"9NBLGGH4NNS1\"}")) r.microsoft(*o, "/publish/microsoft", s.microsoft);
     return r.result;
 }
 

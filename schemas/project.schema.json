@@ -493,6 +493,62 @@
             "icon": {
               "type": "string",
               "description": "Icon of the Windows export, replacing the project's top-level \"icon\" there. Same rules as the top-level \"icon\". Empty or absent = use the project's \"icon\"."
+            },
+            "format": {
+              "type": "string",
+              "enum": ["folder", "msix"],
+              "default": "folder",
+              "description": "\"folder\" (default): <slug>-windows/ with the exe and the game. \"msix\": also writes <out>/<slug>-windows.msix next to that folder, the package of the Microsoft Store (and of Add-AppxPackage on a PC). It can be built on any computer. `factoria export --format msix` wins over this. See docs/EXPORTING.md, \"Microsoft Store\"."
+            },
+            "msix": {
+              "type": "object",
+              "description": "The MSIX package of the Microsoft Store (format \"msix\"). The identity fields come from Partner Center > your app > Product identity; a package built without them installs on your own PC but the Store rejects it. See docs/EXPORTING.md, \"Microsoft Store\".",
+              "properties": {
+                "identityName": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9.\\-]{1,48}[A-Za-z0-9]$",
+                  "description": "Package/Identity/Name: 3 to 50 letters, digits, '.' and '-'. Partner Center shows it as \"Package/Identity/Name\", e.g. \"12345MyStudio.MyGame\"."
+                },
+                "publisher": {
+                  "type": "string",
+                  "pattern": "^[Cc][Nn]=.+",
+                  "description": "Package/Identity/Publisher, copied exactly from Partner Center (\"CN=0123ABCD-4567-89EF-0123-456789ABCDEF\"). It must equal the subject of the certificate that signs the package (the Store signs uploads itself)."
+                },
+                "publisherDisplayName": {
+                  "type": "string",
+                  "description": "The publisher name players see (Partner Center > Product identity > Package/Properties/PublisherDisplayName)."
+                },
+                "displayName": {
+                  "type": "string",
+                  "description": "The name of the app in the Start menu and the Store listing. Default: the game's name."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "The short description Windows shows for the app. Default: the display name."
+                },
+                "backgroundColor": {
+                  "type": "string",
+                  "pattern": "^(transparent|#[0-9A-Fa-f]{6})$",
+                  "default": "transparent",
+                  "description": "Background of the app's tile: \"#RRGGBB\" or \"transparent\" (default)."
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,5}(\\.[0-9]{1,5}){3}$",
+                  "description": "Package version, four numbers (\"1.2.3.0\"). The Microsoft Store requires the fourth to be 0. Default: the project's \"version\" with a 0 appended (1.2.3 -> 1.2.3.0)."
+                },
+                "minVersion": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,5}(\\.[0-9]{1,5}){3}$",
+                  "default": "10.0.17763.0",
+                  "description": "Oldest Windows 10 build the package installs on (TargetDeviceFamily MinVersion). Default 10.0.17763.0 (Windows 10 version 1809)."
+                },
+                "languages": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Language tags the app lists as resources (\"en-us\", \"es-es\"): the Store lists the app for these. Default: localization.languages of the project, else [\"en-us\"]."
+                }
+              }
             }
           }
         },
@@ -517,6 +573,27 @@
             "copyright": {
               "type": "string",
               "description": "Copyright notice shown in the app's About information (NSHumanReadableCopyright in Info.plist), e.g. \"Copyright 2026 My Studio\". Default: none."
+            },
+            "buildNumber": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+){0,2})?$",
+              "description": "Build number of the app (CFBundleVersion): up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\"; the Mac App Store needs it to grow with every upload of the same version. Default: the project's \"version\"."
+            },
+            "usesNonExemptEncryption": {
+              "type": "boolean",
+              "description": "ITSAppUsesNonExemptEncryption in Info.plist: true only when the game uses encryption beyond what macOS provides (HTTPS and other system encryption are exempt). Default false, so App Store Connect does not ask the export-compliance question at every upload."
+            },
+            "entitlements": {
+              "type": "object",
+              "description": "Sandbox capabilities the game needs beyond the default, added to the entitlements of the Mac App Store signature (sign.macos with distribution \"appStore\"): {\"com.apple.security.network.client\": true} lets the game open network connections. The default is only com.apple.security.app-sandbox (the player's save folder, log, screenshots, gamepads, audio and opening links need nothing else); the entitlements of the native plugins are added on top. Values are true/false, a string, a whole number or an array of strings. Keys that FactorIA sets itself (the sandbox, the application and team identifiers) are not allowed. Default: none. See docs/EXPORTING.md, \"Mac App Store\".",
+              "additionalProperties": {
+                "anyOf": [
+                  {"type": "boolean"},
+                  {"type": "string"},
+                  {"type": "integer"},
+                  {"type": "array", "items": {"type": "string"}}
+                ]
+              }
             }
           }
         },
@@ -718,7 +795,7 @@
     },
     "publish": {
       "type": "object",
-      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic, publish.gog, publish.appstore and publish.googleplay commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD; the App Store Connect API key and the Google Play service account key are files named by FACTORIA_APPSTORE_API_KEY and FACTORIA_GOOGLEPLAY_JSON_KEY) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
+      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic, publish.gog, publish.appstore, publish.googleplay and publish.microsoft commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD; the App Store Connect API key and the Google Play service account key are files named by FACTORIA_APPSTORE_API_KEY and FACTORIA_GOOGLEPLAY_JSON_KEY) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
       "properties": {
         "steam": {
           "type": "object",
@@ -855,6 +932,17 @@
               "additionalProperties": {
                 "type": "string"
               }
+            }
+          }
+        },
+        "microsoft": {
+          "type": "object",
+          "description": "Microsoft Store (the .msix is uploaded with the Microsoft Store Developer CLI, msstore). The package identity comes from export.windows.msix. The Partner Center credentials (tenant id, seller id, client id, client secret) are the environment variables FACTORIA_MSSTORE_TENANT_ID, FACTORIA_MSSTORE_SELLER_ID, FACTORIA_MSSTORE_CLIENT_ID and FACTORIA_MSSTORE_CLIENT_SECRET, never written here. The first submission of a new app must be created by hand in Partner Center.",
+          "properties": {
+            "productId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9]{12}$",
+              "description": "The Store ID (Partner Center > your app > Product identity > Store ID, 12 characters such as 9NBLGGH4NNS1)."
             }
           }
         }
