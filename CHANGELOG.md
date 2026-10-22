@@ -15,6 +15,17 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Tools
+
+- `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many
+  scene and prefab files would change and the first ones; `paths` names the files or folders to format and
+  `"all": true` takes the whole project. `factoria validate`'s hint names the files.
+- `project.new_plugin` and `platform.add_backend` take `dryRun` (they list the `files` and the `keys` of
+  `factoria.json` they would write, and write nothing) and refuse an argument they do not know, with a "did you mean".
+- They patch `factoria.json` instead of rewriting it: only `plugins.<name>` is added, and the other keys, their order
+  and the layout stay as they were. `export` and `icon` saves (the editor, `assets.draw_icon`) use the same patcher.
+- The plugin templates come with a `.gitignore` for their build output.
+
 Physics
 
 - 3D physics no longer depends on what the World held before a scene loaded: `Joint3D` constraints are solved in the

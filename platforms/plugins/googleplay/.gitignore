@@ -1,0 +1,6 @@
+# CMake and Gradle build output of this plugin. The libraries it copies into windows/, macos/, linux/, ios/ and android/ are
+# what `factoria export` ships: commit them, or build them on the machine that exports.
+/build/
+/build-*/
+.gradle/
+.cxx/

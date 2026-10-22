@@ -166,7 +166,7 @@ Since 0.1.6.
 
 Create a native plugin (C/C++) for this game and declare it in factoria.json.
 
-Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Returns {folder, files[], plugin, nextSteps[]}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. With `dryRun` true nothing is written: the result lists the `files` and the `keys` of factoria.json it would write. An argument that does not exist is an error with a "did you mean". Returns {folder, files[], keys[], plugin, nextSteps[], dryRun?}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -174,6 +174,7 @@ Writes a plugin folder (default plugins/<name>, or `path`: project-relative, abs
 | `template` | string | no | What to start from: "basic" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones. Default "basic". |
 | `path` | string | no | Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts. |
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
+| `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
 
 ## `project.templates`
 

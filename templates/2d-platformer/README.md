@@ -29,7 +29,7 @@ factoria test
 3. `factoria validate`, then take a screenshot and look at it. `factoria test` fails if the scene is not what the map builds.
 
 The camera limits are not copied anywhere: `follow_camera.js` reads them from the map (`bounds: "map"`), so a bigger or
-smaller map needs no other change. After editing prefabs or scenes by hand, `factoria call scene.format` puts them in
+smaller map needs no other change. After editing prefabs or scenes by hand, `factoria call scene.format '{"paths":["prefabs","scenes"]}'` puts them in
 the canonical layout (`'{"check":true}'` only lists what is not).
 
 Ideas to extend: enemies (a patrol script, AI guide section 9.14), a goal that loads the next level (a second

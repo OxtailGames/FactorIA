@@ -1200,6 +1200,10 @@ backends of M12 and M19's video player stay in their milestones.
 
 ### M26.1 Commands write only what they change (S) — CC/FB-0016, CC/FB-0047
 
+Done (branch `m26/commands-write-only`): `scene.format` without `paths`, `all` or `check` writes nothing and teaches;
+`dryRun` and unknown-argument errors on `platform.add_backend` and `project.new_plugin`; one JSON patcher
+(`tools/common/src/json_patch.cpp`) used by both and by `save_export_settings`; plugin templates have a `.gitignore`.
+
 - `scene.format` with neither `paths` nor `check` writes nothing: it fails with a teaching error that says how many
   files would change and names the first ones; formatting the whole project takes `all: true`. The validator's hint that
   suggests `scene.format` (validate.cpp) names the files, and every doc that shows the call with no arguments

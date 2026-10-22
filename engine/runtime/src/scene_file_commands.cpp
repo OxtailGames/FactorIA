@@ -232,8 +232,7 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
     const Json& paths = a["paths"];
     if (!paths.is_array() || paths.empty())
         bad_arg("'paths' must be a non-empty array of project-relative files or folders.",
-                "Omit 'paths' to format every scene and prefab of the project, or pass e.g. "
-                "[\"scenes\", \"prefabs/enemy.prefab.json\"].");
+                "Pass e.g. [\"scenes\", \"prefabs/enemy.prefab.json\"], or 'all': true for every scene and prefab of the project.");
     for (std::size_t i = 0; i < paths.size(); ++i) {
         const std::string what = "paths[" + std::to_string(i) + "]";
         if (!paths[i].is_string())
@@ -260,7 +259,33 @@ Json scene_format(Engine::Impl& I, const Json& a) {
     const bool check = a.value("check", false);
     const bool strict = a.value("strict", false);  // only meaningful with `check`: without it the files are fixed, not listed
     std::vector<std::string> searched;  // folders searched, for the note when nothing was found
-    const std::set<std::string> files = select_files(a, searched);
+    const bool all = a.value("all", false);
+    if (all && a.contains("paths"))
+        bad_arg("'all' and 'paths' together: choose one.",
+                "Pass 'paths' to format some files or folders, or 'all': true for the whole project.");
+    if (!check && !all && !a.contains("paths")) {
+        // Writing every scene of the project is never the default: say what it would change and how to ask for it.
+        std::vector<std::string> searchedAll;
+        std::vector<std::string> wouldChange;
+        std::size_t unreadable = 0;
+        for (const std::string& f : select_files(Json::object(), searchedAll)) {
+            auto layout = canonical_scene_layout(f);
+            if (!layout.ok()) ++unreadable;
+            else if (!layout->same) wouldChange.push_back(f);
+        }
+        constexpr std::size_t kListed = 5;
+        std::string list;
+        for (std::size_t i = 0; i < wouldChange.size() && i < kListed; ++i) list += (i ? ", " : "") + wouldChange[i];
+        if (wouldChange.size() > kListed) list += ", and " + std::to_string(wouldChange.size() - kListed) + " more";
+        throw CommandError(
+            "paths_required",
+            "scene.format without 'paths' would rewrite the whole project, so it wrote nothing: " + std::to_string(wouldChange.size()) +
+                " scene/prefab file(s) would change" + (list.empty() ? std::string() : ": " + list) +
+                (unreadable ? " (" + std::to_string(unreadable) + " more are not valid JSON and would be skipped)" : std::string()) + ".",
+            "Pass the files or folders you edited, e.g. scene.format {\"paths\":[\"scenes/level1.scene.json\"]}, or \"all\": true to "
+            "rewrite every scene and prefab of the project; \"check\": true only lists the files that are not canonical.");
+    }
+    const std::set<std::string> files = select_files(all ? Json::object() : a, searched);
 
     Json formatted = Json::array(), notCanonical = Json::array(), errors = Json::array();
     std::size_t unchanged = 0;
@@ -289,7 +314,8 @@ Json scene_format(Engine::Impl& I, const Json& a) {
         if (notCanonical.size() > kListed) list += ", and " + std::to_string(notCanonical.size() - kListed) + " more";
         throw CommandError("not_canonical",
                            std::to_string(notCanonical.size()) + " scene/prefab file(s) are not in the canonical layout: " + list + ".",
-                           "Run scene.format without 'check' (factoria call scene.format '{}') to rewrite them; only whitespace changes.");
+                           "Run scene.format without 'check' on them (factoria call scene.format '{\"paths\":[...]}', "
+                           "or '{\"all\":true}' for the whole project) to rewrite them; only whitespace changes.");
     }
 
     Json out = Json::object();
@@ -346,9 +372,10 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "Only whitespace changes: values and key order are kept, and every file is read back and compared with the original "
          "data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already "
          "have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or "
-         "folders (searched recursively), project-relative; default: the whole project, skipping folders that start with '.', "
-         "node_modules and a top-level build/. With `check` true nothing is written: the files that are not canonical are "
-         "listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and "
+         "folders (searched recursively), project-relative; without `paths` the command writes NOTHING and "
+         "fails (code paths_required) saying how many files would change and the first ones; `all` true formats the whole project "
+         "(skipping folders that start with '.', node_modules and a top-level build/). With `check` true nothing is written: the "
+         "files that are not canonical are listed (the whole project when `paths` is absent; use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and "
          "column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: "
          "[{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, "
          "notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint "
@@ -357,9 +384,11 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "scene.format {\"paths\":[\"prefabs\"],\"check\":true}",
          parse_schema(R"({"type":"object","properties":{
                "paths":{"type":"array","minItems":1,"items":{"type":"string"},
-                        "description":"Scene/prefab files or folders (recursive), project-relative. Default: every *.scene.json and *.prefab.json in the project."},
+                        "description":"Scene/prefab files or folders (recursive), project-relative. Needed to write: without it (and without all or check) the command fails and writes nothing."},
+               "all":{"type":"boolean","default":false,
+                      "description":"true = format every *.scene.json and *.prefab.json of the project (instead of paths). Writing the whole project always takes this or paths."},
                "check":{"type":"boolean","default":false,
-                        "description":"true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one."},
+                        "description":"true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one (the whole project when paths is absent)."},
                "strict":{"type":"boolean","default":false,
                          "description":"With check: fail with error code not_canonical when any file is not canonical, instead of only listing it. Ignored without check."}}})"),
          false, "scene"},

@@ -173,3 +173,102 @@ TEST_CASE("platform.add_backend: one command lists every store backend with the 
     REQUIRE(project.ok());
     CHECK_FALSE(project->contains("plugins"));
 }
+
+namespace {
+
+// A factoria.json written by hand: keys in an order of the author's, odd spacing, 4-space indent.
+const char* kHandOrdered =
+    "{\n"
+    "    \"name\":   \"Hand Game\",\n"
+    "    \"mainScene\":\"scenes/main.scene.json\",\n"
+    "    \"format\" : \"factoria.project/1\",\n"
+    "    \"display\": { \"width\": 800, \"height\": 600 },\n"
+    "    \"id\": \"com.example.hand\"\n"
+    "}\n";
+
+std::string game_with_hand_ordered_project(const testing::TempDir& tmp) {
+    const std::string dir = tmp.sub("game");
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    testing::write_all(stdfs::path(dir) / "factoria.json", kHandOrdered);
+    return dir;
+}
+
+}  // namespace
+
+TEST_CASE("platform.add_backend: dryRun lists what it would write and writes nothing") {
+    testing::TempDir tmp;
+    const std::string dir = game_with_hand_ordered_project(tmp);
+    CommandRegistry reg;
+    register_plugin_commands(reg, dir);
+    register_platform_setup_commands(reg, dir);
+
+    auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "appleBuild": false, "dryRun": true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["dryRun"] == true);
+    REQUIRE(r.result["keys"].size() == 1);
+    CHECK(r.result["keys"][0].get<std::string>().find("plugins/apple") != std::string::npos);
+    bool listsPlugin = false;
+    for (const Json& f : r.result["files"]) listsPlugin = listsPlugin || f.get<std::string>().find("src/Plugin.swift") != std::string::npos;
+    CHECK(listsPlugin);
+    CHECK(r.result.contains("wouldDo"));
+    // Nothing: not the folder, not a changed factoria.json.
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "plugins"));
+    CHECK(testing::read_all(stdfs::path(dir) / "factoria.json") == kHandOrdered);
+
+    // project.new_plugin says the same for itself.
+    auto n = reg.call("project.new_plugin", Json::parse(R"({"name": "extra", "dryRun": true})"));
+    REQUIRE_MESSAGE(n.ok, n.error.dump());
+    CHECK(n.result["dryRun"] == true);
+    CHECK(n.result["files"].size() > 3);
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "plugins"));
+    CHECK(testing::read_all(stdfs::path(dir) / "factoria.json") == kHandOrdered);
+}
+
+TEST_CASE("platform.add_backend: a real call leaves every other line of a hand-ordered factoria.json as it was") {
+    testing::TempDir tmp;
+    const std::string dir = game_with_hand_ordered_project(tmp);
+    CommandRegistry reg;
+    register_plugin_commands(reg, dir);
+    register_platform_setup_commands(reg, dir);
+
+    auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "appleBuild": false})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const std::string after = testing::read_all(stdfs::path(dir) / "factoria.json");
+    // Everything up to the last original member is byte for byte the same; the new key follows it.
+    const std::string before = kHandOrdered;
+    const std::string kept = before.substr(0, before.rfind("\n}"));
+    CHECK(after.rfind(kept + ",\n    \"plugins\": {", 0) == 0);
+    auto parsed = parse_json(after, "factoria.json");
+    REQUIRE(parsed.ok());
+    CHECK((*parsed)["plugins"]["apple"]["path"] == "plugins/apple");
+    CHECK((*parsed)["name"] == "Hand Game");
+    // The plugin folder comes with a .gitignore for its build output.
+    const std::string ignore = testing::read_all(stdfs::path(dir) / "plugins/apple/.gitignore");
+    CHECK(ignore.find("/build/") != std::string::npos);
+
+    // Another plugin goes into the same object, the first one's lines untouched.
+    auto n = reg.call("project.new_plugin", Json::parse(R"({"name": "extra"})"));
+    REQUIRE_MESSAGE(n.ok, n.error.dump());
+    const std::string again = testing::read_all(stdfs::path(dir) / "factoria.json");
+    CHECK(again.rfind(kept, 0) == 0);
+    CHECK(again.find("\"apple\": {") != std::string::npos);
+    CHECK(testing::read_all(stdfs::path(dir) / "plugins/extra/.gitignore").find("/build/") != std::string::npos);
+}
+
+TEST_CASE("platform.add_backend and project.new_plugin: an unknown argument is an error with a did you mean") {
+    testing::TempDir tmp;
+    const std::string dir = game_with_hand_ordered_project(tmp);
+    CommandRegistry reg;
+    register_plugin_commands(reg, dir);
+    register_platform_setup_commands(reg, dir);
+
+    auto a = reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "dryrun": true})"));
+    REQUIRE_FALSE(a.ok);
+    CHECK(a.error["message"].get<std::string>().find("dryrun") != std::string::npos);
+    CHECK(a.error["hint"].get<std::string>().find("dryRun") != std::string::npos);
+    auto b = reg.call("project.new_plugin", Json::parse(R"({"name": "x", "plaforms": ["macos"]})"));
+    REQUIRE_FALSE(b.ok);
+    CHECK(b.error["hint"].get<std::string>().find("platforms") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "plugins"));
+    CHECK(testing::read_all(stdfs::path(dir) / "factoria.json") == kHandOrdered);
+}

@@ -671,7 +671,7 @@ factoria run
 ```
 
 `project.new_plugin` writes `plugins/example/` (`src/plugin.c`, `include/fa_plugin.h`, `CMakeLists.txt`, `README.md`,
-and `android/`, the Gradle module of the Android build) and declares the plugin in `factoria.json`. Its `CMakeLists.txt`
+and `android/`, the Gradle module of the Android build) and a `.gitignore` for its build output, and declares the plugin in `factoria.json` (only `plugins.<name>` is added: the file is patched, not rewritten; `"dryRun": true` lists the `files` and `keys` it would write and writes nothing). Its `CMakeLists.txt`
 copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
 `linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
 is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
