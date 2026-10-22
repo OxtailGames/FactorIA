@@ -55,7 +55,7 @@ export default class RopeBridge extends Behaviour {
             Transform: { position: mid, rotation: [pitch, yaw, 0], scale: [this.width, this.thickness, plank] },
             ...visual,
             Collider3D: { shape: "box", friction: 0.8 },
-            RigidBody3D: { type: "dynamic", mass: this.mass, linearDamping: 0.6, angularDamping: 2 },
+            RigidBody3D: { type: "dynamic", mass: this.mass, linearDamping: 3, angularDamping: 8 },
           },
           children: [-1, 1].flatMap((side, k) => [
             // A rope rail along the plank and a post at its middle, 0.8 m above the plank: sizes are given in metres and
