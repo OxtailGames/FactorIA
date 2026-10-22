@@ -23,7 +23,9 @@
       "video": "Video",
       "audio": "Audio",
       "controls": "Controls",
-      "language": "Language"
+      "language": "Language",
+      "play": "Play",
+      "touch": "Touch"
     },
     "fullscreen": "Full screen",
     "vsync": "VSync",
@@ -64,7 +66,23 @@
     "subtitles": "Subtitles",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "quality": "Quality: {quality}",
+    "qualityLevel": {
+      "low": "low",
+      "medium": "medium",
+      "high": "high"
+    },
+    "assist": "Assist mode (slower spring and dogs)",
+    "reducedMotion": "Reduced motion",
+    "haptics": "Vibration",
+    "tapToMove": "Tap to move",
+    "textSize": "Text size: {percent} percent",
+    "leftHanded": "Left-handed layout",
+    "controlSize": "Control size",
+    "controlOpacity": "Control opacity",
+    "cameraSensitivity": "Camera speed",
+    "invertY": "Invert camera Y"
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -74,7 +92,8 @@
   "hud": {
     "parcels": "Parcels {delivered} / {total}",
     "parcelsCarrying": "Parcels {delivered} / {total}  (carrying one)",
-    "spring": "Spring"
+    "spring": "Spring",
+    "springLow": "Low"
   },
   "levels": {
     "rooftops_1": "First Roofs",
@@ -99,5 +118,17 @@
     "hint": "Be quicker, or find a shorter way.",
     "retry": "Try again",
     "toTitle": "Quit to title"
+  },
+  "captions": {
+    "dogBark": "[Dog barks]",
+    "key": "[Bell: the spring is wound]",
+    "delivery": "[Chime: parcel delivered]",
+    "springLow": "[Alarm: the spring is nearly out]",
+    "caught": "[Thud: the dog caught you]"
+  },
+  "quit": {
+    "title": "Quit the game?",
+    "stay": "Stay",
+    "yes": "Quit"
   }
 }
