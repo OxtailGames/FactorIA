@@ -46,7 +46,7 @@ std::string scrub(std::string line, const std::vector<std::string>& secrets) {
 struct Game {
     stdfs::path dir;
     std::string name, slug, safeName, version = "0.1.0";
-    std::string bundleId, iosBuild;  // "id" of factoria.json (the bundle id and the Android package) and the iOS CFBundleVersion
+    std::string bundleId, iosBuild, macosBuild;  // "id" of factoria.json (the bundle id and the Android package), the iOS and macOS CFBundleVersion
     int androidVersionCode = 0;
     bool androidKeystore = false;    // export.android.signing.keystore is set: a release bundle is signed with it
     PublishSettings settings;
@@ -75,6 +75,7 @@ Result<Game> load_game(const std::string& projectDir, const std::string& store) 
     {  // what the mobile stores need to know about the exports (a problem in "export" is project.export's to report)
         const ExportSettingsParse exp = parse_export_settings(*parsed);
         g.iosBuild = exp.settings.ios_build_number();
+        g.macosBuild = exp.settings.macos_build_number();
         g.androidVersionCode = exp.settings.android_version_code();
         g.androidKeystore = !exp.settings.android.signing.keystore.empty();
     }
@@ -128,21 +129,62 @@ void measure(const stdfs::path& dir, PublishUpload& up) {
 
 // ---- the built file of a mobile store ------------------------------------------------------------------------------
 
-// The .ipa (App Store Connect) or .aab (Google Play) to upload: the `artifact` option, else the file the export workflow
+// publish.appstore: "ios" (an .ipa) or "macos" (the .pkg of the Mac App Store).
+Result<std::string> choose_appstore_target(const Game& g, const PublishOptions& o, const stdfs::path& outParent) {
+    const std::string who = "publish.appstore: ";
+    const stdfs::path defaultPkg = outParent / (g.slug + "-macos.pkg");
+    if (!o.artifact.empty()) {
+        const std::string ext = stdfs::path(o.artifact).extension().string();
+        if (ext == ".pkg") return std::string("macos");
+        return std::string("ios");
+    }
+    if (!o.platforms.empty()) {
+        std::vector<std::string> wanted;
+        for (const std::string& p : o.platforms) {
+            const std::string l = to_lower(p);
+            wanted.push_back(l == "mac" || l == "osx" ? "macos" : l);
+        }
+        if (wanted.size() != 1 || (wanted[0] != "ios" && wanted[0] != "macos"))
+            return err(who + "`platforms` must be [\"ios\"] or [\"macos\"]: one upload is one file",
+                       "Run publish.appstore once per platform: {\"platforms\":[\"ios\"]} uploads the .ipa, {\"platforms\":[\"macos\"]} the Mac App Store .pkg.");
+        return wanted[0];
+    }
+    std::error_code ec;
+    const bool havePkg = is_file(defaultPkg);
+    bool haveIpa = false;
+    for (stdfs::directory_iterator it(os_path(outParent), ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec) && it->path().extension() == ".ipa") haveIpa = true;
+    if (havePkg && haveIpa)
+        return err(who + "both an .ipa and a Mac App Store .pkg are in " + generic(outParent) + ": which one to upload?",
+                   "Say it: {\"platforms\":[\"ios\"]} or {\"platforms\":[\"macos\"]}, or pass `artifact` with the file.");
+    return std::string(havePkg ? "macos" : "ios");
+}
+
+// The .ipa (App Store Connect), the Mac App Store .pkg or the .aab (Google Play) to upload: the `artifact` option, else the file the export workflow
 // leaves under `outParent` (docs/EXPORTING.md, "Uploading to stores"). Both are zip files.
-Result<stdfs::path> find_mobile_artifact(const Store& store, const Game& g, const PublishOptions& o, const stdfs::path& outParent) {
+// `target` ("ios" | "macos") tells publish.appstore's two kinds of file apart: the iOS .ipa and the Mac App Store .pkg.
+Result<stdfs::path> find_mobile_artifact(const Store& store, const Game& g, const PublishOptions& o, const stdfs::path& outParent, const std::string& target) {
     const std::string who = "publish." + store.name + ": ";
-    const bool ios = store.mobile == "ios";
-    const std::string ext = ios ? ".ipa" : ".aab";
+    const bool mac = target == "macos";
+    const bool ios = store.mobile == "ios" && !mac;
+    const std::string ext = mac ? ".pkg" : ios ? ".ipa" : ".aab";
     std::error_code ec;
     stdfs::path file;
-    if (!o.artifact.empty()) {
+    if (mac && o.artifact.empty()) {
+        file = outParent / (g.slug + "-macos.pkg");
+        if (!is_file(file))
+            return err(who + "there is no .pkg to upload: " + generic(file) + " does not exist",
+                       "Build it first: factoria export --platform macos, then sign.macos {\"distribution\":\"appStore\", ...} (it writes the signed .pkg next to the export folder; "
+                       "docs/EXPORTING.md, \"Mac App Store\"). Or pass `artifact` with the path of another .pkg.");
+    } else if (!o.artifact.empty()) {
         file = stdfs::absolute(stdfs::path(o.artifact), ec).lexically_normal();
         if (is_dir(file) && file.extension() == ".xcarchive")
-            return err(who + generic(file) + " is an Xcode archive, not an .ipa",
+            return err(who + generic(file) + " is an Xcode archive, not " + (mac ? "a .pkg" : "an .ipa"),
                        "In Xcode: Window > Organizer > Archives > Distribute App > App Store Connect > Export, then pass the .ipa that Xcode writes.");
         if (!is_file(file))
             return err(who + "the artifact " + generic(file) + " does not exist", "Pass the path of the " + ext + " file (relative to the project), or leave `artifact` out to use the default place.");
+    } else if (mac) {
+        // handled above (the default .pkg)
     } else if (ios) {
         const stdfs::path named = outParent / (g.slug + ext);
         file = named;
@@ -167,13 +209,19 @@ Result<stdfs::path> find_mobile_artifact(const Store& store, const Game& g, cons
     }
     if (file.extension() != ext) {
         const bool apk = file.extension() == ".apk";
-        return err(who + generic(file) + " is not " + (ios ? "an .ipa" : "an .aab"),
+        return err(who + generic(file) + " is not " + (mac ? "a .pkg" : ios ? "an .ipa" : "an .aab"),
                    apk ? "Google Play takes an Android App Bundle, not an APK: factoria export --platform android --format aab --release."
                        : "Pass the " + ext + " file" + (ios ? " that Xcode's Distribute App > App Store Connect > Export writes." : " that the Android export writes."));
     }
     std::ifstream in(os_path(file), std::ios::binary);
-    char magic[2] = {};
-    in.read(magic, 2);
+    char magic[4] = {};
+    in.read(magic, 4);
+    if (mac) {  // a flat package is a xar archive
+        if (std::string(magic, 4) != "xar!")
+            return err(who + generic(file) + " is not a valid .pkg (it is not a flat installer package)",
+                       "Build it again with sign.macos {\"distribution\":\"appStore\"} (productbuild writes it), or with Xcode's Distribute App > App Store Connect > Export.");
+        return file;
+    }
     if (magic[0] != 'P' || magic[1] != 'K')
         return err(who + generic(file) + " is not a " + (ios ? "valid .ipa" : "valid .aab") + " (it is not a zip file)",
                    std::string("Build it again; ") + (ios ? "an .ipa is the zip Xcode exports from an archive." : "an .aab is the zip Gradle's bundleRelease writes."));
@@ -268,12 +316,14 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
     c.warnings = game->warnings;
     c.bundleId = game->bundleId;
     c.iosBuild = game->iosBuild;
+    c.macosBuild = game->macosBuild;
     c.androidVersionCode = game->androidVersionCode;
     c.androidKeystore = game->androidKeystore;
 
     // ---- the built file of a mobile store (App Store Connect, Google Play): one file, not export folders ----
     if (!store->mobile.empty()) {
-        if (!options.platforms.empty() || !options.folders.empty())
+        const bool appstoreStore = store->name == "appstore";
+        if (!options.folders.empty() || (!options.platforms.empty() && !appstoreStore))
             return err(who + "`platforms` and `folders` do not apply: " + store->name + " uploads one " + (store->mobile == "ios" ? ".ipa" : ".aab") + " file",
                        "Leave them out; pass `artifact` (relative to the project) to upload a file other than the default.");
         const std::string host = options.host.empty() ? host_platform() : options.host;
@@ -282,7 +332,15 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
                        "Run it on a Mac (the .ipa can be built and uploaded there), or upload the .ipa from any Mac with Transporter (Mac App Store). `dryRun` works anywhere.");
         std::error_code mec;
         const stdfs::path outDir = stdfs::weakly_canonical(options.outDir.empty() ? game->dir / "build" / "export" : stdfs::path(options.outDir), mec);
-        auto file = find_mobile_artifact(*store, *game, c.options, outDir);
+        // publish.appstore uploads either the iOS .ipa or the Mac App Store .pkg: by `artifact`, by `platforms`, or by what is there.
+        std::string target = store->mobile;
+        if (appstoreStore) {
+            auto chosen = choose_appstore_target(*game, options, outDir);
+            if (!chosen.ok()) return chosen.error();
+            target = *chosen;
+        }
+        c.appstoreTarget = target;
+        auto file = find_mobile_artifact(*store, *game, c.options, outDir, target);
         if (!file.ok()) return file.error();
         c.artifact = stdfs::weakly_canonical(*file, mec);
         c.artifactGiven = !options.artifact.empty();
@@ -291,7 +349,7 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
         mobile.version = c.version;
         mobile.dryRun = options.dryRun;
         PublishUpload up;
-        up.platform = store->mobile;
+        up.platform = target;
         up.folder = generic(c.artifact);
         up.files = 1;
         up.bytes = stdfs::file_size(os_path(c.artifact), mec);
@@ -476,7 +534,7 @@ CommandInfo store_command(const std::string& store) {
     const bool mobile = !find_store(store)->mobile.empty();  // appstore, googleplay: one built file, not export folders
     std::string props = mobile ? R"({
         "artifact":{"type":"string","description":"@ARTIFACT@"},
-        "out":{"type":"string","description":"Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export."},
+        "@PLATFORMS@out":{"type":"string","description":"Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export."},
         "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})" : R"({
         "platforms":{"type":"array","items":{"type":"string"},"description":"Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning."},
         "out":{"type":"string","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
@@ -496,9 +554,11 @@ CommandInfo store_command(const std::string& store) {
         "releaseStatus":{"type":"string","enum":["draft","completed"],"description":"draft: the release waits in the Play Console until you roll it out; completed: it rolls out at once. Default: publish.googleplay.releaseStatus, else draft. A new app that was never published accepts only draft."})";
     if (mobile) {
         const std::string doc = store == "appstore"
-            ? "The .ipa to upload, relative to the project. Default: build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes it (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project."
+            ? "The .ipa or .pkg to upload, relative to the project. A .pkg is the Mac App Store package (sign.macos distribution appStore writes build/export/<game-slug>-macos.pkg); anything else is an .ipa. Default: the .pkg if it exists and no .ipa does, else build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes the .ipa (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project."
             : "The .aab to upload, relative to the project. Default: build/export/<game-slug>-android/<game-slug>.aab, which `factoria export --platform android --format aab --release` writes.";
         props = replace_all(props, "@ARTIFACT@", doc);
+        props = replace_all(props, "@PLATFORMS@", store == "appstore"
+            ? "platforms\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"enum\":[\"ios\",\"macos\"]},\"description\":\"Which build to upload when `artifact` does not say: [\\\"ios\\\"] the .ipa, [\\\"macos\\\"] the Mac App Store .pkg of sign.macos. Default: the one that exists.\"},\n        \"" : "");
     }
     info.inputSchema = Json::parse("{\"type\":\"object\",\"properties\":{" + props.substr(1) + "}}");
 
@@ -530,7 +590,7 @@ CommandInfo store_command(const std::string& store) {
             "uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed BuildPatchTool is an error whose data is that report. Examples: {\"dryRun\":true}, {\"platforms\":[\"windows\"]}. Details: docs_read {\"name\":\"exporting\"}.";
     } else if (store == "appstore") {
-        info.summary = "Upload the iOS build (.ipa) to App Store Connect / TestFlight (xcrun altool, macOS only).";
+        info.summary = "Upload the iOS build (.ipa) or the Mac App Store package (.pkg) to App Store Connect (xcrun altool, macOS only).";
         info.description =
             "Runs `xcrun altool --upload-package <ipa> --type ios --apple-id <id> --bundle-id <id of factoria.json> --bundle-version <export.ios.buildNumber> --bundle-short-version-string <version> "
             "--apiKey <key id> --apiIssuer <issuer id>`. The .ipa is NOT made by `factoria export --platform ios` (that writes an Xcode project): archive it in Xcode (Product > Archive, Distribute App > "
@@ -539,7 +599,9 @@ CommandInfo store_command(const std::string& store) {
             "(role App Manager): FACTORIA_APPSTORE_API_KEY = path of AuthKey_<KeyID>.p8, FACTORIA_APPSTORE_API_KEY_ID, FACTORIA_APPSTORE_API_ISSUER (FACTORIA_NOTARY_API_KEY / _KEY_ID / _ISSUER of sign.macos also work). "
             "The key stays a file outside the project: nothing of it is written, shown or logged. After the upload App Store Connect processes the build, then it shows in TestFlight. Returns {store, dryRun, uploaded, "
             "version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed altool is an "
-            "error whose data is that report. Examples: {\"dryRun\":true}, {\"artifact\":\"build/export/space-dodge.ipa\"}. Details: docs_read {\"name\":\"exporting\"}.";
+            "error whose data is that report. The Mac App Store works the same way with the signed package sign.macos {\"distribution\":\"appStore\"} writes (build/export/<game-slug>-macos.pkg): `artifact` ending in .pkg, "
+            "or `platforms: [\"macos\"]`, runs altool with `--type macos` and export.macos.buildNumber; with both an .ipa and a .pkg in build/export, `platforms` or `artifact` says which. "
+            "Examples: {\"dryRun\":true}, {\"artifact\":\"build/export/space-dodge.ipa\"}, {\"platforms\":[\"macos\"],\"dryRun\":true}. Details: docs_read {\"name\":\"exporting\"}.";
     } else if (store == "googleplay") {
         info.summary = "Upload the release Android App Bundle (.aab) to Google Play (fastlane supply).";
         info.description =

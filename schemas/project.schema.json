@@ -517,6 +517,27 @@
             "copyright": {
               "type": "string",
               "description": "Copyright notice shown in the app's About information (NSHumanReadableCopyright in Info.plist), e.g. \"Copyright 2026 My Studio\". Default: none."
+            },
+            "buildNumber": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+){0,2})?$",
+              "description": "Build number of the app (CFBundleVersion): up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\"; the Mac App Store needs it to grow with every upload of the same version. Default: the project's \"version\"."
+            },
+            "usesNonExemptEncryption": {
+              "type": "boolean",
+              "description": "ITSAppUsesNonExemptEncryption in Info.plist: true only when the game uses encryption beyond what macOS provides (HTTPS and other system encryption are exempt). Default false, so App Store Connect does not ask the export-compliance question at every upload."
+            },
+            "entitlements": {
+              "type": "object",
+              "description": "Sandbox capabilities the game needs beyond the default, added to the entitlements of the Mac App Store signature (sign.macos with distribution \"appStore\"): {\"com.apple.security.network.client\": true} lets the game open network connections. The default is only com.apple.security.app-sandbox (the player's save folder, log, screenshots, gamepads, audio and opening links need nothing else); the entitlements of the native plugins are added on top. Values are true/false, a string, a whole number or an array of strings. Keys that FactorIA sets itself (the sandbox, the application and team identifiers) are not allowed. Default: none. See docs/EXPORTING.md, \"Mac App Store\".",
+              "additionalProperties": {
+                "anyOf": [
+                  {"type": "boolean"},
+                  {"type": "string"},
+                  {"type": "integer"},
+                  {"type": "array", "items": {"type": "string"}}
+                ]
+              }
             }
           }
         },

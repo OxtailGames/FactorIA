@@ -15,6 +15,13 @@
 // Where things live (docs/EXPORTING.md, "Signing and notarizing for macOS"):
 //   * the identity: the `identity` argument, else $FACTORIA_MACOS_SIGN_IDENTITY, else "sign.macos.identity" of
 //     ~/.factoria/export.json; "-" is the ad hoc identity (no certificate, no notarization).
+//   * distribution "appStore" (the Mac App Store, docs/EXPORTING.md "Mac App Store"): the app is sandboxed (com.apple.security.app-sandbox
+//     plus the plugins' entitlements, export.macos.entitlements and the identifiers of the provisioning profile), signed with an
+//     "Apple Distribution" / "3rd Party Mac Developer Application" identity (`identity`, else $FACTORIA_MACOS_APPSTORE_IDENTITY, else
+//     "sign.macos.appStoreIdentity" of export.json; "-" = a local try of the sandbox, no profile, unsigned pkg), the profile is
+//     required and embedded, nothing is notarized, and `productbuild` wraps the app in <slug>-macos.pkg signed with a "3rd Party Mac
+//     Developer Installer" / "Mac Installer Distribution" identity (`installerIdentity`, else $FACTORIA_MACOS_INSTALLER_IDENTITY,
+//     else "sign.macos.installerIdentity"). publish.appstore uploads the .pkg.
 //   * the notary credentials, in this order: a notarytool keychain profile (`keychainProfile`, $FACTORIA_NOTARY_PROFILE,
 //     "sign.macos.notaryProfile"), an App Store Connect API key (`apiKey` + `apiKeyId` [+ `apiIssuer`], or
 //     $FACTORIA_NOTARY_API_KEY / _KEY_ID / _ISSUER), or an Apple ID (`appleId` + `teamId`, or $FACTORIA_APPLE_ID /
@@ -41,6 +48,9 @@ struct SignMacosOptions {
     std::string app;                   // the .app to sign ("" = <out>/<game-slug>-macos/<Name>.app of the project)
     std::string outDir;                // parent folder of the exports ("" = <projectDir>/build/export)
     std::string identity;              // "Developer ID Application: ..." (or its SHA-1), "-" = ad hoc; "" = the environment, export.json
+    std::string distribution;          // "developerId" (default, "" too) | "appStore": see above
+    std::string installerIdentity;     // appStore: "3rd Party Mac Developer Installer: ..." / "Mac Installer Distribution: ..." signing the .pkg; "" = the environment, export.json
+    std::string pkg;                   // appStore: where the .pkg goes ("" = <export folder>.pkg, next to it)
     std::string keychain;              // a keychain file for codesign and notarytool ("" = $FACTORIA_MACOS_KEYCHAIN, else the default ones)
     std::string provisioningProfile;   // a .provisionprofile to embed (restricted entitlements: Game Center, iCloud)
     std::string entitlements;          // an entitlements file ("" = the export's <slug>.entitlements, when a profile is given)
@@ -68,9 +78,15 @@ struct SignStep {
 struct SignReport {
     std::string app;                   // absolute path of the .app
     std::string identity;              // what signed it ("-" = ad hoc)
-    std::string identityFrom;          // "argument" | "FACTORIA_MACOS_SIGN_IDENTITY" | "export.json"
+    std::string identityFrom;          // "argument" | "FACTORIA_MACOS_SIGN_IDENTITY" | "FACTORIA_MACOS_APPSTORE_IDENTITY" | "export.json"
     std::string credentials;           // how notarytool logs in, without any secret ("keychain profile 'x'", ...); empty = none used
-    std::string zip;                   // absolute path of the distributable zip; empty when none was made
+    std::string zip;                   // absolute path of the distributable zip; empty when none was made (appStore: the .pkg is the deliverable)
+    std::string distribution;          // "developerId" | "appStore"
+    std::string pkg;                   // appStore: absolute path of the .pkg; empty when none was made
+    std::string installerIdentity;     // appStore: what signed the .pkg; empty = unsigned
+    bool pkgSigned = false;            // pkgutil --check-signature accepted the .pkg's signature
+    Json entitlements = Json::object();  // appStore: the entitlements the signature of the app carries (read back with codesign -d)
+    std::string profile;               // appStore: "<profile name> (<application identifier>)" of the embedded provisioning profile
     std::string notarizationId;        // Apple's submission id, once notarized
     bool dryRun = false;
     bool signedApp = false;            // the app and its nested code carry the signature

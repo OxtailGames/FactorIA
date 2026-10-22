@@ -55,6 +55,10 @@ std::string ProjectExportSettings::ios_build_number() const {
     return !ios.buildNumber.empty() ? ios.buildNumber : projectVersion;
 }
 
+std::string ProjectExportSettings::macos_build_number() const {
+    return !macos.buildNumber.empty() ? macos.buildNumber : projectVersion;
+}
+
 namespace {
 
 // "factoria.json#/export/android/minSdk: message"
@@ -187,6 +191,37 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
 
     // ---- platforms ---------------------------------------------------------------------------------------------
 
+    // buildNumber -> CFBundleVersion (iOS and macOS).
+    void take_build_number(const Json& o, const std::string& base, std::string& out) {
+        if (auto it = o.find("buildNumber"); it != o.end() && !it->is_null()) {
+            const std::string hint = "CFBundleVersion is up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\".";
+            std::string v;
+            bool valid = true;
+            if (it->is_string()) v = it->get<std::string>();
+            else if (it->is_number_integer()) v = std::to_string(it->get<long long>());
+            else {
+                error(base + "/buildNumber", "expected a string, got " + describe_json_value(*it), hint);
+                valid = false;
+            }
+            if (valid) {
+                if (!v.empty() && !is_dotted_version(v)) error(base + "/buildNumber", "'" + v + "' is not a build number", hint);
+                else out = v;
+            }
+        }
+    }
+
+    // usesNonExemptEncryption -> ITSAppUsesNonExemptEncryption (iOS and macOS).
+    void take_encryption_flag(const Json& o, const std::string& base, bool& out, const char* os) {
+        if (auto it = o.find("usesNonExemptEncryption"); it != o.end() && !it->is_null()) {
+            if (!it->is_boolean())
+                error(base + "/usesNonExemptEncryption", "expected true or false, got " + describe_json_value(*it),
+                      std::string("Write true only when the game uses encryption beyond what ") + os +
+                          " provides (HTTPS through the system is exempt); remove the key for the default, false.");
+            else
+                out = it->get<bool>();
+        }
+    }
+
     void windows(const Json& o, const std::string& base, WindowsExportSettings& s) {
         take_path(o, base, "icon", s.icon);
         unknown_keys(o, base, names_of({"icon"}));
@@ -209,7 +244,69 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 s.minimumSystemVersion = minVersion;
         }
         take_string(o, base, "copyright", s.copyright, "Write the notice as text, e.g. \"Copyright 2026 My Studio\".");
-        unknown_keys(o, base, names_of({"icon", "category", "minimumSystemVersion", "copyright"}));
+        take_build_number(o, base, s.buildNumber);
+        take_encryption_flag(o, base, s.usesNonExemptEncryption, "macOS");
+        if (const Json* e = object_member(o, base, "entitlements", "{\"com.apple.security.network.client\": true}"))
+            entitlements(*e, base + "/entitlements", s.entitlements);
+        unknown_keys(o, base, names_of({"icon", "category", "minimumSystemVersion", "copyright", "buildNumber", "usesNonExemptEncryption", "entitlements"}));
+    }
+
+    // export.macos.entitlements: the sandbox capabilities a game adds to its Mac App Store signature.
+    void entitlements(const Json& o, const std::string& base, Json& out) {
+        static const std::vector<std::string> sandboxKeys = {
+            "com.apple.security.network.client",
+            "com.apple.security.network.server",
+            "com.apple.security.files.user-selected.read-only",
+            "com.apple.security.files.user-selected.read-write",
+            "com.apple.security.files.downloads.read-only",
+            "com.apple.security.files.downloads.read-write",
+            "com.apple.security.device.audio-input",
+            "com.apple.security.device.camera",
+            "com.apple.security.device.usb",
+            "com.apple.security.device.bluetooth",
+            "com.apple.security.personal-information.location",
+            "com.apple.security.print",
+            "com.apple.security.cs.allow-jit",
+            "com.apple.security.cs.disable-library-validation",
+            "com.apple.security.application-groups"};
+        static const std::vector<std::string> owned = {"com.apple.security.app-sandbox", "com.apple.application-identifier",
+                                                       "com.apple.developer.team-identifier", "com.apple.security.inherit"};
+        Json clean = Json::object();
+        bool ok = true;
+        for (auto it = o.begin(); it != o.end(); ++it) {
+            const std::string key = it.key();
+            const std::string ptr = base + "/" + tooling_detail::escape_token(key);
+            const Json& v = it.value();
+            if (key.empty() || key.find_first_of(" \t\r\n<>&\"") != std::string::npos) {
+                error(ptr, "'" + key + "' is not an entitlement name",
+                      "An entitlement is a reverse-DNS key such as \"com.apple.security.network.client\".");
+                ok = false;
+                continue;
+            }
+            if (std::find(owned.begin(), owned.end(), key) != owned.end()) {
+                if (key == "com.apple.security.app-sandbox" && v == true) continue;  // redundant, harmless
+                error(ptr, "'" + key + "' is set by sign.macos itself",
+                      key == "com.apple.security.app-sandbox"
+                          ? "The Mac App Store requires the sandbox: remove the key (sign.macos with distribution \"appStore\" turns it on)."
+                          : "Remove the key: sign.macos fills it in from the provisioning profile (or the nested helper's signature).");
+                ok = false;
+                continue;
+            }
+            const bool stringArray = v.is_array() && std::all_of(v.begin(), v.end(), [](const Json& x) { return x.is_string(); });
+            if (!(v.is_boolean() || v.is_string() || v.is_number_integer() || stringArray)) {
+                error(ptr, "expected true/false, a string, a whole number or an array of strings, got " + describe_json_value(v),
+                      "Most entitlements are booleans: \"" + key + "\": true.");
+                ok = false;
+                continue;
+            }
+            if (starts_with(key, "com.apple.security.") && std::find(sandboxKeys.begin(), sandboxKeys.end(), key) == sandboxKeys.end()) {
+                const std::string guess = did_you_mean(key, sandboxKeys);
+                if (!guess.empty())
+                    warn(ptr, "'" + key + "' is not a sandbox entitlement FactorIA knows; it is written to the signature as it is.", guess);
+            }
+            clean[key] = v;
+        }
+        if (ok) out = std::move(clean);
     }
 
     void linux_(const Json& o, const std::string& base, LinuxExportSettings& s) {
@@ -340,29 +437,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
             else
                 s.teamId = team;
         }
-        if (auto it = o.find("buildNumber"); it != o.end() && !it->is_null()) {
-            const std::string hint = "CFBundleVersion is up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\".";
-            std::string v;
-            bool valid = true;
-            if (it->is_string()) v = it->get<std::string>();
-            else if (it->is_number_integer()) v = std::to_string(it->get<long long>());
-            else {
-                error(base + "/buildNumber", "expected a string, got " + describe_json_value(*it), hint);
-                valid = false;
-            }
-            if (valid) {
-                if (!v.empty() && !is_dotted_version(v)) error(base + "/buildNumber", "'" + v + "' is not a build number", hint);
-                else s.buildNumber = v;
-            }
-        }
-        if (auto it = o.find("usesNonExemptEncryption"); it != o.end() && !it->is_null()) {
-            if (!it->is_boolean())
-                error(base + "/usesNonExemptEncryption", "expected true or false, got " + describe_json_value(*it),
-                      "Write true only when the game uses encryption beyond what iOS provides (HTTPS through the system is exempt); "
-                      "remove the key for the default, false.");
-            else
-                s.usesNonExemptEncryption = it->get<bool>();
-        }
+        take_build_number(o, base, s.buildNumber);
+        take_encryption_flag(o, base, s.usesNonExemptEncryption, "iOS");
         if (const Json* pv = object_member(o, base, "privacy", "{\"accessedApis\": [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]}"))
             privacy(*pv, base + "/privacy", s.privacy);
         unknown_keys(o, base, names_of({"icon", "iconBackground", "teamId", "buildNumber", "usesNonExemptEncryption", "privacy"}));
@@ -862,6 +938,10 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
         sync_field(o, "category", before.macos.category, now.macos.category, def.macos.category);
         sync_field(o, "minimumSystemVersion", before.macos.minimumSystemVersion, now.macos.minimumSystemVersion, def.macos.minimumSystemVersion);
         sync_field(o, "copyright", before.macos.copyright, now.macos.copyright, def.macos.copyright);
+        sync_field(o, "buildNumber", before.macos.buildNumber, now.macos.buildNumber, def.macos.buildNumber);
+        sync_field(o, "usesNonExemptEncryption", before.macos.usesNonExemptEncryption, now.macos.usesNonExemptEncryption,
+                   def.macos.usesNonExemptEncryption);
+        sync_field(o, "entitlements", before.macos.entitlements, now.macos.entitlements, def.macos.entitlements);
         finish("macos");
     }
     if (!(before.linux == now.linux)) {

@@ -72,6 +72,10 @@ if(FA_BUILD_TESTS)
                 COMPILE_DEFINITIONS FA_PLAYER_EXE="$<TARGET_FILE:factoria_player>")  # its one file: the ccache, above
             add_dependencies(fa_test_tooling factoria_player)
         endif()
+        if(APPLE AND NOT IOS AND TARGET factoria_player)  # sign_macos_store_test.cpp runs the real player inside the App Sandbox
+            set_property(SOURCE tests/sign_macos_store_test.cpp APPEND PROPERTY COMPILE_DEFINITIONS FA_PLAYER_EXE="$<TARGET_FILE:factoria_player>")
+            add_dependencies(fa_test_tooling factoria_player)
+        endif()
         # publish_test.cpp runs this stand-in for steamcmd, butler... (no test talks to a real store).
         add_executable(fa_fake_store_tool test_tools/fake_store_tool.cpp)
         target_link_libraries(fa_fake_store_tool PRIVATE fa_warnings)
