@@ -1,5 +1,5 @@
 // @ts-check
-// The title screen (scenes/main.scene.json): Play, Options, Credits, Quit. Panels open over each other with MenuStack;
+// The title screen (scenes/main.scene.json): Play, Shop, Achievements, Leaderboards, Options, Credits, Quit. Panels open over each other with MenuStack;
 // a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel. Play starts the first level
 // of scripts/levels.js through the loading screen. Android Back opens the previous panel (nothing to close: quits).
 import { Behaviour, ui, game, scene, session, input } from "factoria";
@@ -8,12 +8,14 @@ import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
 import { installUiSounds } from "./ui/ui_sounds.js";
 import * as levels from "./levels.js";
+import * as services from "./services.js";
 
 export default class MainMenu extends Behaviour {
   onStart() {
     applyOnce();
     readMenusAloud();
     installUiSounds();
+    services.ensure(); // store services: purchases, paint on the robot, outbox (scripts/services.js)
     this.menus = new MenuStack("main_menu");
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
@@ -22,6 +24,9 @@ export default class MainMenu extends Behaviour {
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
     ui.on("click", "credits_button", () => this.menus.show("credits"));
+    ui.on("click", "shop_button", () => this.menus.show("shop"));
+    ui.on("click", "achievements_button", () => this.menus.show("achievements"));
+    ui.on("click", "leaderboards_button", () => this.menus.show("leaderboards"));
     ui.on("click", "quit", () => game.quit());
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());
