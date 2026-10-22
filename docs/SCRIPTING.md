@@ -599,11 +599,13 @@ calendar date with `game.today()` instead, as you use `rng` for chance:
 ```js
 import { game, rng } from "factoria";
 const t = game.today();   // { year: 2026, month: 3, day: 14, weekday: 6, utcOffsetMinutes: 60, iso: "2026-03-14" }
-rng.seed(hash(t.iso));    // a daily challenge: everybody plays the same seed on the same day
+rng.seed(t.year * 10000 + t.month * 100 + t.day);   // a daily challenge: everybody plays the same seed on the same day
 ```
 
 `weekday` is 0 = Sunday to 6 = Saturday; `utcOffsetMinutes` is the local offset from UTC. In a built game the date is the
-player's real local date, read when the game starts (a game left open past midnight keeps its date until restarted).
+player's real local date, read when the game starts and again each time the app comes back to the foreground or the
+window gets the focus, before `game.on("resume")` / `game.on("focus")` run: a game left in the background overnight
+sees the new day in its "resume" handler, while one that stays in front past midnight keeps its date until then.
 In `factoria test`, `factoria run --headless`, `call`, `session`, `mcp` and `screenshot` it is the fixed date `2026-01-01`,
 so runs are reproducible; `--date YYYY-MM-DD` chooses another (see CLI.md). A replay recorded in the editor stores the
 date it was played on and plays back with it, so a daily run replays identically (an older replay without a date uses the

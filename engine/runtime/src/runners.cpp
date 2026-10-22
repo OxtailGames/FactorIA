@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <optional>
 
 #include "engine_impl.h"
 #include "fa/core/avi.h"
@@ -28,6 +29,8 @@ struct WindowedState {
     int framesRendered = 0;  // drawn frames, for the run marker in AppDesc.frame
     int framesRun = 0;       // frames run so far, for EngineConfig::maxFrames
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
+    // The player's date when it came from the wall clock (no --date): read again when the app comes back, see refresh_clock_date.
+    std::optional<CalendarDate> clockDate;
     // What the window shows of Input's requested cursor and on-screen keyboard state (input.mouse.visible/locked,
     // input.showKeyboard): scripts change Input, apply_input_requests() makes the window follow.
     bool mouseVisible = true, mouseLocked = false, keyboardShown = false;
@@ -40,6 +43,17 @@ void apply_input_requests(WindowedState& st) {
     if (in.keyboard_shown() != st.keyboardShown) app_show_keyboard(st.keyboardShown = in.keyboard_shown());
     for (float seconds : in.vibrations()) app_vibrate(seconds);  // headless runs keep the list; a window plays it
     in.clear_vibrations();
+}
+
+// A player whose date came from the clock reads it again when the app comes back (resume, focus), before the scripts hear
+// about it: a game left in the background overnight sees the new day in its "resume" handler. Only a change of the clock's
+// date moves game.today(), so nothing else the game did to the date is undone by a focus change.
+void refresh_clock_date(WindowedState& st) {
+    if (!st.clockDate) return;
+    const CalendarDate today = local_calendar_date();
+    if (today == *st.clockDate) return;
+    st.clockDate = today;
+    st.engine.scripts().set_start_date(today);
 }
 
 // The device's safe area (notch, rounded corners, system bars) as insets of the renderer's target, in design pixels: the
@@ -145,11 +159,13 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.init = [st] {
         GfxEnvironment env = app_gfx_environment();
         std::string err;
-        // The one place the wall clock is read: the player's date goes into the config like the seed does (--date overrides).
+        // The wall clock is read here and in refresh_clock_date only: the player's date goes into the config like the seed
+        // does (--date overrides, and then it never changes).
         if (st->cfg.date.empty()) {
             const CalendarDate today = local_calendar_date();
             st->cfg.date = today.iso();
             st->cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
+            st->clockDate = today;
         }
         st->ok = st->engine.init(st->cfg, &env, &err);
         if (!st->ok) {
@@ -197,6 +213,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             case AppEvent::Type::FocusGained:
                 st->mouseLocked = false;  // the window system unlocked the mouse with the focus: lock it again if requested
                 refresh_system_accessibility();  // the player may have changed a system setting meanwhile (game.accessibility)
+                refresh_clock_date(*st);
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Focus);
                 break;
             case AppEvent::Type::Suspended:
@@ -208,6 +225,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                 FA_INFO("player", "resumed");
                 refresh_system_accessibility();
                 st->framesSinceResume = 0;
+                refresh_clock_date(*st);
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Resume);
                 break;
             default: break;
