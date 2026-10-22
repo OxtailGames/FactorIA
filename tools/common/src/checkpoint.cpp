@@ -2,9 +2,10 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
@@ -61,14 +62,15 @@ bool write_atomic(const stdfs::path& target, const void* data, std::size_t size,
     std::error_code ec;
     stdfs::create_directories(target.parent_path(), ec);
     const stdfs::path tmp = target.parent_path() / (target.filename().string() + ".fa-tmp");
-    FILE* f = std::fopen(fs::os_path(tmp).string().c_str(), "wb");
-    if (!f) {
+    // A stream opened with the path itself, not .string(): on Windows that would go through the ANSI code page.
+    std::ofstream out(fs::os_path(tmp), std::ios::binary | std::ios::trunc);
+    if (!out) {
         if (err) *err = "cannot write " + tmp.generic_string();
         return false;
     }
-    const bool wrote = size == 0 || std::fwrite(data, 1, size, f) == size;
-    const bool closed = std::fclose(f) == 0;
-    if (!wrote || !closed) {
+    if (size) out.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+    out.close();
+    if (!out) {
         stdfs::remove(tmp, ec);
         if (err) *err = "cannot write " + tmp.generic_string() + " (disk full?)";
         return false;
@@ -83,15 +85,10 @@ bool write_atomic(const stdfs::path& target, const void* data, std::size_t size,
 }
 
 bool read_bytes(const stdfs::path& p, std::string& out) {
-    FILE* f = std::fopen(fs::os_path(p).string().c_str(), "rb");
-    if (!f) return false;
-    out.clear();
-    char buf[1 << 16];
-    std::size_t n;
-    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
-    const bool ok = std::ferror(f) == 0;
-    std::fclose(f);
-    return ok;
+    std::ifstream in(fs::os_path(p), std::ios::binary);
+    if (!in) return false;
+    out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return !in.bad();
 }
 
 std::int64_t mtime_ns(const stdfs::path& p, std::error_code& ec) {

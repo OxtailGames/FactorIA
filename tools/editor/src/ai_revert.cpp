@@ -259,8 +259,9 @@ void Editor::draw_ai_run_item(ChatItem& c, AiChat& chat, int index) {
         const bool reverted = !c.revertedBy.empty();
         const int n = file_count(c);
         const ImVec4 col = reverted ? ImVec4(0.6f, 0.6f, 0.6f, 1) : ImVec4(0.95f, 0.8f, 0.45f, 1);
-        ImGui::TextColored(col, "This run changed %d file%s%s%s", n, n == 1 ? "" : "s", c.sceneChanged ? (n ? " and the open scene" : "the open scene") : "",
-                           reverted ? " (reverted)" : "");
+        std::string what = n ? std::to_string(n) + (n == 1 ? " file" : " files") : std::string();
+        if (c.sceneChanged) what += n ? " and the open scene" : "the open scene";
+        ImGui::TextColored(col, "This run changed %s%s", what.c_str(), reverted ? " (reverted)" : "");
         files();
         if (!reverted) {
             ImGui::BeginDisabled(disabled);
