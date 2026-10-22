@@ -3,6 +3,7 @@
   "menu": {
     "title": "Clockwork Courier",
     "play": "Jugar",
+    "continue": "Continuar",
     "options": "Opciones",
     "credits": "Créditos",
     "quit": "Salir",
@@ -88,11 +89,58 @@
   },
   "results": {
     "title": "¡Entregado!",
+    "titleNamed": "¡Entregado, {name}!",
     "time": "Tiempo: {time} s",
+    "best": "Mejor: {time} s",
+    "newBest": "¡Nuevo récord!",
     "spring": "Muelle restante: {seconds} s",
+    "goal": {
+      "fast": "Rápido: menos de {par} s",
+      "springy": "Con muelle: queda el {percent} por ciento",
+      "thorough": "Minucioso: todos los paquetes extra"
+    },
     "next": "Siguiente nivel",
     "retry": "Jugar otra vez",
     "toTitle": "Salir al título"
+  },
+  "select": {
+    "title": "Elige un nivel",
+    "total": "Estrellas {stars} / {max}",
+    "name": "Mensajero: {name}",
+    "noName": "Pon tu nombre",
+    "locked": "Bloqueado",
+    "new": "Nuevo",
+    "district": {
+      "rooftops": "Tejados",
+      "market": "Mercado"
+    },
+    "districtLocked": "(necesita {needed} estrellas, tienes {have})",
+    "hintLevel": "Gana antes {level}.",
+    "hintDistrict": "Necesita {needed} estrellas de los distritos anteriores (tienes {have}).",
+    "daily": "Ruta diaria",
+    "dailyDone": "Ruta diaria: {time} s",
+    "cloud": {
+      "synced": "Guardado en la nube: al día",
+      "uploaded": "Guardado en la nube: subido",
+      "downloaded": "Guardado en la nube: cargado desde la nube",
+      "merged": "Guardado en la nube: unidas las dos copias",
+      "offline": "Guardado en la nube: no se pudo contactar con la tienda",
+      "unreadable": "Guardado en la nube: no se pudo leer, no se ha tocado"
+    }
+  },
+  "profile": {
+    "title": "¿Quién reparte?",
+    "hint": "Escribe un nombre o elige las letras.",
+    "anonymous": "Mensajero",
+    "space": "Espacio",
+    "delete": "Borrar",
+    "done": "Hecho",
+    "empty": "Elige un nombre con al menos una letra o cifra."
+  },
+  "daily": {
+    "done": "¡Ruta diaria hecha!",
+    "doneNamed": "¡Ruta diaria hecha, {name}!",
+    "best": "Mejor de hoy: {time} s"
   },
   "retry": {
     "title": "Se acabó la cuerda",
