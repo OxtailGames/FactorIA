@@ -14,11 +14,13 @@ void* trampoline(void* p) {
     s.entry(s.arg);
     return nullptr;
 }
-bool spawn(void (*entry)(void*), void* arg, std::size_t stackBytes, bool detached) {
+}  // namespace
+
+bool start_big_stack_thread(void (*entry)(void*), void* arg, std::size_t stackBytes) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, stackBytes);
-    if (detached) pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     auto* s = new Start{entry, arg};
     pthread_t t;
     int rc = pthread_create(&t, &attr, trampoline, s);
@@ -27,13 +29,7 @@ bool spawn(void (*entry)(void*), void* arg, std::size_t stackBytes, bool detache
         delete s;
         return false;
     }
-    if (!detached) pthread_join(t, nullptr);
     return true;
-}
-}  // namespace
-
-bool start_big_stack_thread(void (*entry)(void*), void* arg, std::size_t stackBytes) {
-    return spawn(entry, arg, stackBytes, true);
 }
 
 }  // namespace fa
