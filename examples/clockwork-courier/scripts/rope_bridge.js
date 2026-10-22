@@ -2,7 +2,9 @@
 // A rope bridge: `planks` dynamic planks chained with hinge joints (Joint3D) between two fixed ends, hanging in a gentle
 // curve under gravity. The script builds the planks when the scene starts (so a level only says where the bridge goes):
 //
-//   from, to   world positions of the two ends (the surface level at both ends, metres)
+//   from, to   world positions of the two ends (the surface level at both ends, metres). Put them just past the edges
+//              of the slabs (0.05 m or more): a plank that starts inside a static collider is pushed out of it, the
+//              chain buckles and never settles, and the level plays differently on each platform (FB-0053).
 //   planks     how many planks
 //   width      across the bridge, metres;  sag: how far the middle hangs below the ends at the start, metres
 //

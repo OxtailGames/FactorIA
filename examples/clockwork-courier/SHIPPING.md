@@ -120,7 +120,9 @@ factoria run --headless --scene store/trailer/scenes/shot_1.scene.json \
   Check that it has sound before uploading.
 - The recorded input of `rooftops_3` and `market_3` drifts after about 700 frames, and level replays need a 10 frame
   offset (`SETTLE` in `make_trailer.py`). The shots are cut before the drift matters; watch the video once before every
-  upload.
+  upload. The input was recorded before the rope bridges of those two levels moved 0.2 m off the roof slabs: the courier
+  now crosses them up to 3 m behind the recording (checked at frames 610 and 650, still on the route). Record the input
+  again if a later level change pushes it off.
 
 ## Studio intro
 
