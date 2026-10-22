@@ -145,14 +145,15 @@ Steam/Apple/Google services that change some answers).
   layout).
 
 ### Microsoft Store
-- **Set up**: nothing store-specific: the Windows folder and the icon.
-- **Engine does**: **nothing** for this store. There is no MSIX package, no `export.windows` setting besides `icon`, no
-  `publish.microsoft` (ENGINE_FEEDBACK FB-0023).
-- **By hand**: Partner Center account (registration fee), reserve the name, build an MSIX (`makeappx` from the Windows SDK or
-  the MSIX Packaging Tool) from the exported folder with an identity, publisher and tile logos at the store's sizes, sign it
-  (the Store signs it for you after submission), upload, age rating (IARC), privacy policy URL, certification. Or ship it as
-  an installer from a URL (the Store accepts that for desktop apps).
-- **Could not check**: the packaging at all (no Windows SDK tools were installed or used here).
+- **Set up**: nothing store-specific yet: the Windows folder and the icon. `export.windows.msix` (identity name, publisher
+  and publisher display name from Partner Center) and `publish.microsoft.productId` are not filled in.
+- **Engine does** (since M23, after this report: ENGINE_FEEDBACK FB-0023): `factoria export --platform windows --format msix`
+  writes `lantern-keep-windows.msix` from any computer, with the tile logos cut from the icon; `sign.windows` signs it with
+  a `.pfx` (or a test certificate on Windows) to install it on a PC; `publish.microsoft` uploads it with `msstore`.
+- **By hand**: Partner Center account (registration fee), reserve the name, copy the identity into `export.windows.msix`,
+  the first submission (age rating (IARC), privacy policy URL, listing, certification). Upload the package unsigned: the
+  Store signs it. Or ship it as an installer from a URL (the Store accepts that for desktop apps).
+- **Could not check**: installing the package (this report was written on a computer without Windows SDK tools).
 
 ### Google Play
 - **Set up**: `applicationId` from `id`, `versionCode 10000`, `aab` format, adaptive icon, landscape, touch controls,

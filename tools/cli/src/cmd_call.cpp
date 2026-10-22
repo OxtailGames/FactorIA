@@ -124,7 +124,8 @@ Json parse_call_args(Context& ctx, const std::string& text) {
     }
     auto j = parse_json(body, "<command arguments>");
     if (!j.ok()) throw UsageError("Command arguments are not valid JSON: " + j.error().message,
-                                  "Quote the JSON for your shell, e.g. '{\"name\":\"Enemy\"}'; or pass @file.json / - (stdin).");
+                                  "Quote the JSON for your shell, e.g. '{\"name\":\"Enemy\"}'; or pass @file.json / - (stdin). Windows PowerShell 5.1 drops "
+                                  "the inner quotes of '{...}': pipe it instead, '{\"name\":\"Enemy\"}' | factoria call <command> -");
     if (!j->is_object()) throw UsageError("Command arguments must be a JSON object, got " + describe_json_value(*j) + ".");
     return *j;
 }

@@ -580,10 +580,11 @@
       "workaround": "None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.",
       "suggestion": "export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: confirmed open; work package of M23 (Microsoft Store: MSIX) and M21 (Microsoft Store guide) in feedback/ROADMAP.md.",
-        "2026-10-20: docs/EXPORTING.md has a 'Microsoft Store' section (`02b1555`, M21) saying what the engine covers (the Windows folder export) and the steps to take by hand. The entry stays open for M23's export.windows.msix."
+        "2026-10-20: docs/EXPORTING.md has a 'Microsoft Store' section (`02b1555`, M21) saying what the engine covers (the Windows folder export) and the steps to take by hand. The entry stays open for M23's export.windows.msix.",
+        "Fixed in 6364e8f (M23.2): `factoria export --platform windows --format msix` (or export.windows.format \"msix\") writes <slug>-windows.msix next to the Windows folder from any computer, with the manifest from export.windows.msix (identityName, publisher, publisherDisplayName from Partner Center), the tile logos cut from the icon and the block map. `sign.windows` signs it with a pfx from the environment (or a self-signed test certificate on Windows) and `publish.microsoft` uploads it with the Microsoft Store Developer CLI. Lantern Keep had no workaround to drop; its SHIPPING.md points at the export."
       ]
     },
     {
