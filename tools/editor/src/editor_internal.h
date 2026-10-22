@@ -304,6 +304,16 @@ public:
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
     void ai_stop();                           // joins the agent thread, applies its last events, saves the chats
     void ai_drain_events();
+    // Revert an AI run (ai_revert.cpp): a checkpoint of the project before each run, the Revert button after it.
+    void ai_run_checkpoint_begin(const std::string& task);   // in ai_start, before the agent thread exists
+    void ai_run_checkpoint_finish(AiChat& chat);             // when the run's result is drained: the "changed N files" item
+    bool ai_busy() const { return aiRunning_.load() || !aiRunChat_.empty(); }
+    int ai_last_revertable_run() const;                      // index of the active chat's newest Run item not reverted, or -1
+    void ai_revert_request(const std::string& chatId, int item);  // opens the confirm dialog for a Run (Revert) or Revert (Undo revert) item
+    void draw_ai_revert_dialog();
+    void draw_ai_run_item(ChatItem& c, AiChat& chat, int index);  // a Run / Revert item of the transcript, with its button
+    void ai_revert_apply();
+    void ai_remember_scene(const std::string& checkpointId, bool dirty);  // the world as it is now, for ai_revert_apply
     void ai_sync_chats();                     // the chat tabs belong to the open project: switch when it changed
     void ai_on_files_dropped();               // sokol file drop: images become pending attachments of the active chat
     void ai_attach_path(const std::string& path);
@@ -559,6 +569,21 @@ public:
     std::optional<ai::SessionResult> aiResult_;
     AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
     std::string aiRunChat_;         // id of the chat the agent thread works for ("" = no run); set by ai_start, cleared on the result
+    std::string aiRunCheckpoint_;   // id of the checkpoint taken before the run in progress ("" = none)
+    // The world as it was when a checkpoint was taken (before a run) or replaced (before a revert), by checkpoint id: restoring
+    // that checkpoint puts the world back as ONE undo step. Memory only; after a restart the scene is read from disk instead.
+    struct SceneAtCheckpoint {
+        std::string id, scenePath;
+        Json scene;
+        bool dirty = false;
+    };
+    std::vector<SceneAtCheckpoint> aiScenes_;
+    struct AiRevertRequest {
+        bool open = false, shown = false, undo = false;
+        std::string chatId, target, error;
+        int item = -1, laterRuns = 0;
+        CheckpointDiff diff;
+    } aiRevert_;
     std::string aiRunProvider_;     // provider of that run (the plan limits belong to it)
     LimitsByProvider aiLimits_;     // plan windows reported since the editor started, shared by every tab
     int aiTabForce_ = 0;            // frames left to force the active tab (a tab opened/closed by code)

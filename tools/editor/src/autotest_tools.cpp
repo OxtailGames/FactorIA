@@ -215,6 +215,46 @@ Json Editor::at_section_report() {
     return list;
 }
 
+namespace {
+// Section P's scripted "model": in one turn it overwrites a script, writes a new one (fs.write, like an API provider) and
+// spawns an entity (a scene edit), then says it is done.
+class RevertProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest&, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 900;
+        r.usage.outputTokens = 60;
+        if (turn_ == 0) {
+            r.message.text = "Writing two scripts and adding a coin. ";
+            if (hooks.onText) hooks.onText(r.message.text);
+            auto call = [&](const char* id, const char* name, const char* input) {
+                ai::ToolCall c;
+                c.id = id;
+                c.name = name;
+                c.input = Json::parse(input);
+                r.message.toolCalls.push_back(c);
+            };
+            call("w1", "fs_write", R"({"path":"scripts/revert_old.js","content":"new\n"})");
+            call("w2", "fs_write", R"({"path":"scripts/revert_new.js","content":"added by the run\n"})");
+            call("w3", "scene_spawn", R"({"name":"RevertCoin","position":[0,120],"components":{"Shape2D":{"shape":"circle","size":[28,28],"color":[1,0.85,0.1,1]}}})");
+            r.stopReason = ai::StopReason::ToolUse;
+        } else {
+            r.message.text = "Done.";
+            if (hooks.onText) hooks.onText(r.message.text);
+            r.stopReason = ai::StopReason::EndTurn;
+        }
+        ++turn_;
+        return r;
+    }
+
+private:
+    int turn_ = 0;
+};
+}  // namespace
+
 void Editor::at_build_tools_script() {
     using Fn = std::function<void()>;
     bool keep = true;  // false while the script passes over a section FA_EDITOR_AUTOTEST_SECTIONS did not ask for
@@ -2321,6 +2361,87 @@ void Editor::at_build_tools_script() {
         std::lock_guard<std::mutex> lock(aiMu_);
         aiConfig_ = std::move(*atSavedConfig_);
         atSavedConfig_.reset();
+    });
+
+    // --------------------------------------------------------------------------------- P. Revert an AI run
+    section("P");
+    // A scripted AI run overwrites one script, adds another and spawns an entity. The transcript offers Revert; confirming it
+    // puts the files back and the scene back as ONE Ctrl+Z step; Undo revert brings the run's state back.
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
+    step(2, [this, project_file] {
+        write_file(project_file("scripts/revert_old.js"), "old\n");
+        std::error_code ec;
+        stdfs::remove(project_file("scripts/revert_new.js"), ec);
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<RevertProvider>());
+        };
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            ai::RoleConfig& orchestrator = aiConfig_.roles[ai::kRoleOrchestrator];
+            orchestrator.provider = "anthropic";
+            if (orchestrator.model.empty()) orchestrator.model = "mock";
+        }
+        chat_.clear();
+        focus_window("AI Assistant");
+        ai_start("Add a revert probe script and a coin.");
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(4, [this, project_file] {
+        at_check(!ai_running(), "the scripted run finished");
+        at_check(read_file(project_file("scripts/revert_old.js")) == "new\n" && stdfs::exists(project_file("scripts/revert_new.js")) &&
+                     !world().find("RevertCoin").is_null(),
+                 "the run overwrote a script, added one and spawned an entity");
+        const ChatItem* run = nullptr;
+        for (const ChatItem& c : chat())
+            if (c.kind == ChatItem::Kind::Run) run = &c;
+        at_check(run && run->modified == std::vector<std::string>{"scripts/revert_old.js"} &&
+                     run->added == std::vector<std::string>{"scripts/revert_new.js"} && run->sceneChanged,
+                 "the transcript lists what the run changed: a modified file, an added file, the scene");
+        at_check(at_visible("ai:revert") && at_enabled("ai:revert"), "the run offers a Revert button");
+    });
+    snap("editor_ai_run_changed.png");
+    click("ai:revert");
+    step(4, [this] { at_check(at_visible("ai:revert:confirm"), "Revert asks before it changes anything"); });
+    snap("editor_ai_revert_confirm.png");
+    click("ai:revert:confirm");
+    step(6, [this, project_file] {
+        at_check(read_file(project_file("scripts/revert_old.js")) == "old\n", "Revert writes the overwritten script back");
+        at_check(!stdfs::exists(project_file("scripts/revert_new.js")), "Revert deletes the file the run added");
+        at_check(world().find("RevertCoin").is_null() && !dirty(), "Revert puts the scene back as it was before the run");
+        bool sawRevert = false;
+        for (const ChatItem& c : chat()) sawRevert = sawRevert || (c.kind == ChatItem::Kind::Revert && !c.isUndo);
+        at_check(sawRevert && at_visible("ai:undo-revert") && !at_visible("ai:revert"), "the transcript says so and offers Undo revert");
+        undo();
+        at_check(!world().find("RevertCoin").is_null(), "the scene went back as ONE Ctrl+Z step: Undo brings the coin back");
+        redo();
+        at_check(world().find("RevertCoin").is_null(), "...and Redo takes it away again");
+    });
+    snap("editor_ai_reverted.png");
+    click("ai:undo-revert");
+    step(4, [this] { at_check(at_visible("ai:revert:confirm"), "Undo revert asks first too"); });
+    click("ai:revert:confirm");
+    step(6, [this, project_file] {
+        at_check(read_file(project_file("scripts/revert_old.js")) == "new\n" && stdfs::exists(project_file("scripts/revert_new.js")),
+                 "Undo revert brings the run's files back");
+        at_check(!world().find("RevertCoin").is_null(), "...and the run's scene");
+        at_check(at_visible("ai:revert"), "...and the run can be reverted again");
+        std::error_code ec;
+        stdfs::remove(project_file("scripts/revert_old.js"), ec);
+        stdfs::remove(project_file("scripts/revert_new.js"), ec);
+        aiFactory_ = nullptr;
+        if (atSavedConfig_) {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+        }
+        chat_.clear();
+        focus_window("###Viewport");
     });
 
     // ------------------------------------------------------------------------------------------------------ done

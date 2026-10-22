@@ -1076,6 +1076,52 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 | `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
 | `max` | integer | no | Return at most this many (the newest). Default 200. |
 
+## project
+
+### `checkpoint.create` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back.
+
+Copies the project's files into .factoria/checkpoints (content-addressed: a file that did not change since an earlier checkpoint is not copied again, so the second checkpoint of a project is cheap). Includes scripts, scenes, tests and assets; skips folders starting with '.', node_modules and a top-level build/. Keeps the newest 30 checkpoints. The editor makes one before every AI run (the Revert button of the AI Assistant), so call this yourself only before a risky change the user did not ask the editor to track. Returns {id, label, created (epoch seconds), files, bytes (size of the files), bytesStored (newly copied), filesHashed}. Example: {"label":"before the refactor"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `label` | string | no | A short name shown by checkpoint.list and the editor, e.g. "before the refactor". |
+
+### `checkpoint.diff`
+
+Not released yet (on main after 0.1.6).
+
+Show which files changed since a checkpoint (modified, added, deleted).
+
+Compares the files now with checkpoint `id`. Returns {modified, added, deleted} (project-relative paths) and counts. Changes nothing. Example: {"id":"20261022-153012-7"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | A checkpoint id from checkpoint.list. |
+
+### `checkpoint.list`
+
+Not released yet (on main after 0.1.6).
+
+List the project's checkpoints, newest first.
+
+Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limit}. Only the newest `limit` checkpoints are kept.
+
+### `checkpoint.restore` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it.
+
+Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). First it saves an automatic checkpoint "Before restoring <label>" and returns its id as safetyCheckpointId: restoring that one takes this restore back. Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). Returns {modified, added, deleted (what was done), safetyCheckpointId}. Example: {"id":"20261022-153012-7"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | A checkpoint id from checkpoint.list. |
+
 ## docs
 
 ### `docs.commands`
