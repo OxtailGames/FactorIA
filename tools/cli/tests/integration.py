@@ -419,6 +419,10 @@ def test_misc(tmp):
     check(code == 0 and "scripting" in out, "docs list")
     code, out, err = run(["docs", "scripting"])
     check(code == 0 and len(out) > 500, "docs <name>")
+    # stdout has LF line endings on Windows too: a redirected doc or JSON answer carries no carriage return.
+    for args in (["docs", "read", "menus"], ["call", "docs.read", '{"name":"menus"}', "--no-graphics"]):
+        raw = subprocess.run([FACTORIA] + args, capture_output=True, timeout=180).stdout
+        check(len(raw) > 500 and b"\r" not in raw and b"\\r" not in raw, "%s: no carriage return" % " ".join(args[:2]))
     code, rep, err = jrun(["docs", "search", "collision", "--json"])
     check(code == 0 and isinstance(rep, list), "docs search")
 

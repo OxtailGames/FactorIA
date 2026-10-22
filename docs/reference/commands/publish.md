@@ -4,7 +4,7 @@
 
 ## `publish.appstore` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Upload the iOS build (.ipa) to App Store Connect / TestFlight (xcrun altool, macOS only).
 
@@ -18,7 +18,7 @@ Runs `xcrun altool --upload-package <ipa> --type ios --apple-id <id> --bundle-id
 
 ## `publish.epic` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Upload the desktop exports to the Epic Games Store (BuildPatchTool UploadBinary, one artifact per platform).
 
@@ -33,7 +33,7 @@ Runs BuildPatchTool -mode=UploadBinary once per platform with -BuildRoot the exp
 
 ## `publish.gog` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Upload the desktop exports to GOG (Galaxy Pipeline Builder build-game, one project file per platform).
 
@@ -49,7 +49,7 @@ Writes gog-<platform>.json (the Pipeline Builder project: the export folder as t
 
 ## `publish.googleplay` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Upload the release Android App Bundle (.aab) to Google Play (fastlane supply).
 
@@ -65,7 +65,7 @@ Runs `fastlane supply --aab <aab> --track <track> --release_status <draft|comple
 
 ## `publish.itch` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Upload the desktop exports to itch.io (butler push, one channel per platform).
 
@@ -80,7 +80,7 @@ Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version
 
 ## `publish.steam` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Upload the desktop exports to Steam (steamcmd, one depot per platform).
 

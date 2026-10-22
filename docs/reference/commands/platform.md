@@ -4,7 +4,7 @@
 
 ## `platform.add_backend` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Set up a store backend for this game: its plugin, its build and what the store needs.
 
@@ -22,7 +22,7 @@ One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): wri
 
 ## `platform.emit` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Send an event to the game as the store would: a purchase, the overlay opening or closing, a sign-in change.
 
@@ -35,7 +35,7 @@ Send an event to the game as the store would: a purchase, the overlay opening or
 
 ## `platform.reset` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.
 
@@ -43,7 +43,7 @@ Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1
 
 ## `platform.respond` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Script the next answer(s) the fake platform backend gives to a method: an error, an exact result, or a change to the default.
 
@@ -57,7 +57,7 @@ Script the next answer(s) the fake platform backend gives to a method: an error,
 
 ## `platform.set_fake` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers.
 
@@ -71,7 +71,7 @@ Change how the fake platform backend behaves: signed in or out, and how many fra
 
 ## `platform.state`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 

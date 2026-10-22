@@ -53,7 +53,7 @@ Case-insensitive; every word counts, headings weigh more. Returns best sections 
 
 ## `docs.write_reference` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.
 

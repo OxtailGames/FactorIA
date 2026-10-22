@@ -114,7 +114,8 @@ TEST_CASE("templates and docs work without a project") {
     CHECK(bad.err.find("scripting") != std::string::npos);
 }
 
-// The docs are embedded with LF whatever the checkout's line endings, so redirecting them on Windows adds no CRs.
+// The docs are embedded with LF whatever the checkout's line endings, so redirecting them on Windows adds no CRs
+// (stdout is binary there: tests/integration.py checks the real binary's output).
 TEST_CASE("docs read and docs.read carry no carriage returns") {
     auto r = run({"docs", "read", "architecture"});
     REQUIRE(r.code == 0);

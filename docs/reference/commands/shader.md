@@ -4,7 +4,7 @@
 
 ## `shader.compile`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Compile a custom material's GLSL snippet for the dialects of some platforms and report errors with file, line and fixes.
 
