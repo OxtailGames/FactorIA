@@ -20,6 +20,7 @@ every exported game, and a tooling test fails until it is there.
 | [SheenBidi](https://github.com/Tehreer/SheenBidi) | `v3.0.0` (2026-01-24) | Apache-2.0 | render | Unicode Bidirectional Algorithm: paragraph direction and embedding levels for right-to-left text |
 | [dr_libs](https://github.com/mackron/dr_libs) | `dfe8377` (2026-09-01) | MIT-0 / Public domain | audio | WAV and MP3 decoding |
 | [qoa](https://github.com/phoboslab/qoa) | `bc05897` (2026-09-27) | MIT | audio, tooling | QOA audio: decoding in the engine, WAV to QOA conversion in `factoria export` |
+| [acorn](https://github.com/acornjs/acorn) | `8.15.0` | MIT | tooling | Parses project JS for the script debugger's instrumentation; developer binary only (`external/acorn/dist/acorn.js`, the npm package's file unmodified) |
 | [nlohmann/json](https://github.com/nlohmann/json) | `v3.12.0` | MIT | everywhere | JSON (scenes, project files, MCP, AI APIs) |
 | [doctest](https://github.com/doctest/doctest) | `v2.4.12` | MIT | tests | C++ unit tests |
 | [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) (Linux lines only; data, not code) | `c1d5289` (2026-10-02) | zlib | platform | Gamepad mappings for Linux pads (`external/sdl_gamecontrollerdb/`, embedded in the binary) |
