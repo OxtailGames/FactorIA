@@ -35,6 +35,14 @@ export const EVENTS = Object.freeze({
   gamePaused: "game_paused",
   /** The pause menu closed. */
   gameResumed: "game_resumed",
+  /** The courier took a shortcut (scripts/shortcuts.js zones, sent by scripts/services.js): { level: id, shortcut: zone id }. */
+  shortcutFound: "shortcut_found",
+  /** The daily route ended delivered (sent by the daily route flow, P3; the store services listen): { date: "YYYY-MM-DD", level: id, time: seconds }. */
+  dailyRouteFinished: "daily_route_finished",
+  /** The player put on another paint (the shop): { paint: id }. */
+  paintEquipped: "paint_equipped",
+  /** The spring got extra seconds after a rewarded ad (scripts/more_time.js): { level: id, seconds }. */
+  moreTimeGranted: "more_time_granted",
 });
 
 /** Sends an event to every listener of the scene (world.emit with a name from EVENTS). */
