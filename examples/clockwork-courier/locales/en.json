@@ -77,6 +77,13 @@
     "spring": "Spring"
   },
   "levels": {
+    "rooftops_1": "First Roofs",
+    "rooftops_2": "Chimney Row",
+    "rooftops_3": "Clock Square",
+    "market_1": "Lantern Lane",
+    "market_2": "Stall Street",
+    "market_3": "Midnight Rush",
+    "test_arena": "Test Arena",
     "test_yard": "Test Yard"
   },
   "results": {
