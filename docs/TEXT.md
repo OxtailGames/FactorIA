@@ -7,7 +7,8 @@ what it does not do.
 
 ## What a game must ship
 
-The built-in font is DejaVu Sans (`font: ""`): Latin, Greek, Cyrillic, Hebrew and Arabic letters. `font: "builtin:pixel"`
+The built-in font is DejaVu Sans (`font: ""`): Latin, Greek, Cyrillic, Hebrew and Arabic letters, and common symbols
+such as ★ ☆ ✓ ✗ ♥ ♪ ← → (a star rating needs no extra font; colour emoji such as ⭐ are not in it). `font: "builtin:pixel"`
 is Press Start 2P (Latin only, for a retro look). **Nothing else is built in.** A game that shows Chinese, Japanese,
 Korean, Thai, an Indic script or any other script DejaVu Sans lacks must ship a font that has it, as a `.ttf` file in the
 project (`assets/fonts/`):
