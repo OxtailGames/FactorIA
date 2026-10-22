@@ -37,6 +37,7 @@ struct SettingsChoice {
     const char* note;   // one line about it (the combo's tooltip)
 };
 const std::vector<SettingsChoice>& android_formats();      // apk, aab, gradle
+const std::vector<SettingsChoice>& windows_formats();      // folder, msix
 const std::vector<SettingsChoice>& mac_game_categories();  // public.app-category.games and the *-games ones
 const std::vector<SettingsChoice>& linux_game_categories();  // the freedesktop Game categories, for "Add"
 const SettingsChoice* find_choice(const std::vector<SettingsChoice>& list, const std::string& value);  // nullptr when absent
@@ -241,6 +242,8 @@ public:
     // The Export window changed export.android.format on disk: the working copy follows (only that field when other edits
     // are pending).
     void note_saved_android_format(const std::string& format);
+    // Same for export.windows.format (the Export window's Windows format combo).
+    void note_saved_windows_format(const std::string& format);
 
 private:
     void read_project();
@@ -258,5 +261,7 @@ private:
 // export.android.format on disk (factoria.json), changed alone through fa::save_export_settings: what the Export window's
 // format combo does. An error (a broken file) is returned with its hint.
 Result<void> save_android_format(const std::string& projectDir, const std::string& format);
+// The same for export.windows.format (folder | msix).
+Result<void> save_windows_format(const std::string& projectDir, const std::string& format);
 
 }  // namespace fa::editor

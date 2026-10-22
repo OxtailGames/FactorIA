@@ -11,6 +11,9 @@
 // The two mobile stores upload ONE built file instead of export folders (the .ipa you archived in Xcode, the release .aab):
 //   appstore   : xcrun altool --upload-package <ipa> --type ios --apple-id ... --apiKey ... --apiIssuer ...  (macOS only)
 //   googleplay : fastlane supply --aab <aab> --track internal --package_name ... --json_key <service account>
+// The Microsoft Store takes the unsigned MSIX `project.export --platform windows --format msix` wrote:
+//   microsoft  : msstore reconfigure ..., then msstore publish <folder of the msix> -i <msix> -id <product id>
+//                (credentials: FACTORIA_MSSTORE_TENANT_ID / _SELLER_ID / _CLIENT_ID / _CLIENT_SECRET, environment only)
 // `dryRun` writes those files, runs nothing and returns the exact command lines.
 //
 // Where things live (docs/EXPORTING.md, "Uploading to stores"):
@@ -37,7 +40,7 @@
 
 namespace fa {
 
-// "steam", "itch", "epic", "gog", "appstore", "googleplay": the stores that have a publish.<store> command.
+// "steam", "itch", "epic", "gog", "appstore", "googleplay", "microsoft": the stores that have a publish.<store> command.
 const std::vector<std::string>& publish_stores();
 // "windows", "macos", "linux": the exports a store command uploads (mobile uploads are separate).
 const std::vector<std::string>& publish_platforms();
@@ -78,6 +81,10 @@ struct GooglePlayPublishSettings {
     std::map<std::string, std::string> changelogs;  // Play locale (en-US) -> project-relative text file: the "What's new" of the release
 };
 
+struct MicrosoftPublishSettings {
+    std::string productId;                        // the app's Store ID in Partner Center (12 letters and digits, e.g. 9NBLGGH4NNS1)
+};
+
 struct PublishSettings {
     SteamPublishSettings steam;
     ItchPublishSettings itch;
@@ -85,6 +92,7 @@ struct PublishSettings {
     GogPublishSettings gog;
     AppStorePublishSettings appstore;
     GooglePlayPublishSettings googleplay;
+    MicrosoftPublishSettings microsoft;
 };
 
 // The itch.io channel of `platform`: the configured one, else "windows", "mac" or "linux".
@@ -114,7 +122,7 @@ struct PublishOptions {
     std::string account;                          // steam: login name (else publish.steam.account)
     std::string appId;                            // steam: app id (else steam_appid.txt)
     std::string branch;                           // steam: beta branch to set live (else publish.steam.branch); gog: branch to publish to
-    std::string artifact;                         // appstore / googleplay: the .ipa / .aab to upload ("" = build/export/<slug>.ipa, build/export/<slug>-android/<slug>.aab)
+    std::string artifact;                         // appstore / googleplay / microsoft: the .ipa / .aab / .msix to upload ("" = build/export/<slug>.ipa, build/export/<slug>-android/<slug>.aab)
     std::string track, releaseStatus;             // googleplay: release track and draft|completed (else publish.googleplay.track / .releaseStatus)
     std::string host;                             // "" = this computer ("macos" | "windows" | "linux"); only tests change it (appstore runs on macOS only)
     std::function<void(const std::string& line)> progress;  // optional: each line the uploader prints (the same lines go to the log)

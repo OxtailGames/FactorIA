@@ -53,6 +53,14 @@ const std::vector<SettingsChoice>& android_formats() {
     return list;
 }
 
+const std::vector<SettingsChoice>& windows_formats() {
+    static const std::vector<SettingsChoice> list = {
+        {"folder", "Folder", "A folder with the game's .exe and files, ready to zip and share."},
+        {"msix", "Folder + MSIX (Microsoft Store)", "Also writes <name>-windows.msix next to the folder: the package of the Microsoft Store, built on any computer."},
+    };
+    return list;
+}
+
 const std::vector<SettingsChoice>& mac_game_categories() {
     static const std::vector<SettingsChoice> list = {
         {"public.app-category.games", "Games", "The general games category."},
@@ -166,6 +174,19 @@ Json settings_json(const ProjectExportSettings& s) {
     {
         Json o = Json::object();
         put(o, "icon", s.windows.icon);
+        o["format"] = s.windows.format;
+        const WindowsMsixSettings& m = s.windows.msix;
+        Json mx = Json::object();
+        put(mx, "identityName", m.identityName);
+        put(mx, "publisher", m.publisher);
+        put(mx, "publisherDisplayName", m.publisherDisplayName);
+        put(mx, "displayName", m.displayName);
+        put(mx, "description", m.description);
+        put(mx, "backgroundColor", m.backgroundColor);
+        put(mx, "version", m.version);
+        put(mx, "minVersion", m.minVersion);
+        if (!m.languages.empty()) mx["languages"] = m.languages;
+        o["msix"] = mx;
         exp["windows"] = o;
     }
     {
@@ -174,6 +195,7 @@ Json settings_json(const ProjectExportSettings& s) {
         o["category"] = s.macos.category;
         o["minimumSystemVersion"] = s.macos.minimumSystemVersion;
         put(o, "copyright", s.macos.copyright);
+        put(o, "buildNumber", s.macos.buildNumber);
         exp["macos"] = o;
     }
     {
@@ -601,6 +623,7 @@ ProjectExportSettings PlatformSettings::effective_project() const {
     s.macos.minimumSystemVersion = trim(s.macos.minimumSystemVersion);
     if (s.macos.minimumSystemVersion.empty()) s.macos.minimumSystemVersion = def.macos.minimumSystemVersion;
     s.macos.copyright = trim(s.macos.copyright);
+    s.macos.buildNumber = trim(s.macos.buildNumber);
 
     std::vector<std::string> cats;
     for (const std::string& c : s.linux.categories)
@@ -763,6 +786,27 @@ void PlatformSettings::note_saved_android_format(const std::string& format) {
     } else {
         read_project();
     }
+}
+
+void PlatformSettings::note_saved_windows_format(const std::string& format) {
+    if (!loaded()) return;
+    if (project_dirty()) {
+        project.windows.format = format;
+        savedProject_.windows.format = format;
+        fileMtime_ = project_file_mtime();
+    } else {
+        read_project();
+    }
+}
+
+Result<void> save_windows_format(const std::string& projectDir, const std::string& format) {
+    if (!find_choice(windows_formats(), format))
+        return make_error("Unknown Windows format '" + format + "'.", "Use folder or msix.");
+    auto s = load_export_settings(projectDir);
+    if (!s.ok()) return s.error();
+    if (s->windows.format == format) return {};
+    s->windows.format = format;
+    return save_export_settings(projectDir, *s);
 }
 
 Result<void> save_android_format(const std::string& projectDir, const std::string& format) {

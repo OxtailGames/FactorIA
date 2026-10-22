@@ -928,6 +928,20 @@ void Editor::at_build_tools_script() {
         at_check(platformSettings_.dirty(), "...which are still unsaved");
         at_check(!platformSettings_.project_file_changed(), "factoria.json written by the editor itself is not reported as changed behind its back");
     });
+    // The same for the Windows format (folder | MSIX): saved at once, the pending edits stay.
+    step(2, [this] {
+        set_windows_format("msix");
+        auto saved = load_export_settings(projectDir_);
+        at_check(saved.ok() && saved->windows.format == "msix", "the Export window's Windows format menu saves export.windows.format in factoria.json");
+        at_check(saved.ok() && saved->android.versionCode == 0, "...and nothing else of the pending edits");
+        at_check(platformSettings_.project.windows.format == "msix" && platformSettings_.project.android.versionCode == 12,
+                 "...while the Platform settings window keeps its other edits");
+        at_check(platformSettings_.dirty(), "...which are still unsaved");
+        at_check(!platformSettings_.project_file_changed(), "factoria.json written by the editor itself is not reported as changed behind its back");
+        platformSettings_.project.windows.msix.identityName = "12345Autotest.Platformer";
+        platformSettings_.project.windows.msix.publisher = "CN=0123ABCD-4567-89EF-0123-456789ABCDEF";
+        platformSettings_.project.windows.msix.publisherDisplayName = "Autotest Studio";
+    });
     click("platform:tab:android");
     step(3, [this] { platformSettings_.project.android.signing.alias = "upload"; });
     click("platform:save");
@@ -938,6 +952,9 @@ void Editor::at_build_tools_script() {
         if (saved.ok()) {
             at_check(saved->icon == "assets/icon.png", "Save wrote the game icon");
             at_check(saved->android.versionCode == 12 && saved->android.format == "aab", "Save wrote the Android settings");
+            at_check(saved->windows.format == "msix" && saved->windows.msix.identityName == "12345Autotest.Platformer" &&
+                         saved->windows.msix.publisherDisplayName == "Autotest Studio",
+                     "Save wrote the Windows MSIX settings");
             at_check(saved->android.permissions == std::vector<std::string>{"android.permission.VIBRATE"}, "Save wrote the permissions");
             at_check(saved->android.signing.keystore == "keys/upload.keystore" && saved->android.signing.alias == "upload", "Save wrote the signing key");
             at_check(saved->macos.copyright == "Copyright 2026 Autotest" && saved->ios.teamId == "ABCDE12345", "Save wrote the macOS and iOS settings");

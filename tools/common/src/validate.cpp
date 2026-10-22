@@ -290,6 +290,19 @@ void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
     const ProjectExportSettings& s = parsed.settings;
     check_icon_file(c, "/icon", s.icon);
     check_icon_file(c, "/export/windows/icon", s.windows.icon);
+    if (s.windows.format == "msix") {  // the Store gives the identity; without it the package only installs on your own PC
+        const WindowsMsixSettings& m = s.windows.msix;
+        std::vector<std::string> missing;
+        if (m.identityName.empty()) missing.push_back("identityName");
+        if (m.publisher.empty()) missing.push_back("publisher");
+        if (m.publisherDisplayName.empty()) missing.push_back("publisherDisplayName");
+        if (!missing.empty())
+            c.warn(kProjectFileName, "/export/windows/msix",
+                   "export.windows.format is \"msix\" but export.windows.msix has no " + join(missing, ", ") +
+                       ": the package gets a placeholder identity, which installs on your own PC but is rejected by the Microsoft Store.",
+                   "Copy identityName, publisher and publisherDisplayName from Partner Center > your app > Product management > Product identity "
+                   "(the Package/Identity/Name, Package/Identity/Publisher and Package/Properties/PublisherDisplayName values).");
+    }
     check_icon_file(c, "/export/macos/icon", s.macos.icon);
     check_icon_file(c, "/export/linux/icon", s.linux.icon);
     check_icon_file(c, "/export/android/icon", s.android.icon);
