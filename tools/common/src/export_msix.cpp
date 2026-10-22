@@ -328,8 +328,9 @@ Result<void> build_msix(const ExportOptions& o, const Project& p, const MsixPlan
     std::vector<std::string> steps;
     steps.push_back("Microsoft Store: upload " + generic(plan.artifact) + " in Partner Center (your app > Submission > Packages), unsigned: the Store signs it. "
                     "`publish.microsoft` uploads it with the Microsoft Store Developer CLI (docs/PUBLISHING.md)");
-    steps.push_back("Try it on a Windows PC: `factoria call sign.windows '{\"testCertificate\":true}'` on that PC (from an Administrator terminal, once) signs " + file +
-                    " with a test certificate; then Add-AppxPackage -Path \"" + file + "\" (docs/EXPORTING.md, \"Microsoft Store\")");
+    steps.push_back("Try it on a Windows PC: in PowerShell on that PC, `'{\"testCertificate\":true}' | factoria call sign.windows -` signs " + file +
+                    " with a test certificate; its next steps trust the certificate (as Administrator, once) and install it with "
+                    "Add-AppxPackage -Path \"" + file + "\" (docs/EXPORTING.md, \"Microsoft Store\")");
     report.nextSteps.insert(report.nextSteps.begin(), steps.begin(), steps.end());
     return {};
 }

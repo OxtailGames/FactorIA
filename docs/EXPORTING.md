@@ -1470,7 +1470,8 @@ manifest `Publisher`.
 - Without one, on Windows: `sign.windows {"testCertificate":true}` creates a self-signed certificate with the right subject,
   signs the package and writes its public part (`<slug>-windows-test-certificate.cer`) next to it. Install the certificate once, in an
   administrator PowerShell: `Import-Certificate -FilePath <slug>-windows-test-certificate.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople`;
-  then `Add-AppxPackage <slug>-windows.msix`.
+  then `Add-AppxPackage <slug>-windows.msix`. In PowerShell, pipe the arguments in (`'{"testCertificate":true}' | factoria call
+  sign.windows -`): Windows PowerShell 5.1 drops the inner quotes of `factoria call sign.windows '{"testCertificate":true}'`.
 - With Developer Mode on, `Add-AppxPackage -AllowUnsigned <file>` installs an unsigned package for testing (Windows 11 and
   recent Windows 10); such a package has no verified identity and cannot be updated by the Store.
 

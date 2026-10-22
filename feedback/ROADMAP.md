@@ -3,28 +3,19 @@
 Status: the four jam-sized example games reported 73 entries, all verified fixed-in-engine. Lantern Keep, the M21
 reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
-(M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two and M20 one; the one still open is ranked
-below, in M23. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
+(M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two, M20 one and M23 the last one (MSIX,
+2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
 backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
-M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M19 and M23 are
-not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
+M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M23 has the Mac
+App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 is not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-1 entries from 5 project(s), 1 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+0 entries from 5 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-## 1. No Microsoft Store packaging (MSIX) or publish command
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0023
-- **Suggestion:** export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.
-- **Workarounds seen:**
-  - None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.
+_No open feedback entries._
 
 # Next engine milestones
 
@@ -82,6 +73,10 @@ entries are open: LK/FB-0009 in M20 and LK/FB-0023 in M23, for MSIX.
 Re-triage 2026-10-22, after M20.1 (merge `9b92c45`, #134): LK/FB-0009 is fixed, with a `Fixed in <commit>` note; Lantern
 Keep had no workaround to drop (its `levels/<id>.json` maps were already the source of truth). 1 Lantern Keep entry is
 open: LK/FB-0023 in M23, for MSIX.
+
+Re-triage 2026-10-22, after M23's Mac App Store and MSIX packages (`3ec0864`, `6364e8f`, the `m23/stores` PR): LK/FB-0023
+is fixed, with a `Fixed in <commit>` note; Lantern Keep had no workaround to drop (its SHIPPING.md now points at the
+export). No Lantern Keep entry is open.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK).
@@ -509,7 +504,7 @@ Left open:
 Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M21.
 
 Left open:
-- LK/FB-0023, the MSIX export for the Microsoft Store, is M23's (the steps by hand are in docs/EXPORTING.md, from #115).
+- LK/FB-0023, the MSIX export for the Microsoft Store, was fixed by M23 (`6364e8f`).
 - docs/FIRST_GAME_WITH_AI.md was not played through with a real AI: its rounds depend on what the AI answers, so only the
   buttons, keys and commands it names were checked against the editor's code.
 - docs/AI_COSTS.md has one measured game (Lantern Keep, six Sonnet 5.5 workers on 2026-10-19): output tokens are
@@ -539,7 +534,7 @@ Left open:
 - Lantern Keep does not use M22's features yet (the colour filter, the system's settings, reading menus aloud,
   captions); the menus fixture does.
 
-## M23. Closed stores and consoles (L each, later)
+## M23. Closed stores and consoles (L each, later) — Mac App Store and MSIX DONE (the `m23/stores` PR)
 
 Closes E-08 and S-09, plus the Mac App Store and Microsoft Store rows of the report. Needs M11 and M12.
 
@@ -566,19 +561,20 @@ Apple's documentation; the sandbox's effect on the player (saves, network) is tr
 `factoria validate` check beyond the settings' own and `sign.macos`'s warnings.
 
 **Done so far (MSIX and Microsoft Store).** `export.windows.format` / `--format msix` writes a deterministic, unsigned
-`<slug>-windows.msix` from any host (shared zip writer, block map, manifest, logos from the icon, no `resources.pri`),
-`export.windows.msix` holds the Partner Center identity (editor Windows tab, Export window menu, validate warning),
-`sign.windows` signs it with a `.pfx` (signtool or osslsigncode; Windows-only self-signed test certificate) and
-`publish.microsoft` uploads it with `msstore`. Doctests unzip the package and check the hashes, manifest and content types
-with an independent reader; sign and publish run against fakes.
+`<slug>-windows.msix` from any host (shared zip writer with a ZIP64 end record as MakeAppx writes, block map, manifest,
+logos from the icon, no `resources.pri`), `export.windows.msix` holds the Partner Center identity (editor Windows tab,
+Export window menu, validate warning), `sign.windows` signs it with a `.pfx` (signtool, or osslsigncode 2.9 or newer;
+Windows-only self-signed test certificate) and `publish.microsoft` uploads it with `msstore`. Doctests unzip the package
+and check the hashes, manifest and content types with an independent reader; sign and publish run against fakes. By hand
+on macOS, osslsigncode 2.14 signed an exported package and verified it.
 
 Left open (MSIX): the package has not been installed on a real Windows PC with `Add-AppxPackage` (the acceptance
-criterion below), loose qualified logos without a `resources.pri` are unverified, a real upload needs a Partner Center
-account (msstore was never run for real), `testCertificate` is Windows-only,
-and PC Game Pass / GDK are untouched.
+criterion below); loose qualified logos without a `resources.pri` are unverified; a real upload needs a Partner Center
+account (msstore was never run for real); `testCertificate` is Windows-only; PC Game Pass and the GDK are untouched.
 
 Acceptance criteria: a sandboxed macOS export passes `codesign --verify --strict` with the App Sandbox entitlement and
-runs; an MSIX of an exported game installs with `Add-AppxPackage`.
+runs (met: the macOS-only doctest signs ad hoc, verifies and runs it); an MSIX of an exported game installs with
+`Add-AppxPackage` (not met yet: it needs a run on a Windows PC; osslsigncode signs and verifies the package on macOS).
 
 ## M24. Found by the reference game (S-M each, medium; 37 Lantern Keep entries, all fixed) — DONE (PRs #95-#113)
 
@@ -599,7 +595,8 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: no milestone is in progress. M19 and M23 wait for a game that needs them (the one ranked entry, MSIX, is M23's).
+Next: no milestone is in progress. The MSIX package waits for an install on a Windows PC (M23's acceptance criterion); M19
+and M23's consoles wait for a game that needs them. No ranked entry is open.
 
 ## Out of scope: Roblox
 
