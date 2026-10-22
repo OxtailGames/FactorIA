@@ -1,0 +1,4 @@
+Versión 1.0.0
+- Primera versión: seis niveles en los Tejados y el Mercado nocturno, con atajos y perros guardianes.
+- Estrellas, logros, marcadores de mejor tiempo y ruta diaria.
+- Controles táctiles, de mando y de teclado, opciones de accesibilidad e inglés y español.
