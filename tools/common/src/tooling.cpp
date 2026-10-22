@@ -26,6 +26,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_ci_workflow_commands(registry, projectDir);
     register_perf_commands(registry, projectDir);
     register_script_trace_commands(registry, projectDir);
+    register_checkpoint_commands(registry, projectDir);
     register_platform_setup_commands(registry, projectDir);
     register_setup_commands(registry);
 }
