@@ -360,6 +360,141 @@
         "targetLufs": -18
       }
     },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-22",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-22",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/models/pets/Textures/colormap.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/cube-pets",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/pets/animal-dog.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/cube-pets",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/Textures/colormap.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/barrel.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/block-moving.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/crate.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/fence-rope.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/flag.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/key.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/lever.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/platform-ramp.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/platform.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/props/sign.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://kenney.nl/assets/platformer-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
     "assets/models/robot.glb": {
       "provenance": {
         "origin": "imported",
@@ -370,11 +505,11 @@
         "notes": "Modified for this project: scaled, hands removed, and the rigid meshes skinned to the bones (tools/skinify.py) because the engine ignores rigid-mesh animation under bones (ENGINE_FEEDBACK FB-0001)."
       }
     },
-    "assets/models/pets/animal-dog.glb": {
+    "assets/models/town/Textures/colormap.png": {
       "provenance": {
         "origin": "imported",
         "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/cube-pets",
+        "source": "https://kenney.nl/assets/fantasy-town-kit",
         "license": "CC0-1.0",
         "author": "Kenney"
       }
@@ -406,24 +541,6 @@
         "author": "Kenney"
       }
     },
-    "assets/models/props/barrel.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/block-moving.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
     "assets/models/town/cart.glb": {
       "provenance": {
         "origin": "imported",
@@ -442,38 +559,11 @@
         "author": "Kenney"
       }
     },
-    "assets/models/props/crate.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/fence-rope.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
     "assets/models/town/fence.glb": {
       "provenance": {
         "origin": "imported",
         "date": "2026-10-22",
         "source": "https://kenney.nl/assets/fantasy-town-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/flag.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
         "license": "CC0-1.0",
         "author": "Kenney"
       }
@@ -487,29 +577,11 @@
         "author": "Kenney"
       }
     },
-    "assets/models/props/key.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
     "assets/models/town/lantern.glb": {
       "provenance": {
         "origin": "imported",
         "date": "2026-10-22",
         "source": "https://kenney.nl/assets/fantasy-town-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/lever.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
         "license": "CC0-1.0",
         "author": "Kenney"
       }
@@ -537,24 +609,6 @@
         "origin": "imported",
         "date": "2026-10-22",
         "source": "https://kenney.nl/assets/fantasy-town-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/platform-ramp.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/platform.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
         "license": "CC0-1.0",
         "author": "Kenney"
       }
@@ -591,15 +645,6 @@
         "origin": "imported",
         "date": "2026-10-22",
         "source": "https://kenney.nl/assets/fantasy-town-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/sign.glb": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
         "license": "CC0-1.0",
         "author": "Kenney"
       }
@@ -681,33 +726,6 @@
         "origin": "imported",
         "date": "2026-10-22",
         "source": "https://kenney.nl/assets/fantasy-town-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/town/Textures/colormap.png": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/fantasy-town-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/props/Textures/colormap.png": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/platformer-kit",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/models/pets/Textures/colormap.png": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/cube-pets",
         "license": "CC0-1.0",
         "author": "Kenney"
       }
