@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Revert an AI run
+
+- Before each AI run the editor now saves a checkpoint of the project's files. When the run changed something, the chat
+  shows "This run changed N files" with a Revert button: one click (after a confirmation) puts back every file, deletes the
+  ones the run created and puts the scene back as one Undo step. Undo revert takes it back, and Edit > Revert Last AI Run
+  does the same from the menu. The AI is told about the revert in your next message. Checkpoints are kept in
+  `.factoria/checkpoints/` (newest 30) and are also available as the commands `checkpoint.create`, `checkpoint.list`,
+  `checkpoint.diff` and `checkpoint.restore`.
+
 Small leftovers
 
 - The editor's Screenshot toast has a "Show in Finder" / "Show in Explorer" button (it names your file manager) that reveals

@@ -1198,6 +1198,7 @@ void Editor::build_ui() {
         if (ImGui::Button("Cancel")) close();
         ImGui::EndPopup();
     }
+    draw_ai_revert_dialog();
     if (showReloadConfirm_) ImGui::OpenPopup("Reload scene##confirm");
     if (ImGui::BeginPopupModal("Reload scene##confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Discard unsaved changes and reload the scene from disk?");
@@ -1248,6 +1249,11 @@ void Editor::draw_main_menu() {
     if (ImGui::BeginMenu("Edit")) {
         if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editing && !undo_.empty())) undo();
         if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !redo_.empty())) redo();
+        ImGui::Separator();
+        const int lastRun = ai_last_revertable_run();
+        if (ImGui::MenuItem("Revert Last AI Run", nullptr, false, editing && !ai_busy() && lastRun >= 0)) ai_revert_request(chat_.current().id, lastRun);
+        at_track("menu:revert-ai");
+        ImGui::SetItemTooltip("Puts the project's files and the open scene back as they were before the last run of the AI Assistant in this chat.");
         ImGui::EndMenu();
     }
     const bool viewOpen = ImGui::BeginMenu("View");
