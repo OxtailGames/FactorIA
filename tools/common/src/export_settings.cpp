@@ -11,6 +11,7 @@
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/ios_privacy.h"
+#include "fa/tooling/json_patch.h"
 #include "fa/tooling/setup.h"
 #include "util.h"
 
@@ -809,207 +810,10 @@ Result<ProjectExportSettings> load_export_settings(const std::string& projectDir
 }
 
 // ===========================================================================
-// Writing factoria.json: patch the text of `icon` and `export` only
+// Writing factoria.json: patch the text of `icon` and `export` only (fa/tooling/json_patch.h)
 // ===========================================================================
 
 namespace {
-
-struct Member {
-    std::string key;
-    std::size_t keyStart = 0;    // offset of the opening quote of the key
-    std::size_t valueStart = 0;  // first character of the value
-    std::size_t valueEnd = 0;    // one past its last character
-};
-
-struct TopLevel {
-    std::size_t open = 0;   // offset of '{'
-    std::size_t close = 0;  // offset of '}'
-    std::vector<Member> members;
-};
-
-bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
-
-std::size_t skip_ws(const std::string& t, std::size_t i) {
-    while (i < t.size() && is_ws(t[i])) ++i;
-    return i;
-}
-
-// One past the closing quote of the string starting at `i` (t[i] == '"'); npos when it never closes.
-std::size_t skip_string(const std::string& t, std::size_t i) {
-    for (++i; i < t.size(); ++i) {
-        if (t[i] == '\\') ++i;
-        else if (t[i] == '"') return i + 1;
-    }
-    return std::string::npos;
-}
-
-// One past the end of the JSON value starting at `i`; npos on malformed text.
-std::size_t skip_value(const std::string& t, std::size_t i) {
-    if (i >= t.size()) return std::string::npos;
-    if (t[i] == '"') return skip_string(t, i);
-    if (t[i] == '{' || t[i] == '[') {
-        int depth = 0;
-        for (; i < t.size(); ++i) {
-            const char c = t[i];
-            if (c == '"') {
-                i = skip_string(t, i);
-                if (i == std::string::npos) return i;
-                --i;
-            } else if (c == '{' || c == '[') {
-                ++depth;
-            } else if (c == '}' || c == ']') {
-                if (--depth == 0) return i + 1;
-            }
-        }
-        return std::string::npos;
-    }
-    while (i < t.size() && t[i] != ',' && t[i] != '}' && t[i] != ']' && !is_ws(t[i])) ++i;
-    return i;
-}
-
-bool scan_top_level(const std::string& t, TopLevel& out) {
-    std::size_t i = skip_ws(t, 0);
-    if (t.compare(i, 3, "\xEF\xBB\xBF") == 0) i = skip_ws(t, i + 3);
-    if (i >= t.size() || t[i] != '{') return false;
-    out.open = i++;
-    for (;;) {
-        i = skip_ws(t, i);
-        if (i >= t.size()) return false;
-        if (t[i] == '}') {
-            out.close = i;
-            return true;
-        }
-        if (t[i] != '"') return false;
-        Member m;
-        m.keyStart = i;
-        const std::size_t keyEnd = skip_string(t, i);
-        if (keyEnd == std::string::npos) return false;
-        auto key = parse_json(std::string_view(t).substr(i, keyEnd - i));
-        m.key = key.ok() && key->is_string() ? key->get<std::string>() : t.substr(i + 1, keyEnd - i - 2);
-        i = skip_ws(t, keyEnd);
-        if (i >= t.size() || t[i] != ':') return false;
-        i = skip_ws(t, i + 1);
-        m.valueStart = i;
-        m.valueEnd = skip_value(t, i);
-        if (m.valueEnd == std::string::npos) return false;
-        out.members.push_back(std::move(m));
-        i = skip_ws(t, out.members.back().valueEnd);
-        if (i < t.size() && t[i] == ',') ++i;
-    }
-}
-
-const Member* find_member(const TopLevel& top, const std::string& key) {
-    for (auto it = top.members.rbegin(); it != top.members.rend(); ++it)
-        if (it->key == key) return &*it;
-    return nullptr;
-}
-
-// Layout facts of the file, so that new text looks like the old.
-struct Style {
-    std::string indent = "  ";   // one level (the leading whitespace of the first member)
-    std::string newline = "\n";
-    bool inlineArrays = false;   // the file keeps arrays of scalars on one line: ["a", "b"]
-};
-
-bool has_inline_array(const std::string& t) {
-    for (std::size_t i = 0; i < t.size(); ++i) {
-        if (t[i] == '"') {
-            i = skip_string(t, i);
-            if (i == std::string::npos) return false;
-            --i;
-        } else if (t[i] == '[') {
-            std::size_t j = i + 1;
-            while (j < t.size() && (t[j] == ' ' || t[j] == '\t')) ++j;
-            if (j < t.size() && t[j] != '\n' && t[j] != '\r' && t[j] != ']') return true;
-        }
-    }
-    return false;
-}
-
-Style detect_style(const std::string& t, const TopLevel& top) {
-    Style s;
-    if (t.find("\r\n") != std::string::npos) s.newline = "\r\n";
-    s.inlineArrays = has_inline_array(t);
-    if (!top.members.empty()) {
-        const std::size_t k = top.members.front().keyStart;
-        std::size_t b = k;
-        while (b > 0 && (t[b - 1] == ' ' || t[b - 1] == '\t')) --b;
-        if (b == 0 || t[b - 1] == '\n') {
-            if (k > b) s.indent = t.substr(b, k - b);
-        }
-    }
-    return s;
-}
-
-// The text of `value` as the member of the top-level object: the engine's layout (2-space levels, scalar arrays on one
-// line when the file does that), in the file's own indent unit and line endings.
-std::string render_value(const Json& value, const Style& style) {
-    JsonFormat compact;
-    std::string text = style.inlineArrays ? dump_json(value, compact) : dump_json(value);
-    while (!text.empty() && text.back() == '\n') text.pop_back();
-    std::string out;
-    std::size_t lineStart = 0;
-    bool first = true;
-    while (lineStart <= text.size()) {
-        std::size_t eol = text.find('\n', lineStart);
-        if (eol == std::string::npos) eol = text.size();
-        std::string line = text.substr(lineStart, eol - lineStart);
-        if (!first) {
-            std::size_t spaces = 0;
-            while (spaces < line.size() && line[spaces] == ' ') ++spaces;
-            std::string lead = style.indent;  // the member sits one level in
-            for (std::size_t d = 0; d < spaces / 2; ++d) lead += style.indent;
-            out += style.newline + lead + line.substr(spaces);
-        } else {
-            out += line;
-        }
-        first = false;
-        lineStart = eol + 1;
-    }
-    return out;
-}
-
-std::string quoted(const std::string& key) { return Json(key).dump(-1, ' ', false, Json::error_handler_t::replace); }
-
-// Replaces the value of `key`, or appends the member after the last one.
-std::string set_member(const std::string& t, const TopLevel& top, const Style& style, const std::string& key,
-                       const std::string& valueText) {
-    if (const Member* m = find_member(top, key)) {
-        std::string out = t;
-        out.replace(m->valueStart, m->valueEnd - m->valueStart, valueText);
-        return out;
-    }
-    std::string out = t;
-    const std::string member = quoted(key) + ": " + valueText;
-    if (top.members.empty()) {
-        out.replace(top.open + 1, top.close - top.open - 1, style.newline + style.indent + member + style.newline);
-        return out;
-    }
-    const Member& last = top.members.back();
-    // The whitespace that separated the previous member from the last one is reused (newline + indent, or a space).
-    std::size_t b = last.keyStart;
-    while (b > 0 && is_ws(t[b - 1])) --b;
-    const std::string sep = t.substr(b, last.keyStart - b);
-    out.insert(last.valueEnd, "," + (sep.empty() ? std::string(" ") : sep) + member);
-    return out;
-}
-
-std::string remove_member(const std::string& t, const TopLevel& top, const std::string& key) {
-    const Member* m = find_member(top, key);
-    if (!m) return t;
-    const std::size_t i = std::size_t(m - top.members.data());
-    const std::size_t n = top.members.size();
-    std::string out = t;
-    if (n == 1) {
-        const std::string between = t.substr(top.open + 1, top.close - top.open - 1);
-        out.replace(top.open + 1, top.close - top.open - 1, between.find('\n') != std::string::npos ? "\n" : "");
-    } else if (i + 1 < n) {
-        out.erase(m->keyStart, top.members[i + 1].keyStart - m->keyStart);
-    } else {
-        out.erase(top.members[i - 1].valueEnd, m->valueEnd - top.members[i - 1].valueEnd);
-    }
-    return out;
-}
 
 // Sets (or, when `now` is the default, removes) obj[key] if it changed.
 template <class T>
@@ -1038,10 +842,6 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
     if (!parsed->is_object())
         return make_error(path + ": the project file must be a JSON object, got " + describe_json_value(*parsed),
                           "Start from {\"format\": \"factoria.project/1\", \"name\": \"My Game\"}.");
-    TopLevel top;
-    if (!scan_top_level(text, top))
-        return make_error(path + ": cannot locate the top-level keys to patch.", "Fix the JSON syntax of factoria.json.");
-
     const ProjectExportSettings before = parse_export_settings(*parsed).settings;
     const ProjectExportSettings def;
 
@@ -1133,26 +933,13 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
     }
     if (!iconChanged && !exportChanged) return {};
 
-    const Style style = detect_style(text, top);
-    std::string out = text;
-    if (iconChanged) {
-        if (now.icon.empty()) out = remove_member(out, top, "icon");
-        else out = set_member(out, top, style, "icon", render_value(Json(now.icon), style));
-    }
-    if (exportChanged) {
-        TopLevel top2;
-        if (!scan_top_level(out, top2)) return make_error(path + ": internal error while patching the file", "Report this as an engine bug.");
-        if (exp.empty()) out = remove_member(out, top2, "export");
-        else out = set_member(out, top2, style, "export", render_value(exp, style));
-    }
-
-    // Never write a file that would not parse.
-    auto check = parse_json(out, path);
-    if (!check.ok() || !check->is_object())
-        return make_error(path + ": internal error: the patched file would not be valid JSON; nothing was written.",
-                          "Report this as an engine bug with the contents of the export settings.");
+    std::vector<JsonPatchOp> ops;
+    if (iconChanged) ops.push_back({{"icon"}, now.icon.empty() ? std::nullopt : std::optional<Json>(Json(now.icon))});
+    if (exportChanged) ops.push_back({{"export"}, exp.empty() ? std::nullopt : std::optional<Json>(exp)});
+    auto patched = patch_json_text(text, ops, path);
+    if (!patched.ok()) return patched.error();
     std::string err;
-    if (!tooling_detail::write_file(stdfs::path(path), out, &err))
+    if (!tooling_detail::write_file(stdfs::path(path), *patched, &err))
         return make_error("Cannot write " + path + ": " + err, "Check that the folder is writable.");
     return {};
 }

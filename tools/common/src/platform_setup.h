@@ -3,6 +3,7 @@
 // (platform_setup_<backend>.cpp) says what "set up" means for it; this header is what they share.
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <vector>
@@ -34,6 +35,14 @@ struct Context {
     // Builds the plugin's CMake project for this computer: <pluginDir>/build, Release (its CMakeLists.txt copies the
     // library into <pluginDir>/<platform>/). `configureArguments` are added to the configure step (-D...).
     void build_plugin(const std::string& pluginDir, const std::vector<std::string>& configureArguments = {});
+
+    // dryRun: nothing is written, built or copied; each step records what it would do in `done` and the files and factoria.json
+    // keys it would write in `files` and `keys` (the result's "wouldDo", "files" and "keys").
+    bool dryRun = false;
+    std::vector<std::string> files;      // files written (or, in a dry run, that would be)
+    std::vector<std::string> keys;       // factoria.json keys written (or that would be): "factoria.json#/plugins/steam"
+    // Records a file the command writes (generic separators).
+    void wrote(const std::string& file) { if (std::find(files.begin(), files.end(), file) == files.end()) files.push_back(file); }
 
     std::vector<std::string> done;       // what was done, in order: the result's "done"
     std::vector<std::string> nextSteps;  // what the developer still does by hand: the result's "nextSteps"

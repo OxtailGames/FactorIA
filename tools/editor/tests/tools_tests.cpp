@@ -98,7 +98,7 @@ TEST_CASE("scenes saved by the editor are already in the canonical layout") {
     s.tileset();
     s.write("prefabs/coin.prefab.json", kCoinPrefab);
     // The hand-written fixtures are not canonical; what the editor writes below is.
-    REQUIRE(s.commands().call("scene.format", Json::object()).ok);
+    REQUIRE(s.commands().call("scene.format", Json::object({{"all", true}})).ok);
     // Build a scene with the things whose layout used to differ by hand: short arrays, colours, a Tilemap's rows.
     REQUIRE(s.engine.commands().call("scene.import_ascii", Json::parse(R"({
       "rows": ["..o..o..", ".o......", "########"],
