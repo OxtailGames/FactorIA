@@ -11,6 +11,8 @@ import * as levels from "./levels.js";
 import * as progress from "./progress.js";
 import * as stars from "./stars.js";
 import { installUiSounds, playUi } from "./ui/ui_sounds.js";
+import * as services from "./services.js";
+import * as moreTime from "./more_time.js";
 
 export default class LevelFlow extends Behaviour {
   /** Id of this level in scripts/levels.js. */
@@ -37,6 +39,8 @@ export default class LevelFlow extends Behaviour {
     this.pending = null;
     session.currentLevel = this.levelId;
     installUiSounds();
+    services.ensure(); // achievements, stats, leaderboards, paint (scripts/services.js)
+    moreTime.install(this); // the rewarded "more time" button of the retry screen (scripts/more_time.js)
     if (this.spring) this.spring.fill(this.level ? this.level.spring : this.spring.max);
     this.offs = [
       // A catch does not end the level: the courier gets up at the last checkpoint (Courier.caught()).
@@ -87,7 +91,7 @@ export default class LevelFlow extends Behaviour {
     });
     const best = progress.record(this.levelId, { time, springLeft: left, stars: rating.stars, goals: rating.goals });
     this.courier?.celebrate();
-    emit(EVENTS.levelCompleted, { level: this.levelId, time, springLeft: left, stars: rating.stars, goals: rating.goals, best });
+    emit(EVENTS.levelCompleted, { level: this.levelId, time, springLeft: left, stars: rating.stars, goals: rating.goals, best, continued: this.continued === true });
     this.pending = { panel: this.resultsId, time, left, stars: rating.stars, goals: rating.goals };
     this.timer = this.resultsDelay;
   }
@@ -127,6 +131,7 @@ export default class LevelFlow extends Behaviour {
       playUi("error_001", 0.7);
     }
     panel.active = true;
+    if (p.panel !== this.resultsId) moreTime.onRetryShown(this);
     // The autoFocus button (Next) is hidden on the last level: focus Play again so a gamepad or keyboard works at once.
     if (p.panel === this.resultsId && world.find("results_next")?.active === false) ui.focus(world.find("results_retry"));
   }
