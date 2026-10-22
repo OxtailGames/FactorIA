@@ -16,6 +16,9 @@ export default class PauseMenu extends Behaviour {
   levelId = "level";
 
   onStart() {
+    // The comfort entity (haptics, low-spring warning, pause on suspend) and the Captions entity that the Subtitles option
+    // switches, spawned here so every level has them without a scene edit. Before applyOnce(): it finds "captions".
+    world.spawnPrefab("prefabs/ui/comfort.prefab.json").id = "comfort";
     applyOnce();
     readMenusAloud();
     installUiSounds();

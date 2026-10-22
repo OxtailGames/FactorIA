@@ -220,7 +220,7 @@ export default class Dog extends Behaviour {
   }
 
   bark(volume = 0.9) {
-    audio.play(this.barkSound, { bus: "sfx", volume, pitch: 1.7 + (this.time % 0.2) });
+    audio.play(this.barkSound, { bus: "sfx", volume, pitch: 1.7 + (this.time % 0.2), caption: "[Dog barks]", captionKey: "captions.dogBark" });
     this.setClip("bark");
   }
 
