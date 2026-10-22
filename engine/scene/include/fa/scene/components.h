@@ -571,6 +571,10 @@ struct CharacterController3D {
     std::int32_t layer = 0;
     std::int32_t mask = -1;
     Vec3 velocity{0, 0, 0};           // m/s: if not zero, the character moves by velocity * dt every physics step
+    bool carriedByPlatforms = true;   // a kinematic body it stands on carries it (displacement and turn)
+    bool applyWeight = true;          // press on the dynamic body below with mass * gravity (at its feet)
+    float mass = 70.0f;               // kg, the weight applied when applyWeight is on
+    float pushStrength = 1.0f;        // scale of the speed given to the free dynamic bodies it walks into (0 = none)
     bool isGrounded = false;          // runtime: standing on walkable ground after the last move (read only)
     Vec3 groundNormal{0, 1, 0};       // runtime: normal of that ground (read only)
 };

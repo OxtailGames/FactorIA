@@ -323,7 +323,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `lockRotation`, `angularDamping`, `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. A dynamic **box** is a rigid body: collisions and friction turn it (it tips over a ledge, tumbles, settles on a face), so put `"lockRotation": true` on a character or a crate that must stay upright. A sphere is an arcade rolling ball by default (`rollWithMotion`, contacts never turn it); with `"rollWithMotion": false` it is a rigid body too and real friction rolls and spins it. Box colliders follow `Transform.rotation`. Fast bodies are swept against every solid collider, so they do not tunnel. |
 | `Collider3D` | `shape` (box, sphere, capsule, convex, mesh), `size`, `radius`, `height`, `mesh`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. `capsule` is `radius` + `height` (tip to tip) along the entity's local Y. `convex` is the hull of `mesh`'s vertices; `mesh` uses its triangles and is for STATIC level geometry only (section 9.18). `mesh` is a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a .gltf/.glb path, usually the same as `MeshRenderer.mesh`. |
 | `Joint3D` | `type` (hinge, ball, fixed), `connected` (entity id, empty = the world), `anchor`, `connectedAnchor`, `autoAnchor`, `axis`, `useLimits`, `lowerLimit`, `upperLimit` (degrees), `useMotor`, `motorSpeed` (degrees/s), `maxMotorTorque`, `collideConnected`, `angle` (read-only) | Joins this entity's `RigidBody3D` to another body: doors, pendulums, wheels, ragdoll limbs, chains (section 9.18). Needs a `Collider3D` on the same entity. |
-| `CharacterController3D` | `radius`, `height`, `center`, `stepOffset`, `slopeLimit` (degrees), `skin`, `layer`, `mask`, `velocity`, `isGrounded` and `groundNormal` (read-only) | A walking capsule moved by `physics.moveCharacter` (section 9.18): slides along walls, climbs steps, refuses steep slopes, sticks to the ground going down, pushes crates. No `RigidBody3D` or `Collider3D` on the same entity. |
+| `CharacterController3D` | `radius`, `height`, `center`, `stepOffset`, `slopeLimit` (degrees), `skin`, `layer`, `mask`, `velocity`, `carriedByPlatforms`, `applyWeight`, `mass`, `pushStrength`, `isGrounded` and `groundNormal` (read-only) | A walking capsule moved by `physics.moveCharacter` (section 9.18): slides along walls, climbs steps, refuses steep slopes, sticks to the ground going down, pushes crates. No `RigidBody3D` or `Collider3D` on the same entity. |
 
 **UI (menus and settings screens; screen space only, section 9.22)**
 
@@ -988,7 +988,7 @@ export default class BallControl extends Behaviour {
 }
 ```
 
-A **moving platform** is a `RigidBody3D` with `"type": "kinematic"` whose `velocity` the script sets. Bodies resting on top of it are carried along by its displacement, so a rider moves with the platform. Verified: over 30 frames the platform moved 1.49 m and the ball resting on it moved 1.48 m.
+A **moving platform** is a `RigidBody3D` with `"type": "kinematic"` whose `velocity` the script sets. Bodies resting on top of it are carried along by its displacement, so a rider moves with the platform. Verified: over 30 frames the platform moved 1.49 m and the ball resting on it moved 1.48 m. A `CharacterController3D` standing on it is carried too (displacement, and the turn of a platform with `angularVelocity`, about the platform's centre) without any script code; set `"carriedByPlatforms": false` on the character for one that must not ride. Verified: a character stood 300 frames on a platform moving at 1 m/s and stayed within 5 cm of its place on it; with `carriedByPlatforms: false` it stayed where it was and the platform left.
 
 ```js
 // scripts/mover.js: slides back and forth along X
@@ -1039,7 +1039,20 @@ export default class Walker extends Behaviour {
 }
 ```
 
-  `radius`, `height`, `stepOffset` (highest step it climbs), `slopeLimit` (steepest slope it walks, degrees) and `skin` (small gap kept to surfaces) are fields of the component. It slides along walls instead of stopping, climbs steps up to `stepOffset`, treats slopes steeper than `slopeLimit` like walls, snaps down onto the ground when walking off a ramp, and pushes dynamic bodies it walks into. It has no gravity of its own: keep a vertical speed in the script. Setting `CharacterController3D.velocity` (m/s) instead moves it every physics step without a script call. It is not carried by moving platforms.
+  `radius`, `height`, `stepOffset` (highest step it climbs), `slopeLimit` (steepest slope it walks, degrees) and `skin` (small gap kept to surfaces) are fields of the component. It slides along walls instead of stopping, climbs steps up to `stepOffset`, treats slopes steeper than `slopeLimit` like walls, snaps down onto the ground when walking off a ramp, and pushes the free dynamic bodies it walks into (`pushStrength`, default 1 = it gives them its own speed, 0 = it does not push; a body held by a `Joint3D` is never pushed). It has no gravity of its own: keep a vertical speed in the script. Setting `CharacterController3D.velocity` (m/s) instead moves it every physics step without a script call. A kinematic platform it stands on carries it (`carriedByPlatforms`, default true; see the moving platform above). Standing on a dynamic body it weighs on it: with `applyWeight` (default true) every physics step presses `mass` kilograms times gravity on that body at the character's feet, so a seesaw tips towards the side it stands on and a plank of a bridge sags (`"applyWeight": false` for a character that weighs nothing).
+
+  A seesaw is a dynamic plank on a hinge with the pivot at its centre; nothing else is needed for it to tip under the character:
+
+  ```json
+  "plank": { "components": {
+    "Transform": { "position": [0, 1, 0] },
+    "Collider3D": { "size": [4, 0.2, 1.5] },
+    "RigidBody3D": { "type": "dynamic", "mass": 20 },
+    "Joint3D": { "type": "hinge", "axis": [0, 0, 1], "useLimits": true, "lowerLimit": -20, "upperLimit": 20 }
+  } }
+  ```
+
+  (`connected` left out = the world.) The plank turns about the z axis, stays on its pivot however the character pushes, and a character standing on its +x half takes the +x end down.
 
 ### 9.19 3D ground checks and raycasts
 

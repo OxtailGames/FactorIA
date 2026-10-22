@@ -10,7 +10,7 @@
 //
 // The first plank hangs from the world at `from`, the last at `to`; each other plank hinges on the one before. Planks are
 // named "<entity id>_plank_<i>" and tagged "wood" (footsteps); each carries two rope posts so it reads as a bridge.
-// The courier walks on the planks like on any ground (it does not push them: FB-0011).
+// The courier walks on the planks: it weighs on them (CharacterController3D.applyWeight) and never shoves them.
 import { Behaviour, world } from "factoria";
 
 export default class RopeBridge extends Behaviour {

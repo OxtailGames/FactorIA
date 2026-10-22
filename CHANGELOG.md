@@ -21,6 +21,11 @@ Physics
   scene's entity order instead of the order of their entity ids, so a rope bridge or a seesaw behaves the same after
   other scenes, destroyed entities or reused entity slots (a level test could take 2000 or 2800 frames depending on
   which tests ran first).
+- `CharacterController3D` on moving and dynamic bodies: a kinematic platform it stands on carries it (displacement, and the
+  turn of a spinning platform; `carriedByPlatforms`, default true), it presses on the dynamic body below with
+  `mass` x gravity (`applyWeight`, `mass`), so a seesaw tips and a bridge plank sags, and `pushStrength` scales the push on
+  the free dynamic bodies it walks into (a body held by a `Joint3D` is never shoved). Clockwork Courier dropped its
+  workarounds (FB-0010, FB-0011).
 
 Native plugins
 

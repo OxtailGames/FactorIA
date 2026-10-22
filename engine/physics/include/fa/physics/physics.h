@@ -92,9 +92,13 @@
 //     forward at least 0.7 radius, drop); a surface steeper than slopeLimit acts as a wall (not climbed); going down it
 //     snaps back onto the ground (stepOffset + skin). On a walkable slope the walk follows the surface, so horizontal
 //     speed is kept. Result: position, moved, isGrounded, groundNormal, ground, hitWall, hitCeiling (also in
-//     CharacterController3D.isGrounded / groundNormal). Dynamic bodies in the way get the character's speed (a push);
-//     the controller has no gravity (the script adds its own) and is not carried by moving platforms (riders on top
-//     of it are). Other bodies see it as a kinematic capsule.
+//     CharacterController3D.isGrounded / groundNormal). Dynamic bodies in the way get the character's speed times
+//     pushStrength (a push; never a body held by a Joint3D). A kinematic body the character stands on (gap <= skin +
+//     4 cm, contact normal up) CARRIES it every step: its displacement (velocity or a script teleport), and the turn of
+//     its angularVelocity about the platform's centre (the character yaws with it); carriedByPlatforms=false turns that
+//     off. Standing on a dynamic body it presses on it with mass * gravity at its feet (applyWeight), so a seesaw tips.
+//     The controller has no gravity (the script adds its own); riders on top of it (dynamic bodies) are carried by it.
+//     Other bodies see it as a kinematic capsule.
 //   * 3D ROTATION DYNAMICS: a dynamic BOX, or a dynamic SPHERE with RigidBody3D.rollWithMotion off, without
 //     RigidBody3D.lockRotation is a rigid body. Its inertia tensor is the solid box's (diagonal in the box frame from the
 //     scaled size and mass, rotated into the world through the orientation) or the solid sphere's (2/5 m r^2 about every

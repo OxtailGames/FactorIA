@@ -761,8 +761,10 @@ void register_builtin_components(TypeRegistry& r) {
                                  "physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to "
                                  "the move yourself, using isGrounded) or set `velocity`. It slides along walls and "
                                  "ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit "
-                                 "(it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it "
-                                 "walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule "
+                                 "(it slides down them), stays on the ground going down ramps, is carried by the kinematic "
+                                 "platform it stands on (carriedByPlatforms), weighs on the dynamic body below it "
+                                 "(applyWeight, mass: a seesaw tips) and pushes the free dynamic bodies it walks into "
+                                 "(pushStrength). Other bodies treat it as a kinematic capsule. The entity origin is the capsule "
                                  "centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.",
                                  "Physics")
         .field("radius", &CharacterController3D::radius, "Capsule radius in meters (scaled by Transform.scale).").range(0.01f, 100)
@@ -782,6 +784,23 @@ void register_builtin_components(TypeRegistry& r) {
         .field("velocity", &CharacterController3D::velocity,
                "Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics "
                "step (no gravity is added). Use it or moveCharacter, not both for the same motion.")
+        .field("carriedByPlatforms", &CharacterController3D::carriedByPlatforms,
+               "When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves "
+               "with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre "
+               "with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a "
+               "moving platform slides out from under it and the script must carry it.")
+        .field("applyWeight", &CharacterController3D::applyWeight,
+               "When true (default) a character standing on a dynamic RigidBody3D presses on it with mass * gravity at "
+               "its feet, every physics step: a seesaw tips towards the side it stands on, a bridge plank or a crate "
+               "feels the load. Set false for a character that weighs nothing.")
+        .field("mass", &CharacterController3D::mass,
+               "Weight in kilograms pressed on the dynamic body below when applyWeight is on (see applyWeight).")
+        .range(0, 100000)
+        .field("pushStrength", &CharacterController3D::pushStrength,
+               "How hard the character shoves the free dynamic bodies it walks into: 1 (default) gives them its own "
+               "speed, 0.5 half of it, 0 none (they block it like a wall). A body held by a Joint3D (a seesaw on its "
+               "pivot, a bridge plank, a door) is never shoved whatever the value.")
+        .range(0, 10)
         .field("isGrounded", &CharacterController3D::isGrounded,
                "Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit).")
         .runtime_only()
