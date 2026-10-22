@@ -13,6 +13,7 @@
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
+#include "fa/platform/local_date.h"
 #include "fa/platform/sokol_entry.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -468,6 +469,11 @@ bool Editor::boot(const std::string& dirIn) {
         cfg.hotReload = false;       // the editor reloads scenes and scripts itself
         cfg.hotReloadAssets = true;  // but materials, snippets and textures edited on disk show right away
         cfg.audioDevice = !autotest_;
+        if (!autotest_) {  // playing in the editor is playing: the player's real date (the autotest keeps the fixed one)
+            const CalendarDate today = local_calendar_date();
+            cfg.date = today.iso();
+            cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
+        }
         engine_ = std::make_unique<Engine>();
         GfxEnvironment env = app_gfx_environment();
         std::string err;

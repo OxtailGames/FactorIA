@@ -70,6 +70,11 @@ public:
     void set_bus_volume(std::string_view bus, float volume);
     float bus_volume(std::string_view bus) const;  // "master", "sfx", "music" or "ui"; -1 for an unknown bus
     void set_master_volume(float volume);
+    // Pauses the whole mix (every voice, music included, keeps its position and plays on from there) while the app is in the
+    // background (ScriptSystem::app_event, project setting pauseOnSuspend). Not a game option: the game's own pause menu
+    // keeps using buses and volumes.
+    void set_paused(bool paused);
+    bool paused() const;
     void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f);
     void stop_music(float fadeSeconds = 0.5f);
 

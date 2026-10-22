@@ -355,6 +355,7 @@ void Impl::reset_for_test_file() {
     storageLoaded = true;
     storageCorrupt = false;
     storageTextHook.reset();
+    owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)
     if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
     // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).
     if (const I18n* loc = host->i18n(); loc && loc->enabled() && loc->language() != loc->default_language())

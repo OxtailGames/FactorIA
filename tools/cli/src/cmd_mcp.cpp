@@ -124,7 +124,8 @@ Command make_mcp_command() {
                {"no-hot-reload", "", "Do not watch scripts/ and tools/ for edits."},
                {"render-all", "", "Draw every frame (default: only when game_screenshot asks)."},
                {"persist-storage", "", "Let scripts' storage.* use the real save file (default: in memory)."},
-               {"seed", "N", "World RNG seed (default 1)."}};
+               {"seed", "N", "World RNG seed (default 1)."},
+               kDateFlag};
     c.examples = {"factoria mcp --project games/my-game",
                   "claude mcp add factoria -- factoria mcp --project .",
                   "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' | factoria mcp --project ."};
@@ -141,6 +142,7 @@ Command make_mcp_command() {
             so.gfx = ctx.args.has("no-graphics") ? Gfx::None : Gfx::Auto;
             so.scene = ctx.args.str("scene");
             so.seed = ctx.args.uinteger("seed", 1);
+            so.date = date_flag(ctx.args);
             so.hotReload = !ctx.args.has("no-hot-reload");
             so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
             so.memoryStorage = !ctx.args.has("persist-storage");

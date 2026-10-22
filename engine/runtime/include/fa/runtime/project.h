@@ -91,6 +91,7 @@ struct ProjectSettings {
     bool vsync = true;
     std::string orientation = "landscape";  // "landscape" | "portrait" | "any" (mobile)
     bool pixelArt = false;
+    bool pauseOnSuspend = true;  // "pauseOnSuspend": freeze the game and the music while the app is in the background (docs/MOBILE.md, "Lifecycle")
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
