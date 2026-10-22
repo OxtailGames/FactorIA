@@ -93,7 +93,7 @@ struct EngineConfig {
     ShaderCompiler shaderCompiler;
     // The script debugger (fa/script/debugger.h): when set, the engine runs the game's scripts in debug mode (instrumented,
     // breakpoints and stepping, the stopped game inspected through the debugger's DebugClient). Null = a normal run, with
-    // no cost. `factoria debug` creates it; the Engine hands it to its ScriptSystem before the scripts start.
+    // no cost. `factoria dap` and `script.trace` create it; the Engine hands it to its ScriptSystem before the scripts start.
     std::shared_ptr<ScriptDebugger> scriptDebugger;
 };
 
