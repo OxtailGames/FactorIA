@@ -347,6 +347,11 @@ void macos_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problem
              "##minmac", m.minimumSystemVersion, "11.0", problems, "/export/macos/minimumSystemVersion");
     text_row(form, "Copyright", "factoria.json: export.macos.copyright (NSHumanReadableCopyright). The notice shown in the app's About information. Empty: none.",
              "##copyright", m.copyright, "Copyright 2026 My Studio", problems, "/export/macos/copyright");
+    const std::string macBuildHint = ps.info.version.empty() ? "the game's version" : ps.info.version + " (the game's version)";
+    text_row(form, "Build number", "factoria.json: export.macos.buildNumber (CFBundleVersion). Up to three whole numbers separated by dots, e.g. 42 or 1.2.3; the "
+                                   "Mac App Store needs it to grow with every upload of the same version. Empty: the game's version. The sandbox capabilities "
+                                   "(export.macos.entitlements) are edited in factoria.json.",
+             "##macbuild", m.buildNumber, macBuildHint.c_str(), problems, "/export/macos/buildNumber");
     ed.draw_setup_buttons("macos", "tab", true);
 }
 

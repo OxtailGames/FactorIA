@@ -23,6 +23,7 @@ account and no tool and prints the plan and what is missing. Run it first.
 | Your own website | a host and a domain | none | web | build only (`--platform web`) |
 | Google Play | 25 USD once | automated and manual checks, from hours to a few days; new personal accounts also need a 14-day closed test | Android | upload from the second bundle (`publish.googleplay`); the first one by hand |
 | App Store (iOS) | 99 USD a year (Apple Developer Program) | App Review, usually 1 to 2 days | iOS | upload of an `.ipa` you archive in Xcode (`publish.appstore`, macOS only) |
+| Mac App Store | 99 USD a year (the same Apple Developer Program) | App Review, usually 1 to 2 days | macOS | sandboxed signing and the signed `.pkg` (`sign.macos` with `distribution: "appStore"`), upload of the `.pkg` (`publish.appstore`, macOS only) |
 | Steam | 100 USD per game, recouped after 1,000 USD of sales | store page and build reviews, about 1 to 5 days each; a "coming soon" page and a waiting period come first | Windows, macOS, Linux | full upload (`publish.steam`) |
 | Microsoft Store | free for individuals, 99 USD once for a company account | certification, a few days | Windows | the MSIX package (`--format msix`, `sign.windows` to try it); upload from the second submission (`publish.microsoft`) |
 | Epic Games Store | check the Developer Portal (a per-product fee has been reported); 0% of your first 1 million USD a year, 12% after | Epic approves the game and its page | Windows, macOS | full upload (`publish.epic`) |
@@ -199,6 +200,27 @@ Do these once, in this order. Each is a full section elsewhere.
 - TestFlight: internal testers at once; external testers need Apple's beta review (about a day).
 - App Review: usually 1 to 2 days as of 2026-10; a rejection restarts the clock. Blocks the release. Pricing,
   availability, release mode (manual, automatic).
+
+## Mac App Store
+
+**What FactorIA does**
+- Settings: `export.macos` (`buildNumber`, `usesNonExemptEncryption`, `entitlements`, `category`, `copyright`)
+  ([`export.<platform>`](EXPORTING.md#exportplatform)). The bundle id is the game's `id`.
+- Export `factoria export --platform macos --release`, then `sign.macos` with `"distribution":"appStore"`: App Sandbox
+  entitlements, nested code signed without the hardened runtime, the provisioning profile embedded,
+  `codesign --verify --strict`, and a signed installer `<game-slug>-macos.pkg`
+  ([Mac App Store](EXPORTING.md#mac-app-store)). `identity:"-"` signs ad hoc to try the sandbox on your own Mac.
+- `publish.appstore` with `{"platforms":["macos"]}` uploads the `.pkg` (`xcrun altool --upload-package ... --type macos`),
+  with the same API key and `publish.appstore.appleId` as iOS. Raise `export.macos.buildNumber` every upload.
+  Environment: `FACTORIA_MACOS_APPSTORE_IDENTITY`, `FACTORIA_MACOS_INSTALLER_IDENTITY`.
+
+**What you still do by hand**
+- Apple Developer Program (shared with iOS), an Apple Distribution and a Mac Installer Distribution certificate, the App
+  ID and a Mac App Store provisioning profile (Apple Developer portal), and the app record in App Store Connect.
+- Test the sandboxed build: saves, network (`export.macos.entitlements`) and file access behave differently inside the sandbox.
+- Everything of the iOS list that applies: page text, screenshots, age rating, App Privacy, privacy policy URL, export
+  compliance, App Review.
+- Not verified by the engine's tests: a real upload to App Store Connect (needs a paid account).
 
 ## itch.io
 

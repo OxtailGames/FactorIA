@@ -51,6 +51,9 @@ struct MacosExportSettings {
     std::string category = "public.app-category.games";  // LSApplicationCategoryType
     std::string minimumSystemVersion = "11.0";            // LSMinimumSystemVersion, 11.0 or newer
     std::string copyright;                                // NSHumanReadableCopyright; "" = none
+    std::string buildNumber;                              // CFBundleVersion; "" = the project's "version"
+    bool usesNonExemptEncryption = false;                 // ITSAppUsesNonExemptEncryption in Info.plist
+    Json entitlements = Json::object();                   // sandbox capabilities added to the Mac App Store signature (sign.macos)
     bool operator==(const MacosExportSettings&) const = default;
 };
 
@@ -124,7 +127,7 @@ struct IosExportSettings {
 };
 
 // What `icon` and `export` of factoria.json say, with every default filled in. Fields that are "derived" when empty
-// (Android versionCode, iOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
+// (Android versionCode, iOS and macOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
 struct ProjectExportSettings {
     std::string icon;  // the icon of every platform that has no icon of its own; "" = none
     bool scriptBytecode = true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
@@ -148,6 +151,8 @@ struct ProjectExportSettings {
     std::string msix_version() const;
     // windows.msix.languages when set, else projectLanguages, else {"en-us"} (lower case, as the manifest wants them).
     std::vector<std::string> msix_languages() const;
+    // macos.buildNumber when set, else projectVersion.
+    std::string macos_build_number() const;
 };
 
 // True for "a.b.c.d": four whole numbers from 0 to 65535 (an MSIX package version, a Windows build number).

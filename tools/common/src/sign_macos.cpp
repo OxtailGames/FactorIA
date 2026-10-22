@@ -1,5 +1,6 @@
-// sign.macos: Developer ID signing, notarization and stapling of the exported .app. Behaviour: fa/tooling/sign.h and
-// docs/EXPORTING.md ("Signing and notarizing for macOS"). The shell version FactorIA's own release uses is scripts/sign-macos.sh.
+// sign.macos: Developer ID signing, notarization and stapling of the exported .app, or (distribution "appStore") sandboxing,
+// App Store signing and the signed .pkg for the Mac App Store. Behaviour: fa/tooling/sign.h and docs/EXPORTING.md ("Signing and
+// notarizing for macOS", "Mac App Store"). The shell version FactorIA's own release uses is scripts/sign-macos.sh.
 #include "fa/tooling/sign.h"
 
 #include <algorithm>
@@ -7,11 +8,14 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 
 #include "export_internal.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/plugin_manifest.h"
 #include "fa/tooling/project_fs.h"
+#include "plist_read.h"
 #include "util.h"
 
 namespace fa {
@@ -27,6 +31,11 @@ constexpr const char* kCodesign = "/usr/bin/codesign";
 constexpr const char* kDitto = "/usr/bin/ditto";
 constexpr const char* kXcrun = "/usr/bin/xcrun";
 constexpr const char* kSpctl = "/usr/sbin/spctl";
+constexpr const char* kSecurity = "/usr/bin/security";
+constexpr const char* kProductbuild = "/usr/bin/productbuild";
+constexpr const char* kPkgutil = "/usr/sbin/pkgutil";
+constexpr const char* kLipo = "/usr/bin/lipo";
+constexpr const char* kSandboxKey = "com.apple.security.app-sandbox";
 
 Error err(std::string message, std::string hint = {}) { return Error{std::move(message), std::move(hint)}; }
 
@@ -77,7 +86,7 @@ std::string last_lines(const std::string& text, std::size_t n) {
 // ---- ~/.factoria/export.json: "sign": {"macos": {"identity", "keychain", "notaryProfile"}} ---------------------------------
 
 struct MachineSign {
-    std::string identity, keychain, notaryProfile;
+    std::string identity, keychain, notaryProfile, appStoreIdentity, installerIdentity;
 };
 
 Result<MachineSign> read_machine_sign(const std::string& configPath) {
@@ -93,7 +102,8 @@ Result<MachineSign> read_machine_sign(const std::string& configPath) {
     if (sign == parsed->end() || !sign->is_object()) return m;
     auto macos = sign->find("macos");
     if (macos == sign->end() || !macos->is_object()) return m;
-    const std::pair<const char*, std::string*> fields[] = {{"identity", &m.identity}, {"keychain", &m.keychain}, {"notaryProfile", &m.notaryProfile}};
+    const std::pair<const char*, std::string*> fields[] = {{"identity", &m.identity}, {"keychain", &m.keychain}, {"notaryProfile", &m.notaryProfile},
+                                                               {"appStoreIdentity", &m.appStoreIdentity}, {"installerIdentity", &m.installerIdentity}};
     for (const auto& [key, out] : fields) {
         auto f = macos->find(key);
         if (f == macos->end() || f->is_null()) continue;
@@ -280,6 +290,155 @@ private:
     std::vector<std::string> secrets_;
 };
 
+// ---- the Mac App Store ----------------------------------------------------------------------------------------------
+
+// The path of the files that sit next to the export folder, without extension: <slug>-macos for build/export/<slug>-macos/<Name>.app.
+stdfs::path sibling_base(const stdfs::path& app) {
+    const stdfs::path folder = app.parent_path();
+    const std::string name = folder.filename().string();
+    if (ends_with(name, "-macos")) return folder.parent_path() / name;
+    return folder / app.stem();
+}
+
+// MH_EXECUTE in the header of a thin or fat Mach-O file: a program (a helper) rather than a library.
+bool macho_is_executable(const stdfs::path& p) {
+    std::ifstream f(os_path(p), std::ios::binary);
+    unsigned char b[32] = {};
+    f.read(reinterpret_cast<char*>(b), sizeof b);
+    if (f.gcount() < 16) return false;
+    auto be32 = [](const unsigned char* x) { return (std::uint32_t(x[0]) << 24) | (std::uint32_t(x[1]) << 16) | (std::uint32_t(x[2]) << 8) | x[3]; };
+    auto le32 = [](const unsigned char* x) { return (std::uint32_t(x[3]) << 24) | (std::uint32_t(x[2]) << 16) | (std::uint32_t(x[1]) << 8) | x[0]; };
+    if (be32(b) == 0xcafebabeu) {  // fat: the first slice tells
+        if (f.gcount() < 24) return false;
+        f.clear();
+        f.seekg(be32(b + 16));
+        unsigned char t[16] = {};
+        f.read(reinterpret_cast<char*>(t), sizeof t);
+        if (f.gcount() < 16) return false;
+        return le32(t + 12) == 2 && (le32(t) == 0xfeedfaceu || le32(t) == 0xfeedfacfu);
+    }
+    return (le32(b) == 0xfeedfaceu || le32(b) == 0xfeedfacfu) && le32(b + 12) == 2;
+}
+
+// Code in Contents/Frameworks that runs as a program of its own (a helper app, an XPC service, a command-line tool): in the sandbox
+// it is signed with com.apple.security.inherit, so that it lives in the sandbox of the app.
+bool is_helper_program(const stdfs::path& code) {
+    const std::string ext = to_lower(code.extension().string());
+    if (ext == ".app" || ext == ".xpc") return true;
+    std::error_code ec;
+    return stdfs::is_regular_file(os_path(code), ec) && macho_is_executable(code);
+}
+
+struct AppInfo {
+    bool parsed = false;
+    std::string bundleId, executable, shortVersion, version, category, icon, minOs;
+};
+
+AppInfo read_app_info(const stdfs::path& app) {
+    AppInfo a;
+    auto text = tooling_detail::read_file(app / "Contents" / "Info.plist");
+    if (!text) return a;
+    auto plist = tooling_detail::parse_xml_plist(*text);
+    if (!plist.ok() || !plist->is_object()) return a;
+    auto str = [&](const char* key) {
+        auto it = plist->find(key);
+        return it != plist->end() && it->is_string() ? it->get<std::string>() : std::string();
+    };
+    a.parsed = true;
+    a.bundleId = str("CFBundleIdentifier");
+    a.executable = str("CFBundleExecutable");
+    a.shortVersion = str("CFBundleShortVersionString");
+    a.version = str("CFBundleVersion");
+    a.category = str("LSApplicationCategoryType");
+    a.icon = str("CFBundleIconFile");
+    a.minOs = str("LSMinimumSystemVersion");
+    return a;
+}
+
+struct ProfileInfo {
+    std::string name, appId, teamId, expires;
+    bool checked = true;  // false: a dry run that could not read the profile (the identifiers are placeholders)
+};
+
+// What the Mac App Store needs of a provisioning profile, as teaching errors. `plist` is the profile's property list.
+Result<ProfileInfo> check_profile(const Json& plist, const std::string& bundleId, const std::string& profileFile) {
+    const std::string who = "sign.macos: ";
+    const std::string get = "Create a profile of type 'Mac App Store Connect' for the App ID " + bundleId +
+                            " (developer.apple.com > Certificates, Identifiers & Profiles > Profiles > +), download it and pass its path as `provisioningProfile`.";
+    if (!plist.is_object()) return err(who + profileFile + " is not a provisioning profile", get);
+    ProfileInfo info;
+    info.name = plist.value("Name", std::string());
+    info.expires = plist.value("ExpirationDate", std::string());
+    if (auto p = plist.find("Platform"); p != plist.end() && p->is_array()) {
+        bool mac = false;
+        std::string platforms;
+        for (const Json& x : *p)
+            if (x.is_string()) {
+                const std::string v = x.get<std::string>();
+                mac = mac || v == "OSX" || v == "macOS";
+                platforms += (platforms.empty() ? "" : ", ") + v;
+            }
+        if (!mac) return err(who + "the provisioning profile " + profileFile + " is for " + platforms + ", not for macOS", get);
+    }
+    if (plist.contains("ProvisionedDevices"))
+        return err(who + "the provisioning profile " + profileFile + " is a development profile (it lists devices), which the Mac App Store rejects",
+                   get + " Its type must be 'Mac App Store Connect', not 'Mac App Development'.");
+    if (plist.value("ProvisionsAllDevices", false))
+        return err(who + "the provisioning profile " + profileFile + " is a Developer ID profile (it provisions all devices), not a Mac App Store one",
+                   get + " Developer ID profiles go with sign.macos's default distribution \"developerId\".");
+    const Json empty = Json::object();
+    const Json& ents = plist.contains("Entitlements") && plist["Entitlements"].is_object() ? plist["Entitlements"] : empty;
+    if (ents.value("get-task-allow", false))
+        return err(who + "the provisioning profile " + profileFile + " is a development profile (get-task-allow), which the Mac App Store rejects", get);
+    info.appId = ents.value("com.apple.application-identifier", ents.value("application-identifier", std::string()));
+    info.teamId = ents.value("com.apple.developer.team-identifier", std::string());
+    if (info.teamId.empty())
+        if (auto t = plist.find("TeamIdentifier"); t != plist.end() && t->is_array() && !t->empty() && (*t)[0].is_string()) info.teamId = (*t)[0].get<std::string>();
+    if (info.appId.empty())
+        return err(who + "the provisioning profile " + profileFile + " has no application identifier (Entitlements/com.apple.application-identifier)", get);
+    const std::size_t dot = info.appId.find('.');
+    if (info.teamId.empty() && dot != std::string::npos) info.teamId = info.appId.substr(0, dot);
+    if (ends_with(info.appId, ".*"))
+        return err(who + "the provisioning profile " + profileFile + " is for a wildcard App ID (" + info.appId + "), which the Mac App Store does not accept",
+                   "Create an explicit App ID " + bundleId + " in the developer portal (Identifiers) and a Mac App Store Connect profile for it.");
+    if (info.appId != info.teamId + "." + bundleId)
+        return err(who + "the provisioning profile " + profileFile + " is for the App ID " + info.appId + ", but the game's id is " + bundleId +
+                       " (expected " + info.teamId + "." + bundleId + ")",
+                   "Create the profile for the App ID " + bundleId + " (the \"id\" of factoria.json), or change the \"id\" and export again.");
+    if (info.expires.size() >= 10 && info.expires.substr(0, 10) < tooling_detail::today_utc())
+        return err(who + "the provisioning profile " + profileFile + " expired on " + info.expires.substr(0, 10),
+                   "Renew it in the developer portal (Profiles > the profile > Edit > Save) and download it again.");
+    return info;
+}
+
+// The entitlements the plugins asked for (the export's <slug>.entitlements): without the two identifiers (they come from the profile)
+// and with the placeholder TEAMID replaced by the real Team ID.
+Result<Json> plugin_entitlements(const stdfs::path& file, const std::string& team) {
+    auto text = tooling_detail::read_file(file);
+    if (!text) return err("sign.macos: cannot read " + generic(file), "Export the game again.");
+    auto plist = tooling_detail::parse_xml_plist(*text);
+    if (!plist.ok() || !plist->is_object()) return err("sign.macos: " + generic(file) + ": " + (plist.ok() ? "not a dictionary" : plist.error().message), "Export the game again.");
+    Json out = Json::object();
+    std::function<Json(const Json&)> fix = [&](const Json& v) -> Json {
+        if (v.is_string()) return replace_all(v.get<std::string>(), "TEAMID.", team + ".");
+        if (v.is_array()) {
+            Json a = Json::array();
+            for (const Json& x : v) a.push_back(fix(x));
+            return a;
+        }
+        return v;
+    };
+    for (auto it = plist->begin(); it != plist->end(); ++it) {
+        if (it.key() == "com.apple.application-identifier" || it.key() == "com.apple.developer.team-identifier") continue;
+        out[it.key()] = fix(it.value());
+    }
+    return out;
+}
+
+bool looks_like_hash(const std::string& id) {
+    return id.size() == 40 && id.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos;
+}
+
 std::string nonmac_error_hint() {
     return "Export the game and sign it on a Mac: copy the export folder there, or run `factoria call project.export` and `factoria call sign.macos` "
            "on the Mac (the exported app keeps its permissions only when copied as a folder or a tar, not through a zip made on Windows). "
@@ -302,6 +461,14 @@ Json SignReport::to_json() const {
     j["stapled"] = stapled;
     if (!notarizationId.empty()) j["notarizationId"] = notarizationId;
     j["zip"] = zip;
+    j["distribution"] = distribution;
+    if (distribution == "appStore") {
+        j["pkg"] = pkg;
+        j["pkgSigned"] = pkgSigned;
+        j["installerIdentity"] = installerIdentity;
+        j["entitlements"] = entitlements;
+        j["profile"] = profile;
+    }
     Json st = Json::array();
     for (const SignStep& s : steps) {
         Json e = Json::object({{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"ran", s.ran}});
@@ -320,6 +487,11 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
     const std::string host = options.host.empty() ? export_detail::host_platform() : options.host;
     SignReport rep;
     rep.dryRun = options.dryRun;
+    if (!options.distribution.empty() && options.distribution != "developerId" && options.distribution != "appStore")
+        return err(who + "unknown distribution '" + options.distribution + "'", did_you_mean(options.distribution, std::vector<std::string>{"developerId", "appStore"}) +
+                   " \"developerId\" signs and notarizes for sharing outside the store (the default); \"appStore\" sandboxes and signs for the Mac App Store.");
+    const bool store = options.distribution == "appStore";
+    rep.distribution = store ? "appStore" : "developerId";
 
     if (host != "macos" && !options.dryRun)
         return err(who + "this computer is not a Mac (" + host + "): codesign, xcrun notarytool and xcrun stapler exist only on macOS",
@@ -357,6 +529,14 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
     if (!options.identity.empty()) {
         rep.identity = options.identity;
         rep.identityFrom = "argument";
+    } else if (store) {
+        if (const std::string v = env("FACTORIA_MACOS_APPSTORE_IDENTITY"); !v.empty()) {
+            rep.identity = v;
+            rep.identityFrom = "FACTORIA_MACOS_APPSTORE_IDENTITY";
+        } else if (!machine->appStoreIdentity.empty()) {
+            rep.identity = machine->appStoreIdentity;
+            rep.identityFrom = "export.json";
+        }
     } else if (const std::string v = env("FACTORIA_MACOS_SIGN_IDENTITY"); !v.empty()) {
         rep.identity = v;
         rep.identityFrom = "FACTORIA_MACOS_SIGN_IDENTITY";
@@ -364,6 +544,11 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         rep.identity = machine->identity;
         rep.identityFrom = "export.json";
     }
+    if (rep.identity.empty() && store)
+        return err(who + "no signing identity: say which certificate signs the app for the Mac App Store",
+                   "Pass `identity` (an \"Apple Distribution: Your Name (TEAMID)\" or \"3rd Party Mac Developer Application: ...\" certificate), set FACTORIA_MACOS_APPSTORE_IDENTITY, or write "
+                   "{\"sign\": {\"macos\": {\"appStoreIdentity\": \"...\"}}} in " + configPath + ". `security find-identity -v -p codesigning` lists the names on this Mac. "
+                   "\"-\" signs ad hoc: a local try of the sandbox (no profile, an unsigned pkg that App Store Connect refuses). Steps in the developer portal: docs/EXPORTING.md, \"Mac App Store\".");
     if (rep.identity.empty())
         return err(who + "no signing identity: say which certificate signs the app",
                    "Pass `identity` (e.g. \"Developer ID Application: Your Name (TEAMID)\"), set FACTORIA_MACOS_SIGN_IDENTITY, or write {\"sign\": {\"macos\": {\"identity\": \"...\"}}} in " + configPath +
@@ -375,6 +560,20 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
                                      starts_with(rep.identity, "Apple Distribution") || starts_with(rep.identity, "3rd Party Mac Developer") ||
                                      starts_with(rep.identity, "Developer ID Installer"));
 
+    if (store && !adHoc) {
+        const std::string& id = rep.identity;
+        if (starts_with(id, "Developer ID") || starts_with(id, "Apple Development") || starts_with(id, "Mac Developer") ||
+            starts_with(id, "3rd Party Mac Developer Installer") || starts_with(id, "Mac Installer Distribution"))
+            return err(who + "'" + id + "' cannot sign an app for the Mac App Store",
+                       "The Mac App Store takes an app signed with an \"Apple Distribution\" or \"3rd Party Mac Developer Application\" certificate (Certificates > + > Apple Distribution in the "
+                       "developer portal). Developer ID certificates are for apps shared outside the store (distribution \"developerId\"); an installer certificate signs the .pkg (`installerIdentity`).");
+        if (!starts_with(id, "Apple Distribution") && !starts_with(id, "3rd Party Mac Developer Application") && !looks_like_hash(id))
+            rep.warnings.push_back("'" + id + "' is not named like an App Store signing certificate (\"Apple Distribution: ...\" or \"3rd Party Mac Developer Application: ...\"); App Store Connect will refuse the build if it is not one.");
+    }
+    if (store && options.notarize.value_or(false))
+        return err(who + "the Mac App Store does not take notarized apps: Apple signs and checks the app itself when it processes the upload",
+                   "Leave `notarize` out (or false) with distribution \"appStore\"; notarization is for distribution \"developerId\".");
+
     // ---- the provisioning profile and the entitlements
     stdfs::path profile;
     if (!options.provisioningProfile.empty()) {
@@ -382,18 +581,28 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         if (!is_file(profile))
             return err(who + "the provisioning profile " + generic(profile) + " does not exist",
                        "Download the macOS provisioning profile for the app's App ID from the Apple Developer portal (Certificates, Identifiers & Profiles > Profiles) and pass its path.");
-        if (adHoc) return err(who + "a provisioning profile needs a real certificate, and the identity is \"-\" (ad hoc)", "Sign with your Developer ID Application identity, or leave the profile out.");
+        if (adHoc) return err(who + "a provisioning profile needs a real certificate, and the identity is \"-\" (ad hoc)", store ? "Sign with your Apple Distribution identity, or leave the profile out for a local try." : "Sign with your Developer ID Application identity, or leave the profile out.");
     }
+    if (store && !adHoc && profile.empty())
+        return err(who + "the Mac App Store needs a provisioning profile, and none was given",
+                   "Pass `provisioningProfile`: the path of the 'Mac App Store Connect' profile for the App ID of the game (developer.apple.com > Certificates, Identifiers & Profiles > Profiles). "
+                   "It is embedded in the app and gives the signature its application and team identifiers. Identity \"-\" needs none (a local try).");
     stdfs::path entitlements;
     if (!options.entitlements.empty()) {
         entitlements = stdfs::absolute(stdfs::path(options.entitlements), ec);
         if (!is_file(entitlements)) return err(who + "the entitlements file " + generic(entitlements) + " does not exist", "Pass the path of a .entitlements property list, or leave it out.");
-    } else {
+        if (store) {
+            auto text = tooling_detail::read_file(entitlements);
+            if (!text || text->find(kSandboxKey) == std::string::npos)
+                return err(who + generic(entitlements) + " does not turn the App Sandbox on",
+                           std::string("The Mac App Store requires ") + kSandboxKey + " set to true in the entitlements of the app. Add it, or leave `entitlements` out: FactorIA writes the entitlements of a sandboxed game itself.");
+        }
+    } else if (!store) {
         // The export writes <slug>.entitlements next to the app when the plugins ask for capabilities (Game Center, iCloud). They are
         // restricted: macOS kills an app that claims one without a provisioning profile, so they are applied only with a profile.
         std::vector<stdfs::path> found;
         for (stdfs::directory_iterator it(os_path(app.parent_path()), ec), end; !ec && it != end; it.increment(ec))
-            if (it->is_regular_file(ec) && it->path().extension() == ".entitlements") found.push_back(it->path());
+            if (it->is_regular_file(ec) && it->path().extension() == ".entitlements" && it->path().filename().string().find(".appstore") == std::string::npos) found.push_back(it->path());
         if (found.size() == 1) {
             if (!profile.empty() && !adHoc) {
                 entitlements = found.front();
@@ -404,7 +613,7 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
             }
         }
     }
-    if (!entitlements.empty()) {
+    if (!entitlements.empty() && !store) {
         auto text = tooling_detail::read_file(entitlements);
         if (text && text->find("TEAMID") != std::string::npos)
             return err(who + generic(entitlements) + " still has the placeholder TEAMID",
@@ -414,7 +623,7 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
     // ---- notarization: whether, and with which credentials
     Credentials credentials = resolve_credentials(options, env, *machine, keychain);
     bool notarize = false;
-    if (options.notarize.value_or(true)) {
+    if (!store && options.notarize.value_or(true)) {
         const bool asked = options.notarize.has_value();
         std::string cannot;
         if (adHoc) cannot = "an ad hoc signature (identity \"-\") cannot be notarized";
@@ -437,17 +646,144 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         }
     }
     if (notarize) rep.credentials = credentials.description;
-    if (adHoc) rep.warnings.push_back("Signed ad hoc: the app runs on this Mac only. A Mac that downloads it calls it damaged or unidentified; use a Developer ID Application identity to share it.");
+    if (adHoc && !store) rep.warnings.push_back("Signed ad hoc: the app runs on this Mac only. A Mac that downloads it calls it damaged or unidentified; use a Developer ID Application identity to share it.");
     if (host != "macos") rep.warnings.push_back("This computer is not a Mac (" + host + "), so this is a dry run: the command lines are the ones a Mac would run, with this computer's paths.");
 
     const stdfs::path zip = options.zip.empty() ? default_zip(app) : stdfs::absolute(stdfs::path(options.zip), ec).lexically_normal();
     rep.zip = generic(zip);
 
-    // ---- the steps
+    // ---- the Mac App Store: what the app and its profile say, the installer identity, the entitlements
+    AppInfo info;
+    ProfileInfo profileInfo;
+    stdfs::path pkgFile, storeEntitlements, inheritEntitlements;
+    Json planned = Json::object();  // the entitlements the signature will carry
+    std::string installerIdentity;
+    std::vector<std::string> helperNotes;
+    bool needInherit = false;
     Runner runner(options, rep, {credentials.secret});
+    if (store) {
+        info = read_app_info(app);
+        if (!info.parsed)
+            return err(who + generic(app / "Contents" / "Info.plist") + " cannot be read as an XML property list", "Export the game for macOS again: project.export {\"platform\":\"macos\"} writes a readable Info.plist.");
+        if (info.bundleId.empty()) return err(who + "the app's Info.plist has no CFBundleIdentifier", "Set \"id\" in factoria.json (e.g. \"com.mystudio.mygame\") and export again.");
+        static const std::regex versionRe("^[0-9]+(\\.[0-9]+){0,2}$");
+        for (const auto& [key, value] : {std::pair<const char*, std::string>{"CFBundleShortVersionString", info.shortVersion}, {"CFBundleVersion", info.version}}) {
+            if (std::regex_match(value, versionRe)) continue;
+            const std::string msg = std::string("the app's ") + key + " is '" + value + "', which the Mac App Store refuses (one to three whole numbers separated by dots)";
+            const std::string hint = std::string("Set \"version\" in factoria.json to something like \"1.2.3\"") + (std::string(key) == "CFBundleVersion" ? " (or export.macos.buildNumber)" : "") + " and export again.";
+            if (adHoc) rep.warnings.push_back(msg + ". " + hint);
+            else return err(who + msg, hint);
+        }
+        if (info.icon.empty()) rep.warnings.push_back("The app has no icon (CFBundleIconFile): App Store Connect refuses an app without one. Set `icon` in factoria.json (a 1024x1024 PNG) and export again.");
+        if (info.category.empty()) rep.warnings.push_back("The app has no LSApplicationCategoryType: App Store Connect needs a category. Set export.macos.category in factoria.json and export again.");
+
+        // Settings of the game: the extra sandbox capabilities.
+        Json extras = Json::object();
+        if (!options.projectDir.empty() && is_file(stdfs::path(options.projectDir) / "factoria.json")) {
+            auto st = load_export_settings(options.projectDir);
+            if (!st.ok()) return st.error();
+            extras = st->macos.entitlements;
+        }
+
+        // The profile.
+        if (!adHoc) {
+            std::string plistText;
+            bool have = false;
+            if (!options.dryRun) {
+                const std::string title = "Read the provisioning profile";
+                const std::vector<std::string> argv = {kSecurity, "cms", "-D", "-i", generic(profile)};
+                auto r = runner.go(title, argv);
+                if (!r.ok()) return r.error();
+                if (r->exitCode != 0) return runner.failed(title, argv, *r, "The file is not a provisioning profile: download it again from the developer portal (Profiles).");
+                plistText = r->stdoutText;
+                have = true;
+            } else {
+                (void)runner.go("Read the provisioning profile", {kSecurity, "cms", "-D", "-i", generic(profile)});
+                if (auto raw = tooling_detail::read_file(profile)) { plistText = *raw; have = true; }
+            }
+            auto plist = have ? tooling_detail::parse_xml_plist(plistText) : Result<Json>(Error{"unreadable", ""});
+            if (plist.ok()) {
+                auto pi = check_profile(*plist, info.bundleId, generic(profile));
+                if (!pi.ok()) return pi.error();
+                profileInfo = *pi;
+            } else if (options.dryRun) {
+                profileInfo.checked = false;
+                profileInfo.teamId = "TEAMID";
+                profileInfo.appId = "TEAMID." + info.bundleId;
+                rep.warnings.push_back("Dry run: the provisioning profile could not be read here, so its identifiers are placeholders and it was not checked against the game's id.");
+            } else {
+                return err(who + "cannot read the provisioning profile " + generic(profile) + ": " + plist.error().message, "Download the profile again from the developer portal.");
+            }
+            rep.profile = (profileInfo.name.empty() ? std::string("provisioning profile") : profileInfo.name) + " (" + profileInfo.appId + ")";
+        }
+
+        // The entitlements: sandbox + the plugins' (only with a profile) + the game's extras + the profile's identifiers.
+        planned[kSandboxKey] = true;
+        std::vector<stdfs::path> found;
+        for (stdfs::directory_iterator it(os_path(app.parent_path()), ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec) && it->path().extension() == ".entitlements" && it->path().filename().string().find(".appstore") == std::string::npos) found.push_back(it->path());
+        if (options.entitlements.empty() && found.size() == 1) {
+            if (!adHoc) {
+                auto pe = plugin_entitlements(found.front(), profileInfo.teamId);
+                if (!pe.ok()) return pe.error();
+                for (auto it = pe->begin(); it != pe->end(); ++it) planned[it.key()] = it.value();
+            } else {
+                rep.warnings.push_back("The export's " + found.front().filename().string() + " (capabilities the native plugins ask for) was not applied: macOS only accepts such entitlements in an app with a "
+                                       "provisioning profile for its App ID, and an ad hoc signature has none. Those services answer 'unavailable' in this local try.");
+            }
+        }
+        for (auto it = extras.begin(); it != extras.end(); ++it) planned[it.key()] = it.value();
+        if (!adHoc) {
+            planned["com.apple.application-identifier"] = profileInfo.appId;
+            planned["com.apple.developer.team-identifier"] = profileInfo.teamId;
+        }
+        const stdfs::path base = sibling_base(app);
+        if (options.entitlements.empty()) storeEntitlements = base.string() + ".appstore.entitlements";
+        else storeEntitlements = entitlements;
+        entitlements = storeEntitlements;
+        inheritEntitlements = base.string() + ".appstore-inherit.entitlements";
+        pkgFile = options.pkg.empty() ? stdfs::path(base.string() + ".pkg") : stdfs::absolute(stdfs::path(options.pkg), ec).lexically_normal();
+        rep.pkg = generic(pkgFile);
+        rep.zip.clear();
+
+        // The installer identity.
+        if (!adHoc) {
+            installerIdentity = first_set({options.installerIdentity, env("FACTORIA_MACOS_INSTALLER_IDENTITY"), machine->installerIdentity});
+            if (installerIdentity.empty())
+                return err(who + "no installer identity: say which certificate signs the .pkg for the Mac App Store",
+                           "Pass `installerIdentity` (a \"3rd Party Mac Developer Installer: Your Name (TEAMID)\" / \"Mac Installer Distribution: ...\" certificate: Certificates > + > Mac Installer Distribution in "
+                           "the developer portal), set FACTORIA_MACOS_INSTALLER_IDENTITY, or write {\"sign\": {\"macos\": {\"installerIdentity\": \"...\"}}} in " + configPath +
+                           ". `security find-identity -v` lists the names (installer certificates are not in the codesigning list).");
+            if (starts_with(installerIdentity, "Developer ID Installer") || starts_with(installerIdentity, "Developer ID Application") || starts_with(installerIdentity, "Apple Distribution") ||
+                starts_with(installerIdentity, "3rd Party Mac Developer Application"))
+                return err(who + "'" + installerIdentity + "' cannot sign the .pkg of a Mac App Store app",
+                           "Use a \"3rd Party Mac Developer Installer\" / \"Mac Installer Distribution\" certificate. (Developer ID Installer is for packages shared outside the store; an application certificate signs the app.)");
+            rep.installerIdentity = installerIdentity;
+        } else if (!options.installerIdentity.empty()) {
+            rep.warnings.push_back("The installer identity was ignored: an ad hoc app gets an unsigned .pkg.");
+        }
+        if (adHoc)
+            rep.warnings.push_back("Ad hoc sandbox try: the app is signed with \"-\" and the .pkg is not signed. This is for checking on this Mac only: App Store Connect refuses it. "
+                                   "Sign with an Apple Distribution identity, a provisioning profile and an installer identity to upload.");
+
+        // Native code in the app that does not belong in the store.
+        for (const stdfs::path& code : nested_code(app)) {
+            const std::string lower = to_lower(code.filename().string());
+            for (const char* store_name : {"steam", "eossdk", "galaxy"})
+                if (lower.find(store_name) != std::string::npos) {
+                    rep.warnings.push_back("Contents/Frameworks/" + generic(code.lexically_relative(app / "Contents" / "Frameworks")) + " looks like the backend of another store (" + store_name +
+                                           "). A game for the Mac App Store uses the Apple plugin (Game Center, StoreKit); Steam and the like do not belong in it, and Apple may refuse the app. Export without that plugin for the store.");
+                    break;
+                }
+            if (is_helper_program(code)) needInherit = true;
+        }
+    }
+
+    // ---- the steps
     auto sign_args = [&](const stdfs::path& what, const stdfs::path& withEntitlements) {
         std::vector<std::string> a = {kCodesign, "--force"};
         if (adHoc) a.push_back("--timestamp=none");
+        else if (store) a.push_back("--timestamp");
         else a.insert(a.end(), {"--options", "runtime", "--timestamp"});
         if (!withEntitlements.empty()) a.insert(a.end(), {"--entitlements", generic(withEntitlements)});
         a.insert(a.end(), {"--sign", rep.identity});
@@ -456,9 +792,47 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         return a;
     };
 
+    auto write_step = [&](const std::string& title, const stdfs::path& file, const Json& content) -> Result<void> {
+        SignStep step;
+        step.title = title;
+        step.command = {"write", generic(file)};
+        if (!options.dryRun) {
+            std::string e;
+            if (!tooling_detail::write_file(file, entitlements_plist(content), &e)) return err(who + "cannot write " + generic(file) + ": " + e);
+            step.ran = true;
+            step.exitCode = 0;
+        }
+        rep.steps.push_back(std::move(step));
+        return {};
+    };
+    if (store) {
+        // What the app is made of: the architectures of the executable (informational: a failing lipo does not stop the signing).
+        if (!info.executable.empty()) {
+            const std::string title = "Check the architectures of the executable";
+            const std::vector<std::string> argv = {kLipo, "-archs", generic(app / "Contents" / "MacOS" / info.executable)};
+            auto r = runner.go(title, argv);
+            if (!r.ok()) return r.error();
+            if (!options.dryRun && r->exitCode == 0) {
+                const std::string archs(trim(r->stdoutText));
+                const bool arm = archs.find("arm64") != std::string::npos, intel = archs.find("x86_64") != std::string::npos;
+                if (!archs.empty() && !arm)
+                    rep.warnings.push_back("The executable is " + archs + " only: it runs on Apple silicon Macs through Rosetta, and Apple expects Mac apps to run natively there. Use a universal or arm64 player.");
+                else if (!archs.empty() && !intel)
+                    rep.warnings.push_back("The executable is arm64 only: the app runs on Apple silicon Macs and App Store Connect offers it to those only. Intel Macs need the x86_64 slice (FactorIA's release player is universal).");
+            }
+        }
+        if (options.entitlements.empty())
+            if (auto w = write_step("Write the entitlements of the app", storeEntitlements, planned); !w.ok()) return w.error();
+        if (needInherit) {
+            Json inherit = Json::object();
+            inherit[kSandboxKey] = true;
+            inherit["com.apple.security.inherit"] = true;
+            if (auto w = write_step("Write the entitlements of the helper programs", inheritEntitlements, inherit); !w.ok()) return w.error();
+        }
+    }
     for (const stdfs::path& code : nested_code(app)) {
         const std::string title = "Sign " + generic(code.lexically_relative(app));
-        auto argv = sign_args(code, {});
+        auto argv = sign_args(code, store && is_helper_program(code) ? inheritEntitlements : stdfs::path());
         auto r = runner.go(title, argv);
         if (!r.ok()) return r.error();
         if (r->exitCode != 0)
@@ -493,6 +867,47 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         if (!r.ok()) return r.error();
         if (r->exitCode != 0) return runner.failed(title, argv, *r, "The app is not sealed correctly; sign it again, and export again if the files inside were changed after the export.");
         rep.verified = !options.dryRun;
+    }
+
+    if (store) {
+        {  // What the signature really carries (codesign -d --entitlements :- prints the XML).
+            const std::string title = "Read back the entitlements of the signature";
+            const std::vector<std::string> argv = {kCodesign, "-d", "--entitlements", ":-", generic(app)};
+            auto r = runner.go(title, argv);
+            if (!r.ok()) return r.error();
+            if (!options.dryRun) {
+                if (r->exitCode != 0) return runner.failed(title, argv, *r, "The app is not signed; sign it again.");
+                auto got = tooling_detail::parse_xml_plist(r->stdoutText + "\n" + r->stderrText);
+                if (!got.ok() || !got->is_object() || !got->value(kSandboxKey, false))
+                    return err(who + "the signed app does not carry the App Sandbox entitlement (" + kSandboxKey + ")",
+                               "The Mac App Store refuses an app without it. Pass no `entitlements` of your own, or add the key to the file, and sign again.");
+                rep.entitlements = *got;
+            } else {
+                rep.entitlements = planned;
+            }
+        }
+        if (!adHoc || true) {
+            std::vector<std::string> argv = {kProductbuild, "--component", generic(app), "/Applications"};
+            if (!adHoc) argv.insert(argv.end(), {"--sign", installerIdentity});
+            if (!keychain.empty() && !adHoc) argv.insert(argv.end(), {"--keychain", keychain});
+            argv.push_back(generic(pkgFile));
+            const std::string title = adHoc ? "Build the installer package (unsigned)" : "Build and sign the installer package";
+            std::error_code mk;
+            if (!options.dryRun) stdfs::create_directories(os_path(pkgFile.parent_path()), mk);
+            auto r = runner.go(title, argv);
+            if (!r.ok()) return r.error();
+            if (r->exitCode != 0)
+                return runner.failed(title, argv, *r, adHoc ? "Check the free disk space and that the folder of the .pkg is writable."
+                                                            : "Check that the installer identity '" + installerIdentity + "' is in a keychain this user can use (`security find-identity -v`) and that the keychain is unlocked.");
+        }
+        if (!adHoc) {
+            const std::string title = "Check the signature of the installer package";
+            const std::vector<std::string> argv = {kPkgutil, "--check-signature", generic(pkgFile)};
+            auto r = runner.go(title, argv);
+            if (!r.ok()) return r.error();
+            if (r->exitCode != 0) return runner.failed(title, argv, *r, "The .pkg is not signed with a valid installer certificate; check `installerIdentity`.");
+            rep.pkgSigned = !options.dryRun;
+        }
     }
 
     if (notarize) {
@@ -561,7 +976,7 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
                 return runner.failed(title, argv, *r, "Gatekeeper rejects an app that was signed and notarized: do not distribute it. Make sure it was not changed after signing, and sign it again.");
         }
     }
-    {
+    if (!store) {
         const std::string title = "Zip the app to share";
         const std::vector<std::string> argv = {kDitto, "-c", "-k", "--keepParent", generic(app), generic(zip)};
         std::error_code mk;
@@ -572,7 +987,14 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
     }
 
     // ---- what to do next
-    if (notarize)
+    if (store) {
+        if (adHoc)
+            rep.nextSteps.push_back("Try the sandboxed app on this Mac: run '" + generic(app / "Contents" / "MacOS" / info.executable) + "'; its files go to ~/Library/Containers/" + info.bundleId +
+                                    ". To submit it, sign with an Apple Distribution identity, a Mac App Store Connect provisioning profile and an installer identity.");
+        else
+            rep.nextSteps.push_back("Upload " + rep.pkg + " to App Store Connect: publish.appstore {\"platforms\":[\"macos\"]} (altool with an App Store Connect API key), or the Transporter app. "
+                                    "Create the app record in App Store Connect first (same bundle id " + info.bundleId + ").");
+    } else if (notarize)
         rep.nextSteps.push_back("Share " + rep.zip + ": it opens on any Mac without a warning, offline too (the ticket is stapled into the app). publish.steam / publish.itch upload the signed app in " +
                                 generic(app.parent_path()) + ".");
     else if (adHoc)
@@ -590,7 +1012,7 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
     info.name = "sign.macos";
     info.category = "sign";
     info.readOnly = false;
-    info.summary = "Sign, notarize and staple the exported macOS app (Developer ID), and zip it for sharing.";
+    info.summary = "Sign, notarize and staple the exported macOS app (Developer ID), or sandbox and sign it as a .pkg for the Mac App Store.";
     info.description =
         "Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<Name>.app) and makes it open on any Mac without Gatekeeper warnings: codesign of every native plugin "
         "library in Contents/Frameworks (deepest first) and then the app, with the hardened runtime and a secure timestamp (the export's <slug>.entitlements when `provisioningProfile` is given; "
@@ -601,9 +1023,14 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         "sign.macos.identity of ~/.factoria/export.json; \"-\" signs ad hoc (this Mac only, no notarization). Notarization logs in with the first of: a keychain profile (`keychainProfile`, "
         "FACTORIA_NOTARY_PROFILE, sign.macos.notaryProfile; saved once with `xcrun notarytool store-credentials`), an App Store Connect API key (`apiKey` file, `apiKeyId`, `apiIssuer`; or "
         "FACTORIA_NOTARY_API_KEY / _KEY_ID / _ISSUER), or an Apple ID (`appleId` + `teamId` or FACTORIA_APPLE_ID / FACTORIA_APPLE_TEAM_ID, and the app-specific password in "
-        "FACTORIA_APPLE_APP_PASSWORD only). No password is ever an argument of this command, in factoria.json, in a result or in a log. `notarize` unset notarizes when there are credentials "
+        "FACTORIA_APPLE_APP_PASSWORD only). `distribution: \"appStore\"` prepares the Mac App Store submission instead: the app is sandboxed "
+        "(com.apple.security.app-sandbox + the plugins' entitlements + export.macos.entitlements + the identifiers of the provisioning profile, which is required and embedded), signed with an "
+        "\"Apple Distribution\" / \"3rd Party Mac Developer Application\" identity (`identity`, FACTORIA_MACOS_APPSTORE_IDENTITY or sign.macos.appStoreIdentity; \"-\" = a local ad hoc try of the sandbox), "
+        "never notarized, wrapped by productbuild in <game-slug>-macos.pkg signed with `installerIdentity` (FACTORIA_MACOS_INSTALLER_IDENTITY or sign.macos.installerIdentity) and checked with "
+        "pkgutil --check-signature; the result adds distribution, pkg, pkgSigned, installerIdentity, profile and the entitlements read back from the signature. publish.appstore uploads the .pkg. "
+        "No password is ever an argument of this command, in factoria.json, in a result or in a log. `notarize` unset notarizes when there are credentials "
         "and a Developer ID identity (else only signs, with a warning); true makes missing credentials an error; false only signs. Returns {app, dryRun, identity, identityFrom, credentials, "
-        "signed, verified, notarized, stapled, notarizationId, zip, steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. The export is replaced by the next "
+        "signed, verified, notarized, stapled, notarizationId, zip, distribution, [appStore: pkg, pkgSigned, installerIdentity, profile, entitlements], steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. The export is replaced by the next "
         "project.export: sign again after every export. Details: docs_read {\"name\":\"exporting\"}. Examples: {\"dryRun\":true}, {\"identity\":\"Developer ID Application: Ada Lovelace (ABCDE12345)\","
         "\"keychainProfile\":\"factoria-notary\"}, {\"identity\":\"-\"}.";
     info.inputSchema = Json::parse(R"({
@@ -612,6 +1039,9 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         "app":{"type":"string","description":"The .app to sign, relative to the project. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game)."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
         "identity":{"type":"string","description":"The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; \"-\" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json."},
+        "distribution":{"type":"string","enum":["developerId","appStore"],"default":"developerId","description":"developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is \"-\")."},
+        "installerIdentity":{"type":"string","description":"appStore: the '3rd Party Mac Developer Installer' / 'Mac Installer Distribution' certificate that signs the .pkg. Default: FACTORIA_MACOS_INSTALLER_IDENTITY, else sign.macos.installerIdentity of ~/.factoria/export.json."},
+        "pkg":{"type":"string","description":"appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg."},
         "keychain":{"type":"string","description":"A keychain file that holds the certificate (or the notary profile). Default: FACTORIA_MACOS_KEYCHAIN, else the user's keychains."},
         "provisioningProfile":{"type":"string","description":"A .provisionprofile to embed in the app (needed for the capabilities the plugins ask for: Game Center, iCloud). With it the export's <slug>.entitlements are applied. Absolute path, or relative to the project."},
         "entitlements":{"type":"string","description":"An entitlements file for the app. Default: the export's <slug>.entitlements, used only with a provisioningProfile. Absolute path, or relative to the project."},
@@ -641,6 +1071,9 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         if (std::string v = tooling_detail::arg_string(args, "app", false); !v.empty()) o.app = inside(v, "app");
         if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = inside(v, "out");
         if (std::string v = tooling_detail::arg_string(args, "zip", false); !v.empty()) o.zip = inside(v, "zip");
+        if (std::string v = tooling_detail::arg_string(args, "pkg", false); !v.empty()) o.pkg = inside(v, "pkg");
+        o.distribution = tooling_detail::arg_string(args, "distribution", false);
+        o.installerIdentity = tooling_detail::arg_string(args, "installerIdentity", false);
         o.identity = tooling_detail::arg_string(args, "identity", false);
         o.keychain = tooling_detail::arg_string(args, "keychain", false);
         if (std::string v = tooling_detail::arg_string(args, "provisioningProfile", false); !v.empty()) o.provisioningProfile = anywhere(v, "provisioningProfile");
