@@ -30,7 +30,7 @@ scene.load and scene.reload already re-import every module whose file changed (b
 
 ## `script.trace`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run.
 

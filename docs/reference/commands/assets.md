@@ -24,7 +24,7 @@ Returns Markdown that answers the AI-generated content questions of Steam's cont
 
 ## `assets.draw_capsules` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo.
 
@@ -45,7 +45,7 @@ Example: {"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern 
 
 ## `assets.draw_icon` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Draw the game's icon (1024x1024 PNG) and the Android adaptive-icon foreground from shapes and text, no image provider needed.
 

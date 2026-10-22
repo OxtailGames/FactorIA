@@ -4,7 +4,7 @@
 
 ## `ui.caption` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Show a subtitle line on the Captions component for a few seconds.
 
@@ -19,7 +19,7 @@ The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line wi
 
 ## `ui.clear_captions` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Remove every subtitle from the screen now.
 
@@ -27,7 +27,7 @@ The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep pl
 
 ## `ui.set_text_scale` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.
 
@@ -39,7 +39,7 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 
 ## `ui.speak` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Say a line aloud with the system's text to speech (or record it, headless).
 
@@ -60,7 +60,7 @@ Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hov
 
 ## `ui.stop_speaking` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Stop what is being said by ui.speak and drop the queued lines.
 

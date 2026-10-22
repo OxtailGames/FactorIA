@@ -4,7 +4,7 @@
 
 ## `material.info`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state.
 
