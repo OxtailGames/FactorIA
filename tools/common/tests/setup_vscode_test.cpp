@@ -20,13 +20,8 @@ struct VsWorld {
     testing::TempDir tmp;
     SetupContext ctx;
     stdfs::path home() const { return tmp.path / "home"; }
-    stdfs::path exe() const {
-#if defined(_WIN32)
-        return tmp.path / "bin" / "factoria.exe";
-#else
-        return tmp.path / "bin" / "factoria";
-#endif
-    }
+    // ctx.host is "linux", so the installer looks for factoria without .exe on every platform.
+    stdfs::path exe() const { return tmp.path / "bin" / "factoria"; }
     VsWorld() {
         testing::write_all(exe(), "binary");
         const std::string h = home().string();
