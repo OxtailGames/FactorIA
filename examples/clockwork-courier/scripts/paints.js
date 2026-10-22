@@ -1,7 +1,7 @@
 // @ts-check
 // The robot's paint schemes. A paint is a tint (MeshRenderer.color multiplies the glTF's own colours, so the dark eyes and
 // joints stay dark; the robot is orange, so a blue paint is a dark tint plus a glow, not a blue multiplier) and a glow
-// (MeshRenderer.emissive, added on top; there is no per-material colour, FB-0026). The numbers were tuned by looking at
+// (MeshRenderer.emissive, added on top; there is no per-material colour, FB-0031). The numbers were tuned by looking at
 // screenshots of the title robot. Which paints the player may use is decided here; which one is worn is kept by
 // scripts/store.js (`equippedPaint()`), and apply() below puts it on a model (scripts/services.js does it for the courier and
 // the title robot).

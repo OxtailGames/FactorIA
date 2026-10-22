@@ -8,7 +8,7 @@
 //   owned      free, or unlocked by stars, or bought: Equip
 //   stars      still locked by total stars: "Needs 8 stars (you have 5)"; the button is greyed out
 //   buy        a purchase of the store (priced): Buy
-// The buttons that show a price or a state have no `key` in the scene (it would overwrite the text each frame, FB-0022).
+// The buttons that show a price or a state have no `key` in the scene (it would overwrite the text each frame, FB-0027).
 // Messages of the last action (thanks, cancelled, pending, unreachable) show in "shop_status".
 import { Behaviour, world, ui, i18n, platform } from "factoria";
 import { PAINTS } from "../paints.js";

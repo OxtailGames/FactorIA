@@ -70,7 +70,7 @@ for (const level of LEVELS) {
       expect(JSON.stringify(fast.r)).toContain('"reached":true');
       expect(fast.log.map((e) => e.name)).toContain("level_completed");
       // The main route of rooftops_3 crosses the rope bridge and takes 2000..2800 frames depending on which tests ran before it
-      // in the same process (FB-0028): "not slower" has a tolerance of 5 s.
+      // in the same process (FB-0033): "not slower" has a tolerance of 5 s.
       expect(fast.r.frames).toBeLessThanOrEqual(main.r.frames + 300);
     });
   });

@@ -12,7 +12,7 @@
 //
 // Which provider runs: the test overlay (scripts/ad_stub.js) while the store is the fake one (`platform.backend === "fake"`,
 // the development run), none otherwise (a build without an ad SDK shows no ad offer). A real SDK plugin calls setProvider()
-// at start-up with an object of this shape. The ads API the engine should have is FB-0023 in ENGINE_FEEDBACK.json.
+// at start-up with an object of this shape. The ads API the engine should have is FB-0028 in ENGINE_FEEDBACK.json.
 //
 //   moreTimeOffer()    { mode: "free" | "ad" | "none" }: what the retry screen offers (see below)
 //   requestMoreTime()  runs the offer: resolves { granted, mode, reason? }
