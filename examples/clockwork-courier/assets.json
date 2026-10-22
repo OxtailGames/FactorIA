@@ -360,6 +360,16 @@
         "targetLufs": -18
       }
     },
+    "assets/fonts/NotoSansJP-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-22",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosansjp",
+        "license": "OFL-1.1",
+        "author": "Google Fonts / Adobe (Noto Sans JP)",
+        "notes": "Variable font NotoSansJP[wght].ttf instanced to wght 400 and subset to the characters of locales/*.json with assets/fonts/make_subset.py. Licence text: assets/fonts/OFL.txt."
+      }
+    },
     "assets/models/robot.glb": {
       "provenance": {
         "origin": "imported",

@@ -7,7 +7,7 @@
   "mainScene": "scenes/main.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
-  "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
+  "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ja"], "fallbackFonts": ["assets/fonts/NotoSansJP-Regular-subset.ttf"] },
   "input": {
     "actions": {
       "move_forward": ["W", "Up", "GamepadLeftStickUp"],

@@ -5,7 +5,7 @@
 //
 //   levelId   id in scripts/levels.js (spring seconds, par time and parcel count come from there)
 //   finished  true once the level is won or lost: the pause menu stays closed and the courier ignores input
-import { Behaviour, world, ui, scene, session, i18n } from "factoria";
+import { Behaviour, world, ui, scene, session, i18n, screen } from "factoria";
 import { EVENTS, emit } from "./events.js";
 import * as levels from "./levels.js";
 import * as progress from "./progress.js";
@@ -50,6 +50,8 @@ export default class LevelFlow extends Behaviour {
     this.offs = [
       // A catch does not end the level: the courier gets up at the last checkpoint (Courier.caught()).
       world.on(EVENTS.springEmpty, () => this.fail("spring_empty")),
+      // The results lines and the "more time" label are written by script, not by keys: write them again in the new language.
+      i18n.on("change", () => this.refreshPanel()),
     ];
     ui.on("click", "results_retry", () => scene.load(scene.current));
     ui.on("click", "retry_retry", () => scene.load(scene.current));
@@ -125,11 +127,23 @@ export default class LevelFlow extends Behaviour {
     if (p) this.showPanel(p);
   }
 
+  /** Writes the texts of the panel on display again (the player switched language while it is open). */
+  refreshPanel() {
+    const p = this.shownPanel;
+    if (!p || !world.find(p.panel)?.active) return;
+    if (p.panel === this.resultsId) for (const [id, text] of Object.entries(resultsView.lines(this.levelId, p))) this.setText(id, text);
+    else moreTime.refreshLabel(this);
+  }
+
   showPanel(p) {
     const panel = world.find(p.panel);
     if (!panel) return;
+    this.shownPanel = p;
     if (p.panel === this.resultsId) {
       for (const [id, text] of Object.entries(resultsView.lines(this.levelId, p))) this.setText(id, text);
+      // A wrapped text takes its whole maxWidth: keep the box inside the safe area of a notched phone.
+      const room = Math.min(1180, Math.floor(screen.safeArea.w) - 64);
+      for (const id of ["results_time", "results_spring"]) if (world.find(id)) world.find(id).get("Text").maxWidth = room;
       const nextButton = world.find("results_next");
       if (nextButton) nextButton.active = !p.daily && levels.next(this.levelId) !== null;
       playUi("confirmation_001", 0.8);
