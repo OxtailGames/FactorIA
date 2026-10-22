@@ -560,6 +560,7 @@
     "script.errors": "0.1.0",
     "script.eval": "0.1.0",
     "script.reload": "0.1.0",
+    "script.trace": "unreleased",
     "setup.install": "0.1.4",
     "setup.status": "0.1.4",
     "shader.compile": "unreleased",

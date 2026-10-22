@@ -81,24 +81,16 @@ Command make_run_command() {
         const Args& a = ctx.args;
         std::string dir = resolve_project_dir(ctx, 0);
         fs::set_project_root(dir);
-        EngineConfig cfg;
-        cfg.projectDir = dir;
-        cfg.shaderCompiler = make_engine_shader_compiler(dir);
-        cfg.scene = a.str("scene");
+        EngineConfig cfg = project_engine_config(dir, a.str("scene"), a.uinteger("seed", 1));
         cfg.width = a.integer("width", 0);
         cfg.height = a.integer("height", 0);
-        cfg.seed = a.uinteger("seed", 1);
         if (!a.has("headless")) {
             for (const char* f : {"frames", "input", "screenshot-at", "render-scale", "screenshot-simulate", "screenshot-pattern", "state-out", "record-audio", "record-video", "render-all", "persist-storage"})
                 if (a.has(f)) throw UsageError(std::string("--") + f + " only works with --headless.", "Add --headless.");
             cfg.headless = false;
             return run_windowed(cfg);
         }
-        cfg.headless = true;
-        cfg.audioDevice = false;
-        cfg.renderMode = a.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
-        cfg.memoryStorage = !a.has("persist-storage");
-        cfg.platformBackend = "fake";  // headless runs never talk to a real store (docs/PLATFORM.md)
+        apply_headless_config(cfg, a.has("render-all"), a.has("persist-storage"));
         HeadlessRunOptions ho;
         ho.frames = a.integer("frames", 60);
         if (ho.frames < 0) throw UsageError("--frames must be >= 0.");

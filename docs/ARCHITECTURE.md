@@ -44,15 +44,17 @@ engine/            runtime modules (ship inside every game)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
-  script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h)
+  script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h), the script debugger runtime (debugger.h, docs/design/SCRIPT_DEBUGGER.md)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
   common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
+  dap/             fa_dap      Debug Adapter Protocol server of the script debugger (framing, launch validation, DapServer); `factoria dap` runs it
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles; asset providers (images, sounds, 3D models) and the assets.generate_* commands
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
+  vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
 templates/         project templates used by `factoria new`
 schemas/           JSON Schemas (project, feedback, AI config); scene schema is generated
 docs/              documentation in English (embedded into the binary); translations in docs/i18n/<lang>/
@@ -64,7 +66,7 @@ external/          vendored third-party code (do not edit)
 Module dependency order (a module may only include modules above it):
 
 ```
-core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> tooling -> mcp, ai -> editor -> cli
+core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> tooling -> mcp, dap, ai -> editor -> cli
 ```
 
 (`platform` is the OS layer: window, input, gamepads. `services` is the stores' side: achievements, purchases.)

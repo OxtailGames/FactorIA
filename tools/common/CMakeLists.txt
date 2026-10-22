@@ -4,10 +4,17 @@
 set(FA_TOOLING_TARGET_NAME tooling)
 add_library(fa_tooling STATIC)
 file(GLOB_RECURSE tooling_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+# Host-platform files (script_instrument_thread_posix.cpp / _win32.cpp). Not _fa_filter_platform_sources: here
+# _android / _web name an export target (export_android.cpp, setup_android.cpp), built on every host.
+if(WIN32)
+    list(FILTER tooling_srcs EXCLUDE REGEX "_posix\\.cpp$")
+else()
+    list(FILTER tooling_srcs EXCLUDE REGEX "_win32\\.cpp$")
+endif()
 target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # The Basis Universal encoder and stb_rect_pack make the compressed textures and atlases of `factoria export`.
-target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb)
+target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb fa_ext_quickjs)
 
 # Bake docs, templates and schemas into the binary (offline AI access), plus the Android/iOS project templates of
 # platforms/ so that `factoria export --platform android|ios` works without the engine source (prebuilt mode).
@@ -36,9 +43,13 @@ list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
 # compiled against it (docs/design/CUSTOM_SHADERS.md), also by an installed factoria without the engine source.
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
+# The VS Code extension of the script debugger (tools/vscode/): `factoria setup vscode` copies it into VS Code's extensions folder.
+file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/vscode/*)
 # Which version added each component, field and command (fa/tooling/api_export.h).
 set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
-    ${FA_EMBED_SHADER_TEMPLATES}
+    ${FA_EMBED_SHADER_TEMPLATES} ${FA_EMBED_VSCODE}
+    # The script debugger's instrumenter and the parser it runs (fa/tooling/script_instrument.h).
+    ${FA_ROOT}/external/acorn/dist/acorn.js ${CMAKE_CURRENT_SOURCE_DIR}/src/js/instrument.js
     ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h)
 if(FA_EMBED_ALL)
     fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
@@ -53,7 +64,7 @@ if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(tooling_tests)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
-        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ai fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder)  # export_web_test.cpp unzips with its miniz; api_since_test.cpp registers ai.* like the CLI
+        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ai fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder fa_ext_quickjs)  # script_instrument_test.cpp runs the instrumented code in QuickJS; # export_web_test.cpp unzips with its miniz; api_since_test.cpp registers ai.* like the CLI
         target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
         add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders

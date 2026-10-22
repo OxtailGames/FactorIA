@@ -3,17 +3,17 @@
 Status: the four jam-sized example games reported 73 entries, all verified fixed-in-engine. Lantern Keep, the M21
 reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
-(M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three and M22 two; the 2 still open are ranked below, in
-M20 and M23. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
+(M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two and M20 one; the one still open is ranked
+below, in M23. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
 backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M21 (docs and material for
-shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M19, M20 and M23 are not started (M10-M23
-come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
+shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M20 (editor and tooling) has everything but
+three small items; M19 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-2 entries from 5 project(s), 2 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+1 entries from 5 project(s), 1 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
 ## 1. No Microsoft Store packaging (MSIX) or publish command
 
@@ -25,17 +25,6 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Suggestion:** export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.
 - **Workarounds seen:**
   - None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.
-
-## 2. Long ASCII level maps are hard to author and edit by hand
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0009
-- **Suggestion:** Let scene.import_ascii (or a new scene.ascii_edit command) take operations on an existing map: fill/replace a rectangle, insert or delete columns, place a glyph at (column, height above the ground), so an AI changes a map without rewriting every row; and report the column and row of every glyph in the result so it can be located again.
-- **Workarounds seen:**
-  - Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.
 
 # Next engine milestones
 
@@ -89,6 +78,10 @@ LK/FB-0037 and LK/FB-0038 in M22; LK/FB-0023 in M23, for MSIX (its Microsoft Sto
 Re-triage 2026-10-21, after M22 (merges `972974b`, `8d40daa`, `441405b`, `67fe125`, `40ebbeb` and #132): LK/FB-0037 and
 LK/FB-0038 are fixed, each with a `Fixed in <commit>` note; Lantern Keep does not use those features yet. 2 Lantern Keep
 entries are open: LK/FB-0009 in M20 and LK/FB-0023 in M23, for MSIX.
+
+Re-triage 2026-10-22, after M20.1 (merge `9b92c45`, #134): LK/FB-0009 is fixed, with a `Fixed in <commit>` note; Lantern
+Keep had no workaround to drop (its `levels/<id>.json` maps were already the source of truth). 1 Lantern Keep entry is
+open: LK/FB-0023 in M23, for MSIX.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK).
@@ -493,28 +486,29 @@ Acceptance criteria: each item ships with its doctest or JS test and its docs, l
 
 Closes H-01, H-02, H-03, H-05, H-09 and the editor part of H-06.
 
-- Hand editing: entity tree, an inspector built from reflection (every field already has a doc string and a range), an
-  asset browser and transform gizmos; every edit goes through the commands the AI uses, so undo comes with them.
-- A script debugger: breakpoints and stepping in QuickJS behind a Debug Adapter Protocol server, for VS Code.
-- A profiler: CPU time per system and per behaviour class, GPU timings and memory, in `play.report` and an editor panel.
-- The inspector also edits `MeshRenderer.material` / `materialParams` (typed by the material's params) and shows a
-  material's compile error under the field (custom shaders P5 left it here: the editor has no inspector yet).
-- Later: tile painting and object placement in the viewport, an animation timeline, particle and material editors.
-- ASCII map edits for AIs (LK/FB-0009, nice-to-have): `scene.import_ascii` (or a `scene.ascii_edit` command) takes
-  operations on an existing map file (fill or replace a rectangle, insert or delete columns, put a glyph at a column and
-  a height above the ground) and its result lists the column and row of every legend object, so an AI moves a hazard
-  in a 300-column level without rewriting the rows. Acceptance: a tooling test edits a map with each operation and the
-  written rows and scene match a map written by hand; the AI_GUIDE 9.8 recipe uses it.
-- Found writing the M21 tutorials: the editor's Undo covers scene edits only, so the scripts and tests an AI writes can
-  only be undone with git (a "checkpoint" or "revert the last AI run" button would fit an AI-first editor); the
-  Screenshot button saves into the hidden `.factoria/screenshots/` with no "open folder" button; `factoria validate`
-  warns "not in the canonical layout" on any hand-written scene, so docs/MAKE_BY_HAND.md sends people to `scene.format`.
-  Not taken: an example script and test in the empty templates (they stay minimal).
+Done so far ([ROADMAP_DONE.md](ROADMAP_DONE.md), M20): ASCII map edits for AIs (LK/FB-0009, #134), the profiler (#135),
+editor autotests on Windows (#136), the Hierarchy and the Inspector with the material fields (#137), transform gizmos
+(#139), the Project panel (#142) and the script debugger for VS Code (the `m20/debugger` PR). The three acceptance
+criteria hold: the editor autotest edits a field in the Inspector and the scene file changes, `cli_dap` drives the DAP
+server over stdio and stops at a breakpoint in a template behaviour, and `play.report` and `perf.profile` list each
+behaviour class with its milliseconds per frame.
 
-Acceptance criteria:
-- The editor autotest edits a field in the inspector and the scene file changes.
-- An integration test drives the DAP server over stdio and stops at a breakpoint in a template behaviour.
-- The profiler report lists each behaviour class with its milliseconds per frame.
+Left in M20, found writing the M21 tutorials:
+- The editor's Undo covers scene edits only, so the scripts and tests an AI writes can only be undone with git (a
+  "checkpoint" or "revert the last AI run" button would fit an AI-first editor).
+- The Screenshot button saves into the hidden `.factoria/screenshots/` with no "open folder" button.
+- `factoria validate` warns "not in the canonical layout" on any hand-written scene, so docs/MAKE_BY_HAND.md sends
+  people to `scene.format`.
+- Not taken: an example script and test in the empty templates (they stay minimal).
+
+Left open:
+- Later, each its own item when users ask: tile painting and object placement in the viewport, an animation timeline,
+  particle and material editors.
+- The script debugger (docs/design/SCRIPT_DEBUGGER.md, "Left open"): attaching to the editor's running game (needs the
+  game off the editor's UI thread, or a pause that keeps the editor drawing); restart frame, step back, data and column
+  breakpoints; publishing the VS Code extension to the Marketplace and Open VSX. Not yet tried by hand: F5 in VS Code
+  itself and the `play` mode (`cli_dap` covers headless and test mode over stdio); on Windows the protocol's private fd
+  and the case-insensitive path mapping are covered only by CI.
 
 ## M21. Docs and material for shipping (M, high) — DONE (PRs #115-#124, the `m21/reference-game` and `m21/ai-cost-guide` PRs)
 
@@ -589,7 +583,7 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: M20 (LK/FB-0009 is its only entry from a game).
+Next: the three small items left in M20.
 
 ## Out of scope: Roblox
 

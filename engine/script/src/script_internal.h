@@ -73,6 +73,8 @@ struct ToolEntry {
 
 struct ScriptSystem::Impl {
     ScriptHost* host = nullptr;
+    ScriptSystem* owner = nullptr;
+    std::shared_ptr<ScriptDebugger> debugger;  // debug mode (set_debugger); null for a normal run
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     int observerId = -1;
@@ -179,6 +181,8 @@ struct ScriptSystem::Impl {
     void push_guard(const std::string& label, double seconds);
     void pop_guard();
     bool check_interrupt();
+    // The debugger is being terminated (the user pressed Stop): an interrupted script was stopped, not slow.
+    bool debug_session_ended() const;
     void run_jobs();
 
     // ================= modules

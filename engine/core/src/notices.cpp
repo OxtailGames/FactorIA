@@ -27,6 +27,8 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
          "Unicode bidirectional algorithm (right-to-left text)", true},
         {"dr_libs", "https://github.com/mackron/dr_libs", "MIT-0 OR Unlicense", "external/dr_libs/LICENSE",
          "WAV and MP3 decoding", true},
+        {"acorn", "https://github.com/acornjs/acorn", "MIT", "external/acorn/LICENSE",
+         "JavaScript parser of the script debugger", false},
         {"qoa", "https://github.com/phoboslab/qoa", "MIT", "external/qoa/LICENSE", "QOA audio files", true},
         {"nlohmann/json", "https://github.com/nlohmann/json", "MIT", "external/nlohmann_json/LICENSE.MIT", "JSON", true},
         {"SDL_GameControllerDB", "https://github.com/mdqinc/SDL_GameControllerDB", "zlib",

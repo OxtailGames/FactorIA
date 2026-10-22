@@ -27,6 +27,7 @@
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/ui/ui.h"
+#include "debugger_internal.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -289,6 +290,7 @@ NATIVE(log) {
     int lvl = static_cast<int>(arg_num(ctx, argc, argv, 0, 2));
     std::string msg = arg_str(ctx, argc, argv, 1);
     fa::log(static_cast<LogLevel>(std::clamp(lvl, 0, 4)), "script", msg);
+    if (I->debugger) I->debugger->impl().on_console(lvl, msg);  // the debug console shows it with its file and line
     return JS_UNDEFINED;
 }
 
