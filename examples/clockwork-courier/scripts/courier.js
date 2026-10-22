@@ -7,10 +7,18 @@
 //   |- "model"          the robot.glb with the Animator, turned to face the heading (the glb looks down +Z)
 //   '- "carried_parcel" a small box on the back, active while a parcel is carried
 //
-// Other scripts talk to it through these methods: pickParcel(id), deliver(), celebrate(), windDown(), caught(by),
-// and the fields `locked` (ignores input), `carrying`, `speed`, `grounded`, `surface`.
+// Other scripts talk to it through these methods: pickParcel(id, optional), deliver(), celebrate(), windDown(), caught(by),
+// walkTo(path) (tap-to-move), and the fields `locked` (ignores input), `carrying`, `speed`, `grounded`, `surface`,
+// `grace` (seconds of safety after a catch or a respawn: dogs ignore the courier) and `isCaught`.
+//
+// A catch is not the end of the level: the courier lies down for `caughtTime` seconds (the Death clip), the spring pays
+// `caughtPenalty` seconds, and it gets up at the last checkpoint with `graceTime` seconds of safety.
+//
+// Moving platforms: a CharacterController3D is not carried by the body it stands on (ENGINE_FEEDBACK FB-0010), so the
+// courier adds the velocity of the kinematic RigidBody3D under its feet to its own move.
 import { Behaviour, input, physics, world, audio } from "factoria";
 import { EVENTS, emit } from "./events.js";
+import * as fx from "./fx.js";
 
 const DEG = Math.PI / 180;
 
@@ -58,6 +66,16 @@ export default class Courier extends Behaviour {
   parcelVisualId = "carried_parcel";
   /** Footstep volume while running (walking is 60% of it). */
   footstepVolume = 0.5;
+  /** Seconds the courier lies on the ground after a catch before it is back at the last checkpoint. */
+  caughtTime = 1.4;
+  /** Seconds of spring a catch costs. */
+  caughtPenalty = 5;
+  /** Seconds after getting up (or after any respawn) in which dogs cannot catch the courier again. */
+  graceTime = 1.5;
+  /** Speed of an automatic walk (tap-to-move), m/s. */
+  autoSpeed = 4.2;
+  /** Entity id of the level flow (to know whether the level is over). */
+  levelId = "level";
 
   onStart() {
     /** Horizontal velocity, m/s. */
@@ -73,6 +91,17 @@ export default class Courier extends Behaviour {
     /** True: input is ignored (celebrating, wound down, caught, or the level is over). */
     this.locked = false;
     this.carrying = 0;
+    /** How many of the parcels carried are optional ones (off the main route). */
+    this.carryingOptional = 0;
+    /** True from a catch until the courier gets up. */
+    this.isCaught = false;
+    this.caughtTimer = 0;
+    /** Seconds of safety left (dogs ignore the courier while > 0). */
+    this.grace = 0;
+    /** Waypoints [x, z] of an automatic walk (tap-to-move), or null. */
+    this.autoPath = null;
+    this.autoIndex = 0;
+    this.autoStuck = 0;
     /** Horizontal speed this step, m/s. */
     this.speed = 0;
     /** "concrete" or "wood": what the courier stands on. */
@@ -108,6 +137,11 @@ export default class Courier extends Behaviour {
   }
 
   onFixedUpdate(dt) {
+    if (this.grace > 0) this.grace -= dt;
+    if (this.isCaught) {
+      this.caughtTimer -= dt;
+      if (this.caughtTimer <= 0) this.getUp();
+    }
     // ------------------------------------------------------------------------------------------------- wanted motion
     let ix = 0;
     let iz = 0;
@@ -127,8 +161,20 @@ export default class Courier extends Behaviour {
     const cy = this.cameraYaw() * DEG;
     const s = Math.sin(cy);
     const c = Math.cos(cy);
-    const wantX = (ix * c - iz * s) * top;
-    const wantZ = (-ix * s - iz * c) * top;
+    let wantX = (ix * c - iz * s) * top;
+    let wantZ = (-ix * s - iz * c) * top;
+    // An automatic walk (tap-to-move) steers when the player holds no direction; any direction or jump cancels it.
+    if (this.autoPath) {
+      if (this.locked || mag > 0.1 || input.pressed("jump")) this.autoPath = null;
+      else {
+        const w = this.autoSteer(dt);
+        if (w) {
+          wantX = w[0] * this.autoSpeed;
+          wantZ = w[1] * this.autoSpeed;
+          mag = 1;
+        }
+      }
+    }
 
     const accel = mag > 0 ? (this.grounded ? this.groundAccel : this.airAccel) : this.grounded ? this.groundDecel : this.airDecel;
     const dx = wantX - this.vx;
@@ -169,7 +215,8 @@ export default class Courier extends Behaviour {
 
     // ---------------------------------------------------------------------------------------------------------- move
     const before = this.vy;
-    const r = physics.moveCharacter(this.entity, [this.vx * dt, this.vy * dt, this.vz * dt]);
+    const carry = this.platformCarry(dt);
+    const r = physics.moveCharacter(this.entity, [this.vx * dt + carry[0], this.vy * dt + carry[1], this.vz * dt + carry[2]]);
     const wasGrounded = this.grounded;
     this.grounded = r.isGrounded && !jumped;
     this.ground = r.ground;
@@ -177,11 +224,13 @@ export default class Courier extends Behaviour {
     if (r.hitCeiling && this.vy > 0) this.vy = 0;
     if (r.hitWall) {
       // Slide: keep only the velocity that actually happened.
-      this.vx = r.moved.x / dt;
-      this.vz = r.moved.z / dt;
+      this.vx = (r.moved.x - carry[0]) / dt;
+      this.vz = (r.moved.z - carry[2]) / dt;
     }
     if (this.grounded && !wasGrounded && before < -this.thudSpeed) {
       audio.play("assets/audio/impactSoft_heavy_000.ogg", { bus: "sfx", volume: Math.min(0.8, -before / 20) });
+      const p = r.position;
+      fx.burst("dust", [p.x, p.y - 0.5, p.z]);
     }
     if (this.grounded && this.vy > 0) this.vy = 0;
     this.speed = Math.hypot(this.vx, this.vz);
@@ -212,17 +261,75 @@ export default class Courier extends Behaviour {
     });
   }
 
+  /** How far the body under the feet moves the courier this step: the velocity of a kinematic RigidBody3D (a moving platform). */
+  platformCarry(dt) {
+    const g = this.ground;
+    if (!g || !this.grounded) return [0, 0, 0];
+    const rb = g.get("RigidBody3D");
+    if (!rb || rb.type !== "kinematic") return [0, 0, 0];
+    const v = rb.velocity;
+    return [v.x * dt, v.y * dt, v.z * dt];
+  }
+
   /** Puts the courier back at the last checkpoint (or where it started) after a fall. */
   respawnAtCheckpoint() {
     this.entity.position = this.respawn;
     this.vx = this.vz = this.vy = 0;
     this.grounded = false;
+    this.autoPath = null;
+    this.grace = Math.max(this.grace, this.graceTime);
+  }
+
+  /** Starts an automatic walk along the waypoints [[x, z], ...] (tap-to-move). Any direction input cancels it. */
+  walkTo(path) {
+    this.autoPath = path && path.length > 0 ? path : null;
+    this.autoIndex = 0;
+    this.autoStuck = 0;
+  }
+
+  /** The unit direction [x, z] of the automatic walk this step, or null when it is over. */
+  autoSteer(dt) {
+    const p = this.entity.position;
+    while (this.autoIndex < this.autoPath.length) {
+      const w = this.autoPath[this.autoIndex];
+      const dx = w[0] - p.x;
+      const dz = w[1] - p.z;
+      const d = Math.hypot(dx, dz);
+      const last = this.autoIndex === this.autoPath.length - 1;
+      if (d < (last ? 0.25 : 0.4)) {
+        this.autoIndex++;
+        this.autoStuck = 0;
+        continue;
+      }
+      // Blocked (a crate pushed into the way, a closed gate): give up instead of pushing on the wall forever.
+      this.autoStuck = this.speed < 0.5 ? this.autoStuck + dt : 0;
+      if (this.autoStuck > 0.8) break;
+      return [dx / d, dz / d];
+    }
+    this.autoPath = null;
+    return null;
+  }
+
+  /** Gets up after a catch: back at the last checkpoint, the spring paid its penalty, a moment of safety. */
+  getUp() {
+    this.isCaught = false;
+    const flow = world.find(this.levelId)?.behaviour;
+    this.entity.position = this.respawn;
+    this.vx = this.vz = this.vy = 0;
+    this.grounded = false;
+    this.grace = this.graceTime;
+    const spring = world.find("spring")?.behaviour;
+    if (spring && this.caughtPenalty > 0) spring.drain(this.caughtPenalty);
+    if (flow && flow.finished) return;
+    this.locked = false;
+    if (this.anim) this.anim.trigger("recover");
   }
 
   // ------------------------------------------------------------------------------------------------- called by others
   /** A parcel was picked up: shows it on the back and counts it. */
-  pickParcel(id) {
+  pickParcel(id, optional = false) {
     this.carrying++;
+    if (optional) this.carryingOptional++;
     if (this.parcelVisual) this.parcelVisual.active = true;
     audio.play("assets/audio/pluck_001.ogg", { bus: "sfx", volume: 0.8 });
     emit(EVENTS.parcelPicked, { parcel: id, carrying: this.carrying });
@@ -231,7 +338,10 @@ export default class Courier extends Behaviour {
   /** Hands in every parcel carried; returns how many. */
   deliver() {
     const n = this.carrying;
+    /** How many of the parcels just handed in were optional (read it right after deliver()). */
+    this.deliveredOptional = this.carryingOptional;
     this.carrying = 0;
+    this.carryingOptional = 0;
     if (this.parcelVisual) this.parcelVisual.active = false;
     return n;
   }
@@ -248,10 +358,12 @@ export default class Courier extends Behaviour {
     if (this.anim) this.anim.trigger("wind_down");
   }
 
-  /** Something caught the courier: plays Death, ignores input. */
+  /** Something caught the courier: plays Death for `caughtTime` seconds, then it is back at the last checkpoint. */
   caught(by = "unknown") {
-    if (this.locked && this.isCaught) return;
+    if (this.isCaught || this.grace > 0 || this.locked) return;
     this.isCaught = true;
+    this.caughtTimer = this.caughtTime;
+    this.autoPath = null;
     this.locked = true;
     audio.play("assets/audio/impactMetal_light_000.ogg", { bus: "sfx", volume: 0.8 });
     if (this.anim) this.anim.trigger("caught");

@@ -1,0 +1,144 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "delivery_door",
+    "tags": ["door"],
+    "components": {
+      "Collider3D": {
+        "shape": "box",
+        "isTrigger": true,
+        "size": [2.2, 2.4, 1.6],
+        "offset": [0, 1.2, 0]
+      },
+      "Script": {
+        "path": "scripts/delivery_door.js",
+        "props": {
+          "levelId": "level"
+        }
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "post_l",
+        "components": {
+          "Transform": {
+            "position": [-1.15, 1.2, 0],
+            "scale": [0.3, 2.4, 0.5]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.45, 0.32, 0.2, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "post_r",
+        "components": {
+          "Transform": {
+            "position": [1.15, 1.2, 0],
+            "scale": [0.3, 2.4, 0.5]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.45, 0.32, 0.2, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "lintel",
+        "components": {
+          "Transform": {
+            "position": [0, 2.55, 0],
+            "scale": [2.6, 0.3, 0.5]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.45, 0.32, 0.2, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "glow",
+        "components": {
+          "Transform": {
+            "position": [0, 1.15, 0],
+            "scale": [2.0, 2.3, 0.08]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.2, 0.8, 0.4, 1],
+            "roughness": 0.8,
+            "castShadows": false,
+            "emissive": [0.08, 0.55, 0.2, 1]
+          }
+        }
+      },
+      {
+        "name": "arrow",
+        "components": {
+          "Transform": {
+            "position": [0, 3.4, 0]
+          }
+        },
+        "children": [
+          {
+            "name": "stem",
+            "components": {
+              "Transform": {
+                "position": [0, 0.35, 0],
+                "scale": [0.28, 0.5, 0.28]
+              },
+              "MeshRenderer": {
+                "mesh": "cube",
+                "color": [1, 0.85, 0.2, 1],
+                "roughness": 0.8,
+                "castShadows": false,
+                "emissive": [0.6, 0.45, 0.0, 1]
+              }
+            }
+          },
+          {
+            "name": "point",
+            "components": {
+              "Transform": {
+                "position": [0, -0.1, 0],
+                "scale": [0.7, 0.5, 0.7],
+                "rotation": [180, 0, 0]
+              },
+              "MeshRenderer": {
+                "mesh": "cone",
+                "color": [1, 0.85, 0.2, 1],
+                "roughness": 0.8,
+                "castShadows": false,
+                "emissive": [0.6, 0.45, 0.0, 1]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "light",
+        "components": {
+          "Transform": {
+            "position": [0, 1.4, 1.2]
+          },
+          "Light": {
+            "type": "point",
+            "color": [0.4, 1, 0.55, 1],
+            "intensity": 2.0,
+            "range": 6
+          }
+        }
+      }
+    ]
+  }
+}

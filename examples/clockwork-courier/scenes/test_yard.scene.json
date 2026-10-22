@@ -1469,7 +1469,8 @@
                 "jump": false,
                 "celebrate": false,
                 "caught": false,
-                "wind_down": false
+                "wind_down": false,
+                "recover": false
               },
               "states": {
                 "idle": {
@@ -1524,6 +1525,12 @@
                   "to": "wound_down",
                   "when": "wind_down",
                   "fade": 0.4
+                },
+                {
+                  "from": "caught",
+                  "to": "idle",
+                  "when": "recover",
+                  "fade": 0.15
                 },
                 {
                   "from": "idle",

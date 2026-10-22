@@ -9,6 +9,7 @@ import { Behaviour, world, ui, scene, session, i18n } from "factoria";
 import { EVENTS, emit } from "./events.js";
 import * as levels from "./levels.js";
 import * as progress from "./progress.js";
+import * as stars from "./stars.js";
 import { installUiSounds, playUi } from "./ui/ui_sounds.js";
 
 export default class LevelFlow extends Behaviour {
@@ -23,14 +24,14 @@ export default class LevelFlow extends Behaviour {
   resultsDelay = 1.6;
   /** Seconds the courier sits (spring wound down) before the retry screen appears. */
   failDelay = 1.4;
-  /** Fraction of the spring left that earns the second star. */
-  springStarFraction = 0.25;
 
   onStart() {
     this.level = levels.byId(this.levelId);
     this.spring = world.find(this.springId)?.behaviour;
     this.courier = world.find(this.courierId)?.behaviour;
+    /** Required parcels handed in (the ones that win the level) and optional ones handed in (bonus). */
     this.delivered = 0;
+    this.optionalDelivered = 0;
     this.finished = false;
     this.timer = -1;
     this.pending = null;
@@ -38,8 +39,8 @@ export default class LevelFlow extends Behaviour {
     installUiSounds();
     if (this.spring) this.spring.fill(this.level ? this.level.spring : this.spring.max);
     this.offs = [
+      // A catch does not end the level: the courier gets up at the last checkpoint (Courier.caught()).
       world.on(EVENTS.springEmpty, () => this.fail("spring_empty")),
-      world.on(EVENTS.courierCaught, () => this.fail("caught")),
     ];
     ui.on("click", "results_retry", () => scene.load(scene.current));
     ui.on("click", "retry_retry", () => scene.load(scene.current));
@@ -60,20 +61,14 @@ export default class LevelFlow extends Behaviour {
     for (const off of this.offs ?? []) off();
   }
 
-  /** Called by a delivery door when the courier handed in `n` parcels. */
-  onDelivery(door, n) {
+  /** Called by a delivery door when the courier handed in `n` parcels, `optional` of them bonus ones. */
+  onDelivery(door, n, optional = 0) {
     if (this.finished) return;
     const total = this.level ? this.level.parcels : 1;
-    this.delivered += n;
-    emit(EVENTS.parcelDelivered, { door, delivered: this.delivered, total });
+    this.delivered += n - optional;
+    this.optionalDelivered += optional;
+    emit(EVENTS.parcelDelivered, { door, delivered: this.delivered, total, optional: this.optionalDelivered });
     if (this.delivered >= total) this.win();
-  }
-
-  stars(time, springLeft, max) {
-    let s = 1;
-    if (max > 0 && springLeft / max >= this.springStarFraction) s = 2;
-    if (this.level && time <= this.level.parTime && s >= 2) s = 3;
-    return s;
   }
 
   win() {
@@ -82,15 +77,20 @@ export default class LevelFlow extends Behaviour {
     spring?.stop();
     const time = spring ? spring.elapsed : 0;
     const left = spring ? spring.left : 0;
-    const stars = this.stars(time, left, spring ? spring.max : 0);
-    const best = progress.record(this.levelId, { time, springLeft: left, stars });
+    const rating = stars.evaluate(this.level, {
+      time,
+      springLeft: left,
+      springMax: spring ? spring.max : 0,
+      optionalDelivered: this.optionalDelivered,
+    });
+    const best = progress.record(this.levelId, { time, springLeft: left, stars: rating.stars, goals: rating.goals });
     this.courier?.celebrate();
-    emit(EVENTS.levelCompleted, { level: this.levelId, time, springLeft: left, stars, best });
-    this.pending = { panel: this.resultsId, time, left, stars };
+    emit(EVENTS.levelCompleted, { level: this.levelId, time, springLeft: left, stars: rating.stars, goals: rating.goals, best });
+    this.pending = { panel: this.resultsId, time, left, stars: rating.stars, goals: rating.goals };
     this.timer = this.resultsDelay;
   }
 
-  /** @param {"spring_empty" | "caught"} reason */
+  /** @param {"spring_empty"} reason */
   fail(reason) {
     if (this.finished) return;
     this.finished = true;

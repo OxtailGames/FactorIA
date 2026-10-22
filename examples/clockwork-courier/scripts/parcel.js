@@ -1,9 +1,12 @@
 // @ts-check
 // A parcel lying in the level: a trigger box that bobs and spins until the courier walks into it. The courier's
-// pickParcel() counts it, shows it on the robot's back and sends parcel_picked.
+// pickParcel() counts it, shows it on the robot's back and sends parcel_picked. An `optional` parcel lies off the main
+// route: delivering it is not needed to win, only for the `thorough` goal of scripts/stars.js.
 import { Behaviour } from "factoria";
 
 export default class Parcel extends Behaviour {
+  /** True for a bonus parcel (not needed to win the level). */
+  optional = false;
   /** Bob amplitude in metres. */
   bobHeight = 0.12;
   /** Spin speed in degrees per second. */
@@ -25,7 +28,7 @@ export default class Parcel extends Behaviour {
   onTriggerEnter(other) {
     if (this.taken || !other.hasTag("courier")) return;
     this.taken = true;
-    other.behaviour.pickParcel(this.entity.id);
+    other.behaviour.pickParcel(this.entity.id, this.optional);
     this.entity.destroy();
   }
 }
