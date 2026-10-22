@@ -2,5 +2,139 @@
   "format": "factoria.feedback/1",
   "project": "Clockwork Courier",
   "engineVersion": "0.2.0",
-  "entries": []
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "animation",
+      "severity": "major",
+      "title": "glTF animation of rigid (non-skinned) meshes parented to bone nodes is ignored",
+      "missing": "assets/models/robot.glb (RobotExpressive style) animates by moving node transforms: every body part is a plain mesh child of a bone node and only the two hands are skinned. The Animator only drives skins, so the model stayed frozen in bind pose in every clip (identical screenshots at frames 5, 12, 18, 30 with Running). This layout is very common (three.js examples, many CC0 character packs, Blender exports without weight painting). No warning is printed.",
+      "workaround": "Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it.",
+      "workaroundFiles": [
+        "tools/skinify.py",
+        "assets/models/robot.glb"
+      ],
+      "suggestion": "Support node-transform animation of non-skinned mesh nodes in the Animator (drive the node world matrix of a MeshRenderer model's nodes), or auto-convert rigid-per-bone meshes to a skin at load. At least print a warning when a model has clips but no skin.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "animation",
+      "severity": "minor",
+      "title": "glTF with two skins sharing the same joints: second skin is drawn wrong, no way to fix without editing the file",
+      "missing": "robot.glb has two skins (one per hand) with identical joint lists and inverse bind matrices. Only the first is animated; the hand meshes of the second skin were drawn displaced (large curved shape hanging off the arm) in the Idle pose. The warning says 'drawn in bind pose, not animated' but the result is a visibly broken mesh, not a bind pose.",
+      "workaround": "Dropped the two hand meshes from the glb in the same script (the arms end in balls anyway).",
+      "workaroundFiles": [
+        "tools/skinify.py"
+      ],
+      "suggestion": "Merge skins that have the same joints/IBMs at load, or animate every skin of the file; the 'first skin' limit is a trap for exported characters.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No command to scaffold the menu kit; it can only be extracted from the docs by hand",
+      "missing": "factoria docs read menus lists about 18 files (menu stack, settings, pause menu, options, prefabs, scenes, locales) to copy, but there is no `project.add_menu_kit` or similar. A game-making AI has to parse the markdown fences itself.",
+      "workaround": "Wrote a small script that splits the doc's fenced blocks (```lang path) into files.",
+      "suggestion": "Add a command (and MCP tool) that writes the kit into the project, optionally with a choice of parts (pause only, settings only).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "validate keeps the audio loudness warnings after defaults.audio.normalize is set",
+      "missing": "assets.json has \"defaults\": {\"audio\": {\"normalize\": true}} as the validate hint suggests, yet `factoria validate` still warns that pluck_001.ogg peaks at 0.4 dBFS and toggle_001.ogg differs by 12.5 LU from click_001.ogg. Either the default is not applied to the check or only to playback; it is unclear which.",
+      "workaround": "Left the two warnings (they are not errors).",
+      "suggestion": "Make the loudness check read the effective import settings (defaults merged with per-asset), or say in the warning that the default is already applied and the warning is about the source file.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "Test API cannot hold a mouse button or turn the wheel, so mouse drag orbit and wheel zoom are untestable end to end",
+      "missing": "game.touch* and keyDown exist, but there is no game.mouseDown/mouseMove/mouseUp or game.wheel(dy) in factoria:test. A follow camera that orbits with a mouse drag and zooms with the wheel can only be tested by calling its own orbit()/zoom() methods, not through the input path.",
+      "workaround": "tests/camera.test.js calls orbit() and zoom() directly; the drag and wheel reading in follow_camera.js readInput() has no test.",
+      "suggestion": "Add game.mouse(x, y), game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) to the test API (same as game.input mouse/buttons).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Validator flags a method named start() as a lifecycle-hook lookalike",
+      "missing": "A class method `start(seconds)` on a plain helper Behaviour (the spring timer) triggers 'method start() is not a lifecycle hook' although it is a normal method called from another script. A natural name for a timer API.",
+      "workaround": "Renamed it to fill().",
+      "suggestion": "Only warn for names that differ from a hook by case or prefix (OnStart, onstart, on_start), not for generic verbs like start.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "Entity animator facade does not expose the parameter values",
+      "missing": "entity.animator has state and setters but no values; tests had to read get(\"Animator\").values to assert speed/grounded parameters.",
+      "workaround": "tests/animator.test.js uses game.find(id).get(\"Animator\").values.",
+      "suggestion": "Expose animator.values (read-only) or animator.get(name) on the facade.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
 }
