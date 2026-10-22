@@ -282,7 +282,7 @@ export default class Dog extends Behaviour {
     if (this.cone) this.cone.get("Transform").rotation = [-18, this.yaw, 0];
     if (this.mark && this.mark.active) {
       const t = this.mark.get("Transform");
-      t.position = [0, 1.35 + Math.sin(this.time * 9) * 0.06, 0];
+      t.position = [0, 0.48 + Math.sin(this.time * 9) * 0.04, 0]; // just above the head
     }
     void p;
   }

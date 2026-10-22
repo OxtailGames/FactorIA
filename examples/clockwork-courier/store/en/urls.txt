@@ -1,0 +1,4 @@
+Support URL: https://example.com/clockwork-courier/support  (PLACEHOLDER: replace before submitting)
+Marketing URL: https://example.com/clockwork-courier  (PLACEHOLDER)
+Privacy policy URL: https://example.com/clockwork-courier/privacy  (PLACEHOLDER: both stores require one, even for a game that collects nothing)
+Support e-mail: support@example.com  (PLACEHOLDER)
