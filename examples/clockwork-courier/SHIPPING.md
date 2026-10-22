@@ -118,9 +118,9 @@ factoria run --headless --scene store/trailer/scenes/shot_1.scene.json \
   the engine toolchain; install it yourself):
   `ffmpeg -i clockwork_courier_trailer.avi -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac clockwork_courier_trailer.mp4`.
   Check that it has sound before uploading.
-- The recorded input of `rooftops_3` and `market_3` drifts after about 700 frames (the same physics order problem as the two
-  known failing expert-shortcut tests), and level replays need a 10 frame offset (`SETTLE` in `make_trailer.py`). The
-  shots are cut before the drift matters; watch the video once before every upload.
+- The recorded input of `rooftops_3` and `market_3` drifts after about 700 frames, and level replays need a 10 frame
+  offset (`SETTLE` in `make_trailer.py`). The shots are cut before the drift matters; watch the video once before every
+  upload.
 
 ## Studio intro
 

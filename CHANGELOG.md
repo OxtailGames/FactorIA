@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A 3D example game for phones
+
+- Clockwork Courier (`examples/clockwork-courier`) is a complete 3D game made for phones first, the way your AI makes a
+  game: a wind-up robot delivers parcels across six toy-town levels before its spring runs down, with touch controls
+  (stick, buttons, drag to orbit, pinch to zoom), keyboard and gamepad, imported CC0 models and sounds, guard dogs,
+  physics props, a studio intro and a loading screen, achievements, leaderboards, a paint shop, a "remove ads" purchase
+  and a rewarded "more time" offer on the test store, comfort and accessibility options (left-handed layout, control size,
+  reduced motion, assist mode, captions), English, Spanish and Japanese, and store texts, images and a trailer. Its
+  `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
+  hand.
+
 Physics
 
 - 3D physics no longer depends on what the World held before a scene loaded: `Joint3D` constraints are solved in the
