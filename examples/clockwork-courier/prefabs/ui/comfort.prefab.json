@@ -1,0 +1,29 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Comfort",
+    "components": {
+      "Script": {
+        "path": "scripts/comfort.js"
+      }
+    },
+    "children": [
+      {
+        "id": "captions",
+        "components": {
+          "Captions": {
+            "anchor": [0.5, 1],
+            "pivot": [0.5, 1],
+            "safeArea": true,
+            "size": [560, 110],
+            "layer": 150,
+            "maxLines": 2
+          },
+          "Transform": {
+            "position": [0, -190, 0]
+          }
+        }
+      }
+    ]
+  }
+}

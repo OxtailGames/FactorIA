@@ -1,0 +1,68 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Quit confirm",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.55],
+        "layout": "column",
+        "justify": "center"
+      }
+    },
+    "children": [
+      {
+        "id": "quit_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "layout": "column",
+            "spacing": 14,
+            "padding": [36, 28, 36, 36],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "quit_title",
+            "components": {
+              "Text": {
+                "text": "Quit the game?",
+                "key": "quit.title",
+                "fontSize": 36,
+                "layer": 301,
+                "space": "screen"
+              }
+            }
+          },
+          {
+            "id": "quit_stay",
+            "tags": ["back"],
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Stay",
+                "key": "quit.stay",
+                "layer": 302,
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "quit_yes",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Quit",
+                "key": "quit.yes",
+                "layer": 302
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

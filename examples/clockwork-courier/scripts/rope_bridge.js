@@ -55,7 +55,9 @@ export default class RopeBridge extends Behaviour {
             Transform: { position: mid, rotation: [pitch, yaw, 0], scale: [this.width, this.thickness, plank] },
             ...visual,
             Collider3D: { shape: "box", friction: 0.8 },
-            RigidBody3D: { type: "dynamic", mass: this.mass, linearDamping: 3, angularDamping: 8 },
+            // Heavy damping: with the lighter 3 / 8 the chain swung differently whenever another entity was made before it (a
+            // HUD icon), and the courier sometimes fell through on the rooftops_3 shortcut. Now it hangs still.
+            RigidBody3D: { type: "dynamic", mass: this.mass, linearDamping: 8, angularDamping: 30 },
           },
           children: [-1, 1].flatMap((side, k) => [
             // A rope rail along the plank and a post at its middle, 0.8 m above the plank: sizes are given in metres and

@@ -4,6 +4,7 @@
 import { Behaviour, world, i18n } from "factoria";
 import { EVENTS } from "./events.js";
 import * as progress from "./progress.js";
+import { isReduced } from "./accessibility.js";
 
 export default class Hud extends Behaviour {
   /** Width of the full bar in design pixels (the fill entity shrinks from this). */
@@ -39,6 +40,7 @@ export default class Hud extends Behaviour {
     ];
     this.refreshParcels();
     this.showName();
+    this.spawnWarning();
   }
 
   /** The courier's name (P3 profile) under the parcel counter; a Text spawned here so the level scenes stay as they are. */
@@ -52,6 +54,20 @@ export default class Hud extends Behaviour {
         Text: { anchor: [0, 0], safeArea: true, space: "screen", text: name, fontSize: 20, color: [1, 1, 1, 0.75], layer: 100 },
       },
     });
+  }
+
+  /**
+   * The low-spring warning, readable without colour: a triangle with "!" and the word "Low", beside the seconds. They are
+   * spawned here (every level has the HUD script) and shown while the spring is under lowFraction.
+   */
+  spawnWarning() {
+    const base = { anchor: [0, 0], safeArea: true, space: "screen" };
+    this.warning = [
+      world.spawn({ id: "spring_warning_icon", components: { Transform: { position: [404, 24, 0] }, Shape2D: { ...base, shape: "triangle", size: [34, 30], color: [1, 0.85, 0.2, 1], pivot: [0, 1], layer: 92 } } }),
+      world.spawn({ id: "spring_warning_mark", components: { Transform: { position: [411, 25, 0] }, Text: { ...base, text: "!", fontSize: 24, color: [0.1, 0.05, 0, 1], layer: 101 } } }),
+      world.spawn({ id: "spring_warning_text", components: { Transform: { position: [446, 24, 0] }, Text: { ...base, text: "Low", key: "hud.springLow", fontSize: 24, color: [1, 0.85, 0.2, 1], layer: 100 } } }),
+    ];
+    for (const e of this.warning) e.active = false;
   }
 
   onDestroy() {
@@ -68,10 +84,13 @@ export default class Hud extends Behaviour {
     if (!this.spring) return;
     const f = this.spring.fraction;
     const low = f <= this.lowFraction;
+    /** True while the low-spring warning (triangle, "!" and "Low") shows; tests read it. */
+    this.warningShown = low;
+    for (const e of this.warning ?? []) e.active = low;
     if (this.fill) {
       const shape = this.fill.get("Shape2D");
       shape.size = [Math.max(0.001, this.barWidth * f), shape.size.y];
-      const pulse = low ? 0.75 + 0.25 * Math.sin(this.spring.elapsed * 10) : 1;
+      const pulse = low && !isReduced() ? 0.75 + 0.25 * Math.sin(this.spring.elapsed * 10) : 1;
       const c = low ? this.lowColor : this.fullColor;
       shape.color = [c[0] * pulse, c[1] * pulse, c[2] * pulse, 1];
     }

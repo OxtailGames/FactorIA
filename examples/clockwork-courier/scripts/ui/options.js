@@ -1,16 +1,18 @@
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
-// colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (graphics
+// quality, frame cap, colour filter and the window), Audio (one slider per bus, read aloud, subtitles), Play (assist mode,
+// reduced motion, vibration, tap to move, text size), Touch (left-handed layout, control size and opacity, camera speed and
+// invert Y), Keys (rebinding; hidden on a phone) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
 import * as settings from "../settings.js";
+import * as haptics from "../haptics.js";
 import { MenuStack } from "./menu_stack.js";
 
-const TABS = ["video", "audio", "controls", "language"];
-/** Frame caps the "Frame cap" button cycles through (0 = off). */
-const FRAME_CAPS = [0, 30, 60, 120, 144];
+const TABS = ["video", "audio", "play", "touch", "controls", "language"];
+/** Slider ranges of the touch options: [min, max] (the slider shows the real value as a plain number, 1 = the normal size or speed: no format option, FB-0037). */
+const RANGES = { controlSize: [0.8, 1.4], controlOpacity: [0.3, 1], cameraSensitivity: [0.4, 2.5] };
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
@@ -24,14 +26,18 @@ export default class Options extends Behaviour {
     this.waiting = null; // the action waiting for "press a key or button"
     this.release = false;
     for (const tab of TABS) ui.on("click", `tab_${tab}`, () => this.showTab(tab));
+    world.find("tab_controls").active = !settings.onPhone(); // a phone has no keys to rebind
     this.showTab("video");
     this.setupVideo();
     this.setupAudio();
+    this.setupPlay();
+    this.setupTouch();
     this.setupControls();
     this.setupLanguage();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
+      this.refreshPlay();
       this.refreshControls();
       this.refreshLanguage();
     });
@@ -53,8 +59,18 @@ export default class Options extends Behaviour {
     const vsync = world.find("vsync").get("Toggle");
     fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
-    fullscreen.interactable = vsync.interactable = world.find("frame_cap").get("Button").interactable = has;
+    fullscreen.interactable = vsync.interactable = has;
+    // A phone refuses a frame cap (the platform picks the rate): the button stays, greyed out, showing the value kept.
+    world.find("frame_cap").get("Button").interactable = has && !settings.onPhone();
     this.refreshVideo();
+
+    ui.on("click", "quality", () => {
+      const all = settings.QUALITIES;
+      s.quality = all[(all.indexOf(s.quality) + 1) % all.length];
+      settings.save(s);
+      settings.applyScene(s); // shadows, lights, view distance, particles: at once
+      this.refreshVideo();
+    });
 
     ui.on("change", "fullscreen", (e) => this.video("full screen", () => { window.setFullscreen(e.value); s.fullscreen = e.value; }));
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
@@ -66,7 +82,8 @@ export default class Options extends Behaviour {
       this.video("window size", () => { window.setSize(next.width, next.height); s.resolution = [next.width, next.height]; });
     });
     ui.on("click", "frame_cap", () => {
-      const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
+      const caps = settings.FRAME_CAPS;
+      const next = caps[(caps.indexOf(s.frameCap) + 1) % caps.length];
       this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
     ui.on("click", "color_filter", () => {
@@ -96,8 +113,9 @@ export default class Options extends Behaviour {
       ? i18n.t("options.windowSizeFullscreen")
       : i18n.t("options.windowSize", { width: Math.round(size.x), height: Math.round(size.y) });
     resolution.interactable = window.available && !window.fullscreen; // full screen uses the display's size
-    world.find("frame_cap").get("Button").text = window.frameCap
-      ? i18n.t("options.frameCap", { fps: window.frameCap })
+    world.find("quality").get("Button").text = i18n.t("options.quality", { quality: i18n.t(`options.qualityLevel.${this.s.quality}`) });
+    world.find("frame_cap").get("Button").text = this.s.frameCap
+      ? i18n.t("options.frameCap", { fps: this.s.frameCap })
       : i18n.t("options.frameCapOff");
     world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
@@ -129,6 +147,55 @@ export default class Options extends Behaviour {
       settings.applySubtitles(this.s);
       settings.save(this.s);
     });
+  }
+
+  // ------------------------------------------------------------------------------------------------------------- play
+  /** A toggle that writes `key` of the settings, saves and applies it at once. */
+  bind(id, key, after = () => settings.applyScene(this.s)) {
+    world.find(id).get("Toggle").value = this.s[key];
+    ui.on("change", id, (e) => {
+      this.s[key] = e.value;
+      settings.save(this.s);
+      after();
+    });
+  }
+
+  setupPlay() {
+    this.bind("assist", "assist");
+    this.bind("reduced_motion", "reducedMotion");
+    this.bind("haptics", "haptics", () => haptics.pulse("catch")); // so the player feels that it works
+    this.bind("tap_to_move", "tapToMove", () => {});
+    ui.on("click", "text_size", () => {
+      const all = settings.TEXT_SCALES;
+      const i = all.findIndex((v) => Math.abs(v - this.s.textScale) < 0.01);
+      this.s.textScale = all[(i + 1) % all.length];
+      ui.textScale = this.s.textScale;
+      settings.save(this.s);
+      this.refreshPlay();
+    });
+    this.refreshPlay();
+  }
+
+  refreshPlay() {
+    world.find("text_size").get("Button").text = i18n.t("options.textSize", { percent: Math.round(this.s.textScale * 100) });
+  }
+
+  // ----------------------------------------------------------------------------------------------------------- touch
+  setupTouch() {
+    this.bind("left_handed", "leftHanded");
+    this.bind("invert_y", "invertY");
+    for (const [key, range] of Object.entries(RANGES)) {
+      const id = key.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+      const slider = world.find(id).get("Slider");
+      slider.min = range[0];
+      slider.max = range[1];
+      slider.value = this.s[key];
+      ui.on("change", id, (e) => {
+        this.s[key] = Math.round(e.value * 100) / 100;
+        settings.save(this.s);
+        settings.applyScene(this.s);
+      });
+    }
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
