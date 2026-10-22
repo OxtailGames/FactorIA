@@ -35,7 +35,9 @@ std::optional<Json> read_json(const std::string& path);
 bool write_json(const std::string& path, const Json& j);
 
 struct ChatItem {
-    enum class Kind { User, Assistant, Thinking, Tool, Info, Error };
+    // Run: "This run changed N files" + a Revert button (the checkpoint taken before the run). Revert: the project went back
+    // to a checkpoint (or, with isUndo, that was taken back). Both are written by the editor, not by the model.
+    enum class Kind { User, Assistant, Thinking, Tool, Info, Error, Run, Revert };
     Kind kind = Kind::Info;
     std::string text;
     std::string tool;
@@ -47,11 +49,24 @@ struct ChatItem {
     std::string role;
     std::vector<std::string> images;  // User: project-relative paths of the pictures sent with the message
 
+    // Run and Revert (docs/EDITOR.md, "Revert an AI run"). Saved with the chat, so the button works after a restart.
+    std::string checkpointId;             // Run: the checkpoint taken before the run. Revert: the one the project went back to
+    std::vector<std::string> modified, added, deleted;  // Run: what the run changed. Revert: what the restore did (capped)
+    int omitted = 0;                      // files over the cap of kMaxListedFiles that the lists leave out
+    bool sceneChanged = false;            // Run: the open scene differs from before the run
+    std::string revertedBy;               // Run: the safety checkpoint of the Revert that took it back ("" = not reverted)
+    std::string safetyId;                 // Revert: the automatic "Before restoring ..." checkpoint (what Undo revert restores)
+    bool undone = false;                  // Revert: it was taken back with Undo revert
+    bool isUndo = false;                  // Revert: this item IS an Undo revert
+
     Json to_json() const;
     static ChatItem from_json(const Json& j);
 };
 
 // A picture waiting to be sent: already copied into <project>/.factoria/ai/attachments/.
+// The most file names a Run or Revert item keeps per list.
+inline constexpr std::size_t kMaxListedFiles = 200;
+
 struct ChatAttachment {
     std::string path;  // project-relative, forward slashes
     std::string name;  // file name, for tooltips
@@ -144,6 +159,11 @@ Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::st
 
 // The line that tells the AI which entity the user is pointing at ("" when nothing is selected).
 std::string selection_line(const std::string& entityName, const std::string& entityId);
+
+// The line that tells the AI that the user took back what it did, from the Revert / Undo revert items after the chat's last
+// user message ("" when there are none; a revert and its Undo revert cancel out). The editor puts it before the next prompt,
+// so the model does not assume its changes are still there. Pure: `items` is the chat BEFORE the new message is added.
+std::string revert_line(const std::vector<ChatItem>& items);
 
 // RGBA image from a Windows clipboard DIB (BITMAPINFOHEADER / V4 / V5 + pixels, 24 or 32 bits per pixel). Empty image
 // (width 0) for anything else. Portable code: the Windows clipboard calls are in folder_picker.cpp.

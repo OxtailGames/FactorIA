@@ -175,6 +175,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [project](commands/project.md)
 
+- [`checkpoint.create`](commands/project.md#checkpointcreate-modifies-state): Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back. _Not released yet._
+- [`checkpoint.diff`](commands/project.md#checkpointdiff): Show which files changed since a checkpoint (modified, added, deleted). _Not released yet._
+- [`checkpoint.list`](commands/project.md#checkpointlist): List the project's checkpoints, newest first. _Not released yet._
+- [`checkpoint.restore`](commands/project.md#checkpointrestore-modifies-state): Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it. _Not released yet._
 - [`perf.baseline`](commands/project.md#perfbaseline-modifies-state): Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json). _Not released yet._
 - [`perf.check`](commands/project.md#perfcheck): Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner. _Not released yet._
 - [`perf.measure`](commands/project.md#perfmeasure): Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities. _Not released yet._

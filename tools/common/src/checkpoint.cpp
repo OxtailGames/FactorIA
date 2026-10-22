@@ -450,7 +450,6 @@ Json diff_json(const CheckpointDiff& d) {
 }  // namespace
 
 void register_checkpoint_commands(CommandRegistry& registry, const std::string& projectDir) {
-    const std::string idDoc = "A checkpoint id from checkpoint.list, e.g. \"20261022-153012\".";
     {
         CommandInfo c;
         c.name = "checkpoint.create";
@@ -492,7 +491,7 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
         c.category = "project";
         c.readOnly = true;
         c.summary = "Show which files changed since a checkpoint (modified, added, deleted).";
-        c.description = "Compares the files now with checkpoint `id`. Returns {modified, added, deleted} (project-relative paths) and counts. Changes nothing. Example: {\"id\":\"20261022-153012\"}.";
+        c.description = "Compares the files now with checkpoint `id`. Returns {modified, added, deleted} (project-relative paths) and counts. Changes nothing. Example: {\"id\":\"20261022-153012-7\"}.";
         c.inputSchema = Json::parse(R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"A checkpoint id from checkpoint.list."}}})");
         registry.add(c, [projectDir](const Json& a) {
             auto r = checkpoint_diff(projectDir, arg_string(a, "id", true));
@@ -512,7 +511,7 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
             "Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). "
             "First it saves an automatic checkpoint \"Before restoring <label>\" and returns its id as safetyCheckpointId: restoring that one takes this restore back. "
             "Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). "
-            "Returns {modified, added, deleted (what was done), safetyCheckpointId}. Example: {\"id\":\"20261022-153012\"}.";
+            "Returns {modified, added, deleted (what was done), safetyCheckpointId}. Example: {\"id\":\"20261022-153012-7\"}.";
         c.inputSchema = Json::parse(R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"A checkpoint id from checkpoint.list."}}})");
         registry.add(c, [projectDir](const Json& a) {
             auto r = checkpoint_restore(projectDir, arg_string(a, "id", true));

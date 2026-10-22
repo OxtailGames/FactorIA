@@ -63,13 +63,15 @@ const char* kind_name(ChatItem::Kind k) {
         case ChatItem::Kind::Tool: return "tool";
         case ChatItem::Kind::Info: return "info";
         case ChatItem::Kind::Error: return "error";
+        case ChatItem::Kind::Run: return "run";
+        case ChatItem::Kind::Revert: return "revert";
     }
     return "info";
 }
 
 ChatItem::Kind kind_from(const std::string& s) {
     for (auto k : {ChatItem::Kind::User, ChatItem::Kind::Assistant, ChatItem::Kind::Thinking, ChatItem::Kind::Tool,
-                   ChatItem::Kind::Info, ChatItem::Kind::Error}) {
+                   ChatItem::Kind::Info, ChatItem::Kind::Error, ChatItem::Kind::Run, ChatItem::Kind::Revert}) {
         if (s == kind_name(k)) return k;
     }
     return ChatItem::Kind::Info;
@@ -130,6 +132,16 @@ Json ChatItem::to_json() const {
     if (depth) j["depth"] = depth;
     if (!role.empty()) j["role"] = role;
     if (!images.empty()) j["images"] = images;
+    if (!checkpointId.empty()) j["checkpoint"] = checkpointId;
+    if (!modified.empty()) j["modified"] = modified;
+    if (!added.empty()) j["added"] = added;
+    if (!deleted.empty()) j["deleted"] = deleted;
+    if (omitted) j["omitted"] = omitted;
+    if (sceneChanged) j["sceneChanged"] = true;
+    if (!revertedBy.empty()) j["revertedBy"] = revertedBy;
+    if (!safetyId.empty()) j["safety"] = safetyId;
+    if (undone) j["undone"] = true;
+    if (isUndo) j["isUndo"] = true;
     return j;
 }
 
@@ -149,6 +161,22 @@ ChatItem ChatItem::from_json(const Json& j) {
             if (i.is_string()) c.images.push_back(i.get<std::string>());
         }
     }
+    auto strings = [&](const char* key, std::vector<std::string>& out) {
+        if (!j.contains(key) || !j[key].is_array()) return;
+        for (const auto& v : j[key]) {
+            if (v.is_string()) out.push_back(v.get<std::string>());
+        }
+    };
+    strings("modified", c.modified);
+    strings("added", c.added);
+    strings("deleted", c.deleted);
+    c.checkpointId = str_of(j, "checkpoint");
+    c.omitted = j.value("omitted", 0);
+    c.sceneChanged = j.value("sceneChanged", false);
+    c.revertedBy = str_of(j, "revertedBy");
+    c.safetyId = str_of(j, "safety");
+    c.undone = j.value("undone", false);
+    c.isUndo = j.value("isUndo", false);
     return c;
 }
 
@@ -514,6 +542,51 @@ std::string selection_line(const std::string& entityName, const std::string& ent
     const std::string shown = entityName.empty() ? entityId : entityName;
     return "[Viewport selection: entity \"" + shown + "\" (id \"" + entityId +
            "\"). \"this\" and \"it\" in the request mean this entity.]";
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+// "a.js, b.js and 3 more" (names capped so a revert of a big run stays a readable line).
+std::string names_line(const std::vector<std::string>& names) {
+    constexpr std::size_t kShown = 8;
+    std::string out;
+    for (std::size_t i = 0; i < names.size() && i < kShown; ++i) out += (i ? ", " : "") + names[i];
+    if (names.size() > kShown) out += " and " + std::to_string(names.size() - kShown) + " more";
+    return out;
+}
+}  // namespace
+
+std::string revert_line(const std::vector<ChatItem>& items) {
+    std::size_t from = items.size();
+    while (from > 0 && items[from - 1].kind != ChatItem::Kind::User) --from;
+    std::vector<const ChatItem*> net;  // the reverts in force, in order; an Undo revert removes the one it takes back
+    for (std::size_t i = from; i < items.size(); ++i) {
+        const ChatItem& it = items[i];
+        if (it.kind != ChatItem::Kind::Revert) continue;
+        if (!it.isUndo) {
+            net.push_back(&it);
+            continue;
+        }
+        auto match = std::find_if(net.begin(), net.end(), [&](const ChatItem* r) { return !r->isUndo && r->safetyId == it.safetyId; });
+        if (match != net.end()) net.erase(match);
+        else net.push_back(&it);  // it takes back a revert the model was told about earlier
+    }
+    if (net.empty()) return {};
+    std::string out = "[The user changed the project since your last message with the editor's Revert button, outside your control.";
+    for (const ChatItem* r : net) {
+        out += r->isUndo ? " They took back an earlier revert, so these files are again as your run left them: "
+                         : " They reverted your previous run; the project went back to how it was before it. Files restored to their earlier content: ";
+        std::vector<std::string> back = r->modified;
+        back.insert(back.end(), r->deleted.begin(), r->deleted.end());
+        out += back.empty() ? "none" : names_line(back);
+        if (!r->added.empty()) out += (r->isUndo ? "; files removed again: " : "; files deleted (you had created them): ") + names_line(r->added);
+        if (r->omitted) out += " (and " + std::to_string(r->omitted) + " more)";
+        out += ".";
+        if (r->sceneChanged) out += " The open scene went back too.";
+    }
+    out += " Do not assume your earlier changes are still there: read the files again before you edit them.]";
+    return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
