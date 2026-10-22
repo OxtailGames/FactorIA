@@ -938,6 +938,44 @@ LK/FB-0037 and LK/FB-0038 have a `Fixed in <commit>` note; Lantern Keep does not
 - Bookkeeping (the `m22/bookkeeping` PR): docs/FINISHING.md section 5 lists the four features, CHANGELOG.md, this
   section, and LK/FB-0037 and LK/FB-0038 marked fixed.
 
+## M20. Editor and tooling — PRs #134-#142 and the `m20/debugger` PR (three small items left, see ROADMAP.md)
+
+Closes H-01, H-02, H-03, H-05, H-09, the editor part of H-06 and LK/FB-0009. Every hand edit in the editor goes through
+the commands the AI uses, so Undo and the scene file work as they do for any command.
+
+- ASCII map edits (M20.1, PR #134, `9b92c45`): `scene.ascii_edit {file, ops, rebuild?, dryRun?}` edits the `rows` of a
+  `scene.import_ascii` args file with ops applied in order, all or nothing: `fill`, `replace` (the whole map or a
+  rectangle), `insertColumns`, `deleteColumns` and `put` (at a row, or above the ground of a column). Errors name the op
+  and suggest legend glyphs. A file with a `path` is rebuilt through `scene.import_ascii`, whose `spawned` list (every
+  object's glyph and cell) comes back merged. AI_GUIDE 9.8.
+- Profiler (M20.2, PR #135, `bee7853`): `fa/core/profiler.h` times 12 engine systems and every behaviour class (own ms
+  and calls per frame), the GPU frame through timer queries (D3D11 and GL; Metal, GLES3 and WebGL2 say why not) and
+  memory (process, JS heap, textures, decoded audio). Off by default, and it only measures: state, replays and saves are
+  byte-identical with it on. In `play.report` (`profile`), `perf.profile` and View > Profiler. `perf.*` inside a process
+  that already has a graphics device fail with `gpu_busy` instead of aborting. docs/PERFORMANCE.md.
+- Editor autotests on Windows (M20.3a, PR #136, `4f59ba4`): `ui::read_backbuffer` reads the D3D11 swap chain, so
+  `editor_autotest` and `editor_autotest_welcome` run on Windows like on Linux and macOS.
+- Hierarchy and Inspector (M20.3b, PR #137, `0ccdef0`): the entity tree (selection shared with the viewport, drag to
+  re-parent, context menu, search) and an Inspector built from reflection (a widget per field kind, the doc string as
+  tooltip, Add Component, one Undo step per drag, refused values shown under the field, edits to the running game taken
+  back by Stop). `MeshRenderer.material` shows the material's compile error, and `materialParams` is typed by
+  `material.info`. New command `scene.set_parent`.
+- Transform gizmos (M20.3c-1, PR #139, `8da7a4e`): select, move, rotate and scale (Q, W, E, R) in 2D, 3D and screen
+  space, Ctrl (Cmd on macOS) to snap, Esc to cancel; a whole drag is one `scene.set_component` Undo step.
+- Project panel (M20.3c-2, PR #142, `78257ce`): the project's files with a folder tree, thumbnails, a type filter and a
+  search; drag a file onto an Inspector field of its type or a prefab onto the viewport, double-click a scene to open it,
+  show in the file manager, copy the path, delete. `asset_type_of` is the one asset classifier (`assets.list` reports
+  `material` too).
+- Script debugger (the `m20/debugger` PR): breakpoints (conditions, hit counts, logpoints), stepping, pause, exception
+  stops, the call stack, variables, watches and the debug console for the project's JavaScript, in VS Code. QuickJS-ng
+  has no debug API, so a debugged run compiles every project module from a copy instrumented with acorn (vendored in
+  `external/acorn`, tooling only: exported games are never instrumented): a hook before each statement, a frame record
+  per call and one closure per frame that evaluates in its scope. The runtime is `fa::ScriptDebugger` in `fa_script`,
+  given to the engine in `EngineConfig::scriptDebugger`; `factoria dap` is the Debug Adapter Protocol server (launch
+  modes play, headless and test); the setup component `vscode` installs the extension (`tools/vscode`) into VS Code,
+  Insiders, VSCodium and Cursor, and new projects get `.vscode/launch.json`. `script.trace` gives an AI the same
+  breakpoints on a headless run as JSON. Design: docs/design/SCRIPT_DEBUGGER.md; docs/DEBUGGING.md.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
