@@ -52,7 +52,8 @@ Play snapshots the scene and runs the game; Stop restores the snapshot, so edits
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it
 to send"), and while it is working Play and Step are disabled until it finishes or you press Stop in the AI panel. The Console
 still runs commands during play, to inspect or poke the running game. Ctrl+Z / Ctrl+Y
-(toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. View >
+(toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. Undo does
+not touch files; to take back a whole AI run, scripts included, use Revert ([Revert an AI run](#revert-an-ai-run)). View >
 Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
 
 **Materials and textures reload live.** The editor watches `materials/`, `shaders/` and `assets/` for the files the renderer
@@ -158,6 +159,25 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   and Play waits for it. Codex still uses a `factoria mcp` process of its own (see `docs/AI_PROVIDERS.md`, CLI agents in
   the editor).
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
+
+### Revert an AI run
+
+Before every run the editor takes a **checkpoint**: a copy of every file of the project (scripts, tests, scenes, assets;
+not folders starting with `.`, `node_modules` or a top-level `build/`) plus the open scene as it is in memory. When the
+run ends and it changed something, the transcript shows **"This run changed N files"** with a **Revert** button (and the
+list of files, and whether the open scene changed). Revert asks for confirmation, then puts every file back, deletes the
+files the run created, and puts the scene back as ONE Undo step (Ctrl+Z brings the run's scene back). Scripts are
+reloaded. The item then reads "Reverted ..." with an **Undo revert** button, which restores the state the project had just
+before the Revert (nothing is lost: Revert makes its own safety checkpoint first). **Edit > Revert Last AI Run** does the
+same for the newest run. The button works after a restart too (the item is saved with the chat), and it is available only
+in edit mode with no AI run in progress. The next message you send tells the AI that you reverted, so it reads the files
+again instead of assuming its changes are still there. Revert covers files, not what lives outside the project folder.
+It does not replace git: use git for long-term history.
+
+Checkpoints live in `.factoria/checkpoints/` (each distinct file content is stored once; the newest 30 checkpoints are kept)
+and use disk space, mostly for big assets. To clear them, delete that folder; the editor never needs it back. They are
+never exported or bundled (folders starting with `.` are skipped), and the template `.gitignore` lists `.factoria/`. The same
+engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff` and `checkpoint.restore`.
 
 ## Exporting the game
 

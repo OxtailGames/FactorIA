@@ -147,10 +147,13 @@ Bigger requests are where the AI goes wrong, and you now know how to go back. In
    the viewport shows it at once. The AI makes many small changes, so one request is several steps: keep pressing it. It
    works only in edit mode (not while the game plays) and does not take back scripts, test files or any other file: they
    are on disk, outside what Undo knows.
-2. **Reload** in the toolbar: throws away the unsaved changes of the scene and reads it from disk (the editor asks
+2. **Revert** under the AI's message "This run changed N files" (or Edit > Revert Last AI Run). It takes back the WHOLE
+   run: scripts, tests and other files as well as the scene, in one click after a confirmation. Changed your mind? **Undo
+   revert** brings the run back. The editor takes the checkpoint by itself before each run; nothing to set up.
+3. **Reload** in the toolbar: throws away the unsaved changes of the scene and reads it from disk (the editor asks
    "Discard unsaved changes and reload the scene from disk?"). If you saved after the AI's change, the scene on disk
    already has it.
-3. **Git**, for everything else. In the game folder:
+4. **Git**, the long-term history and everything older than the last runs. In the game folder:
 
 ```bash
 git status                 # which files changed since your last commit
@@ -162,7 +165,7 @@ git clean -n               # lists new files the AI created; -f deletes them
    `git restore .` and `git clean -f` cannot be undone: look at `git status` first. After restoring files, press
    **Reload** in the editor so it reads them again. If you only want to drop one file, `git restore scripts/patrol.js`.
    Because you committed after each good round, you lose at most the round that went wrong.
-4. **Ask the AI to undo it**: "That broke the game. Go back to how it was before the second level and keep only the door."
+5. **Ask the AI to undo it**: "That broke the game. Go back to how it was before the second level and keep only the door."
    Works for small things, and the AI can see the diff; but it is not a guarantee, so keep the commits.
 
 ## 9. Read what the engine was missing

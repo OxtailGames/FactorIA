@@ -437,6 +437,96 @@ TEST_CASE("selection_line tells the AI which entity this and it mean") {
     CHECK(selection_line("", "e7").find("\"e7\"") != std::string::npos);
 }
 
+TEST_CASE("Run and Revert items survive a save and a reload") {
+    ChatItem run;
+    run.kind = ChatItem::Kind::Run;
+    run.checkpointId = "20261022-153012-3";
+    run.modified = {"scripts/player.js"};
+    run.added = {"scripts/enemy.js"};
+    run.deleted = {"tests/old.test.js"};
+    run.omitted = 4;
+    run.sceneChanged = true;
+    run.revertedBy = "20261022-153500-4";
+    const ChatItem back = ChatItem::from_json(run.to_json());
+    CHECK(back.kind == ChatItem::Kind::Run);
+    CHECK(back.checkpointId == run.checkpointId);
+    CHECK(back.modified == run.modified);
+    CHECK(back.added == run.added);
+    CHECK(back.deleted == run.deleted);
+    CHECK(back.omitted == 4);
+    CHECK(back.sceneChanged);
+    CHECK(back.revertedBy == run.revertedBy);
+
+    ChatItem rev;
+    rev.kind = ChatItem::Kind::Revert;
+    rev.text = "Reverted: 3 file(s)";
+    rev.safetyId = "s1";
+    rev.undone = true;
+    rev.isUndo = true;
+    const ChatItem rback = ChatItem::from_json(rev.to_json());
+    CHECK(rback.kind == ChatItem::Kind::Revert);
+    CHECK(rback.safetyId == "s1");
+    CHECK(rback.undone);
+    CHECK(rback.isUndo);
+
+    // An item without the new keys (a chat saved by an older editor) loads with the defaults.
+    const ChatItem plain = ChatItem::from_json(Json::object({{"kind", "info"}, {"text", "hi"}}));
+    CHECK(plain.checkpointId.empty());
+    CHECK_FALSE(plain.sceneChanged);
+}
+
+TEST_CASE("revert_line tells the AI what the user reverted since its last message") {
+    auto user = [] {
+        ChatItem u;
+        u.kind = ChatItem::Kind::User;
+        u.text = "hello";
+        return u;
+    };
+    auto revert = [](const char* safety, bool isUndo = false) {
+        ChatItem r;
+        r.kind = ChatItem::Kind::Revert;
+        r.safetyId = safety;
+        r.isUndo = isUndo;
+        r.modified = {"scripts/player.js"};
+        r.added = {"scripts/enemy.js"};
+        r.deleted = {"tests/old.test.js"};
+        return r;
+    };
+    CHECK(revert_line({}).empty());
+    CHECK(revert_line({user()}).empty());
+
+    std::vector<ChatItem> items{user(), revert("s1")};
+    const std::string line = revert_line(items);
+    CHECK(line.find("reverted") != std::string::npos);
+    CHECK(line.find("scripts/player.js") != std::string::npos);
+    CHECK(line.find("tests/old.test.js") != std::string::npos);
+    CHECK(line.find("deleted (you had created them): scripts/enemy.js") != std::string::npos);
+    CHECK(line.find('\n') == std::string::npos);
+
+    // Told already: a later user message closes the stretch.
+    items.push_back(user());
+    CHECK(revert_line(items).empty());
+
+    // A revert and its Undo revert cancel out; an Undo revert of an earlier revert is news.
+    items.push_back(revert("s2"));
+    items.push_back(revert("s2", true));
+    CHECK(revert_line(items).empty());
+    items.push_back(user());
+    items.push_back(revert("s3", true));
+    const std::string undone = revert_line(items);
+    CHECK(undone.find("took back an earlier revert") != std::string::npos);
+
+    // A long list is shortened.
+    ChatItem big = revert("s4");
+    big.modified.clear();
+    for (int i = 0; i < 30; ++i) big.modified.push_back("f" + std::to_string(i) + ".js");
+    big.omitted = 5;
+    const std::string shortLine = revert_line({user(), big});
+    CHECK(shortLine.find("f0.js") != std::string::npos);
+    CHECK(shortLine.find("f29.js") == std::string::npos);
+    CHECK(shortLine.find("more") != std::string::npos);
+}
+
 namespace {
 void put16(std::vector<std::uint8_t>& v, std::uint32_t x) { v.push_back(x & 0xFF); v.push_back((x >> 8) & 0xFF); }
 void put32(std::vector<std::uint8_t>& v, std::uint32_t x) { put16(v, x & 0xFFFF); put16(v, x >> 16); }
