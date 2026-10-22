@@ -515,8 +515,8 @@
             "Panel": {
               "layer": 300,
               "layout": "column",
-              "spacing": 12,
-              "padding": [40, 28, 40, 36],
+              "spacing": 8,
+              "padding": [24, 16, 24, 20],
               "fit": true
             }
           },
@@ -526,7 +526,7 @@
               "components": {
                 "Text": {
                   "text": "Delivered!",
-                  "fontSize": 44,
+                  "fontSize": 40,
                   "layer": 301,
                   "space": "screen",
                   "key": "results.title",
@@ -539,7 +539,7 @@
               "components": {
                 "Text": {
                   "text": "---",
-                  "fontSize": 56,
+                  "fontSize": 34,
                   "layer": 301,
                   "space": "screen",
                   "color": [1, 0.85, 0.3, 1]
@@ -553,7 +553,8 @@
                   "text": "Time",
                   "fontSize": 28,
                   "layer": 301,
-                  "space": "screen"
+                  "space": "screen",
+                  "maxWidth": 1180
                 }
               }
             },
@@ -564,43 +565,64 @@
                   "text": "Spring",
                   "fontSize": 28,
                   "layer": 301,
-                  "space": "screen"
+                  "space": "screen",
+                  "maxWidth": 1180
                 }
               }
             },
             {
-              "id": "results_next",
+              "id": "results_buttons",
               "components": {
-                "Button": {
-                  "autoSize": true,
-                  "text": "Next level",
-                  "key": "results.next",
-                  "layer": 302,
-                  "autoFocus": true
+                "Panel": {
+                  "layer": 300,
+                  "color": [0, 0, 0, 0],
+                  "layout": "column",
+                  "spacing": 12,
+                  "padding": [0, 0, 0, 0],
+                  "fit": true,
+                  "uniformSize": true,
+                  "fallbackLayout": "row"
                 }
-              }
-            },
-            {
-              "id": "results_retry",
-              "components": {
-                "Button": {
-                  "autoSize": true,
-                  "text": "Play again",
-                  "key": "results.retry",
-                  "layer": 302
+              },
+              "children": [
+                {
+                  "id": "results_next",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Next level",
+                      "key": "results.next",
+                      "layer": 302,
+                      "autoFocus": true,
+                      "maxWidth": 340
+                    }
+                  }
+                },
+                {
+                  "id": "results_retry",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Play again",
+                      "key": "results.retry",
+                      "layer": 302,
+                      "maxWidth": 340
+                    }
+                  }
+                },
+                {
+                  "id": "results_title",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Quit to title",
+                      "key": "results.toTitle",
+                      "layer": 302,
+                      "maxWidth": 340
+                    }
+                  }
                 }
-              }
-            },
-            {
-              "id": "results_title",
-              "components": {
-                "Button": {
-                  "autoSize": true,
-                  "text": "Quit to title",
-                  "key": "results.toTitle",
-                  "layer": 302
-                }
-              }
+              ]
             }
           ]
         }
@@ -653,32 +675,50 @@
                   "fontSize": 26,
                   "layer": 301,
                   "space": "screen",
-                  "key": "retry.hint"
+                  "key": "retry.hint",
+                  "maxWidth": 900
                 }
               }
             },
             {
-              "id": "retry_retry",
+              "id": "retry_buttons",
               "components": {
-                "Button": {
-                  "autoSize": true,
-                  "text": "Try again",
-                  "key": "retry.retry",
-                  "layer": 302,
-                  "autoFocus": true
+                "Panel": {
+                  "layer": 300,
+                  "color": [0, 0, 0, 0],
+                  "layout": "column",
+                  "spacing": 12,
+                  "padding": [0, 0, 0, 0],
+                  "fit": true,
+                  "uniformSize": true,
+                  "fallbackLayout": "row"
                 }
-              }
-            },
-            {
-              "id": "retry_title",
-              "components": {
-                "Button": {
-                  "autoSize": true,
-                  "text": "Quit to title",
-                  "key": "retry.toTitle",
-                  "layer": 302
+              },
+              "children": [
+                {
+                  "id": "retry_retry",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Try again",
+                      "key": "retry.retry",
+                      "layer": 302,
+                      "autoFocus": true
+                    }
+                  }
+                },
+                {
+                  "id": "retry_title",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Quit to title",
+                      "key": "retry.toTitle",
+                      "layer": 302
+                    }
+                  }
                 }
-              }
+              ]
             }
           ]
         }

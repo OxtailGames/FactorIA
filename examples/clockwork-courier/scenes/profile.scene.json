@@ -17,7 +17,7 @@
       "children": [
         { "id": "profile_title", "components": { "Text": { "text": "Who is delivering?", "key": "profile.title", "fontSize": 40, "space": "screen", "layer": 300, "color": [1, 0.85, 0.3, 1] } } },
         { "id": "profile_hint", "components": { "Text": { "text": "Type a name or pick the letters.", "key": "profile.hint", "fontSize": 22, "space": "screen", "layer": 300, "color": [1, 1, 1, 0.75] } } },
-        { "id": "profile_field", "components": { "TextField": { "size": [420, 56], "text": "", "placeholder": "Your name", "maxLength": 12, "fontSize": 28, "layer": 210, "autoFocus": true } } },
+        { "id": "profile_field", "components": { "TextField": { "size": [420, 56], "text": "", "placeholder": "Your name", "key": "profile.placeholder", "maxLength": 12, "fontSize": 28, "layer": 210, "autoFocus": true } } },
         { "id": "profile_keys", "components": { "Panel": { "layer": 160, "layout": "grid", "columns": 9, "fit": true, "spacing": 6, "padding": [0, 0, 0, 0], "color": [0, 0, 0, 0] } } },
         {
           "id": "profile_actions",
