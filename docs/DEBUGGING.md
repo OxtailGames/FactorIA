@@ -165,7 +165,11 @@ Output:
 ```
 
 `hits[].point` is the index in `points`; `frame` is the frame it ran in; `stack` lists the calls, innermost first.
-`errors` lists the script errors thrown during the run (with file and line), whether or not a point was involved.
+`errors` lists the script errors thrown during the run (with file and line), whether or not a point was involved; it also
+reports a `condition` that threw. Values are JSON: numbers, strings and booleans as such, objects as JSON objects down to
+`depth` (below it, and for `undefined`, functions and the like, a short preview string); an object or array shows at most
+100 entries; a `watch` expression that throws gives `"<error: ...>"`. `truncated` is true only when a point had more hits
+than `maxHits`. The run starts at frame 0; `frame` counts fixed frames.
 
 ### Example: why does the player not jump?
 

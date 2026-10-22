@@ -2031,6 +2031,23 @@ scene.load and scene.reload already re-import every module whose file changed (b
 |---|---|---|---|
 | `force` | boolean | no | Re-import all modules, not only the changed ones. Default false. |
 
+### `script.trace`
+
+Not released yet (on main after 0.1.6).
+
+Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run.
+
+The way to find out WHY a script misbehaves without an IDE. Runs the project headless for `frames` fixed steps (a second engine in this process, fake platform, in-memory storage, fixed dt: the same input gives the same answer) with the scripts instrumented, and at each traced line records what is there instead of stopping. A point is {file, line, condition?, watch?, log?}: `file` a project-relative script, `line` a line that starts a statement (an error names the nearest ones when it does not), `condition` a JavaScript expression that must be true for the point to record, `watch` expressions evaluated at every hit, `log` a message with {expression} parts that turns the point into a logpoint (it writes into `logs` and records no hit; cheaper than a hit with locals). Returns {hits: [{point (index in points), frame (0-based fixed frame), file, line, function (e.g. Player.onUpdate), stack (innermost first, "fn file:line"), locals: {name: value}, watch: {expression: value}}], logs: [{frame, file, line, text}], errors (script errors raised during the run, scene problems, conditions that threw), framesRun, truncated}. Values are JSON: numbers, strings and booleans as such; objects are expanded `depth` levels (0 = a short preview string, 1 = the fields as JSON with nested objects as previews); an expression that throws gives "<error: ...>". After `maxHits` hits of a point it stops recording and `truncated` is true. A point in code that never runs gives no hits (check `scene` and `input`). Debugging slows the scripts 2-4x. See docs/DEBUGGING.md. Example: {"points":[{"file":"scripts/player.js","line":17,"condition":"dt > 0","watch":["this.body.velocity"]}],"frames":120,"maxHits":5}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `points` | array | yes | The lines to trace. |
+| `frames` | integer | no | How many fixed frames to run. Default 300. |
+| `input` | string | no | Project-relative input replay JSON (a recorded session, play.report gives the path) applied during the run. |
+| `scene` | string | no | Start scene (default: the project's mainScene). |
+| `maxHits` | integer | no | Hits (or log lines) recorded per point; one more sets truncated and the point stops recording. Default 20. |
+| `depth` | integer | no | How far objects in locals and watch are expanded into JSON (0 = previews only; nested objects beyond the depth are previews). An object shows at most 100 entries. Default 1. |
+
 ## setup
 
 ### `setup.install` (modifies state)
