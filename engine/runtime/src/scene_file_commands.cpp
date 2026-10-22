@@ -260,7 +260,9 @@ Json scene_format(Engine::Impl& I, const Json& a) {
     const bool strict = a.value("strict", false);  // only meaningful with `check`: without it the files are fixed, not listed
     std::vector<std::string> searched;  // folders searched, for the note when nothing was found
     const bool all = a.value("all", false);
-    if (all && a.contains("paths")) bad_arg("'all' and 'paths' together: choose one.", "Pass 'paths' to format some files or folders, or 'all': true for the whole project.");
+    if (all && a.contains("paths"))
+        bad_arg("'all' and 'paths' together: choose one.",
+                "Pass 'paths' to format some files or folders, or 'all': true for the whole project.");
     if (!check && !all && !a.contains("paths")) {
         // Writing every scene of the project is never the default: say what it would change and how to ask for it.
         std::vector<std::string> searchedAll;
@@ -312,7 +314,8 @@ Json scene_format(Engine::Impl& I, const Json& a) {
         if (notCanonical.size() > kListed) list += ", and " + std::to_string(notCanonical.size() - kListed) + " more";
         throw CommandError("not_canonical",
                            std::to_string(notCanonical.size()) + " scene/prefab file(s) are not in the canonical layout: " + list + ".",
-                           "Run scene.format without 'check' on them (factoria call scene.format '{\"paths\":[...]}', or '{\"all\":true}' for the whole project) to rewrite them; only whitespace changes.");
+                           "Run scene.format without 'check' on them (factoria call scene.format '{\"paths\":[...]}', "
+                           "or '{\"all\":true}' for the whole project) to rewrite them; only whitespace changes.");
     }
 
     Json out = Json::object();

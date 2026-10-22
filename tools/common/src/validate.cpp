@@ -239,10 +239,16 @@ void note_hand_formatted(ValidationReport& report, const std::vector<std::string
     ValidationIssue n;  // no `file`: the message lists them
     n.message = std::to_string(files.size()) + " scene/prefab file" + (files.size() == 1 ? " is" : "s are") + " formatted by hand: " + list +
                 " (" + (files.size() == 1 ? "it is" : "they are") + " valid; only whitespace differs from what scene.save writes).";
-    std::string paths;
-    for (std::size_t i = 0; i < files.size() && i < 3; ++i) paths += (i ? "," : "") + std::string("\"") + files[i] + "\"";
-    n.hint = "Optional: `factoria call scene.format '{\"paths\":[" + paths + (files.size() > 3 ? ",..." : "") + "]}'` rewrites " +
-             std::string(files.size() == 1 ? "it" : "them") + " so later diffs stay small (`{\"all\":true}` for the whole project).";
+    // A command the user can paste: the files themselves when there are a few, otherwise the whole project (which only
+    // rewrites the files that are not canonical).
+    std::string args = "{\"all\":true}";
+    if (files.size() <= 3) {
+        args = "{\"paths\":[";
+        for (std::size_t i = 0; i < files.size(); ++i) args += (i ? "," : "") + std::string("\"") + files[i] + "\"";
+        args += "]}";
+    }
+    n.hint = "Optional: `factoria call scene.format '" + args + "'` rewrites " + std::string(files.size() == 1 ? "it" : "them") +
+             " so later diffs stay small.";
     report.notes.push_back(std::move(n));
 }
 
