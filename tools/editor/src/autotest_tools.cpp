@@ -989,7 +989,7 @@ void Editor::at_build_tools_script() {
         return out;
     };
 
-    // The window: File > Set Up This Computer... lists the six components, each with its Install button (the AppImage
+    // The window: File > Set Up This Computer... lists the seven components, each with its Install button (the AppImage
     // tools and sokol-shdc have none yet: `factoria setup appimage|shaders`).
     click("menu:file");
     step(3, [] {});
@@ -1003,7 +1003,7 @@ void Editor::at_build_tools_script() {
         const SetupStatus& st = setupStatus_.status();
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
-        at_check(ids == "android players cmake xcode appimage shaders ", "the window lists the six components, in order (" + ids + ")");
+        at_check(ids == "android players cmake xcode appimage shaders vscode ", "the window lists the seven components, in order (" + ids + ")");
         at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(), "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)
             if (setup_action_for_component(c, st.home))

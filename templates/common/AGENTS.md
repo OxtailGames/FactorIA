@@ -139,6 +139,10 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - `factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"..."}}]'`
   runs several commands on one engine; add `--press a,b` or `--input replay.json` after the array to set the start.
   A plain `factoria call <command> '<json>'` starts a NEW engine each time. All commands: `factoria commands`.
+- To see inside a script without adding `console.log`, use `script.trace` (MCP: `script_trace`): it runs the
+  project headless and records the stack, locals and watch expressions each time given lines run, e.g.
+  `factoria call script.trace '{"points":[{"file":"scripts/player.js","line":17,"watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}'`.
+  A person debugs the same scripts with breakpoints in VS Code (F5; `factoria setup vscode`). Read `factoria docs read debugging`.
 - Headless runs and tests simulate every frame but draw only for screenshots (fast); `--render-all` draws all.
 
 ## Recording engine gaps (IMPORTANT)
