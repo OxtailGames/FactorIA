@@ -4,7 +4,7 @@
 
 ## `checkpoint.create` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back.
 
@@ -16,7 +16,7 @@ Copies the project's files into .factoria/checkpoints (content-addressed: a file
 
 ## `checkpoint.diff`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Show which files changed since a checkpoint (modified, added, deleted).
 
@@ -28,7 +28,7 @@ Compares the files now with checkpoint `id`. Returns {modified, added, deleted} 
 
 ## `checkpoint.list`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 List the project's checkpoints, newest first.
 
@@ -36,7 +36,7 @@ Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limi
 
 ## `checkpoint.restore` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it.
 
@@ -48,7 +48,7 @@ Writes back the files that were modified or deleted since checkpoint `id` and de
 
 ## `perf.baseline` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
 
@@ -65,7 +65,7 @@ Measures like perf.measure (3 runs, median) and stores the result under runners.
 
 ## `perf.check`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
 
@@ -79,7 +79,7 @@ Measures with the settings of the budget file (frames, scene, input) and compare
 
 ## `perf.measure`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities.
 
@@ -94,7 +94,7 @@ Runs the project in a second headless engine inside this process, drawing every 
 
 ## `perf.profile`
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.
 
@@ -145,7 +145,7 @@ Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefab
 
 ## `project.new_ci_workflow` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Write a GitHub Actions workflow that validates, tests and exports the game on every push.
 

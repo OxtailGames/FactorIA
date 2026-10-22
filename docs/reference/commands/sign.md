@@ -4,7 +4,7 @@
 
 ## `sign.macos` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Sign, notarize and staple the exported macOS app (Developer ID), and zip it for sharing.
 
