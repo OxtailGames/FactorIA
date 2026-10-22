@@ -91,6 +91,17 @@
           }
         },
         {
+          "id": "continue_button",
+          "active": false,
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Continue",
+              "key": "menu.continue"
+            }
+          }
+        },
+        {
           "id": "play",
           "components": {
             "Button": {

@@ -10,6 +10,8 @@ import { EVENTS, emit } from "./events.js";
 import * as levels from "./levels.js";
 import * as progress from "./progress.js";
 import * as stars from "./stars.js";
+import * as daily from "./daily.js";
+import * as resultsView from "./results_view.js";
 import { installUiSounds, playUi } from "./ui/ui_sounds.js";
 
 export default class LevelFlow extends Behaviour {
@@ -36,6 +38,9 @@ export default class LevelFlow extends Behaviour {
     this.timer = -1;
     this.pending = null;
     session.currentLevel = this.levelId;
+    /** The daily route being played in this scene (P3, scripts/daily.js), or null for a normal run. */
+    this.route = daily.active();
+    if (this.route && (this.route.level !== this.levelId || !daily.place(this.route))) this.route = null;
     installUiSounds();
     if (this.spring) this.spring.fill(this.level ? this.level.spring : this.spring.max);
     this.offs = [
@@ -85,10 +90,12 @@ export default class LevelFlow extends Behaviour {
       springMax: spring ? spring.max : 0,
       optionalDelivered: this.optionalDelivered,
     });
-    const best = progress.record(this.levelId, { time, springLeft: left, stars: rating.stars, goals: rating.goals });
+    // A daily run keeps its own time (daily.finish) and never touches the stars of the level.
+    const dailyRun = this.route ? daily.finish(time) : null;
+    const best = dailyRun ? dailyRun.best : progress.record(this.levelId, { time, springLeft: left, stars: rating.stars, goals: rating.goals });
     this.courier?.celebrate();
-    emit(EVENTS.levelCompleted, { level: this.levelId, time, springLeft: left, stars: rating.stars, goals: rating.goals, best });
-    this.pending = { panel: this.resultsId, time, left, stars: rating.stars, goals: rating.goals };
+    emit(EVENTS.levelCompleted, { level: this.levelId, time, springLeft: left, stars: rating.stars, goals: rating.goals, best, daily: !!dailyRun });
+    this.pending = { panel: this.resultsId, time, left, stars: rating.stars, goals: rating.goals, best, daily: dailyRun };
     this.timer = this.resultsDelay;
   }
 
@@ -117,11 +124,9 @@ export default class LevelFlow extends Behaviour {
     const panel = world.find(p.panel);
     if (!panel) return;
     if (p.panel === this.resultsId) {
-      this.setText("results_time", i18n.t("results.time", { time: p.time.toFixed(1) }));
-      this.setText("results_spring", i18n.t("results.spring", { seconds: Math.ceil(p.left) }));
-      this.setText("results_stars", "*".repeat(p.stars) + "-".repeat(3 - p.stars));
+      for (const [id, text] of Object.entries(resultsView.lines(this.levelId, p))) this.setText(id, text);
       const nextButton = world.find("results_next");
-      if (nextButton) nextButton.active = levels.next(this.levelId) !== null;
+      if (nextButton) nextButton.active = !p.daily && levels.next(this.levelId) !== null;
       playUi("confirmation_001", 0.8);
     } else {
       playUi("error_001", 0.7);
@@ -133,6 +138,9 @@ export default class LevelFlow extends Behaviour {
 
   setText(id, text) {
     const e = world.find(id);
-    if (e) e.get("Text").text = text;
+    if (!e) return;
+    const t = e.get("Text");
+    t.key = ""; // a Text with a localization key is rewritten every frame; the results lines carry values (name, time), so they are written here in the current language
+    t.text = text;
   }
 }

@@ -26,9 +26,13 @@ describe("title screen", () => {
     game.load("scenes/main.scene.json");
     game.step(5);
     expect(game.find("play")).not.toBeNull();
+    progress.setName("Ana"); // P3: Play opens the level select (the name screen first for a new player)
     game.click("play");
+    game.step(5);
+    expect(scene.current).toBe("scenes/level_select.scene.json");
+    game.click("card_rooftops_1");
     game.step(10);
-    expect(scene.current).toBe("scenes/rooftops_1.scene.json"); // P2: Play starts the first level of the list
+    expect(scene.current).toBe("scenes/rooftops_1.scene.json"); // P2: the first level of the list
   });
 
   test("has Play, Options and Credits, and Quit on desktop", () => {
@@ -286,8 +290,8 @@ describe("parcel and door", () => {
     expect(game.find("model").animator.state).toBe("celebrate");
     expect(game.find("results_panel").active).toBe(true);
     expect(game.find("retry_panel").active).toBe(false);
-    expect(game.find("results_time").get("Text").text).toMatch(/^Time: \d+\.\d s$/);
-    expect(game.find("results_spring").get("Text").text).toMatch(/^Spring left: \d+ s$/);
+    expect(game.find("results_time").get("Text").text).toMatch(/^Time: \d+\.\d s   /); // P3: the best time follows
+    expect(game.find("results_spring").get("Text").text).toMatch(/^Spring left: \d+ s\n/);
     expect(game.find("results_stars").get("Text").text).toMatch(/^\*+-*$/);
     // saved
     const saved = progress.resultFor("test_yard");

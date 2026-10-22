@@ -1,0 +1,56 @@
+// @ts-check
+// The texts of the results screen (P3): the heading with the courier's name, the stars, this run's time next to the best one,
+// and what earned (or missed) each star. Pure: level_flow.js asks lines() and writes the strings into the Text entities that
+// every level scene already has (results_heading, results_stars, results_time, results_spring), so no scene needed new widgets.
+//
+//   lines(levelId, run)   { results_heading, results_stars, results_time, results_spring } for a finished run
+//   starText(n, max)      "***" style string of n filled stars out of max (level select shares it)
+//   goalLines(levelId, goals)  one line per goal: "[x] Fast: under 50 s"
+import { i18n } from "factoria";
+import * as levels from "./levels.js";
+import * as progress from "./progress.js";
+import * as stars from "./stars.js";
+
+/** Filled and empty star marks. ASCII on purpose: the default font has no star glyphs. */
+const FULL = "*";
+const EMPTY = "-";
+
+export function starText(n, max = 3) {
+  return FULL.repeat(Math.max(0, Math.min(max, n))) + EMPTY.repeat(Math.max(0, max - n));
+}
+
+export function goalLines(levelId, goals) {
+  const level = levels.byId(levelId);
+  const mark = (ok) => (ok ? "[x] " : "[ ] ");
+  const out = [];
+  out.push(mark(goals.fast) + i18n.t("results.goal.fast", { par: level ? level.parTime : 0 }));
+  out.push(mark(goals.springy) + i18n.t("results.goal.springy", { percent: Math.round(stars.SPRING_GOAL * 100) }));
+  if (goals.thorough !== null && goals.thorough !== undefined) out.push(mark(goals.thorough) + i18n.t("results.goal.thorough"));
+  return out;
+}
+
+/**
+ * @param {string} levelId
+ * @param {{ time: number, left: number, stars: number, goals: any, best?: boolean, daily?: { best: boolean } | null }} run
+ */
+export function lines(levelId, run) {
+  const name = progress.name();
+  if (run.daily) {
+    const saved = progress.dailyTime(run.daily.date)?.time ?? run.time;
+    return {
+      results_heading: i18n.t(name ? "daily.doneNamed" : "daily.done", { name }),
+      results_stars: "",
+      results_time: i18n.t("results.time", { time: run.time.toFixed(1) }) + "   " + i18n.t("daily.best", { time: saved.toFixed(1) }),
+      results_spring: i18n.t("results.spring", { seconds: Math.ceil(run.left) }),
+    };
+  }
+  const saved = progress.resultFor(levelId);
+  const best = saved ? saved.time : run.time;
+  const timeLine = i18n.t("results.time", { time: run.time.toFixed(1) }) + "   " + i18n.t(run.best ? "results.newBest" : "results.best", { time: best.toFixed(1) });
+  return {
+    results_heading: i18n.t(name ? "results.titleNamed" : "results.title", { name }),
+    results_stars: starText(run.stars),
+    results_time: timeLine,
+    results_spring: [i18n.t("results.spring", { seconds: Math.ceil(run.left) }), ...goalLines(levelId, run.goals)].join("\n"),
+  };
+}
