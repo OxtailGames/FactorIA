@@ -98,6 +98,7 @@ describe("events.js", () => {
       [
         "checkpoint_reached",
         "courier_caught",
+        "daily_route_finished",
         "dog_alerted",
         "dog_gave_up",
         "game_paused",
