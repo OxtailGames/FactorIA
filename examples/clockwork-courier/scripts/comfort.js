@@ -4,7 +4,7 @@
 //   - haptics for a catch, a delivery and a low spring (landing is in courier.js),
 //   - the low-spring warning: a tick sound with its caption and a pulse, once each time the spring drops under the HUD's limit,
 //   - pause when the app is suspended. The engine sends Suspended / Resumed to the native player but JavaScript cannot see
-//     them (ENGINE_FEEDBACK FB-0020), so this watches for what a suspend does to time: one frame that took far longer than any frame
+//     them (ENGINE_FEEDBACK FB-0035), so this watches for what a suspend does to time: one frame that took far longer than any frame
 //     of a running game. When the game comes back from the background the first frame reports that gap in time.unscaledDt.
 import { Behaviour, world, time, audio, game } from "factoria";
 import { EVENTS } from "./events.js";

@@ -70,7 +70,7 @@ for (const level of LEVELS) {
       expect(JSON.stringify(fast.r)).toContain('"reached":true');
       expect(fast.log.map((e) => e.name)).toContain("level_completed");
       // Not slower than the main route, give or take 10%: the rope bridge and the seesaw are physics, and which way a plank
-      // swings depends on what ran before in the same engine (ENGINE_FEEDBACK FB-0019), so a few seconds of it is noise.
+      // swings depends on what ran before in the same engine (ENGINE_FEEDBACK FB-0033), so a few seconds of it is noise.
       expect(fast.r.frames).toBeLessThanOrEqual(Math.ceil(main.r.frames * 1.1));
     });
   });

@@ -462,7 +462,7 @@ describe("Android Back on every screen", () => {
     game.step(2);
     let quits = 0;
     const real = engine.quit;
-    engine.quit = () => quits++; // a real quit would end the test run (FB-0023)
+    engine.quit = () => quits++; // a real quit would end the test run (FB-0038)
     try {
       game.click("quit_yes");
       game.step(2);

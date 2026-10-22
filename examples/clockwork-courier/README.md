@@ -122,7 +122,7 @@ Subtitles option of the Audio tab switches them. The spring-low warning is a yel
 key a T handle on a base) and a dog that noticed the courier shows a bright "!" on a dark ball over its head, as well
 as barking.
 
-On a phone: the game pauses when the app goes to the background (`scripts/comfort.js`, see ENGINE_FEEDBACK FB-0020 for
+On a phone: the game pauses when the app goes to the background (`scripts/comfort.js`, see ENGINE_FEEDBACK FB-0035 for
 how it knows); Android Back closes the top screen everywhere (an options tab or panel, the pause menu, credits), pauses
 in a level, is ignored on the loading screen and, on the title with nothing open, asks "Quit the game?" first
 (`prefabs/ui/quit_confirm.prefab.json`). Every screen is laid out inside the safe area (`tests/comfort.test.js` checks
@@ -222,10 +222,10 @@ yard's parcel; `tests/helpers/routes.js` has `ROUTES[levelId] = { main, shortcut
 - The rope bridge needs heavy damping to stop ringing; narrower planks than 2 m are unstable.
 - The loading bar counts steps, not real progress.
 - Quality presets only change what scripts own (shadows, fog, particles, lights): the engine has no render scale or GPU
-  info API (FB-0021). The pause on suspend is a long-frame heuristic (FB-0020).
+  info API (FB-0036). The pause on suspend is a long-frame heuristic (FB-0035).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
-  FB-0019); the level tests allow 10 percent between the main route and the shortcut.
-- Control size and camera speed sliders show the plain multiplier (1), not a percentage (FB-0022).
+  FB-0033); the level tests allow 10 percent between the main route and the shortcut.
+- Control size and camera speed sliders show the plain multiplier (1), not a percentage (FB-0037).
 
 ### From P1
 
