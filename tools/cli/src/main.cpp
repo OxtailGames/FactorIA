@@ -8,7 +8,11 @@
 #include "fa/cli/cli.h"
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
+
+#include <cstdio>
 #endif
 
 // The AI agents factoria starts (Claude Code, Codex) run `factoria mcp` and `factoria` commands. Put this binary's
@@ -34,6 +38,9 @@ int main(int argc, char** argv) {
     if (argc > 0) put_self_on_path(argv[0]);
     std::vector<std::string> args(argv + 1, argv + argc);
 #ifdef _WIN32
+    // LF line endings as on the other platforms: in text mode `factoria docs read x > f`, `--json` output and the
+    // `session` / `mcp` JSON lines would end every line with \r\n.
+    _setmode(_fileno(stdout), _O_BINARY);
     // Double-clicked in Explorer (no shell shares our console, output not captured): open the editor instead of printing
     // help into a window that closes at once, and let the console go.
     // The console still flashes for a moment: FactorIA-Editor.exe (tools/cli/launcher) avoids it.

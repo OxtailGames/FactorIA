@@ -375,6 +375,15 @@ jobs:
             echo "::error::'$version' does not match the tag $GITHUB_REF_NAME: set project(VERSION) in CMakeLists.txt"
             exit 1
           fi
+          # The docs are embedded with LF whatever the checkout's line endings (CRLF on the Windows runner) and stdout is
+          # binary on Windows, so printing them adds no carriage return: neither a redirected `docs read` nor the JSON of
+          # `docs.read` (no "\r" escape).
+          "$fa" docs read menus > "$tmp/menus.md"
+          "$fa" call docs.read '{"name":"menus"}' --no-graphics > "$tmp/menus.json"
+          if grep -q $'\r' "$tmp/menus.md" "$tmp/menus.json" || grep -qF '\r' "$tmp/menus.json"; then
+            echo "::error::factoria prints the docs with carriage returns: cmake/EmbedFiles.cmake must embed text files with LF"
+            exit 1
+          fi
           "$fa" new "$tmp/g" --template 2d-platformer
           ${{ matrix.wrap }} "$fa" test "$tmp/g"
           "$fa" export "$tmp/g" --out "$tmp/export"

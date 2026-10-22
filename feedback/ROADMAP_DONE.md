@@ -737,7 +737,9 @@ has a `Fixed in <commit>` note; Lantern Keep dropped the workarounds in the `m24
   `engine/script/tests/test_pause_scale.cpp`.
 - M24.3 Docs print LF on Windows (PR #95, `b6c6f3b`): `cmake/EmbedFiles.cmake` embeds text files (md, json, js, glsl,
   LICENSE/NOTICE/COPYING...) with LF, so a CRLF checkout builds the same binary as an LF one; `fa_test_cli` reads a doc
-  through `factoria docs read` and `docs.read` and finds no CR.
+  through `factoria docs read` and `docs.read` and finds no CR. In 0.2.0 the CLI's stdout became binary on Windows (text
+  mode still turned each LF into CRLF), `integration.py` checks the real binary's output and the release smoke test
+  checks every package.
 - M24.4 Focus navigation (PR #98, `2ee41ac`): a direction press moves the focus to the nearest interactable widget in the
   beam (its rectangle overlaps the focused one across the direction); only when there is none, the nearest in that
   half of the screen (sideways distance doubled). When every visible `autoFocus` widget is not interactable, the first

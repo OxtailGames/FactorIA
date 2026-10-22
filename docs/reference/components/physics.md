@@ -4,7 +4,7 @@
 
 ## CharacterController3D
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
 
@@ -49,8 +49,8 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `shape` | enum: box \\| sphere \\| capsule \\| convex \\| mesh | `"box"` | box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain). |
 | `size` | vec3 | `[1.0,1.0,1.0]` | box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale. |
 | `radius` | float | `0.5` | sphere and capsule: radius in meters. |
-| `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. (not released yet, on main after 0.1.6) |
-| `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn. (not released yet, on main after 0.1.6) |
+| `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. (since 0.2.0) |
+| `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn. (since 0.2.0) |
 | `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits). |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
@@ -60,7 +60,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 
 ## Joint2D
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to `connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.
 
@@ -89,7 +89,7 @@ A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle),
 
 ## Joint3D
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
 

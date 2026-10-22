@@ -4,7 +4,7 @@
 
 ## `screen.set_safe_area` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Pretend the device has a notch, rounded corners or system bars (a notched phone, headless).
 

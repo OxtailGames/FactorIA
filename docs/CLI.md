@@ -10,7 +10,8 @@ over MCP, run the built-in AI agent, manage `ENGINE_FEEDBACK.json`.
   stdout holds `{"ok": false, "error": {"code", "message", "hint"}}` (`code` is `invalid_argument` for bad arguments,
   exit code 2; `internal` for a bug in factoria; `failed` otherwise, exit code 1), and the same text for people goes to
   stderr.
-- Diagnostics and logs go to stderr; stdout carries the result. `--log-level trace|debug|info|warn|error`
+- Diagnostics and logs go to stderr; stdout carries the result, with LF line endings on every platform (Windows
+  too). `--log-level trace|debug|info|warn|error`
   (default `warn`) is accepted by every command.
 - A command that needs a project takes it as the optional first argument, or via `--project DIR`; without
   either it uses the project that contains the current directory (the nearest `factoria.json`).
@@ -298,8 +299,8 @@ cluster may span categories). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
 The docs embedded in the binary (offline). `factoria docs scripting` prints SCRIPTING.md. Two are generated:
 `components` (the component reference) and `licenses` (FactorIA's MIT license and every third-party license inside
 the binaries; the downloads ship it as `THIRD_PARTY_NOTICES.txt`).
-Docs are embedded with LF line endings whatever the checkout uses, so `factoria docs read x > f` and `docs.read` never
-carry `\r`.
+Docs are embedded with LF line endings whatever the checkout uses, and stdout is LF on Windows too, so
+`factoria docs read x > f` and `docs.read` never carry `\r`.
 
 ### `factoria version` / `--version`, `factoria help [command]`
 

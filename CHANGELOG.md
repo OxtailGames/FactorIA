@@ -2,26 +2,11 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.2.0
 
-Revert an AI run
-
-- Before each AI run the editor now saves a checkpoint of the project's files. When the run changed something, the chat
-  shows "This run changed N files" with a Revert button: one click (after a confirmation) puts back every file, deletes the
-  ones the run created and puts the scene back as one Undo step. Undo revert takes it back, and Edit > Revert Last AI Run
-  does the same from the menu. The AI is told about the revert in your next message. Checkpoints are kept in
-  `.factoria/checkpoints/` (newest 30) and are also available as the commands `checkpoint.create`, `checkpoint.list`,
-  `checkpoint.diff` and `checkpoint.restore`.
-
-Small leftovers
-
-- The editor's Screenshot toast has a "Show in Finder" / "Show in Explorer" button (it names your file manager) that reveals
-  the new PNG, and File > Open Screenshots Folder opens the hidden `.factoria/screenshots/` folder (creating it if needed).
-  A toast with a button stays longer and does not vanish while the mouse is over it.
-- `factoria validate` no longer warns that a hand-written scene or prefab is "not in the canonical layout": such a file is
-  valid. The report has a new informational `notes` list (`note:` lines in the text, `notes` in `--json`, the
-  `project.validate` result and the editor's Validation report) with ONE entry naming those files and the optional
-  `factoria call scene.format`. `scene.format {check, strict}` is still the CI gate.
+FactorIA 0.2.0 is about finishing and shipping a game: edit scenes by hand next to your AI, translate the game, add
+achievements and purchases on Steam, the App Store and Google Play, and export it for desktop stores, phones and the
+browser.
 
 Edit by hand in the editor
 
@@ -48,6 +33,15 @@ Edit by hand in the editor
   the middle of a drag to cancel it. A whole drag is one Undo step, it works for 2D and 3D, for things on the screen (like
   a score) and for things inside another, and while the game is paused it edits the running game.
 
+Revert an AI run
+
+- Before each AI run the editor now saves a checkpoint of the project's files. When the run changed something, the chat
+  shows "This run changed N files" with a Revert button: one click (after a confirmation) puts back every file, deletes the
+  ones the run created and puts the scene back as one Undo step. Undo revert takes it back, and Edit > Revert Last AI Run
+  does the same from the menu. The AI is told about the revert in your next message. Checkpoints are kept in
+  `.factoria/checkpoints/` (newest 30) and are also available as the commands `checkpoint.create`, `checkpoint.list`,
+  `checkpoint.diff` and `checkpoint.restore`.
+
 Debug your scripts in VS Code
 
 - Press F5 in VS Code on a FactorIA project: the game starts and stops on your breakpoints. Step through your code line
@@ -73,6 +67,105 @@ Find out what makes your game slow
   summary in `play.report`, so the AI can see which script is the slow one.
 - `perf.profile` does the same on a headless run, with an optional input replay to reach the heavy part of the game. See
   `factoria docs read performance`.
+
+Your game in every language
+
+- Keep your texts in string tables (`locales/en.json`, `locales/es.json`...) and show them with a `key` on a `Text` or an
+  interface widget, or with `i18n.t("score", { points: 3 })` in scripts: placeholders, plural forms for each language and
+  a fallback language are built in. The game starts in the player's system language, and `i18n.setLanguage("es")`
+  switches at any moment, every text at once.
+- Text is laid out properly in every script: Arabic letters join and right-to-left lines start from the right, Chinese,
+  Japanese and Korean lines break between characters, and fallback fonts (`fallbackFonts` for the whole game,
+  `languageFonts` per language, in the `localization` part of `factoria.json`) fill in the characters your main font
+  does not have.
+- A text size option for players: `ui.textScale` makes every on-screen text and widget label bigger or smaller.
+- `factoria validate` finds missing and leftover keys (with "did you mean"), wrong placeholders and plural forms, and
+  any character none of your fonts can draw, naming the text and the file.
+- Send your texts to translators as a spreadsheet (CSV) or an XLIFF file with the command `i18n.export`, and bring the
+  translations back with `i18n.import`.
+- `factoria docs read localization` is the guide, and the ready-made menus have a Language option.
+
+Achievements, leaderboards, cloud saves and purchases
+
+- One script API for what a store gives a game: `platform` has achievements, stats, leaderboards, cloud saves, in-game
+  purchases (with restore), the store's overlay and rich presence. You write your game once, and the store it runs in
+  answers. List your achievements, leaderboards and products in the `platform` part of `factoria.json`.
+- Steam, Apple (App Store purchases, Game Center, iCloud) and Google Play (Play Billing, Play Games, Play Integrity):
+  `factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`, `"googleplay"`) sets one up in one step and
+  lists what is left for you to do in the store's dashboard.
+- While you make the game, and in every test, a pretend store answers, so your AI can test a purchase, a cancelled one
+  or an achievement without a store account. An exported game with no store set up never gives purchases away.
+- `platform.integrity.token` gives your game's server a signed token that vouches for the app and the device (Google
+  Play).
+- So far these were tried against simulated stores only: make a test purchase with the store's sandbox or test account
+  before you release. `factoria docs read platform` is the guide.
+
+Ready for the desktop stores
+
+- `factoria export --release` on Windows, macOS and Linux puts the whole game in one file, `game.pak`, with the scripts
+  compiled to bytecode. Exports no longer copy the project's top-level `README.md`.
+- When an exported game crashes it writes a report (what happened, where in the code, the last lines of the log) in a
+  `crashes` folder next to `log.txt`, plus a minidump on Windows. Nothing is sent anywhere: a player can send it to you.
+- Upload your game to Steam (`publish.steam`, with steamcmd), itch.io (`publish.itch`, with butler), the Epic Games
+  Store (`publish.epic`, with BuildPatchTool) and GOG (`publish.gog`, with Galaxy Pipeline Builder) from your AI or the
+  command line, each with a dry run to try first. Passwords and keys stay in environment variables or your user
+  folder, never in the project.
+- macOS: `factoria call sign.macos` signs your exported app with your Developer ID, has Apple notarize it and staples
+  the ticket, so players can open it without a warning.
+- Linux: `factoria export --platform linux --format appimage` makes the game one AppImage file with its icon and menu
+  entry. Linux games exported from the FactorIA download now run on older systems and in the Steam Linux Runtime (glibc
+  2.31 or newer).
+- `factoria call project.new_ci_workflow` writes a GitHub Actions workflow that validates, tests and exports your game on
+  every push.
+
+Phones and tablets
+
+- Change to know about: `factoria export --platform android --release` now stops when your game has no signing key,
+  because Google Play rejects an app signed with the debug key. The message tells you how to make a key. To try a release
+  build on your own phone anyway, add `--allow-debug-key` (the export command's `allowDebugKey` option).
+- Menus and heads-up displays can keep clear of the notch, rounded corners and system bars: switch on `safeArea` next to
+  `anchor` on a sprite, text, shape, particle emitter or interface widget, and it is placed against the free part of the
+  screen. Scripts can read it as `screen.safeArea`. You can try a notched phone without one with
+  `screen.set_safe_area {"profile":"phone-portrait"}`.
+- The Android Back button and gesture now reach your game as `input.onBack`: close a menu or go up one screen and the game
+  stays open. If nothing handles it the game closes, as before.
+- `input.vibrate()` makes a phone vibrate (a light tap on iPhones). Exported Android games include the permission for it.
+- Android games can raise the on-screen keyboard for text fields and receive what is typed. Keyboards that compose words
+  (predictive text, swipe typing, emoji, Asian languages) still cannot type into an Android game; physical keyboards work.
+- An on-screen gamepad for games made for a controller: add a `TouchStick` and a few `TouchButton`s to a scene and players
+  move with the thumb and press A, B... on the screen. They press the same gamepad buttons and stick a real controller
+  does, so your game needs no other change. Several fingers work at once, the controls stay clear of the notch, and they
+  only show while the player is using touch (they hide when a real controller or keyboard is used).
+- Tests can press Back, fake a notch, check vibrations and touch the on-screen gamepad without a device.
+- iPhone and iPad exports include the privacy file the App Store asks for (`PrivacyInfo.xcprivacy`), listing the few
+  system features FactorIA uses and saying that nothing is collected or tracked. If your game or a plugin collects data,
+  tracks players or uses more system features, add them under `export.ios.privacy` in `factoria.json`; mistakes in it are
+  reported with the fix. The app also says it uses no special encryption, so App Store Connect stops asking at every
+  upload (`export.ios.usesNonExemptEncryption` changes it).
+- `factoria setup players --platforms mobile` now also downloads the iPhone and iPad libraries on Windows and Linux, so
+  you can prepare an iOS project there without pointing at a macOS download. Building it still needs a Mac.
+- The mobile guide lists what to answer in Google Play's Data safety form and in App Store Connect's App Privacy section.
+
+Upload your phone builds
+
+- Upload your iOS build to TestFlight and App Store Connect from your AI or the command line (`publish.appstore`,
+  on a Mac): you archive the game in Xcode as before, FactorIA sends the `.ipa` with an App Store Connect API key. Run it
+  with `dryRun` first to see the exact command.
+- Upload your Android release bundle to Google Play (`publish.googleplay`, needs fastlane): pick the track (internal
+  testing by default), leave the release as a draft or roll it out, and send the "What's new" text per language from
+  files of your project. A bundle signed with the debug key is refused before anything is sent. Google Play still wants the
+  first bundle of a new app uploaded by hand.
+- Your keys stay in files outside the project and are never shown or logged.
+
+Games in the browser
+
+- Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder
+  with an `index.html` that plays the game in any modern browser, and a `.zip` of it ready to upload to itch.io as an
+  HTML5 game. The page shows a loading bar and explains in plain words when something is wrong (an old browser, a
+  download that failed).
+- In the browser, saves made with `storage` are kept between visits, sound starts with the player's first click or key,
+  and gamepads work. Native plugins and store services (achievements, purchases) are not available on the web.
+- The web player comes with every FactorIA download; `factoria setup players --platforms web` installs it if you need it.
 
 Better looking 3D, and much bigger 3D scenes
 
@@ -150,87 +243,6 @@ More for 2D games
 - Joints: a `Joint2D` on a body ties it to the world or another body as a hinge (revolute), rope (distance), slider
   (prismatic) or glue (weld), with limits, motors and springs. Scripts can read the reaction force and switch a motor.
 
-Games in the browser
-
-- Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder
-  with an `index.html` that plays the game in any modern browser, and a `.zip` of it ready to upload to itch.io as an
-  HTML5 game. The page shows a loading bar and explains in plain words when something is wrong (an old browser, a
-  download that failed).
-- In the browser, saves made with `storage` are kept between visits, sound starts with the player's first click or key,
-  and gamepads work. Native plugins and store services (achievements, purchases) are not available on the web.
-- The web player comes with every FactorIA download; `factoria setup players --platforms web` installs it if you need it.
-
-Phones and tablets
-
-- Change to know about: `factoria export --platform android --release` now stops when your game has no signing key,
-  because Google Play rejects an app signed with the debug key. The message tells you how to make a key. To try a release
-  build on your own phone anyway, add `--allow-debug-key` (the export command's `allowDebugKey` option).
-- Menus and heads-up displays can keep clear of the notch, rounded corners and system bars: switch on `safeArea` next to
-  `anchor` on a sprite, text, shape, particle emitter or interface widget, and it is placed against the free part of the
-  screen. Scripts can read it as `screen.safeArea`. You can try a notched phone without one with
-  `screen.set_safe_area {"profile":"phone-portrait"}`.
-- The Android Back button and gesture now reach your game as `input.onBack`: close a menu or go up one screen and the game
-  stays open. If nothing handles it the game closes, as before.
-- `input.vibrate()` makes a phone vibrate (a light tap on iPhones). Exported Android games include the permission for it.
-- Android games can raise the on-screen keyboard for text fields and receive what is typed. Keyboards that compose words
-  (predictive text, swipe typing, emoji, Asian languages) still cannot type into an Android game; physical keyboards work.
-- An on-screen gamepad for games made for a controller: add a `TouchStick` and a few `TouchButton`s to a scene and players
-  move with the thumb and press A, B... on the screen. They press the same gamepad buttons and stick a real controller
-  does, so your game needs no other change. Several fingers work at once, the controls stay clear of the notch, and they
-  only show while the player is using touch (they hide when a real controller or keyboard is used).
-- Tests can press Back, fake a notch, check vibrations and touch the on-screen gamepad without a device.
-- iPhone and iPad exports include the privacy file the App Store asks for (`PrivacyInfo.xcprivacy`), listing the few
-  system features FactorIA uses and saying that nothing is collected or tracked. If your game or a plugin collects data,
-  tracks players or uses more system features, add them under `export.ios.privacy` in `factoria.json`; mistakes in it are
-  reported with the fix. The app also says it uses no special encryption, so App Store Connect stops asking at every
-  upload (`export.ios.usesNonExemptEncryption` changes it).
-- `factoria setup players --platforms mobile` now also downloads the iPhone and iPad libraries on Windows and Linux, so
-  you can prepare an iOS project there without pointing at a macOS download. Building it still needs a Mac.
-- The mobile guide lists what to answer in Google Play's Data safety form and in App Store Connect's App Privacy section.
-
-Upload your phone builds
-
-- Upload your iOS build to TestFlight and App Store Connect from your AI or the command line (`publish.appstore`,
-  on a Mac): you archive the game in Xcode as before, FactorIA sends the `.ipa` with an App Store Connect API key. Run it
-  with `dryRun` first to see the exact command.
-- Upload your Android release bundle to Google Play (`publish.googleplay`, needs fastlane): pick the track (internal
-  testing by default), leave the release as a draft or roll it out, and send the "What's new" text per language from
-  files of your project. A bundle signed with the debug key is refused before anything is sent. Google Play still wants the
-  first bundle of a new app uploaded by hand.
-- Your keys stay in files outside the project and are never shown or logged.
-
-A complete example game
-
-- Lantern Keep (`examples/lantern-keep`) is a small but complete 2D platformer, made the way your AI makes a game: six
-  levels, menus, three save slots with a level select and cloud saves, achievements, leaderboards and a shop of cosmetics
-  on the test store, accessibility options (text size, a slower game, invincibility, no screen shake), four languages
-  including Arabic, an on-screen gamepad for phones and export settings ready for the stores. Read it, copy from it, or
-  point your AI at it. Its `SHIPPING.md` lists what each store needs and what is still done by hand.
-
-Guides for finishing and publishing
-
-- `factoria docs read finishing` takes a game that plays to a game a store accepts, step by step with Lantern Keep's
-  code: menus, options that stay set, saves that survive updates, languages, accessibility, credits and tests.
-- `factoria docs read publishing` has one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App
-  Store, itch.io, your own site): what FactorIA does for you and what you still do by hand, with fees and review times.
-- Store images and trailers: `assets.draw_capsules` makes every picture a store page asks for (Steam capsules, Epic,
-  GOG, Microsoft Store, Google Play, App Store screenshots, the itch.io cover) from one picture of your game and your
-  logo or title. `factoria run --headless --input replay.json --record-video trailer.avi` records a trailer from an
-  input replay, with sound; ask for `trailer.mp4` when ffmpeg is installed.
-
-Learn FactorIA
-
-- Two tutorials for people. `factoria docs read first-game-with-ai` makes your first game with the editor and an AI in
-  six rounds, starting from the 2D platformer template: what to type, what to look for and how to undo.
-  `factoria docs read make-by-hand` builds a small game by hand from the empty template (collect four gems, then a "You
-  win!" screen), one whole file at a time, with a check after each step.
-- What a game costs to make with AI: `factoria docs read ai-costs` shows what a complete game cost in a real run, what
-  makes a run cheap or expensive, how to set a spending limit and where to see what you spent.
-- A browsable API reference in the FactorIA repository: `docs/reference/` has an index of every component and command,
-  one page per category, and the version that added each one.
-- Searching the docs (`factoria docs search`, and your AI over MCP) shows the best section of each guide first, so a
-  name like `onTriggerEnter` finds the scripting reference instead of many sections of one tutorial.
-
 Accessibility, speed checks and legal texts
 
 - Colour filters for players: `colorFilter` on the `Camera` turns the whole picture greyscale, raises the contrast, or
@@ -257,6 +269,38 @@ Accessibility, speed checks and legal texts
 - Privacy policy and license: `factoria docs read legal` says what FactorIA sends from your game (nothing by itself),
   gives a privacy policy you can copy for a game that collects nothing, the paragraphs to add when you use analytics,
   ads, accounts or cloud saves, and when you need a license agreement of your own. It is not legal advice.
+
+Guides for finishing and publishing
+
+- `factoria docs read finishing` takes a game that plays to a game a store accepts, step by step with Lantern Keep's
+  code: menus, options that stay set, saves that survive updates, languages, accessibility, credits and tests.
+- `factoria docs read publishing` has one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App
+  Store, itch.io, your own site): what FactorIA does for you and what you still do by hand, with fees and review times.
+- Store images and trailers: `assets.draw_capsules` makes every picture a store page asks for (Steam capsules, Epic,
+  GOG, Microsoft Store, Google Play, App Store screenshots, the itch.io cover) from one picture of your game and your
+  logo or title. `factoria run --headless --input replay.json --record-video trailer.avi` records a trailer from an
+  input replay, with sound; ask for `trailer.mp4` when ffmpeg is installed.
+
+A complete example game
+
+- Lantern Keep (`examples/lantern-keep`) is a small but complete 2D platformer, made the way your AI makes a game: six
+  levels, menus, three save slots with a level select and cloud saves, achievements, leaderboards and a shop of cosmetics
+  on the test store, accessibility options (text size, a slower game, invincibility, no screen shake), four languages
+  including Arabic, an on-screen gamepad for phones and export settings ready for the stores. Read it, copy from it, or
+  point your AI at it. Its `SHIPPING.md` lists what each store needs and what is still done by hand.
+
+Learn FactorIA
+
+- Two tutorials for people. `factoria docs read first-game-with-ai` makes your first game with the editor and an AI in
+  six rounds, starting from the 2D platformer template: what to type, what to look for and how to undo.
+  `factoria docs read make-by-hand` builds a small game by hand from the empty template (collect four gems, then a "You
+  win!" screen), one whole file at a time, with a check after each step.
+- What a game costs to make with AI: `factoria docs read ai-costs` shows what a complete game cost in a real run, what
+  makes a run cheap or expensive, how to set a spending limit and where to see what you spent.
+- A browsable API reference in the FactorIA repository: `docs/reference/` has an index of every component and command,
+  one page per category, and the version that added each one.
+- Searching the docs (`factoria docs search`, and your AI over MCP) shows the best section of each guide first, so a
+  name like `onTriggerEnter` finds the scripting reference instead of many sections of one tutorial.
 
 Fixed while making Lantern Keep
 
@@ -318,6 +362,20 @@ code of its own:
 - On Windows, deleting a folder that holds files with very long paths (a macOS export nests four folders) now deletes
   all of it: exporting again into the same folder, `fs.delete` and deleting a project from the editor no longer leave
   old files behind.
+
+Smaller improvements
+
+- The editor's Screenshot toast has a "Show in Finder" / "Show in Explorer" button (it names your file manager) that reveals
+  the new PNG, and File > Open Screenshots Folder opens the hidden `.factoria/screenshots/` folder (creating it if needed).
+  A toast with a button stays longer and does not vanish while the mouse is over it.
+- `factoria validate` no longer warns that a hand-written scene or prefab is "not in the canonical layout": such a file is
+  valid. The report has a new informational `notes` list (`note:` lines in the text, `notes` in `--json`, the
+  `project.validate` result and the editor's Validation report) with ONE entry naming those files and the optional
+  `factoria call scene.format`. `scene.format {check, strict}` is still the CI gate.
+- On Windows `factoria` now prints LF line endings like on macOS and Linux, so a doc or a JSON answer saved with `>`
+  has no carriage returns.
+- A Linux game named "game" now exports with the executable `game-bin`, so it no longer clashes with the `game` data
+  folder next to it.
 
 ## 0.1.6
 

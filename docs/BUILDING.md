@@ -340,7 +340,7 @@ A release holds these files (the header of `release.yml` says the same):
 
 | File | What it is | How CI checks it |
 |---|---|---|
-| `FactorIA-windows-x64.zip` | Windows package; what the editor's updater downloads, also for a copy made by the installer | `version`, `new`, `test`, `export` from a temp folder |
+| `FactorIA-windows-x64.zip` | Windows package; what the editor's updater downloads, also for a copy made by the installer | `version`, `docs read` and `docs.read` with no carriage return, `new`, `test`, `export` from a temp folder |
 | `FactorIA-windows-x64-setup.exe` | Installer of the same files, built with Inno Setup from `platforms/windows/FactorIA.iss`: per user (no administrator prompt) into `%LOCALAPPDATA%\Programs\FactorIA`, Start menu entry, folder on the user PATH (once), uninstaller | Silent install, PATH entry read from the registry, `factoria version/new/test` from the installed copy, a second install (no second PATH entry), silent uninstall (PATH entry, shortcut, files and the updater's leftovers gone) |
 | `FactorIA-macos-universal.tar.gz` | arm64 + x86_64 in one binary (`CMAKE_OSX_ARCHITECTURES="arm64;x86_64"`); what the editor's updater downloads | `lipo -archs` lists both; the Intel half runs through Rosetta when the runner has it |
 | `FactorIA-macos-arm64.tar.gz` | The same file, only because editors up to 0.1.2 download this name. Remove the `publish` step that copies it once nobody runs them | none (a copy) |

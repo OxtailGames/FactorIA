@@ -16,7 +16,7 @@ Writes {"format":"factoria.prefab/1","entity":{...}} in the canonical compact la
 
 ## `scene.ascii_edit` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level.
 
@@ -148,7 +148,7 @@ Add a component to an entity (if missing) and set the given fields.
 
 ## `scene.set_parent` (modifies state)
 
-Not released yet (on main after 0.1.6).
+Since 0.2.0.
 
 Move an entity under another entity, or to the top level of the scene.
 

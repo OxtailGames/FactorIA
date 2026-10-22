@@ -565,8 +565,6 @@ drop the workaround (its `workaroundFiles` say where).
 **M24.1-M24.16 are done** (PRs #95, #96, #98, #99, #100, #101, #103-#110, #112, #113 and the `m24/bookkeeping` and
 `m24/bookkeeping-2` PRs; what they built is in [ROADMAP_DONE.md](ROADMAP_DONE.md), M24.1-M24.6, M24.7-M24.14 and
 M24.15-M24.16). Left open from them:
-- M24.3: the released Windows binary was never checked (`factoria docs read menus > f` and `factoria call docs.read`
-  with no `\r`); do it once with the next release.
 - M24.6: the web (IndexedDB) and mobile save paths run the same code but were not run with a damaged file; the save
   recipe with versions and migration is M21's.
 - M24.8: saving a scene while a widget is grown by `autoSize` (another language or a bigger text size than the design)
