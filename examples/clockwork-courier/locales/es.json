@@ -7,7 +7,10 @@
     "options": "Opciones",
     "credits": "Créditos",
     "quit": "Salir",
-    "back": "Atrás"
+    "back": "Atrás",
+    "shop": "Tienda",
+    "achievements": "Logros",
+    "leaderboards": "Clasificaciones"
   },
   "loading": {
     "text": "Cargando..."
@@ -147,5 +150,132 @@
     "hint": "Sé más rápido, o busca un camino más corto.",
     "retry": "Reintentar",
     "toTitle": "Salir al título"
+  },
+  "shop": {
+    "title": "Taller de pintura",
+    "prev": "<",
+    "next": ">",
+    "equip": "Ponérsela",
+    "equipped": "La lleva puesta",
+    "locked": "Bloqueada",
+    "buy": "Comprar {price}",
+    "removeAds": "Quitar anuncios  {price}",
+    "adsRemoved": "Anuncios quitados, gracias",
+    "tip": "Lata de aceite para el robot  {price}  (regaladas: {count})",
+    "restore": "Restaurar compras",
+    "working": "Hablando con la tienda...",
+    "thanks": "¡Gracias!",
+    "cancelled": "Cancelado. No se ha cobrado nada.",
+    "pending": "Esperando aprobación. Aparecerá aquí cuando la tienda lo confirme.",
+    "unreachable": "La tienda no respondió ({code}). No se ha cobrado nada. Inténtalo más tarde.",
+    "restored": "Compras restauradas.",
+    "nothingToRestore": "No hay nada que restaurar en esta cuenta.",
+    "granted": "Compra recibida: {name}",
+    "state": {
+      "equipped": "El robot lleva esta pintura.",
+      "free": "Pintura gratuita.",
+      "owned": "Desbloqueada.",
+      "stars": "Necesita {stars} estrellas (tienes {have}).",
+      "buy": "Una pintura de la tienda."
+    },
+    "paint": {
+      "factory": "Naranja de fábrica",
+      "rust": "Óxido",
+      "mint": "Menta",
+      "midnight": "Medianoche",
+      "gold": "Oro",
+      "copper": "Cobre",
+      "neon": "Neón"
+    },
+    "product": {
+      "remove_ads": "Quitar anuncios",
+      "paint_copper": "Pintura cobre",
+      "paint_neon": "Pintura neón",
+      "tip_jar": "Lata de aceite"
+    }
+  },
+  "ach": {
+    "title": "Logros",
+    "count": "{unlocked} de {total} desbloqueados",
+    "toast": "Logro desbloqueado: {name}",
+    "first_delivery": {
+      "name": "Primera entrega",
+      "desc": "Entrega un paquete en cualquier nivel."
+    },
+    "rooftops_done": {
+      "name": "Habitual de los tejados",
+      "desc": "Termina los tres niveles de los Tejados."
+    },
+    "market_done": {
+      "name": "Noctámbulo",
+      "desc": "Termina los tres niveles del Mercado Nocturno."
+    },
+    "star_collector": {
+      "name": "Coleccionista de estrellas",
+      "desc": "Consigue 9 estrellas en total."
+    },
+    "all_stars": {
+      "name": "Todas las estrellas",
+      "desc": "Consigue las 18 estrellas."
+    },
+    "clean_run": {
+      "name": "Patas ligeras",
+      "desc": "Termina un nivel sin que te atrape un perro."
+    },
+    "last_second": {
+      "name": "Último tic",
+      "desc": "Entrega con menos de 5 segundos de cuerda."
+    },
+    "quick_courier": {
+      "name": "Velocidad de relojería",
+      "desc": "Termina un nivel dentro de su tiempo de referencia."
+    },
+    "extra_mile": {
+      "name": "Una milla más",
+      "desc": "Entrega el paquete opcional de un nivel."
+    },
+    "first_shortcut": {
+      "name": "Por el atajo",
+      "desc": "Toma un atajo en cualquier nivel."
+    },
+    "all_shortcuts": {
+      "name": "Conoce la ciudad",
+      "desc": "Encuentra todos los atajos de la ciudad."
+    },
+    "dog_whisperer": {
+      "name": "Susurraperros",
+      "desc": "Haz que los perros guardianes abandonen la persecución 5 veces."
+    },
+    "daily_courier": {
+      "name": "Mensajero diario",
+      "desc": "Termina la ruta diaria."
+    },
+    "fresh_paint": {
+      "name": "Mano de pintura",
+      "desc": "Pinta el robot de otro color."
+    }
+  },
+  "board": {
+    "title": "Clasificaciones",
+    "time": "Mejor tiempo: {level}",
+    "daily": "Ruta diaria",
+    "stars": "Estrellas totales",
+    "yourBest": "Tu mejor marca: {score}",
+    "loading": "Cargando...",
+    "signedOut": "No has iniciado sesión, así que no hay clasificaciones que mostrar. Tus marcas se guardan y se envían cuando inicies sesión.",
+    "unavailable": "Esta versión del juego no tiene clasificaciones.",
+    "empty": "Aún nadie tiene marca aquí. Gana este nivel para ser el primero.",
+    "error": "La tienda no respondió ({code}).",
+    "rank": "Tu puesto: {rank}",
+    "noRank": "Todavía no estás en esta clasificación.",
+    "signIn": "Iniciar sesión",
+    "retry": "Reintentar"
+  },
+  "ads": {
+    "testAd": "Anuncio de prueba",
+    "claim": "Recoger recompensa",
+    "skip": "Saltar",
+    "moreTimeAd": "Ver un anuncio: {seconds} segundos más",
+    "moreTimeFree": "{seconds} segundos más (gratis)"
   }
 }

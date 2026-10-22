@@ -134,7 +134,10 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/level_select.js`, `profile.js`, `results_view.js` | Level select, name screen with the on-screen keyboard, the text of the results panel. |
 | `scripts/daily.js`, `clock.js` | The daily route (seeded by the date) and the calendar date (pinnable in tests). |
 | `scripts/hud.js`, `parcel.js`, `delivery_door.js` | Spring bar, parcel counter, pickup and delivery. |
-| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading). |
+| `scripts/services.js`, `store.js`, `paints.js`, `shortcuts.js` | P4 store services: achievements, stats and score submissions that listen to the events; purchases and the wallet; robot paints; the shortcut zones (see "Contract: store services"). |
+| `scripts/ads.js`, `ad_stub.js`, `more_time.js` | P4 rewarded "more time" on the retry screen: the ad provider interface, the stub overlay, the button and the continue. |
+| `scripts/ui/shop.js`, `achievements.js`, `leaderboards.js`, `toast.js` | P4 screens of the title (Shop, Achievements, Leaderboards) and the achievement toast. |
+| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js` (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
 
 ### Contract: levels (`scripts/levels.js`)
@@ -200,10 +203,13 @@ with `*` and `-` (the font has no star glyph). The HUD shows the name (`name_tex
 | `dog_alerted` | `{ dog, position }` |
 | `dog_gave_up` | `{ dog }` |
 | `checkpoint_reached` | `{ checkpoint, position }` (moves the respawn point) |
-| `level_completed` | `{ level, time, springLeft, stars, goals: { fast, springy, thorough }, best, daily }` (`daily` true for a daily run) |
-| `daily_route_finished` | `{ date, level, time }` |
+| `level_completed` | `{ level, time, springLeft, stars, goals: { fast, springy, thorough }, best, daily, continued }` (`daily` true for a daily run; `continued` true when the run used the rewarded "more time", and such a time is not sent to the leaderboards) |
 | `level_failed` | `{ level, reason }` (`spring_empty`; a catch and a fall respawn at the last checkpoint) |
 | `game_paused`, `game_resumed` | none |
+| `shortcut_found` | `{ level, shortcut }` (P4: `services.js` sends it when the courier enters a zone of `shortcuts.js`; once per zone per attempt) |
+| `daily_route_finished` | `{ date, level, time }` (P3 sends it, P4 counts it and submits the time to `daily_route`) |
+| `paint_equipped` | `{ paint }` (the shop sends it) |
+| `more_time_granted` | `{ level, seconds }` (`more_time.js` sends it after the ad) |
 
 ### Contract: the autoplay bot (`tests/helpers/autoplay.js`)
 
@@ -212,6 +218,55 @@ action), so it exercises the same path as a player. `goTo({x, z, radius, jump?},
 `run(waypoints, until?)` return `{ reached, frames }`; `stop()` releases the controls. A waypoint also takes `walk`
 (sneak), `act` (press the Act button), `wait` (frames) and `hold` (wait for a moving platform). `YARD_ROUTE` delivers the
 yard's parcel; `tests/helpers/routes.js` has `ROUTES[levelId] = { main, shortcut }` for the six levels.
+
+### Contract: store services (P4)
+
+The catalog is `platform` in `factoria.json`; the code never talks to a store directly except through `scripts/services.js`
+and `scripts/store.js`. Every platform call is a Promise and every one can fail, so the game keeps its own saves
+(`storage` keys `services` and `store`) and the store is where they are mirrored: a call that fails with `notSignedIn` or
+`network` waits in the `outbox` of the `services` save and is sent when the player signs in or at the next start.
+
+| Piece | What |
+|---|---|
+| `services.js` | A behaviour `store_services` that `level_flow.js` and `main_menu.js` spawn with `services.ensure()` (the eight level scenes are not edited). It signs in, restores purchases (`store.reconcile()`), flushes the outbox, listens to the events and unlocks, counts and submits. Helpers: `isUnlocked(id)`, `stat(id)`, `timeBoard(levelId)`, `current()`; its field `toasts` shows "Achievement unlocked" toasts. |
+| `store.js` | The wallet (`owned`, `seen` transaction ids, worn `paint`, `tips`). `buy(id)` resolves `{ status: purchased, pending, cancelled or failed, key }`; `restore()`; `reconcile({ authoritative })` (a store that stops listing a product revokes it, only on a real store); `listen()` for purchases that arrive outside `buy()`; `owns`, `noAds`, `paintUnlocked`, `equippedPaint`, `equip`. Grant first (save), then `finish`, `seen` makes a transaction count once. |
+| `paints.js` | Seven robot paints: Factory orange (free), Rust (3 stars), Mint (8), Midnight (13), Gold (18), Copper and Neon (products). `apply(entity, id)` sets `MeshRenderer.color` and `emissive`. The courier's `model` and the title robot wear the worn paint. |
+| `shortcuts.js` | Six zones (rooftops 1 and 2, market 1 and 2 have a spatial shortcut; rooftops 3 and market 3 do not): `inside(levelId, position)`, `all()`, `total()`. |
+| `ads.js` | `moreTimeOffer()` is `{ mode: "free" | "ad" | "none" }`, `requestMoreTime()` runs it, `setProvider(p)` installs an ad SDK. |
+
+**Achievements** (ids = locale keys `ach.<id>.name` / `.desc`): `first_delivery` (a parcel delivered), `rooftops_done` and
+`market_done` (every level of the district won), `star_collector` (9 stars), `all_stars` (18), `clean_run` (a level won without
+being caught), `last_second` (won with under 5 s of spring left), `quick_courier` (won within the par time), `extra_mile` (an
+optional parcel), `first_shortcut`, `all_shortcuts` (the six zones), `dog_whisperer` (5 dogs gave up), `daily_courier` (a
+`daily_route_finished`), `fresh_paint` (a paint other than the factory one worn).
+
+**Stats** (integers, mirrored with `stats.set` of the local value, so a repeated call changes nothing): `levels_won`,
+`parcels_delivered`, `times_caught`, `springs_run_down`, `dogs_shaken`, `keys_wound`, `shortcuts_found`, `more_time_used`.
+
+**Leaderboards**: `time_<level>` for the six levels (ascending, milliseconds), `total_stars` (descending), `daily_route`
+(ascending, milliseconds). A level time that used the rewarded time is not submitted; the test yard has no board.
+
+**Products**: `remove_ads` (non-consumable), `paint_copper`, `paint_neon` (non-consumable), `tip_jar` "Oil can"
+(consumable). Apple has no stats (`platform.has("stats")` is false): those calls are dropped, the game keeps counting.
+
+**Ads provider** (`scripts/ads.js`; the engine has no ads API): an object
+`{ name, available(): boolean, showRewarded(placement): Promise<{ rewarded: boolean, reason? }> }`. `reason` is `skipped`,
+`failed` or `noFill`. While the store is the fake one the stub (`ad_stub.js`: a "Test ad" overlay with a 3 s countdown, then
+"Claim reward" or "Skip") is used; any other backend has no provider and the retry screen shows no ad offer until an SDK
+plugin calls `ads.setProvider()`. **Remove ads** keeps the button and makes it free ("More time"), it does not remove the
+feature.
+
+**More time** (`more_time.js`): on the retry screen after the spring ran down, once per attempt, an ad gives 20 s and the
+courier gets up at the last checkpoint (`spring.resume(seconds)`, `flow.continued = true`).
+
+**Screens and menus**: the title has Shop, Achievements and Leaderboards buttons (`shop_button`, `achievements_button`,
+`leaderboards_button`); their panels are `shop`, `achievements` and `leaderboards` in `scenes/main.scene.json`. The leaderboards
+screen has the states `loading`, `signedOut`, `unavailable`, `empty`, `error` and `ready` (a field of the behaviour, the same
+text the player reads in `board_status`). Locale prefixes: `shop.*`, `ach.*`, `board.*`, `ads.*`.
+
+**StoreKit file**: `factoria export --platform ios` writes `Products.storekit` only when the Apple plugin is declared and
+built (`factoria call platform.add_backend '{"backend":"apple"}'` on a Mac). Checked on a scratch copy: the four
+products, their types (NonConsumable, Consumable), prices and English titles come out as in `factoria.json`.
 
 ## Known limits
 

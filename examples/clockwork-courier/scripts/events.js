@@ -23,7 +23,8 @@ export const EVENTS = Object.freeze({
   courierCaught: "courier_caught",
   /** A checkpoint was touched: { checkpoint: entity id, position: [x, y, z] }. */
   checkpointReached: "checkpoint_reached",
-  /** The level was won: { level: id, time, springLeft, stars: 1..3, goals: { fast, springy, thorough }, best: bool }. */
+  /** The level was won: { level: id, time, springLeft, stars: 1..3, goals: { fast, springy, thorough }, best: bool, daily: bool,
+   *  continued: bool } (daily: a daily route run; continued: the run used the rewarded "more time"). */
   levelCompleted: "level_completed",
   /** The level was lost: { level: id, reason: "spring_empty" } (a catch is not a loss: see courierCaught). */
   levelFailed: "level_failed",
@@ -38,6 +39,12 @@ export const EVENTS = Object.freeze({
   gamePaused: "game_paused",
   /** The pause menu closed. */
   gameResumed: "game_resumed",
+  /** The courier took a shortcut (scripts/shortcuts.js zones, sent by scripts/services.js): { level: id, shortcut: zone id }. */
+  shortcutFound: "shortcut_found",
+  /** The player put on another paint (the shop): { paint: id }. */
+  paintEquipped: "paint_equipped",
+  /** The spring got extra seconds after a rewarded ad (scripts/more_time.js): { level: id, seconds }. */
+  moreTimeGranted: "more_time_granted",
 });
 
 /** Sends an event to every listener of the scene (world.emit with a name from EVENTS). */

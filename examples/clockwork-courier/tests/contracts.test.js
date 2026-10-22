@@ -110,6 +110,10 @@ describe("events.js", () => {
         "parcel_picked",
         "spring_empty",
         "spring_wound",
+        // P4 (store services):
+        "more_time_granted",
+        "paint_equipped",
+        "shortcut_found",
       ].sort(),
     );
   });
