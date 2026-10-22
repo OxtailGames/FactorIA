@@ -317,6 +317,7 @@ void Editor::draw_toasts() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     float y = vp->WorkPos.y + ImGui::GetFrameHeight() * 2 + 18;
     int i = 0;
+    std::function<void()> fired;
     for (auto it = toasts_.rbegin(); it != toasts_.rend(); ++it, ++i) {
         ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, y), ImGuiCond_Always, ImVec2(0.5f, 0));
         ImGui::SetNextWindowBgAlpha(0.92f);
@@ -330,23 +331,21 @@ void Editor::draw_toasts() {
         ImGui::PushTextWrapPos(460);
         ImGui::TextUnformatted(it->text.c_str());
         ImGui::PopTextWrapPos();
-        bool fire = false;
         if (!it->actionLabel.empty()) {
-            if (ImGui::SmallButton((it->actionLabel + "##toastAction").c_str())) fire = true;
+            if (ImGui::SmallButton((it->actionLabel + "##toastAction").c_str())) {
+                fired = std::move(it->action);
+                it->actionLabel.clear();
+                it->expires = 0;
+            }
             at_track(it->actionId);
             if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)) toastHover_ = true;
-        }
-        if (fire) {
-            auto act = std::move(it->action);
-            it->actionLabel.clear();
-            it->expires = 0;
-            if (act) act();
         }
         y += ImGui::GetWindowHeight() + 6;
         ImGui::End();
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor();
     }
+    if (fired) fired();  // after the loop: the action may notify(), which grows toasts_
 }
 
 }  // namespace fa::editor

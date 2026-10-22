@@ -236,8 +236,7 @@ void note_hand_formatted(ValidationReport& report, const std::vector<std::string
     std::string list;
     for (std::size_t i = 0; i < files.size() && i < kListed; ++i) list += (i ? ", " : "") + files[i];
     if (files.size() > kListed) list += ", and " + std::to_string(files.size() - kListed) + " more";
-    ValidationIssue n;
-    n.file = files.front();
+    ValidationIssue n;  // no `file`: the message lists them
     n.message = std::to_string(files.size()) + " scene/prefab file" + (files.size() == 1 ? " is" : "s are") + " formatted by hand: " + list +
                 " (" + (files.size() == 1 ? "it is" : "they are") + " valid; only whitespace differs from what scene.save writes).";
     n.hint = "Optional: `factoria call scene.format` rewrites " + std::string(files.size() == 1 ? "it" : "them") + " so later diffs stay small.";
@@ -487,7 +486,7 @@ Json ValidationIssue::to_json() const {
 std::string ValidationIssue::to_string() const {
     std::string s = file;
     if (!pointer.empty()) s += "#" + pointer;
-    s += ": " + message;
+    s += (s.empty() ? "" : ": ") + message;  // a note about several files names them in its message
     if (!hint.empty()) s += " (hint: " + hint + ")";
     return s;
 }
