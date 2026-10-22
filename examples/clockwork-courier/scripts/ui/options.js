@@ -11,7 +11,7 @@ import * as haptics from "../haptics.js";
 import { MenuStack } from "./menu_stack.js";
 
 const TABS = ["video", "audio", "play", "touch", "controls", "language"];
-/** Slider ranges of the touch options: [min, max] (the slider shows the real value as a plain number, 1 = the normal size or speed: no format option, FB-0022). */
+/** Slider ranges of the touch options: [min, max] (the slider shows the real value as a plain number, 1 = the normal size or speed: no format option, FB-0037). */
 const RANGES = { controlSize: [0.8, 1.4], controlOpacity: [0.3, 1], cameraSensitivity: [0.4, 2.5] };
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];

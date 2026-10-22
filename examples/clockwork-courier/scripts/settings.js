@@ -125,7 +125,7 @@ export function apply(s = load()) {
   if (s.fullscreen !== null) tryApply("full screen", () => window.setFullscreen(s.fullscreen));
   if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
-  if (!onPhone()) tryApply("frame cap", () => (window.frameCap = s.frameCap)); // a phone throws: ENGINE_FEEDBACK FB-0021
+  if (!onPhone()) tryApply("frame cap", () => (window.frameCap = s.frameCap)); // a phone throws: ENGINE_FEEDBACK FB-0036
 }
 
 /** apply() the first time it is called in a run: session values outlive scene loads (and each test starts afresh). */
