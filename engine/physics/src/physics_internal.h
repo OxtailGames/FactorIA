@@ -213,6 +213,10 @@ private:
         bool jointed = false;         // has a Joint3D: always a rotating rigid body, never sleeps
         bool character = false;       // CharacterController3D: kinematic capsule moved by move_character
         float stepOffset = 0.3f, slopeLimit = 45.0f, skin = 0.02f;  // character controller
+        bool carriedByPlatforms = true, applyWeight = true;         // character controller: see CharacterController3D
+        float charMass = 70.0f, pushStrength = 1.0f;
+        Entity support;               // character: the body it stood on after its last move (null = airborne)
+        float pendingTurn = 0.0f;     // character: yaw (degrees) a turning platform gave it this step, written to the Transform
         std::string problem;          // why the collider is ignored ("" = none)
         std::string meshName;         // convex / mesh: Collider3D.mesh
         // Box frame in world space: the entity's world rotation. Exactly the identity (and `rotated` false, which

@@ -555,6 +555,10 @@ void Physics3D::sync(World& world) {
                     b.stepOffset = std::max(cc->stepOffset * as.y, 0.0f);
                     b.slopeLimit = clamp(cc->slopeLimit, 0.0f, 89.0f);
                     b.skin = std::max(cc->skin, 1e-3f);
+                    b.carriedByPlatforms = cc->carriedByPlatforms;
+                    b.applyWeight = cc->applyWeight;
+                    b.charMass = std::max(cc->mass, 0.0f);
+                    b.pushStrength = std::max(cc->pushStrength, 0.0f);
                 }
             } else if (b.data) {
                 const MeshGeometry& g = *b.data->geometry;
@@ -864,6 +868,7 @@ void Physics3D::step(World& world, float dt) {
     const int subs = std::max(settings_.subSteps, 1);
     const float h = dt / float(subs);
     std::map<PairKey, float> impacts;
+    std::vector<char> charCarried(n, 0);  // per character: already carried by a platform this sub-step
     std::vector<int> carrier(n, -1);  // per body: index of the kinematic body carrying it this sub-step
 
     // Dynamic bodies resting on top of body k (k at its current center, optionally shifted).
@@ -878,6 +883,18 @@ void Physics3D::step(World& world, float dt) {
             if (c.hit && c.normal.y > 0.7f) out.push_back(i);
         }
     };
+    // Characters standing on top of body k (a capsule rests a skin above the surface, so the gap is the controller's
+    // own: skin + the ground probe, 0.06 m at the default skin).
+    auto find_characters = [&](std::size_t k, std::vector<std::size_t>& out) {
+        const Body& p = bodies_[k];
+        if (!p.enabled || !p.hasShape || p.trigger || p.character) return;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Body& c = bodies_[i];
+            if (!c.character || !c.enabled || !c.carriedByPlatforms || !filters_pass(p, c)) continue;
+            const Contact ct = collide(p, c, c.skin + 0.04f);
+            if (ct.hit && ct.normal.y > 0.7f) out.push_back(i);
+        }
+    };
     // Teleported static/kinematic bodies carry their riders by the same displacement (detected at the old pose).
     for (std::size_t k = 0; k < n; ++k) {
         Body& p = bodies_[k];
@@ -887,6 +904,7 @@ void Physics3D::step(World& world, float dt) {
         std::vector<std::size_t> riders;
         p.center -= dp;
         find_riders(k, riders);
+        find_characters(k, riders);
         p.center += dp;
         for (std::size_t i : riders) {
             wake(bodies_[i]);
@@ -1050,18 +1068,57 @@ void Physics3D::step(World& world, float dt) {
 
     for (int s = 0; s < subs; ++s) {
         std::fill(carrier.begin(), carrier.end(), -1);
+        std::fill(charCarried.begin(), charCarried.end(), 0);
         for (std::size_t k = 0; k < n; ++k) {
             const Body& p = bodies_[k];
-            if (p.type != BodyType::Kinematic || p.vel == Vec3{}) continue;
-            riders.clear();
-            find_riders(k, riders);
-            Vec3 d = p.vel * h;
-            if (d.y > 0.0f) d.y = 0.0f;  // upward motion is delivered by the contact itself
-            for (std::size_t i : riders) {
-                if (carrier[i] >= 0) continue;
-                carrier[i] = int(k);
-                bodies_[i].center += d;
+            if (p.type != BodyType::Kinematic || p.character || (p.vel == Vec3{} && p.angVel == Vec3{})) continue;
+            if (p.vel != Vec3{}) {
+                riders.clear();
+                find_riders(k, riders);
+                Vec3 d = p.vel * h;
+                if (d.y > 0.0f) d.y = 0.0f;  // upward motion is delivered by the contact itself
+                for (std::size_t i : riders) {
+                    if (carrier[i] >= 0) continue;
+                    carrier[i] = int(k);
+                    bodies_[i].center += d;
+                }
             }
+            // A character is kinematic too, so nothing pushes it up: it takes the whole displacement, and the turn of a
+            // platform that spins (about the platform's centre; the character yaws with it).
+            riders.clear();
+            find_characters(k, riders);
+            for (std::size_t i : riders) {
+                if (charCarried[i]) continue;
+                charCarried[i] = 1;
+                Body& c = bodies_[i];
+                c.center += p.vel * h;
+                if (p.angVel != Vec3{}) {
+                    const Vec3 rel = c.center - p.center;
+                    const Vec3 w = p.angVel * (kDegToRad * h);
+                    const float ang = length(w);
+                    if (ang > 1e-9f) {  // Rodrigues rotation of the offset about the platform's turning axis
+                        const Vec3 ax = w * (1.0f / ang);
+                        const Vec3 turned = rel * std::cos(ang) + cross(ax, rel) * std::sin(ang) +
+                                            ax * (dot(ax, rel) * (1.0f - std::cos(ang)));
+                        c.center += turned - rel;
+                    }
+                    c.pendingTurn += p.angVel.y * h;
+                }
+            }
+        }
+        // A character presses on the dynamic body it stands on with mass * gravity, at its feet.
+        for (std::size_t i = 0; i < n; ++i) {
+            Body& c = bodies_[i];
+            if (!c.character || !c.enabled || !c.applyWeight || c.charMass <= 0.0f || c.support.is_null()) continue;
+            auto sit = index_.find(c.support.bits());
+            if (sit == index_.end()) continue;
+            Body& under = bodies_[sit->second];
+            if (under.type != BodyType::Dynamic || !under.enabled) continue;
+            wake(under);
+            const Vec3 impulse = g * (c.charMass * h);
+            under.vel += impulse * under.invMass;
+            const Vec3 foot = c.center - Vec3{0, c.segHalf + c.radius, 0};
+            under.angVel += inv_inertia_mul(under, cross(foot - under.center, impulse)) * kRadToDeg;
         }
         for (Body& b : bodies_) {
             if (!b.enabled || !live_dyn(b)) continue;
@@ -1225,6 +1282,10 @@ void Physics3D::step(World& world, float dt) {
             }
         }
         b.rotDirty = false;
+        if (b.pendingTurn != 0.0f) {
+            if (Transform* t = world.get<Transform>(b.e)) t->rotation.y += b.pendingTurn;
+            b.pendingTurn = 0.0f;
+        }
         if (RigidBody3D* rb = world.get<RigidBody3D>(b.e)) {
             rb->angularVelocity = b.angVel;
             b.lastAngVel = b.angVel;

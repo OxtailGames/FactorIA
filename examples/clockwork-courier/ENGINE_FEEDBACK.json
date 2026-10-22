@@ -235,10 +235,12 @@
       "suggestion": "physics.moveCharacter should add the displacement of the kinematic body it is grounded on (the way it already treats dynamic bodies), with an option to turn it off.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.2 (Character controller on moving and dynamic bodies) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.2 (Character controller on moving and dynamic bodies) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/character-platforms (M26.2): a character on a kinematic platform is carried with its displacement and turn (CharacterController3D.carriedByPlatforms), so courier.js and mover.js no longer add the platform velocity."
+      ],
+      "engineIssue": "m26/character-platforms"
     },
     {
       "id": "FB-0011",
@@ -260,10 +262,12 @@
       "suggestion": "Let the character controller optionally apply its weight (mass x gravity) to the dynamic body below, and expose `pushStrength` or a layer rule so it does not shove bodies that are jointed.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.2 (Character controller on moving and dynamic bodies) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.2 (Character controller on moving and dynamic bodies) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/character-platforms (M26.2): CharacterController3D.applyWeight / mass press on the dynamic body below and pushStrength never shoves a jointed one, so seesaw.js and rope_bridge.js lost their weight workarounds."
+      ],
+      "engineIssue": "m26/character-platforms"
     },
     {
       "id": "FB-0012",
