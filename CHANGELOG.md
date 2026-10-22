@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Mac App Store
+
+- `sign.macos` takes `distribution: "appStore"`: it signs the macOS export with the App Sandbox, an Apple Distribution
+  certificate and a provisioning profile, and builds the signed installer `<game-slug>-macos.pkg` with `productbuild`.
+  `identity: "-"` signs ad hoc so you can run the sandboxed game on your own Mac.
+- `publish.appstore` uploads that `.pkg` too (`platforms: ["macos"]`).
+- New `export.macos` settings: `buildNumber`, `usesNonExemptEncryption` and `entitlements`.
+
 Microsoft Store
 
 - `factoria export --platform windows --format msix` (or `export.windows.format: "msix"`) writes

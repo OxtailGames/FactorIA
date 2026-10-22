@@ -400,7 +400,8 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 {
   "icon": "assets/icon.png",
   "export": {
-    "macos":   { "category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 My Studio" },
+    "macos":   { "category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 My Studio",
+                 "buildNumber": "7", "entitlements": { "com.apple.security.network.client": true } },
     "linux":   { "categories": ["Game", "ArcadeGame"] },
     "android": { "format": "aab", "minSdk": 26, "targetSdk": 36, "versionCode": 10203,
                  "adaptiveIcon": { "foreground": "assets/icon_fg.png", "background": "#202020" },
@@ -417,6 +418,9 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | macOS | `category` | `public.app-category.games` | `LSApplicationCategoryType` of `Info.plist`. |
 | macOS | `minimumSystemVersion` | `11.0` | `LSMinimumSystemVersion`; `major.minor`, 11.0 or newer (the player needs it). |
 | macOS | `copyright` | none | `NSHumanReadableCopyright`. |
+| macOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload of the Mac App Store package. |
+| macOS | `usesNonExemptEncryption` | `false` | `ITSAppUsesNonExemptEncryption` in `Info.plist` (always written, so App Store Connect does not ask about export compliance on every upload). `true` only when the game uses encryption beyond what macOS provides. |
+| macOS | `entitlements` | none | Extra entitlements of the Mac App Store signature (`{"com.apple.security.network.client": true}`), merged into the sandbox, plugin and profile entitlements by `sign.macos` with `distribution: "appStore"` ([Mac App Store](#mac-app-store)). Reverse-DNS keys with boolean, string or array values; the sandbox and the identifiers (`com.apple.application-identifier`, `com.apple.developer.team-identifier`, `com.apple.security.inherit`) are not yours to set (the profile gives them). A misspelt well-known key is a warning with a "did you mean". |
 | Linux | `categories` | `["Game"]` | `Categories=` of the `.desktop` file (the entries are joined with `;`). |
 | Android | `format` | `apk` | `apk`, `aab` (Google Play bundle) or `gradle` (only the Gradle project). |
 | Android | `adaptiveIcon.foreground` | the icon scaled into the safe zone | A 108dp layer (432x432 px recommended): only the inner 66dp circle always stays visible. The default shrinks the icon to 66/108 of the layer over transparency. |
@@ -472,6 +476,8 @@ does not know are kept when the file is saved. `factoria setup android` fills in
 | `sign.windows.pfx` | The code-signing certificate (`.pfx`) `sign.windows` signs with. The `pfx` argument and `FACTORIA_WINDOWS_PFX` win over it. The password is only read from `FACTORIA_WINDOWS_PFX_PASSWORD`. |
 | `sign.macos.keychain` | A keychain file that holds the certificate. `FACTORIA_MACOS_KEYCHAIN` and the `keychain` argument win over it. |
 | `sign.macos.notaryProfile` | The notarytool keychain profile (`xcrun notarytool store-credentials <name>`). `FACTORIA_NOTARY_PROFILE` and the `keychainProfile` argument win over it. |
+| `sign.macos.appStoreIdentity` | The certificate of `distribution: "appStore"` (`Apple Distribution: ...` or `3rd Party Mac Developer Application: ...`). The `identity` argument and `FACTORIA_MACOS_APPSTORE_IDENTITY` win over it. |
+| `sign.macos.installerIdentity` | The certificate that signs the `.pkg` (`3rd Party Mac Developer Installer: ...` or `Mac Installer Distribution: ...`). The `installerIdentity` argument and `FACTORIA_MACOS_INSTALLER_IDENTITY` win over it. |
 
 The file is written with owner-only permissions on macOS and Linux because it can hold passwords (loading it warns when
 other users can read it). Passwords never go in `factoria.json` or in the files of an export. The Apple ID password of
@@ -642,12 +648,15 @@ anywhere):
 | `apiKey`, `apiKeyId`, `apiIssuer` | An App Store Connect API key instead: the `AuthKey_<id>.p8` file, its key id and, for a team key, the issuer id. Defaults: `FACTORIA_NOTARY_API_KEY`, `FACTORIA_NOTARY_API_KEY_ID`, `FACTORIA_NOTARY_API_ISSUER`. |
 | `appleId`, `teamId` | An Apple ID instead. Defaults: `FACTORIA_APPLE_ID` / `FACTORIA_APPLE_TEAM_ID` (also `APPLE_ID` / `APPLE_TEAM_ID`). The app-specific password is read from `FACTORIA_APPLE_APP_PASSWORD` (or `APPLE_APP_PASSWORD`) **only**. |
 | `provisioningProfile`, `entitlements` | See below. |
+| `distribution` | `developerId` (default): the steps above. `appStore`: sign for the Mac App Store and build the `.pkg` ([Mac App Store](#mac-app-store)); never notarized. |
+| `installerIdentity` | `appStore` only: the certificate that signs the `.pkg`. Default: `FACTORIA_MACOS_INSTALLER_IDENTITY`, then `sign.macos.installerIdentity`. |
+| `pkg` | `appStore` only: where the `.pkg` goes (default: `<game-slug>-macos.pkg` next to the export folder). |
 | `zip` | Where the zip to share goes (default: next to the export folder). |
 | `dryRun` | Check everything and return the command lines in `steps[]`; sign and send nothing. |
 
 The login for notarytool is the first of: a keychain profile, an API key, an Apple ID. The result is `{app, dryRun,
-identity, identityFrom, credentials, signed, verified, notarized, stapled, notarizationId, zip, steps[], warnings[],
-nextSteps[]}`; each step is `{title, command, commandLine, ran, exitCode}`. Nothing secret is ever an argument, is in
+identity, identityFrom, credentials, signed, verified, notarized, stapled, notarizationId, zip, distribution, pkg,
+steps[], warnings[], nextSteps[]}` (`distribution: "appStore"` adds `installerIdentity`, `pkgSigned`, `entitlements` and `profile`); each step is `{title, command, commandLine, ran, exitCode}`. Nothing secret is ever an argument, is in
 `factoria.json`, in a result or in a log: the only secret there is, the app-specific password, comes from the environment
 and is replaced by `<redacted>` in every step and every line of output. A key file or a keychain profile holds its secret
 where Apple's tools keep it.
@@ -674,6 +683,68 @@ still has the placeholder. `entitlements` signs the app with a file of your own 
 
 **Every export replaces the app**: sign again after each `project.export`. An app that is changed after it is signed
 (a file added to the bundle) is no longer valid; export and sign again instead of editing it.
+
+### Mac App Store
+
+To sell the game on the Mac App Store the app is signed another way: with the **App Sandbox**, with a distribution
+certificate instead of Developer ID, with a provisioning profile, and wrapped in a signed installer `.pkg` that
+[`publish.appstore`](#app-store-connect-testflight) uploads. `sign.macos` does it with `distribution: "appStore"`
+(Apple Developer Program):
+
+```bash
+factoria export --platform macos --release
+factoria call sign.macos '{"distribution":"appStore","identity":"Apple Distribution: Ada Lovelace (ABCDE12345)","installerIdentity":"3rd Party Mac Developer Installer: Ada Lovelace (ABCDE12345)","provisioningProfile":"keys/MyGame_MAS.provisionprofile"}'
+factoria call publish.appstore '{"platforms":["macos"]}'
+```
+
+What you set up by hand first, in the Apple Developer portal (the commands cannot): the App ID of the game (`id` of
+`factoria.json`) with its capabilities, an **Apple Distribution** (or "3rd Party Mac Developer Application") certificate, a
+**Mac Installer Distribution** (or "3rd Party Mac Developer Installer") certificate, both in your keychain, and a **Mac App
+Store provisioning profile** for the App ID (download the `.provisionprofile`). Create the app in App Store Connect too.
+
+The steps (`factoria call sign.macos '{"distribution":"appStore","dryRun":true}'` lists them on any computer):
+
+1. The provisioning profile is read (`security cms -D`): `sign.macos` refuses it when it is expired, does not cover the
+   bundle id of `Info.plist`, or does not hold the sandbox's identifiers, and warns when it is not a Mac App Store profile.
+2. `lipo -archs` of the executables: a warning when the game is `x86_64` only (App Store Connect expects arm64 to be
+   there) or a plugin lacks an architecture of the app.
+3. The entitlements are written next to the export folder (`<game-slug>-macos.appstore.entitlements`, and
+   `-appstore-inherit.entitlements` for helpers): `com.apple.security.app-sandbox`, those that native plugins ask for,
+   the `export.macos.entitlements` extras (`com.apple.security.network.client` for online games,
+   `com.apple.security.files.user-selected.read-write` for saves the player chooses, ...), and the identifiers taken from
+   the profile (`com.apple.application-identifier`, `com.apple.developer.team-identifier`). The sandbox is mandatory:
+   an `entitlements` file of your own without it is refused.
+4. Everything in `Contents/Frameworks` is signed with the same identity and `--timestamp`, but **without** the hardened
+   runtime (the store does not use it): a helper app, XPC service or tool gets the inherit entitlements
+   (`app-sandbox` + `inherit`) so it runs inside the sandbox of the app.
+5. The profile is embedded as `Contents/embedded.provisionprofile` and the app is signed with the entitlements.
+6. `codesign --verify --deep --strict`, then the entitlements are read back from the signature (`codesign -d
+   --entitlements`) and the sandbox must be there.
+7. `productbuild --component <app> /Applications --sign <installer identity> <game-slug>-macos.pkg`, then
+   `pkgutil --check-signature`.
+
+There is no notarization (the store reviews the app) and no zip. A real run needs a Mac with `codesign`,
+`productbuild` and `lipo`. The identity comes from the `identity` argument, then `FACTORIA_MACOS_APPSTORE_IDENTITY`,
+then `sign.macos.appStoreIdentity`; a Developer ID certificate is an error here (the store refuses it), and so is a
+distribution certificate without `distribution: "appStore"`. The installer certificate comes from `installerIdentity`,
+`FACTORIA_MACOS_INSTALLER_IDENTITY`, `sign.macos.installerIdentity`; without it the `.pkg` is built **unsigned** with a
+warning (it can be signed later with `productsign`). `provisioningProfile` is required except for `identity: "-"`.
+
+**Trying it here.** `{"distribution":"appStore","identity":"-"}` signs ad hoc with the sandbox: no certificate or profile,
+so the app is not accepted by the store and the entitlements that need a profile (plugins') are left out, but the app
+**runs sandboxed on this Mac** (its files go to `~/Library/Containers/<bundle id>`), which is the way to find what the
+sandbox breaks: saving beside the executable, opening arbitrary paths, network (needs `network.client`). The engine's own
+test does exactly that and runs the signed export.
+
+**Other stores.** The sandboxed build is meant for the Mac App Store. Steam and itch.io take the `developerId` build (a
+sandboxed game cannot use the Steam client's libraries); `sign.macos` warns when the app carries the Steam, Epic or GOG
+plugin, which do not belong in a Mac App Store build.
+
+`publish.appstore` takes the `.pkg` as an artifact: `{"platforms":["macos"]}` or `{"artifact":"build/export/mygame-macos.pkg"}`
+(`.ipa` and `.pkg` both present: say which), through `xcrun altool --upload-package <pkg> --type macos --apple-id ...
+--bundle-id ... --bundle-version <build> --bundle-short-version-string <version>`, with the same API key as for iOS.
+**Not tested against a real upload** (it needs a paid account), and `--type macos` is not verified on the newest Xcode:
+if `altool` refuses it, upload the `.pkg` with Apple's Transporter app.
 
 ### Linux: AppImage
 
@@ -1279,6 +1350,11 @@ cannot publish to the *master* branch, so `branch: "master"` is refused.
 <appleId> --bundle-id <id> --bundle-version <export.ios.buildNumber> --bundle-short-version-string <version> --apiKey
 <Key ID> --apiIssuer <Issuer ID>`. It runs on **macOS with Xcode only**; on another computer a real run is refused with the
 reason, and `dryRun` still shows the plan.
+
+**The Mac App Store.** The same command uploads the `.pkg` that [`sign.macos` with `distribution: "appStore"`](#mac-app-store)
+writes (`build/export/<game-slug>-macos.pkg`), with `--type macos` and `export.macos.buildNumber`. Say which file with
+`platforms` (`["ios"]` or `["macos"]`) or `artifact` (a `.pkg` extension means macOS); with no hint it uploads the one that
+exists, and with both an `.ipa` and a `.pkg` it asks you to choose.
 
 **The `.ipa` is yours to make.** `factoria export --platform ios` writes an Xcode project (`build_ios.sh`), not an `.ipa`.
 Build it once per release:

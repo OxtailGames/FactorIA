@@ -553,7 +553,19 @@ Closes E-08 and S-09, plus the Mac App Store and Microsoft Store rows of the rep
   repository can do is the seam: a platform layer and render-backend interface (D3D12/GDKX, NVN, AGC) that a private M11
   plugin implements, and certification checklists (TRC, Lotcheck, XR) once a licensed developer contributes them.
 
-Done so far (MSIX and Microsoft Store): `export.windows.format` / `--format msix` writes a deterministic, unsigned
+**Done so far (Mac App Store).** `sign.macos` takes `distribution: "appStore"`: App Sandbox entitlements (plus the
+plugins' and `export.macos.entitlements`, with the identifiers read from the provisioning profile), nested code signed
+with the store identity (helpers inherit the sandbox), the profile embedded, `codesign --verify --deep --strict` and a
+read-back of the entitlements, then `productbuild` and `pkgutil --check-signature` for `<slug>-macos.pkg`.
+`export.macos` gained `buildNumber`, `usesNonExemptEncryption` and `entitlements`; `publish.appstore` uploads the `.pkg`
+(`platforms: ["macos"]`, `altool --type macos`). The macOS-only test signs an export ad hoc with the sandbox, verifies it
+and runs it (the sandbox container appears); the rest is covered with a fake process runner.
+Left open (Mac App Store): a real signing with Apple certificates and a real upload (they need a paid account) were not
+tried; `altool --type macos` is unverified on Xcode 27; the arm64-only rule is only a `lipo` warning, not checked against
+Apple's documentation; the sandbox's effect on the player (saves, network) is tried only by the ad hoc run; no
+`factoria validate` check beyond the settings' own and `sign.macos`'s warnings.
+
+**Done so far (MSIX and Microsoft Store).** `export.windows.format` / `--format msix` writes a deterministic, unsigned
 `<slug>-windows.msix` from any host (shared zip writer, block map, manifest, logos from the icon, no `resources.pri`),
 `export.windows.msix` holds the Partner Center identity (editor Windows tab, Export window menu, validate warning),
 `sign.windows` signs it with a `.pfx` (signtool or osslsigncode; Windows-only self-signed test certificate) and

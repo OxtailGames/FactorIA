@@ -909,3 +909,62 @@ TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") 
     const auto onPath = find_ffmpeg(none, (t.path / "missing.json").string());
     CHECK(onPath.ok() == !which("ffmpeg").empty());
 }
+
+TEST_CASE("export settings: export.macos buildNumber, usesNonExemptEncryption and entitlements (Mac App Store)") {
+    auto r = parse_export_settings(parse(R"({"version": "1.2.3", "export": {"macos": {"buildNumber": 42, "usesNonExemptEncryption": true,
+        "entitlements": {"com.apple.security.network.client": true, "com.apple.security.files.user-selected.read-write": true,
+                         "com.apple.security.application-groups": ["TEAMID.group.x"]}}}})"));
+    CHECK(r.errors.empty());
+    CHECK(r.warnings.empty());
+    CHECK(r.settings.macos.buildNumber == "42");
+    CHECK(r.settings.macos_build_number() == "42");
+    CHECK(r.settings.macos.usesNonExemptEncryption);
+    CHECK(r.settings.macos.entitlements["com.apple.security.network.client"] == true);
+    CHECK(r.settings.macos.entitlements["com.apple.security.application-groups"].size() == 1);
+
+    auto d = parse_export_settings(parse(R"({"version": "1.2.3"})"));
+    CHECK(d.settings.macos.buildNumber.empty());
+    CHECK(d.settings.macos_build_number() == "1.2.3");  // the project version when none is set
+    CHECK_FALSE(d.settings.macos.usesNonExemptEncryption);
+    CHECK(d.settings.macos.entitlements.empty());
+
+    auto bad = parse_export_settings(parse(R"({"export": {"macos": {"buildNumber": "v2", "usesNonExemptEncryption": "yes",
+        "entitlements": {"com.apple.security.app-sandbox": false, "com.apple.application-identifier": "x", "bad key": true,
+                         "com.apple.security.network.cient": true, "com.apple.security.print": {"a": 1}}}}})"));
+    for (const char* ptr : {"/export/macos/buildNumber", "/export/macos/usesNonExemptEncryption", "/export/macos/entitlements/com.apple.security.app-sandbox",
+                            "/export/macos/entitlements/com.apple.application-identifier", "/export/macos/entitlements/bad key",
+                            "/export/macos/entitlements/com.apple.security.print"}) {
+        const ExportSettingsIssue* i = find_issue(bad.errors, ptr);
+        INFO(ptr);
+        REQUIRE(i != nullptr);
+        CHECK_FALSE(i->hint.empty());
+    }
+    const ExportSettingsIssue* typo = find_issue(bad.warnings, "/export/macos/entitlements/com.apple.security.network.cient");
+    REQUIRE(typo != nullptr);
+    CHECK(typo->hint.find("com.apple.security.network.client") != std::string::npos);
+
+    auto notObject = parse_export_settings(parse(R"({"export": {"macos": {"entitlements": ["x"]}}})"));
+    CHECK(find_issue(notObject.errors, "/export/macos/entitlements") != nullptr);
+}
+
+TEST_CASE("export settings: the macOS App Store fields are saved only when they differ from the defaults") {
+    testing::TempDir tmp;
+    testing::write_all(tmp.sub("factoria.json"), R"({"name": "Save Game", "id": "com.example.savegame", "version": "1.0.0"})");
+    auto s = load_export_settings(tmp.str());
+    REQUIRE(s.ok());
+    s->macos.buildNumber = "9";
+    s->macos.usesNonExemptEncryption = true;
+    s->macos.entitlements = Json::object({{"com.apple.security.network.client", true}});
+    REQUIRE(save_export_settings(tmp.str(), *s).ok());
+    auto j = Json::parse(testing::read_all(stdfs::path(tmp.str()) / "factoria.json"));
+    CHECK(j["export"]["macos"]["buildNumber"] == "9");
+    CHECK(j["export"]["macos"]["usesNonExemptEncryption"] == true);
+    CHECK(j["export"]["macos"]["entitlements"]["com.apple.security.network.client"] == true);
+    auto back = load_export_settings(tmp.str());
+    REQUIRE(back.ok());
+    CHECK(back->macos == s->macos);
+    back->macos = MacosExportSettings{};
+    REQUIRE(save_export_settings(tmp.str(), *back).ok());
+    auto j2 = Json::parse(testing::read_all(stdfs::path(tmp.str()) / "factoria.json"));
+    CHECK_FALSE(j2.contains("export"));
+}
