@@ -17,6 +17,8 @@ export default class Credits extends Behaviour {
     const keyed = (key, fontSize, color) => text(key, fontSize, color, key);
     text(game.project.name, 34);
     for (const key of this.lines) keyed(key, 26);
+    keyed("credits.assets", 20); // the assets' authors; every asset's record is in assets.json
+    keyed("credits.font", 20); // Noto Sans JP, SIL OFL 1.1 (assets/fonts/OFL.txt)
     keyed("credits.software", 22, [0.75, 0.8, 0.9, 1]);
     for (const n of game.notices()) text(`${n.name}  (${n.license})\n${n.usedFor}\n${n.url}`, 20);
     keyed("credits.licenses", 18, [0.75, 0.8, 0.9, 1]);

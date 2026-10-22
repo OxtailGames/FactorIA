@@ -65,7 +65,7 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
-    "language": "Idioma: {language}",
+    "language": "Idioma",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
     "on": "activado",
@@ -77,7 +77,8 @@
       "medium": "media",
       "high": "alta"
     },
-    "assist": "Modo asistido (muelle y perros más lentos)",
+    "assist": "Modo asistido",
+    "assistNote": "Un muelle más lento, perros más lentos y más margen al saltar.",
     "reducedMotion": "Movimiento reducido",
     "haptics": "Vibración",
     "tapToMove": "Tocar para moverse",
@@ -86,12 +87,15 @@
     "controlSize": "Tamaño de los controles",
     "controlOpacity": "Opacidad de los controles",
     "cameraSensitivity": "Velocidad de cámara",
-    "invertY": "Invertir cámara en Y"
+    "invertY": "Invertir cámara en Y",
+    "languageNote": "El idioma se guarda y se usa también la próxima vez que abras el juego."
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
     "software": "Este juego usa el siguiente software:",
-    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, junto al juego."
+    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, junto al juego.",
+    "assets": "Arte, música y sonidos: Kenney, Quaternius, MintoDog y Fupi (CC0).",
+    "font": "Texto japonés: Noto Sans JP, (c) 2014-2021 Adobe, licencia SIL Open Font 1.1."
   },
   "hud": {
     "parcels": "Paquetes {delivered} / {total}",
@@ -136,9 +140,15 @@
       "rooftops": "Tejados",
       "market": "Mercado"
     },
-    "districtLocked": "(necesita {needed} estrellas, tienes {have})",
+    "districtLocked": {
+      "one": "(necesita {count} estrella, tienes {have})",
+      "other": "(necesita {count} estrellas, tienes {have})"
+    },
     "hintLevel": "Gana antes {level}.",
-    "hintDistrict": "Necesita {needed} estrellas de los distritos anteriores (tienes {have}).",
+    "hintDistrict": {
+      "one": "Necesita {count} estrella de los distritos anteriores (tienes {have}).",
+      "other": "Necesita {count} estrellas de los distritos anteriores (tienes {have})."
+    },
     "daily": "Ruta diaria",
     "dailyDone": "Ruta diaria: {time} s",
     "cloud": {
@@ -148,7 +158,8 @@
       "merged": "Guardado en la nube: unidas las dos copias",
       "offline": "Guardado en la nube: no se pudo contactar con la tienda",
       "unreadable": "Guardado en la nube: no se pudo leer, no se ha tocado"
-    }
+    },
+    "cardTime": "{time} s"
   },
   "profile": {
     "title": "¿Quién reparte?",
@@ -157,7 +168,8 @@
     "space": "Espacio",
     "delete": "Borrar",
     "done": "Hecho",
-    "empty": "Elige un nombre con al menos una letra o cifra."
+    "empty": "Elige un nombre con al menos una letra o cifra.",
+    "placeholder": "Tu nombre"
   },
   "daily": {
     "done": "¡Ruta diaria hecha!",
@@ -194,7 +206,10 @@
       "equipped": "El robot lleva esta pintura.",
       "free": "Pintura gratuita.",
       "owned": "Desbloqueada.",
-      "stars": "Necesita {stars} estrellas (tienes {have}).",
+      "stars": {
+        "one": "Necesita {count} estrella (tienes {have}).",
+        "other": "Necesita {count} estrellas (tienes {have})."
+      },
       "buy": "Una pintura de la tienda."
     },
     "paint": {
@@ -294,8 +309,14 @@
     "testAd": "Anuncio de prueba",
     "claim": "Recoger recompensa",
     "skip": "Saltar",
-    "moreTimeAd": "Ver un anuncio: {seconds} segundos más",
-    "moreTimeFree": "{seconds} segundos más (gratis)"
+    "moreTimeAd": {
+      "one": "Ver un anuncio: {count} segundo más",
+      "other": "Ver un anuncio: {count} segundos más"
+    },
+    "moreTimeFree": {
+      "one": "{count} segundo más (gratis)",
+      "other": "{count} segundos más (gratis)"
+    }
   },
   "captions": {
     "dogBark": "[Ladra un perro]",
@@ -308,5 +329,12 @@
     "title": "¿Salir del juego?",
     "stay": "Quedarme",
     "yes": "Salir"
+  },
+  "format": {
+    "decimal": ","
+  },
+  "touch": {
+    "jump": "Saltar",
+    "action": "Acción"
   }
 }

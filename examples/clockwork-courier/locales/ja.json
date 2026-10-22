@@ -1,0 +1,335 @@
+{
+  "$name": "日本語",
+  "menu": {
+    "title": "Clockwork Courier",
+    "play": "あそぶ",
+    "continue": "つづきから",
+    "options": "オプション",
+    "credits": "クレジット",
+    "quit": "やめる",
+    "back": "もどる",
+    "shop": "ショップ",
+    "achievements": "実績",
+    "leaderboards": "ランキング"
+  },
+  "loading": {
+    "text": "読み込み中…"
+  },
+  "pause": {
+    "title": "一時停止",
+    "resume": "つづける",
+    "mainMenu": "タイトルにもどる",
+    "restart": "やりなおす"
+  },
+  "options": {
+    "title": "オプション",
+    "tab": {
+      "video": "映像",
+      "audio": "音",
+      "controls": "操作",
+      "language": "言語",
+      "play": "プレイ",
+      "touch": "タッチ"
+    },
+    "fullscreen": "全画面",
+    "vsync": "垂直同期",
+    "windowSize": "ウィンドウサイズ：{width} x {height}",
+    "windowSizeFullscreen": "ウィンドウサイズ：全画面",
+    "frameCap": "フレーム上限：{fps} fps",
+    "frameCapOff": "フレーム上限：なし",
+    "colorFilter": "カラーフィルター：{filter}",
+    "filter": {
+      "none": "オフ",
+      "greyscale": "グレースケール",
+      "highContrast": "ハイコントラスト",
+      "protanopia": "1型色覚（赤）",
+      "deuteranopia": "2型色覚（緑）",
+      "tritanopia": "3型色覚（青）"
+    },
+    "videoNote": "映像の設定は、ゲームが専用のウィンドウで動いているときに反映されます。",
+    "volume": {
+      "master": "全体",
+      "music": "音楽",
+      "effects": "効果音",
+      "interface": "メニュー音"
+    },
+    "action": {
+      "move_forward": "前へ",
+      "move_back": "後ろへ",
+      "move_left": "左へ",
+      "move_right": "右へ",
+      "jump": "ジャンプ",
+      "action": "アクション",
+      "pause": "ポーズ"
+    },
+    "binding": "{action}：{button}",
+    "pressKey": "{action}：キーかボタンを押してください（Escで取り消し）",
+    "resetControls": "初期設定にもどす",
+    "language": "言語",
+    "readAloud": "メニューを読み上げる",
+    "subtitles": "字幕",
+    "on": "オン",
+    "off": "オフ",
+    "percent": "{value}パーセント",
+    "quality": "画質：{quality}",
+    "qualityLevel": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "assist": "アシストモード",
+    "assistNote": "ぜんまいも犬もゆっくり、ジャンプにも余裕ができます。",
+    "reducedMotion": "動きをひかえめに",
+    "haptics": "振動",
+    "tapToMove": "タップで移動",
+    "textSize": "文字サイズ：{percent}パーセント",
+    "leftHanded": "左利き用の配置",
+    "controlSize": "ボタンの大きさ",
+    "controlOpacity": "ボタンの濃さ",
+    "cameraSensitivity": "カメラの速さ",
+    "invertY": "カメラの上下を反転",
+    "languageNote": "選んだ言語は保存され、次に起動したときにも使われます。"
+  },
+  "credits": {
+    "madeWith": "FactorIAでつくりました",
+    "software": "このゲームは次のソフトウェアを使っています：",
+    "licenses": "ライセンス全文は、ゲームに同梱のFACTORIA_NOTICES.txtにあります。",
+    "assets": "アート・音楽・効果音：Kenney、Quaternius、MintoDog、Fupi（CC0）。",
+    "font": "日本語の文字：Noto Sans JP、(c) 2014-2021 Adobe、SIL Open Font License 1.1。"
+  },
+  "hud": {
+    "parcels": "荷物 {delivered} / {total}",
+    "parcelsCarrying": "荷物 {delivered} / {total}（1つ運び中）",
+    "spring": "ぜんまい",
+    "springLow": "もうすぐ"
+  },
+  "levels": {
+    "rooftops_1": "はじめの屋根",
+    "rooftops_2": "えんとつ通り",
+    "rooftops_3": "時計広場",
+    "market_1": "ランタン小路",
+    "market_2": "屋台ストリート",
+    "market_3": "真夜中のダッシュ",
+    "test_arena": "テストアリーナ",
+    "test_yard": "テスト用の庭"
+  },
+  "results": {
+    "title": "お届け完了！",
+    "titleNamed": "お届け完了、{name}さん！",
+    "time": "タイム：{time}秒",
+    "best": "ベスト：{time}秒",
+    "newBest": "新記録！",
+    "spring": "ぜんまいののこり：{seconds}秒",
+    "goal": {
+      "fast": "はやい：{par}秒以内",
+      "springy": "ぜんまい：{percent}パーセントのこす",
+      "thorough": "ていねい：おまけの荷物をぜんぶ"
+    },
+    "next": "次のステージ",
+    "retry": "もう一度あそぶ",
+    "toTitle": "タイトルにもどる"
+  },
+  "select": {
+    "title": "ステージをえらぼう",
+    "total": "星 {stars} / {max}",
+    "name": "配達員：{name}",
+    "noName": "名前をつけよう",
+    "locked": "ロック中",
+    "new": "NEW",
+    "district": {
+      "rooftops": "屋根の上",
+      "market": "夜の市場"
+    },
+    "districtLocked": {
+      "other": "（星が{count}個必要です。いまは{have}個）"
+    },
+    "hintLevel": "先に「{level}」をクリアしよう。",
+    "hintDistrict": {
+      "other": "前のエリアで星が{count}個必要です（いまは{have}個）。"
+    },
+    "daily": "今日のルート",
+    "dailyDone": "今日のルート：{time}秒",
+    "cloud": {
+      "synced": "クラウドセーブ：最新です",
+      "uploaded": "クラウドセーブ：アップロードしました",
+      "downloaded": "クラウドセーブ：クラウドから読み込みました",
+      "merged": "クラウドセーブ：2つのデータを合わせました",
+      "offline": "クラウドセーブ：ストアにつながりませんでした",
+      "unreadable": "クラウドセーブ：読み込めなかったので、そのままにしました"
+    },
+    "cardTime": "{time}秒"
+  },
+  "profile": {
+    "title": "だれが配達する？",
+    "hint": "名前を入力するか、文字をえらんでね。",
+    "anonymous": "配達員",
+    "space": "スペース",
+    "delete": "消す",
+    "done": "決定",
+    "empty": "文字か数字を1つ以上入れてください。",
+    "placeholder": "あなたの名前"
+  },
+  "daily": {
+    "done": "今日のルート、完了！",
+    "doneNamed": "今日のルート、完了、{name}さん！",
+    "best": "今日のベスト：{time}秒"
+  },
+  "retry": {
+    "title": "ぜんまいが止まっちゃった",
+    "hint": "もっと急ぐか、近道を探してみよう。",
+    "retry": "もう一度",
+    "toTitle": "タイトルにもどる"
+  },
+  "shop": {
+    "title": "ペンキ屋さん",
+    "prev": "<",
+    "next": ">",
+    "equip": "ぬる",
+    "equipped": "ぬり済み",
+    "locked": "ロック中",
+    "buy": "買う {price}",
+    "removeAds": "広告を消す  {price}",
+    "adsRemoved": "広告を消しました。ありがとう！",
+    "tip": "ロボに油さし  {price}（あげた回数：{count}）",
+    "restore": "購入を復元",
+    "working": "ストアと通信中…",
+    "thanks": "ありがとう！",
+    "cancelled": "キャンセルしました。請求はありません。",
+    "pending": "承認待ちです。ストアで確認されると、ここに反映されます。",
+    "unreachable": "ストアから返事がありません（{code}）。請求はありません。あとでもう一度ためしてね。",
+    "restored": "購入を復元しました。",
+    "nothingToRestore": "このアカウントに復元できるものはありません。",
+    "granted": "購入を受け取りました：{name}",
+    "state": {
+      "equipped": "ロボはこのペンキをぬっています。",
+      "free": "無料のペンキ。",
+      "owned": "解放済み。",
+      "stars": {
+        "other": "星が{count}個必要です（いまは{have}個）。"
+      },
+      "buy": "ストアのペンキ。"
+    },
+    "paint": {
+      "factory": "工場オレンジ",
+      "rust": "さび色",
+      "mint": "ミント",
+      "midnight": "ミッドナイト",
+      "gold": "ゴールド",
+      "copper": "カッパー",
+      "neon": "ネオン"
+    },
+    "product": {
+      "remove_ads": "広告を消す",
+      "paint_copper": "カッパーのペンキ",
+      "paint_neon": "ネオンのペンキ",
+      "tip_jar": "油さし"
+    }
+  },
+  "ach": {
+    "title": "実績",
+    "count": "{total}個中{unlocked}個を解除",
+    "toast": "実績を解除：{name}",
+    "first_delivery": {
+      "name": "はじめてのお届け",
+      "desc": "どこかのステージで荷物を1つ届けよう。"
+    },
+    "rooftops_done": {
+      "name": "屋根の常連",
+      "desc": "屋根の上の3ステージをぜんぶクリアしよう。"
+    },
+    "market_done": {
+      "name": "夜ふかしフクロウ",
+      "desc": "夜の市場の3ステージをぜんぶクリアしよう。"
+    },
+    "star_collector": {
+      "name": "星あつめ",
+      "desc": "星を合計9個ゲットしよう。"
+    },
+    "all_stars": {
+      "name": "星ぜんぶ",
+      "desc": "18個の星をぜんぶゲットしよう。"
+    },
+    "clean_run": {
+      "name": "そろり足",
+      "desc": "犬につかまらずにステージをクリアしよう。"
+    },
+    "last_second": {
+      "name": "ラスト1チクタク",
+      "desc": "ぜんまいののこりが5秒未満で荷物を届けよう。"
+    },
+    "quick_courier": {
+      "name": "ぜんまいスピード",
+      "desc": "目標タイム以内にステージをクリアしよう。"
+    },
+    "extra_mile": {
+      "name": "もうひと走り",
+      "desc": "ステージのおまけの荷物を届けよう。"
+    },
+    "first_shortcut": {
+      "name": "近道発見",
+      "desc": "どこかのステージで近道を通ろう。"
+    },
+    "all_shortcuts": {
+      "name": "町のものしり",
+      "desc": "町の近道をぜんぶ見つけよう。"
+    },
+    "dog_whisperer": {
+      "name": "犬のなだめ役",
+      "desc": "番犬に追いかけっこをあきらめさせよう（5回）。"
+    },
+    "daily_courier": {
+      "name": "毎日配達員",
+      "desc": "今日のルートをクリアしよう。"
+    },
+    "fresh_paint": {
+      "name": "ぬりたて",
+      "desc": "ロボットを新しい色にぬろう。"
+    }
+  },
+  "board": {
+    "title": "ランキング",
+    "time": "ベストタイム：{level}",
+    "daily": "今日のルート",
+    "stars": "星の合計",
+    "yourBest": "自己ベスト：{score}",
+    "loading": "読み込み中…",
+    "signedOut": "サインインしていないので、ランキングを表示できません。記録は保存され、サインインしたときに送られます。",
+    "unavailable": "このバージョンのゲームにはランキングがありません。",
+    "empty": "まだだれの記録もありません。このステージをクリアして一番乗りになろう。",
+    "error": "ストアから返事がありません（{code}）。",
+    "rank": "あなたの順位：{rank}位",
+    "noRank": "まだこのランキングにのっていません。",
+    "signIn": "サインイン",
+    "retry": "もう一度"
+  },
+  "ads": {
+    "testAd": "テスト広告",
+    "claim": "ごほうびを受け取る",
+    "skip": "スキップ",
+    "moreTimeAd": {
+      "other": "広告を見る：{count}秒プラス"
+    },
+    "moreTimeFree": {
+      "other": "{count}秒プラス（無料）"
+    }
+  },
+  "captions": {
+    "dogBark": "［犬がほえる］",
+    "key": "［ベル：ぜんまいを巻いた］",
+    "delivery": "［チャイム：荷物を届けた］",
+    "springLow": "［警報：ぜんまいがもうすぐ切れる］",
+    "caught": "［ドン：犬につかまった］"
+  },
+  "quit": {
+    "title": "ゲームをやめますか？",
+    "stay": "やめない",
+    "yes": "やめる"
+  },
+  "format": {
+    "decimal": "."
+  },
+  "touch": {
+    "jump": "ジャンプ",
+    "action": "アクション"
+  }
+}

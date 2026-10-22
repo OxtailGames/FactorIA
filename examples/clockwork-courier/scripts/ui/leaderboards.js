@@ -15,6 +15,7 @@ import { Behaviour, world, ui, input, i18n, platform } from "factoria";
 import * as levels from "../levels.js";
 import * as progress from "../progress.js";
 import * as services from "../services.js";
+import * as fmt from "../fmt.js";
 
 /** The boards of the screen: { id, nameKey or level, kind: "time" | "stars" }. */
 export const BOARDS = [
@@ -26,9 +27,7 @@ export const BOARDS = [
 /** Formats a score: milliseconds as m:ss.s, stars as a number. */
 export function formatScore(kind, score) {
   if (kind !== "time") return `${score}`;
-  const s = score / 1000;
-  const m = Math.floor(s / 60);
-  return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`;
+  return fmt.clock(score / 1000);
 }
 
 export default class Leaderboards extends Behaviour {
@@ -65,6 +64,7 @@ export default class Leaderboards extends Behaviour {
       ui.on("click", "board_signin", () => this.signIn()),
       ui.on("click", "board_retry", () => this.load()),
       platform.on("player", () => this.entity.active && this.load()),
+      i18n.on("change", () => this.entity.active && this.show(this.state)), // name, status and rows are written by script
     ];
   }
 

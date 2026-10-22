@@ -74,6 +74,11 @@ export default class Shop extends Behaviour {
       ui.on("click", "shop_restore", () => this.restore()),
       // A purchase that arrives later (Ask to Buy approved): services grants it, the next frame shows it.
       platform.on("purchase", () => (this.dirty = true)),
+      // The texts written by this script (state, prices, status) follow the player's language switch.
+      i18n.on("change", () => {
+        this.status = "";
+        this.dirty = true;
+      }),
     ];
   }
 
@@ -192,7 +197,7 @@ export default class Shop extends Behaviour {
       state = i18n.t(paint.unlock.type === "free" ? "shop.state.free" : "shop.state.owned");
       label = i18n.t("shop.equip");
     } else if (view.state === "stars") {
-      state = i18n.t("shop.state.stars", { stars: view.stars, have: view.have });
+      state = i18n.t("shop.state.stars", { count: view.stars, have: view.have });
       label = i18n.t("shop.locked");
       can = false;
     } else {
