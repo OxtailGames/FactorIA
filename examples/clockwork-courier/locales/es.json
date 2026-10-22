@@ -77,6 +77,13 @@
     "spring": "Muelle"
   },
   "levels": {
+    "rooftops_1": "Primeros tejados",
+    "rooftops_2": "Hilera de chimeneas",
+    "rooftops_3": "Plaza del Reloj",
+    "market_1": "Calle de los Faroles",
+    "market_2": "Calle de los Puestos",
+    "market_3": "Carrera de medianoche",
+    "test_arena": "Arena de pruebas",
     "test_yard": "Patio de pruebas"
   },
   "results": {

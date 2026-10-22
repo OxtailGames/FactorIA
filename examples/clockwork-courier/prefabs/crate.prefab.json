@@ -1,0 +1,55 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "crate",
+    "tags": ["crate"],
+    "components": {
+      "RigidBody3D": {
+        "type": "dynamic",
+        "mass": 6,
+        "lockRotation": true,
+        "linearDamping": 0.4
+      },
+      "Collider3D": {
+        "shape": "box",
+        "size": [1, 1, 1],
+        "friction": 0.5
+      },
+      "Script": {
+        "path": "scripts/crate.js"
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "core",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0],
+            "scale": [0.94, 0.94, 0.94]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.55, 0.38, 0.2, 1],
+            "roughness": 0.9
+          }
+        }
+      },
+      {
+        "name": "model",
+        "components": {
+          "Transform": {
+            "position": [0, -0.5, 0],
+            "rotation": [0, 0, 0],
+            "scale": [2, 2, 2]
+          },
+          "MeshRenderer": {
+            "mesh": "assets/models/props/crate.glb"
+          }
+        }
+      }
+    ]
+  }
+}

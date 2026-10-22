@@ -27,6 +27,7 @@ function defaults() {
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    tapToMove: false, // tap the ground and the courier walks there around obstacles (scripts/tap_move.js); off by default
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
 }

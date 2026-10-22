@@ -1,0 +1,115 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "gate",
+    "tags": ["gate"],
+    "components": {
+      "RigidBody3D": {
+        "type": "dynamic",
+        "mass": 20,
+        "gravityScale": 0,
+        "angularDamping": 1
+      },
+      "Collider3D": {
+        "shape": "box",
+        "size": [2, 2.2, 0.2],
+        "offset": [1, 1.1, 0],
+        "friction": 0.4
+      },
+      "Joint3D": {
+        "type": "hinge",
+        "axis": [0, 1, 0],
+        "anchor": [0, 0, 0],
+        "useLimits": true,
+        "useMotor": true,
+        "lowerLimit": 0,
+        "upperLimit": 100,
+        "maxMotorTorque": 3000
+      },
+      "Script": {
+        "path": "scripts/gate.js"
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "panel",
+        "components": {
+          "Transform": {
+            "position": [1, 1.1, 0],
+            "scale": [2, 2.2, 0.16]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.5, 0.34, 0.2, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "bar_low",
+        "components": {
+          "Transform": {
+            "position": [1, 0.55, 0.11],
+            "scale": [1.9, 0.14, 0.08]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.3, 0.2, 0.12, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "bar_high",
+        "components": {
+          "Transform": {
+            "position": [1, 1.65, 0.11],
+            "scale": [1.9, 0.14, 0.08]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.3, 0.2, 0.12, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "bar_diag",
+        "components": {
+          "Transform": {
+            "position": [1, 1.1, 0.12],
+            "scale": [2.2, 0.14, 0.08],
+            "rotation": [0, 0, 40]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.3, 0.2, 0.12, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "hinge_post",
+        "components": {
+          "Transform": {
+            "position": [0, 1.15, 0],
+            "scale": [0.22, 2.3, 0.22]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.28, 0.2, 0.14, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      }
+    ]
+  }
+}

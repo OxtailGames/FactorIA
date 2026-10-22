@@ -1,0 +1,2466 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [0.36, 0.4, 0.5, 1],
+    "fogColor": [0.72, 0.8, 0.9, 1],
+    "fogDensity": 0.008,
+    "skyColor": [0.32, 0.55, 0.9, 1],
+    "horizonColor": [0.85, 0.9, 0.96, 1]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [0, 4.12, 9],
+          "rotation": [-22, 0, 0]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "fov": 60,
+          "nearPlane": 0.1,
+          "farPlane": 260,
+          "primary": true
+        },
+        "Script": {
+          "path": "scripts/follow_camera.js",
+          "props": {
+            "targetId": "courier",
+            "yaw": 0.0
+          }
+        }
+      }
+    },
+    {
+      "id": "sun",
+      "components": {
+        "Transform": {
+          "position": [0, 20, 0],
+          "rotation": [-52, -35, 0]
+        },
+        "Light": {
+          "type": "directional",
+          "intensity": 1.0,
+          "color": [1, 0.95, 0.86, 1],
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": "spring",
+      "components": {
+        "Script": {
+          "path": "scripts/spring.js"
+        }
+      }
+    },
+    {
+      "id": "pause_menu",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    },
+    {
+      "id": "level",
+      "components": {
+        "Script": {
+          "path": "scripts/level_flow.js",
+          "props": {
+            "levelId": "rooftops_1"
+          }
+        }
+      }
+    },
+    {
+      "id": "music",
+      "components": {
+        "Script": {
+          "path": "scripts/music.js"
+        }
+      }
+    },
+    {
+      "id": "tap_move",
+      "components": {
+        "Script": {
+          "path": "scripts/tap_move.js"
+        }
+      }
+    },
+    {
+      "id": "courier",
+      "tags": ["courier"],
+      "components": {
+        "Transform": {
+          "position": [0, 0.62, 3]
+        },
+        "CharacterController3D": {
+          "radius": 0.3,
+          "height": 1.1,
+          "stepOffset": 0.35,
+          "slopeLimit": 45
+        },
+        "Script": {
+          "path": "scripts/courier.js"
+        }
+      },
+      "children": [
+        {
+          "id": "model",
+          "components": {
+            "Transform": {
+              "position": [0, -0.55, 0],
+              "rotation": [0, 180, 0],
+              "scale": [0.23, 0.23, 0.23]
+            },
+            "MeshRenderer": {
+              "mesh": "assets/models/robot.glb"
+            },
+            "Animator": {
+              "params": {
+                "speed": 0,
+                "grounded": true,
+                "vy": 0,
+                "jump": false,
+                "celebrate": false,
+                "caught": false,
+                "wind_down": false,
+                "recover": false
+              },
+              "states": {
+                "idle": {
+                  "clip": "Idle"
+                },
+                "walk": {
+                  "clip": "Walking"
+                },
+                "run": {
+                  "clip": "Running"
+                },
+                "jump": {
+                  "clip": "Jump",
+                  "loop": false
+                },
+                "fall": {
+                  "clip": "Jump",
+                  "loop": false,
+                  "speed": 0.6
+                },
+                "land": {
+                  "clip": "Sitting",
+                  "loop": false,
+                  "speed": 2.5
+                },
+                "celebrate": {
+                  "clip": "Dance",
+                  "onEnter": "courier_celebrates"
+                },
+                "caught": {
+                  "clip": "Death",
+                  "loop": false
+                },
+                "wound_down": {
+                  "clip": "Sitting",
+                  "loop": false,
+                  "speed": 0.5
+                }
+              },
+              "transitions": [
+                {
+                  "to": "caught",
+                  "when": "caught",
+                  "fade": 0.1
+                },
+                {
+                  "to": "celebrate",
+                  "when": "celebrate",
+                  "fade": 0.15
+                },
+                {
+                  "to": "wound_down",
+                  "when": "wind_down",
+                  "fade": 0.4
+                },
+                {
+                  "from": "caught",
+                  "to": "idle",
+                  "when": "recover",
+                  "fade": 0.15
+                },
+                {
+                  "from": "idle",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "walk",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "run",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "land",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "fall",
+                  "to": "jump",
+                  "when": "jump",
+                  "fade": 0.08
+                },
+                {
+                  "from": "jump",
+                  "to": "land",
+                  "when": "grounded && vy <= 0.1",
+                  "fade": 0.05
+                },
+                {
+                  "from": "fall",
+                  "to": "land",
+                  "when": "grounded && vy <= 0.1",
+                  "fade": 0.05
+                },
+                {
+                  "from": "idle",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "run",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "land",
+                  "to": "fall",
+                  "when": "!grounded && vy < -4",
+                  "fade": 0.15
+                },
+                {
+                  "from": "land",
+                  "to": "run",
+                  "when": "speed > 3.6",
+                  "fade": 0.1
+                },
+                {
+                  "from": "land",
+                  "to": "walk",
+                  "when": "speed > 0.3",
+                  "fade": 0.1
+                },
+                {
+                  "from": "land",
+                  "to": "idle",
+                  "onFinish": true,
+                  "fade": 0.15
+                },
+                {
+                  "from": "idle",
+                  "to": "walk",
+                  "when": "speed > 0.3",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "run",
+                  "when": "speed > 3.6",
+                  "fade": 0.15
+                },
+                {
+                  "from": "run",
+                  "to": "walk",
+                  "when": "speed <= 3.2 && speed > 0.3",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "idle",
+                  "when": "speed <= 0.3",
+                  "fade": 0.2
+                },
+                {
+                  "from": "run",
+                  "to": "idle",
+                  "when": "speed <= 0.3",
+                  "fade": 0.2
+                }
+              ],
+              "events": [
+                {
+                  "clip": "Walking",
+                  "time": 0.1,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "Walking",
+                  "time": 0.58,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "Running",
+                  "time": 0.05,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "Running",
+                  "time": 0.53,
+                  "name": "footstep"
+                }
+              ],
+              "state": "idle"
+            }
+          },
+          "children": [
+            {
+              "id": "carried_parcel",
+              "components": {
+                "Transform": {
+                  "position": [0, 2.6, -1.35],
+                  "scale": [1.5, 1.4, 1.0]
+                },
+                "MeshRenderer": {
+                  "mesh": "cube",
+                  "color": [0.85, 0.62, 0.3, 1],
+                  "roughness": 0.7
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "components": {
+        "Script": {
+          "path": "scripts/hud.js"
+        }
+      }
+    },
+    {
+      "id": "spring_bg",
+      "components": {
+        "Transform": {
+          "position": [24, 24, 0]
+        },
+        "Shape2D": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "size": [308, 26],
+          "color": [0, 0, 0, 0.55],
+          "pivot": [0, 1],
+          "layer": 90
+        }
+      }
+    },
+    {
+      "id": "spring_fill",
+      "components": {
+        "Transform": {
+          "position": [28, 28, 0]
+        },
+        "Shape2D": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "size": [300, 18],
+          "color": [1, 0.76, 0.2, 1],
+          "pivot": [0, 1],
+          "layer": 91
+        }
+      }
+    },
+    {
+      "id": "spring_label",
+      "components": {
+        "Transform": {
+          "position": [24, 56, 0]
+        },
+        "Text": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "text": "Spring",
+          "key": "hud.spring",
+          "fontSize": 20,
+          "color": [1, 1, 1, 0.85],
+          "layer": 100
+        }
+      }
+    },
+    {
+      "id": "spring_text",
+      "components": {
+        "Transform": {
+          "position": [342, 24, 0]
+        },
+        "Text": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "text": "60",
+          "fontSize": 28,
+          "layer": 100
+        }
+      }
+    },
+    {
+      "id": "parcel_text",
+      "components": {
+        "Transform": {
+          "position": [24, 84, 0]
+        },
+        "Text": {
+          "anchor": [0, 0],
+          "safeArea": true,
+          "space": "screen",
+          "text": "Parcels 0 / 1",
+          "fontSize": 24,
+          "layer": 100
+        }
+      }
+    },
+    {
+      "id": "touch_stick",
+      "components": {
+        "Transform": {
+          "position": [150, -150, 0]
+        },
+        "TouchStick": {
+          "anchor": [0, 1],
+          "size": [220, 220],
+          "color": [1, 1, 1, 0.18]
+        }
+      }
+    },
+    {
+      "id": "touch_jump",
+      "components": {
+        "Transform": {
+          "position": [-130, -130, 0]
+        },
+        "TouchButton": {
+          "anchor": [1, 1],
+          "button": "A",
+          "text": "Jump",
+          "size": [110, 110]
+        }
+      }
+    },
+    {
+      "id": "touch_action",
+      "components": {
+        "Transform": {
+          "position": [-270, -80, 0]
+        },
+        "TouchButton": {
+          "anchor": [1, 1],
+          "button": "X",
+          "text": "Act",
+          "size": [84, 84]
+        }
+      }
+    },
+    {
+      "id": "touch_pause",
+      "components": {
+        "Transform": {
+          "position": [-56, 56, 0]
+        },
+        "TouchButton": {
+          "anchor": [1, 0],
+          "button": "Start",
+          "text": "II",
+          "size": [64, 64]
+        }
+      }
+    },
+    {
+      "id": "results_panel",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [1280, 720],
+          "anchor": [0.5, 0.5],
+          "layer": 290,
+          "color": [0, 0, 0, 0.6],
+          "layout": "column",
+          "justify": "center"
+        }
+      },
+      "children": [
+        {
+          "id": "results_panel_box",
+          "components": {
+            "Panel": {
+              "layer": 300,
+              "layout": "column",
+              "spacing": 12,
+              "padding": [40, 28, 40, 36],
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "results_heading",
+              "components": {
+                "Text": {
+                  "text": "Delivered!",
+                  "fontSize": 44,
+                  "layer": 301,
+                  "space": "screen",
+                  "key": "results.title",
+                  "color": [1, 0.85, 0.3, 1]
+                }
+              }
+            },
+            {
+              "id": "results_stars",
+              "components": {
+                "Text": {
+                  "text": "---",
+                  "fontSize": 56,
+                  "layer": 301,
+                  "space": "screen",
+                  "color": [1, 0.85, 0.3, 1]
+                }
+              }
+            },
+            {
+              "id": "results_time",
+              "components": {
+                "Text": {
+                  "text": "Time",
+                  "fontSize": 28,
+                  "layer": 301,
+                  "space": "screen"
+                }
+              }
+            },
+            {
+              "id": "results_spring",
+              "components": {
+                "Text": {
+                  "text": "Spring",
+                  "fontSize": 28,
+                  "layer": 301,
+                  "space": "screen"
+                }
+              }
+            },
+            {
+              "id": "results_next",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Next level",
+                  "key": "results.next",
+                  "layer": 302,
+                  "autoFocus": true
+                }
+              }
+            },
+            {
+              "id": "results_retry",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Play again",
+                  "key": "results.retry",
+                  "layer": 302
+                }
+              }
+            },
+            {
+              "id": "results_title",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Quit to title",
+                  "key": "results.toTitle",
+                  "layer": 302
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retry_panel",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [1280, 720],
+          "anchor": [0.5, 0.5],
+          "layer": 290,
+          "color": [0, 0, 0, 0.6],
+          "layout": "column",
+          "justify": "center"
+        }
+      },
+      "children": [
+        {
+          "id": "retry_panel_box",
+          "components": {
+            "Panel": {
+              "layer": 300,
+              "layout": "column",
+              "spacing": 12,
+              "padding": [40, 28, 40, 36],
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "retry_heading",
+              "components": {
+                "Text": {
+                  "text": "The spring ran down",
+                  "fontSize": 44,
+                  "layer": 301,
+                  "space": "screen",
+                  "key": "retry.title",
+                  "color": [1, 0.45, 0.35, 1]
+                }
+              }
+            },
+            {
+              "id": "retry_hint",
+              "components": {
+                "Text": {
+                  "text": "Be quicker.",
+                  "fontSize": 26,
+                  "layer": 301,
+                  "space": "screen",
+                  "key": "retry.hint"
+                }
+              }
+            },
+            {
+              "id": "retry_retry",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Try again",
+                  "key": "retry.retry",
+                  "layer": 302,
+                  "autoFocus": true
+                }
+              }
+            },
+            {
+              "id": "retry_title",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Quit to title",
+                  "key": "retry.toTitle",
+                  "layer": 302
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "roof_1_walls",
+      "components": {
+        "Transform": {
+          "position": [0.0, -12.2, 1.0],
+          "rotation": [0, 0, 0],
+          "scale": [8, 12.07, 10]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_1",
+      "components": {
+        "Transform": {
+          "position": [0.0, -0.13, 1.0],
+          "scale": [8.3, 1, 10.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "chimney_1",
+      "components": {
+        "Transform": {
+          "position": [-3.2, 0, 4.5],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_1_box",
+      "components": {
+        "Transform": {
+          "position": [-2.78, 1.0, 4.5]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_1_steam",
+      "components": {
+        "Transform": {
+          "position": [-2.78, 2.2, 4.5]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "roof_2_walls",
+      "components": {
+        "Transform": {
+          "position": [0.0, -12.2, -10.5],
+          "rotation": [0, 0, 0],
+          "scale": [7.0, 12.07, 9.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_2",
+      "components": {
+        "Transform": {
+          "position": [0.0, -0.13, -10.5],
+          "scale": [7.3, 1, 9.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "checkpoint_1",
+      "prefab": "prefabs/checkpoint.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [0, 0, -10.5]
+        }
+      }
+    },
+    {
+      "id": "chimney_2",
+      "components": {
+        "Transform": {
+          "position": [3.0, 0, -13.5],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_2_box",
+      "components": {
+        "Transform": {
+          "position": [3.42, 1.0, -13.5]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_2_steam",
+      "components": {
+        "Transform": {
+          "position": [3.42, 2.2, -13.5]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "roof_3_walls",
+      "components": {
+        "Transform": {
+          "position": [0.0, -12.2, -21.5],
+          "rotation": [0, 0, 0],
+          "scale": [6.0, 11.07, 8.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_3",
+      "components": {
+        "Transform": {
+          "position": [0.0, -1.13, -21.5],
+          "scale": [6.3, 1, 8.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "key_1",
+      "prefab": "prefabs/wind_key.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [0, 0.0, -22.5]
+        }
+      }
+    },
+    {
+      "id": "chimney_3",
+      "components": {
+        "Transform": {
+          "position": [-2.3, -1.0, -19.0],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_3_box",
+      "components": {
+        "Transform": {
+          "position": [-1.88, 0.0, -19.0]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_3_steam",
+      "components": {
+        "Transform": {
+          "position": [-1.88, 1.2, -19.0]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "roof_4_walls",
+      "components": {
+        "Transform": {
+          "position": [7.25, -12.2, -29.0],
+          "rotation": [0, 0, 0],
+          "scale": [4.5, 10.57, 7.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_4",
+      "components": {
+        "Transform": {
+          "position": [7.25, -1.63, -29.0],
+          "scale": [4.8, 1, 7.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "roof_5_walls",
+      "components": {
+        "Transform": {
+          "position": [13.5, -12.2, -30.5],
+          "rotation": [0, 0, 0],
+          "scale": [4.0, 11.57, 5.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_5",
+      "components": {
+        "Transform": {
+          "position": [13.5, -0.63, -30.5],
+          "scale": [4.3, 1, 5.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "parcel_bonus_1",
+      "prefab": "prefabs/parcel_bonus.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [13.5, 0.4, -30.5]
+        }
+      }
+    },
+    {
+      "id": "lantern_1",
+      "prefab": "prefabs/lantern.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [11.8, -0.5, -28.3]
+        }
+      }
+    },
+    {
+      "id": "roof_6_walls",
+      "components": {
+        "Transform": {
+          "position": [0.0, -12.2, -34.7],
+          "rotation": [0, 0, 0],
+          "scale": [6, 10.07, 12.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_6",
+      "components": {
+        "Transform": {
+          "position": [0.0, -2.13, -34.7],
+          "scale": [6.3, 1, 12.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "checkpoint_2",
+      "prefab": "prefabs/checkpoint.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [0, -2.0, -34.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_4",
+      "components": {
+        "Transform": {
+          "position": [1.8, -2.0, -39.5],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_4_box",
+      "components": {
+        "Transform": {
+          "position": [2.22, -1.0, -39.5]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_4_steam",
+      "components": {
+        "Transform": {
+          "position": [2.22, 0.2, -39.5]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "roof_7_walls",
+      "components": {
+        "Transform": {
+          "position": [-3.0, -12.2, -46.7],
+          "rotation": [0, 0, 0],
+          "scale": [4.0, 10.07, 7.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_7",
+      "components": {
+        "Transform": {
+          "position": [-3.0, -2.13, -46.7],
+          "scale": [4.3, 1, 7.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "roof_8_walls",
+      "components": {
+        "Transform": {
+          "position": [0.0, -12.2, -56.2],
+          "rotation": [0, 0, 0],
+          "scale": [4.0, 11.07, 7.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_8",
+      "components": {
+        "Transform": {
+          "position": [0.0, -1.13, -56.2],
+          "scale": [4.3, 1, 7.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "chimney_5",
+      "components": {
+        "Transform": {
+          "position": [1.3, -1.0, -56.2],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_5_box",
+      "components": {
+        "Transform": {
+          "position": [1.72, 0.0, -56.2]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_5_steam",
+      "components": {
+        "Transform": {
+          "position": [1.72, 1.2, -56.2]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "roof_9_walls",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -12.2, -66.7],
+          "rotation": [0, 0, 0],
+          "scale": [5.0, 11.07, 9.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_9",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -1.13, -66.7],
+          "scale": [5.3, 1, 9.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "lantern_2",
+      "prefab": "prefabs/lantern.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [-3.7, -1.0, -66.7]
+        }
+      }
+    },
+    {
+      "id": "parcel_1",
+      "prefab": "prefabs/parcel.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -0.1, -65.7]
+        }
+      }
+    },
+    {
+      "id": "roof_10_walls",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -12.2, -86.7],
+          "rotation": [0, 0, 0],
+          "scale": [8.0, 11.07, 11.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1, 1],
+          "offset": [0, 0.5, 0],
+          "friction": 0.4
+        }
+      }
+    },
+    {
+      "id": "roof_10",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -1.13, -86.7],
+          "scale": [8.3, 1, 11.3]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.13, 1],
+          "offset": [0, 0.065, 0],
+          "friction": 0.6
+        }
+      }
+    },
+    {
+      "id": "walk_1",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -1.1, -76.2],
+          "rotation": [0, 0, 0],
+          "scale": [1.4, 0.2, 10.0]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.6, 0.42, 0.24, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": true
+        },
+        "Collider3D": {
+          "shape": "box",
+          "friction": 0.6
+        }
+      },
+      "tags": ["wood"]
+    },
+    {
+      "id": "door_1",
+      "prefab": "prefabs/delivery_door.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [-1.5, -1.0, -86.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_6",
+      "components": {
+        "Transform": {
+          "position": [-5.0, -1.0, -83.2],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_6_box",
+      "components": {
+        "Transform": {
+          "position": [-4.58, 0.0, -83.2]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_6_steam",
+      "components": {
+        "Transform": {
+          "position": [-4.58, 1.2, -83.2]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "chimney_7",
+      "components": {
+        "Transform": {
+          "position": [1.0, -1.0, -90.2],
+          "rotation": [0, 0, 0],
+          "scale": [2, 2.0, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/chimney.glb"
+        }
+      }
+    },
+    {
+      "id": "chimney_7_box",
+      "components": {
+        "Transform": {
+          "position": [1.42, 0.0, -90.2]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 2.0, 0.7]
+        }
+      }
+    },
+    {
+      "id": "chimney_7_steam",
+      "components": {
+        "Transform": {
+          "position": [1.42, 1.2, -90.2]
+        },
+        "ParticleEmitter": {
+          "rate": 5,
+          "lifetime": 2.6,
+          "speed": 0.8,
+          "spread": 18,
+          "gravity": [0.25, 0.35, 0],
+          "startSize": 0.35,
+          "endSize": 1.5,
+          "startColor": [0.95, 0.95, 0.97, 0.4],
+          "endColor": [0.95, 0.95, 0.97, 0],
+          "blend": "alpha",
+          "maxParticles": 40,
+          "is3D": true,
+          "emitting": true
+        }
+      }
+    },
+    {
+      "id": "lantern_3",
+      "prefab": "prefabs/lantern.prefab.json",
+      "components": {
+        "Transform": {
+          "position": [1.0, -1.0, -88.7]
+        }
+      }
+    },
+    {
+      "id": "street",
+      "components": {
+        "Transform": {
+          "position": [0, -12.7, 0],
+          "rotation": [0, 0, 0],
+          "scale": [500, 1, 500]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [0.16, 0.16, 0.19, 1],
+          "roughness": 0.85,
+          "metallic": 0.0,
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_0",
+      "components": {
+        "Transform": {
+          "position": [93.3263, -12.2, -108.931],
+          "rotation": [0, 0, 0],
+          "scale": [13.0784, 16.4631, 13.8738]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_0",
+      "components": {
+        "Transform": {
+          "position": [93.3263, 4.2631, -108.931],
+          "rotation": [0, 0, 0],
+          "scale": [13.6784, 1, 14.4738]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_1",
+      "components": {
+        "Transform": {
+          "position": [28.5742, -12.2, -23.826],
+          "rotation": [0, 0, 0],
+          "scale": [8.9412, 13.1735, 11.034]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_1",
+      "components": {
+        "Transform": {
+          "position": [28.5742, 0.9735, -23.826],
+          "rotation": [0, 0, 0],
+          "scale": [9.5412, 1, 11.634]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_2",
+      "components": {
+        "Transform": {
+          "position": [33.0156, -12.2, -67.9866],
+          "rotation": [0, 0, 0],
+          "scale": [16.317, 11.2478, 8.6316]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_2",
+      "components": {
+        "Transform": {
+          "position": [33.0156, -0.9522, -67.9866],
+          "rotation": [0, 0, 0],
+          "scale": [16.917, 1, 9.2316]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_3",
+      "components": {
+        "Transform": {
+          "position": [-38.2155, -12.2, -76.3505],
+          "rotation": [0, 0, 0],
+          "scale": [9.9532, 20.2953, 10.3365]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_3",
+      "components": {
+        "Transform": {
+          "position": [-38.2155, 8.0953, -76.3505],
+          "rotation": [0, 0, 0],
+          "scale": [10.5532, 1, 10.9365]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_4",
+      "components": {
+        "Transform": {
+          "position": [35.7389, -12.2, -111.0942],
+          "rotation": [0, 0, 0],
+          "scale": [10.7816, 44.8492, 17.9766]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_4",
+      "components": {
+        "Transform": {
+          "position": [35.7389, 32.6492, -111.0942],
+          "rotation": [0, 0, 0],
+          "scale": [11.3816, 1, 18.5766]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_5",
+      "components": {
+        "Transform": {
+          "position": [45.7181, -12.2, -148.0279],
+          "rotation": [0, 0, 0],
+          "scale": [10.2967, 12.4578, 10.8904]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_5",
+      "components": {
+        "Transform": {
+          "position": [45.7181, 0.2578, -148.0279],
+          "rotation": [0, 0, 0],
+          "scale": [10.8967, 1, 11.4904]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_6",
+      "components": {
+        "Transform": {
+          "position": [-24.967, -12.2, 19.091],
+          "rotation": [0, 0, 0],
+          "scale": [16.4731, 17.3401, 8.0054]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_6",
+      "components": {
+        "Transform": {
+          "position": [-24.967, 5.1401, 19.091],
+          "rotation": [0, 0, 0],
+          "scale": [17.0731, 1, 8.6054]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_7",
+      "components": {
+        "Transform": {
+          "position": [-22.5666, -12.2, -211.01],
+          "rotation": [0, 0, 0],
+          "scale": [14.2945, 19.4421, 15.7851]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_7",
+      "components": {
+        "Transform": {
+          "position": [-22.5666, 7.2421, -211.01],
+          "rotation": [0, 0, 0],
+          "scale": [14.8945, 1, 16.3851]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_8",
+      "components": {
+        "Transform": {
+          "position": [-41.5339, -12.2, -226.0611],
+          "rotation": [0, 0, 0],
+          "scale": [12.1005, 14.7109, 17.2285]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_8",
+      "components": {
+        "Transform": {
+          "position": [-41.5339, 2.5109, -226.0611],
+          "rotation": [0, 0, 0],
+          "scale": [12.7005, 1, 17.8285]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_9",
+      "components": {
+        "Transform": {
+          "position": [-107.5899, -12.2, -109.1156],
+          "rotation": [0, 0, 0],
+          "scale": [12.8682, 16.5935, 14.8208]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_9",
+      "components": {
+        "Transform": {
+          "position": [-107.5899, 4.3935, -109.1156],
+          "rotation": [0, 0, 0],
+          "scale": [13.4682, 1, 15.4208]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_10",
+      "components": {
+        "Transform": {
+          "position": [106.7619, -12.2, -29.9243],
+          "rotation": [0, 0, 0],
+          "scale": [12.1923, 23.8199, 11.8375]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_10",
+      "components": {
+        "Transform": {
+          "position": [106.7619, 11.6199, -29.9243],
+          "rotation": [0, 0, 0],
+          "scale": [12.7923, 1, 12.4375]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_11",
+      "components": {
+        "Transform": {
+          "position": [-109.8964, -12.2, -5.2732],
+          "rotation": [0, 0, 0],
+          "scale": [17.7486, 44.9266, 13.9274]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_11",
+      "components": {
+        "Transform": {
+          "position": [-109.8964, 32.7266, -5.2732],
+          "rotation": [0, 0, 0],
+          "scale": [18.3486, 1, 14.5274]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_12",
+      "components": {
+        "Transform": {
+          "position": [-63.6438, -12.2, -127.4886],
+          "rotation": [0, 0, 0],
+          "scale": [16.5438, 13.5116, 14.4184]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_12",
+      "components": {
+        "Transform": {
+          "position": [-63.6438, 1.3116, -127.4886],
+          "rotation": [0, 0, 0],
+          "scale": [17.1438, 1, 15.0184]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_13",
+      "components": {
+        "Transform": {
+          "position": [-63.0865, -12.2, -162.8478],
+          "rotation": [0, 0, 0],
+          "scale": [15.7269, 20.3714, 11.2896]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_13",
+      "components": {
+        "Transform": {
+          "position": [-63.0865, 8.1714, -162.8478],
+          "rotation": [0, 0, 0],
+          "scale": [16.3269, 1, 11.8896]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_14",
+      "components": {
+        "Transform": {
+          "position": [-93.6582, -12.2, -175.7293],
+          "rotation": [0, 0, 0],
+          "scale": [14.3659, 22.9036, 8.1551]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_14",
+      "components": {
+        "Transform": {
+          "position": [-93.6582, 10.7036, -175.7293],
+          "rotation": [0, 0, 0],
+          "scale": [14.9659, 1, 8.7551]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_15",
+      "components": {
+        "Transform": {
+          "position": [-82.0114, -12.2, -77.3095],
+          "rotation": [0, 0, 0],
+          "scale": [16.3236, 23.5134, 9.3574]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_15",
+      "components": {
+        "Transform": {
+          "position": [-82.0114, 11.3134, -77.3095],
+          "rotation": [0, 0, 0],
+          "scale": [16.9236, 1, 9.9574]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_16",
+      "components": {
+        "Transform": {
+          "position": [-41.6215, -12.2, -170.6203],
+          "rotation": [0, 0, 0],
+          "scale": [14.1044, 15.5466, 15.2539]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_16",
+      "components": {
+        "Transform": {
+          "position": [-41.6215, 3.3466, -170.6203],
+          "rotation": [0, 0, 0],
+          "scale": [14.7044, 1, 15.8539]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_17",
+      "components": {
+        "Transform": {
+          "position": [41.1343, -12.2, -129.0654],
+          "rotation": [0, 0, 0],
+          "scale": [12.8252, 11.6591, 8.785]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_17",
+      "components": {
+        "Transform": {
+          "position": [41.1343, -0.5409, -129.0654],
+          "rotation": [0, 0, 0],
+          "scale": [13.4252, 1, 9.385]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_18",
+      "components": {
+        "Transform": {
+          "position": [-101.4868, -12.2, 20.2972],
+          "rotation": [0, 0, 0],
+          "scale": [10.3841, 18.9943, 15.0458]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_18",
+      "components": {
+        "Transform": {
+          "position": [-101.4868, 6.7943, 20.2972],
+          "rotation": [0, 0, 0],
+          "scale": [10.9841, 1, 15.6458]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_19",
+      "components": {
+        "Transform": {
+          "position": [-45.4442, -12.2, -184.3873],
+          "rotation": [0, 0, 0],
+          "scale": [15.2035, 17.9939, 8.6878]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_19",
+      "components": {
+        "Transform": {
+          "position": [-45.4442, 5.7939, -184.3873],
+          "rotation": [0, 0, 0],
+          "scale": [15.8035, 1, 9.2878]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_20",
+      "components": {
+        "Transform": {
+          "position": [-48.3517, -12.2, 8.5136],
+          "rotation": [0, 0, 0],
+          "scale": [10.0398, 19.4218, 8.1657]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_20",
+      "components": {
+        "Transform": {
+          "position": [-48.3517, 7.2218, 8.5136],
+          "rotation": [0, 0, 0],
+          "scale": [10.6398, 1, 8.7657]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_21",
+      "components": {
+        "Transform": {
+          "position": [-55.2059, -12.2, -217.8845],
+          "rotation": [0, 0, 0],
+          "scale": [10.8196, 44.0573, 13.31]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_21",
+      "components": {
+        "Transform": {
+          "position": [-55.2059, 31.8573, -217.8845],
+          "rotation": [0, 0, 0],
+          "scale": [11.4196, 1, 13.91]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_22",
+      "components": {
+        "Transform": {
+          "position": [-30.3281, -12.2, 1.6445],
+          "rotation": [0, 0, 0],
+          "scale": [17.8049, 34.1928, 14.5693]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_22",
+      "components": {
+        "Transform": {
+          "position": [-30.3281, 21.9928, 1.6445],
+          "rotation": [0, 0, 0],
+          "scale": [18.4049, 1, 15.1693]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_23",
+      "components": {
+        "Transform": {
+          "position": [-41.403, -12.2, -221.2791],
+          "rotation": [0, 0, 0],
+          "scale": [13.9837, 12.3545, 8.7483]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_23",
+      "components": {
+        "Transform": {
+          "position": [-41.403, 0.1545, -221.2791],
+          "rotation": [0, 0, 0],
+          "scale": [14.5837, 1, 9.3483]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_24",
+      "components": {
+        "Transform": {
+          "position": [-39.841, -12.2, 29.833],
+          "rotation": [0, 0, 0],
+          "scale": [8.7526, 35.7952, 13.461]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_24",
+      "components": {
+        "Transform": {
+          "position": [-39.841, 23.5952, 29.833],
+          "rotation": [0, 0, 0],
+          "scale": [9.3526, 1, 14.061]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_25",
+      "components": {
+        "Transform": {
+          "position": [64.5187, -12.2, 7.9007],
+          "rotation": [0, 0, 0],
+          "scale": [11.5183, 41.5293, 14.8515]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_25",
+      "components": {
+        "Transform": {
+          "position": [64.5187, 29.3293, 7.9007],
+          "rotation": [0, 0, 0],
+          "scale": [12.1183, 1, 15.4515]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_26",
+      "components": {
+        "Transform": {
+          "position": [97.7327, -12.2, -222.1299],
+          "rotation": [0, 0, 0],
+          "scale": [12.9993, 33.1793, 8.1453]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_26",
+      "components": {
+        "Transform": {
+          "position": [97.7327, 20.9793, -222.1299],
+          "rotation": [0, 0, 0],
+          "scale": [13.5993, 1, 8.7453]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_27",
+      "components": {
+        "Transform": {
+          "position": [-92.3556, -12.2, -63.7549],
+          "rotation": [0, 0, 0],
+          "scale": [17.9332, 35.4872, 16.7979]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_27",
+      "components": {
+        "Transform": {
+          "position": [-92.3556, 23.2872, -63.7549],
+          "rotation": [0, 0, 0],
+          "scale": [18.5332, 1, 17.3979]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_28",
+      "components": {
+        "Transform": {
+          "position": [95.5353, -12.2, -49.5193],
+          "rotation": [0, 0, 0],
+          "scale": [12.5776, 28.9438, 12.6262]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_28",
+      "components": {
+        "Transform": {
+          "position": [95.5353, 16.7438, -49.5193],
+          "rotation": [0, 0, 0],
+          "scale": [13.1776, 1, 13.2262]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_29",
+      "components": {
+        "Transform": {
+          "position": [-41.7483, -12.2, -207.1896],
+          "rotation": [0, 0, 0],
+          "scale": [8.2229, 13.951, 17.574]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_29",
+      "components": {
+        "Transform": {
+          "position": [-41.7483, 1.751, -207.1896],
+          "rotation": [0, 0, 0],
+          "scale": [8.8229, 1, 18.174]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_30",
+      "components": {
+        "Transform": {
+          "position": [-53.7174, -12.2, -227.0601],
+          "rotation": [0, 0, 0],
+          "scale": [11.0103, 17.0901, 14.7814]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_30",
+      "components": {
+        "Transform": {
+          "position": [-53.7174, 4.8901, -227.0601],
+          "rotation": [0, 0, 0],
+          "scale": [11.6103, 1, 15.3814]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_31",
+      "components": {
+        "Transform": {
+          "position": [55.8297, -12.2, -140.9437],
+          "rotation": [0, 0, 0],
+          "scale": [17.303, 18.4519, 12.9831]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-wood-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_31",
+      "components": {
+        "Transform": {
+          "position": [55.8297, 6.2519, -140.9437],
+          "rotation": [0, 0, 0],
+          "scale": [17.903, 1, 13.5831]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_32",
+      "components": {
+        "Transform": {
+          "position": [36.4978, -12.2, -178.3885],
+          "rotation": [0, 0, 0],
+          "scale": [12.309, 41.9977, 16.0599]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_32",
+      "components": {
+        "Transform": {
+          "position": [36.4978, 29.7977, -178.3885],
+          "rotation": [0, 0, 0],
+          "scale": [12.909, 1, 16.6599]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_33",
+      "components": {
+        "Transform": {
+          "position": [-25.4279, -12.2, -78.3921],
+          "rotation": [0, 0, 0],
+          "scale": [11.1649, 27.3763, 9.3618]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/wall-block.glb",
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "sky_cap_33",
+      "components": {
+        "Transform": {
+          "position": [-25.4279, 15.1763, -78.3921],
+          "rotation": [0, 0, 0],
+          "scale": [11.7649, 1, 9.9618]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/town/roof-flat.glb",
+          "castShadows": false
+        }
+      }
+    }
+  ]
+}

@@ -5,16 +5,8 @@
       "id": "camera",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            1.5,
-            8
-          ],
-          "rotation": [
-            -4,
-            0,
-            0
-          ]
+          "position": [0, 1.5, 8],
+          "rotation": [-4, 0, 0]
         },
         "Camera": {
           "projection": "perspective",
@@ -27,26 +19,13 @@
       "id": "sun",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            10,
-            0
-          ],
-          "rotation": [
-            -35,
-            25,
-            0
-          ]
+          "position": [0, 10, 0],
+          "rotation": [-35, 25, 0]
         },
         "Light": {
           "type": "directional",
           "intensity": 1.3,
-          "color": [
-            1,
-            0.93,
-            0.82,
-            1
-          ],
+          "color": [1, 0.93, 0.82, 1],
           "castShadows": true
         }
       }
@@ -55,21 +34,9 @@
       "id": "title_robot",
       "components": {
         "Transform": {
-          "position": [
-            -2.6,
-            0,
-            0
-          ],
-          "rotation": [
-            0,
-            25,
-            0
-          ],
-          "scale": [
-            0.5,
-            0.5,
-            0.5
-          ]
+          "position": [-2.6, 0, 0],
+          "rotation": [0, 25, 0],
+          "scale": [0.5, 0.5, 0.5]
         },
         "MeshRenderer": {
           "mesh": "assets/models/robot.glb"
@@ -83,25 +50,12 @@
       "id": "title_floor",
       "components": {
         "Transform": {
-          "position": [
-            -2.6,
-            -0.1,
-            0
-          ],
-          "scale": [
-            5,
-            0.2,
-            5
-          ]
+          "position": [-2.6, -0.1, 0],
+          "scale": [5, 0.2, 5]
         },
         "MeshRenderer": {
           "mesh": "cylinder",
-          "color": [
-            0.55,
-            0.57,
-            0.6,
-            1
-          ],
+          "color": [0.55, 0.57, 0.6, 1],
           "roughness": 0.7
         }
       }
@@ -110,23 +64,11 @@
       "id": "main_menu",
       "components": {
         "Transform": {
-          "position": [
-            0,
-            20,
-            0
-          ]
+          "position": [0, 20, 0]
         },
         "Panel": {
-          "anchor": [
-            0.72,
-            0.5
-          ],
-          "color": [
-            0,
-            0,
-            0,
-            0
-          ],
+          "anchor": [0.72, 0.5],
+          "color": [0, 0, 0, 0],
           "layout": "column",
           "spacing": 12,
           "fit": true
@@ -201,23 +143,12 @@
       "active": false,
       "components": {
         "Panel": {
-          "size": [
-            760,
-            620
-          ],
-          "anchor": [
-            0.5,
-            0.5
-          ],
+          "size": [760, 620],
+          "anchor": [0.5, 0.5],
           "layer": 300,
           "layout": "column",
           "spacing": 16,
-          "padding": [
-            24,
-            24,
-            24,
-            24
-          ]
+          "padding": [24, 24, 24, 24]
         },
         "Script": {
           "path": "scripts/ui/credits.js"
@@ -228,32 +159,17 @@
           "id": "credits_list",
           "components": {
             "ScrollList": {
-              "size": [
-                712,
-                476
-              ],
+              "size": [712, 476],
               "layer": 301,
-              "color": [
-                0,
-                0,
-                0,
-                0.25
-              ],
+              "color": [0, 0, 0, 0.25],
               "spacing": 14,
-              "padding": [
-                16,
-                16,
-                16,
-                16
-              ]
+              "padding": [16, 16, 16, 16]
             }
           }
         },
         {
           "id": "credits_back",
-          "tags": [
-            "back"
-          ],
+          "tags": ["back"],
           "components": {
             "Button": {
               "autoSize": true,
@@ -265,26 +181,19 @@
           }
         }
       ]
+    },
+    {
+      "id": "music",
+      "components": {
+        "Script": {
+          "path": "scripts/music.js"
+        }
+      }
     }
   ],
   "settings": {
-    "ambientLight": [
-      0.4,
-      0.44,
-      0.52,
-      1
-    ],
-    "skyColor": [
-      0.16,
-      0.2,
-      0.3,
-      1
-    ],
-    "horizonColor": [
-      0.45,
-      0.5,
-      0.58,
-      1
-    ]
+    "ambientLight": [0.4, 0.44, 0.52, 1],
+    "skyColor": [0.16, 0.2, 0.3, 1],
+    "horizonColor": [0.45, 0.5, 0.58, 1]
   }
 }

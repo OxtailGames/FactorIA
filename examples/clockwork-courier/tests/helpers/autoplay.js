@@ -7,8 +7,10 @@
 //   r.reached      true when every waypoint was reached within maxFrames
 //   r.frames       frames it took
 //
-// A waypoint is { x, z, radius?, jump?, walk? }: the courier counts as there when it is within `radius` metres (default
-// 0.6); `jump: true` taps jump the moment it arrives, `walk: true` holds the walk action (slow) on the way to it.
+// A waypoint is { x, z, radius?, jump?, act?, wait?, walk? }: the courier counts as there when it is within `radius` metres
+// (default 0.6); `jump: true` taps jump the moment it arrives, `act: true` taps the action button (a lever), `wait: n` then
+// stands still for n frames (a gate swinging open), `hold: { id, pos: [x, y, z], radius }` stands still until that entity (a
+// moving platform) is there, `walk: true` holds the walk action (slow) on the way to it.
 // Coordinates are world metres on the ground plane.
 const DEG = Math.PI / 180;
 
@@ -55,6 +57,20 @@ export class Autoplay {
     this.game.release("walk");
   }
 
+  /** Stands still until entity `hold.id` is within `hold.radius` metres of `hold.pos` [x, y, z] (a moving platform arriving),
+   *  at most `hold.max` frames (default 1500). */
+  holdUntil(hold) {
+    const e = this.game.find(hold.id);
+    for (let i = 0; i < (hold.max ?? 1500); i++) {
+      const p = e.position;
+      if (Math.hypot(p.x - hold.pos[0], p.y - hold.pos[1], p.z - hold.pos[2]) <= (hold.radius ?? 0.25)) return true;
+      this.stop();
+      this.game.step(1);
+      this.frames++;
+    }
+    return false;
+  }
+
   /** Walks to one point. Returns true when it got there. `until` is an optional () => boolean that stops the walk early. */
   goTo(wp, until) {
     const radius = wp.radius ?? 0.6;
@@ -62,6 +78,13 @@ export class Autoplay {
       const p = this.courier.position;
       if (Math.hypot(wp.x - p.x, wp.z - p.z) <= radius) {
         if (wp.jump) this.game.tap("jump");
+        if (wp.act) this.game.tap("action");
+        if (wp.hold) this.holdUntil(wp.hold);
+        if (wp.wait) {
+          this.stop();
+          this.game.step(wp.wait);
+          this.frames += wp.wait;
+        }
         return true;
       }
       if (until && until()) return false;
@@ -75,14 +98,18 @@ export class Autoplay {
   /** Follows the waypoints in order. */
   run(waypoints, until) {
     let reached = true;
-    for (const wp of waypoints) {
-      if (!this.goTo(wp, until)) {
+    let failedAt = -1;
+    for (let i = 0; i < waypoints.length; i++) {
+      if (!this.goTo(waypoints[i], until)) {
         reached = false;
+        failedAt = i;
         break;
       }
     }
     this.stop();
-    return { reached, frames: this.frames };
+    const p = this.courier.position;
+    // `failedAt` and `at` say where a route got stuck: the index of the waypoint and where the courier stood.
+    return { reached, frames: this.frames, failedAt, at: [p.x, p.y, p.z].map((n) => Math.round(n * 100) / 100) };
   }
 }
 

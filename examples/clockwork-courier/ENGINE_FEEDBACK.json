@@ -15,14 +15,15 @@
       "severity": "major",
       "title": "glTF animation of rigid (non-skinned) meshes parented to bone nodes is ignored",
       "missing": "assets/models/robot.glb (RobotExpressive style) animates by moving node transforms: every body part is a plain mesh child of a bone node and only the two hands are skinned. The Animator only drives skins, so the model stayed frozen in bind pose in every clip (identical screenshots at frames 5, 12, 18, 30 with Running). This layout is very common (three.js examples, many CC0 character packs, Blender exports without weight painting). No warning is printed.",
-      "workaround": "Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it.",
+      "workaround": "Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it. [P2] The same happens with Kenney cube-pets animal-dog.glb, where the MESH nodes themselves are the animated bones (8 clips, no skin): the dog stood frozen in every clip. tools/skinify.py now also treats an animated mesh node as its own bone (7 joints), and the Animator then plays walk/run/idle. Second asset of two in this game with the same layout, so it is common in CC0 packs.",
       "workaroundFiles": [
-        "tools/skinify.py",
-        "assets/models/robot.glb"
+        "assets/models/pets/animal-dog.glb",
+        "assets/models/robot.glb",
+        "tools/skinify.py"
       ],
       "suggestion": "Support node-transform animation of non-skinned mesh nodes in the Animator (drive the node world matrix of a MeshRenderer model's nodes), or auto-convert rigid-per-bone meshes to a skin at load. At least print a warning when a model has clips but no skin.",
       "effort": "large",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -76,11 +77,14 @@
       "severity": "minor",
       "title": "validate keeps the audio loudness warnings after defaults.audio.normalize is set",
       "missing": "assets.json has \"defaults\": {\"audio\": {\"normalize\": true}} as the validate hint suggests, yet `factoria validate` still warns that pluck_001.ogg peaks at 0.4 dBFS and toggle_001.ogg differs by 12.5 LU from click_001.ogg. Either the default is not applied to the check or only to playback; it is unclear which.",
-      "workaround": "Left the two warnings (they are not errors).",
+      "workaround": "Left the two warnings (they are not errors). [P2] P2 sounds: validate still warns for loopcity_0.ogg (peaks at 0.3 dBFS), pluck_001.ogg and toggle_001.ogg (loudness) although assets.json sets normalize: true for them; the warning should read the import settings.",
       "suggestion": "Make the loudness check read the effective import settings (defaults merged with per-asset), or say in the warning that the default is already applied and the warning is about the source file.",
       "effort": "small",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "workaroundFiles": [
+        "assets.json"
+      ]
     },
     {
       "id": "FB-0005",
@@ -132,6 +136,244 @@
       "missing": "entity.animator has state and setters but no values; tests had to read get(\"Animator\").values to assert speed/grounded parameters.",
       "workaround": "tests/animator.test.js uses game.find(id).get(\"Animator\").values.",
       "suggestion": "Expose animator.values (read-only) or animator.get(name) on the facade.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "major",
+      "title": "assets.import of a .glb does not copy the texture file it references",
+      "missing": "Importing Kenney .glb models (fantasy-town-kit, platformer-kit, cube-pets) with assets.import copies only the .glb. The files reference an external image (uri 'Textures/colormap.png') and rendering then logs 'texture file not found: assets/models/Textures/colormap.png' and draws untextured. The error is only visible at render time (not in the import result nor in validate). Worse: three kits ship DIFFERENT colormap.png files under the same relative name, so importing two kits into assets/models/ silently makes them collide.",
+      "workaround": "Moved each kit into its own folder (assets/models/town, props, pets), copied that kit's Textures/colormap.png next to it by hand and re-keyed assets.json (with provenance for the png).",
+      "workaroundFiles": [
+        "assets/models/town/Textures/colormap.png",
+        "assets/models/props/Textures/colormap.png",
+        "assets/models/pets/Textures/colormap.png",
+        "assets.json"
+      ],
+      "suggestion": "assets.import for .glb/.gltf should copy every external uri it references (keeping the relative layout under a folder named after the model or the pack), add provenance for them, and warn when the destination folder already holds a different file of the same name. validate should report a model whose external texture is missing.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "major",
+      "title": "No path finding or navmesh for 3D characters",
+      "missing": "Guard dogs that chase the courier around walls, and tap-to-move, need a path over the level geometry. The engine has no navmesh, no grid and no A*; a game AI has to write its own from physics queries.",
+      "workaround": "scripts/nav.js: a lazy height-field grid over the physics world (a ray straight down for the ground height, physics.overlapSphere for obstacles, a step-height rule for connections, A* with line-of-sight smoothing). It works but is slow to write, must be rebuilt when a gate or crate moves, and cannot know about doors or one-way drops.",
+      "workaroundFiles": [
+        "scripts/nav.js",
+        "scripts/dog.js",
+        "scripts/tap_move.js"
+      ],
+      "suggestion": "A `nav.findPath(from, to, {radius, stepHeight})` API (and a NavGrid/navmesh component baked from static colliders, with a dirty flag for moving obstacles) next to physics.raycast3d.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "major",
+      "title": "A CharacterController3D is not carried by a kinematic platform it stands on",
+      "missing": "Kinematic RigidBody3D platforms carry dynamic bodies, but a character standing on one stays put and slides off as the platform moves. Moving platforms are a staple of 3D platformers.",
+      "workaround": "scripts/courier.js reads the velocity of the kinematic body under its feet (the ground entity of the last move) and adds it to its own move every frame; scripts/mover.js drives the platform by velocity only, so the numbers agree.",
+      "workaroundFiles": [
+        "scripts/courier.js",
+        "scripts/mover.js"
+      ],
+      "suggestion": "physics.moveCharacter should add the displacement of the kinematic body it is grounded on (the way it already treats dynamic bodies), with an option to turn it off.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "major",
+      "title": "Characters do not weigh on dynamic bodies and push them aside",
+      "missing": "A CharacterController3D is kinematic: standing on a dynamic plank, seesaw or rope bridge applies no force to it, and walking into one shoves it along the ground (it slid a seesaw off its pivot). Seesaws, rope bridges and sinking platforms cannot work with the real character.",
+      "workaround": "scripts/seesaw.js simulates the weight: while the courier is grounded on the plank the hinge motor drives the end it stands on down, and the plank's own velocity is zeroed every fixed step so the courier cannot push it off its pivot. scripts/rope_bridge.js lets the planks be walked on without reacting to the load (heavy damping keeps it calm).",
+      "workaroundFiles": [
+        "scripts/seesaw.js",
+        "scripts/rope_bridge.js"
+      ],
+      "suggestion": "Let the character controller optionally apply its weight (mass x gravity) to the dynamic body below, and expose `pushStrength` or a layer rule so it does not shove bodies that are jointed.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "major",
+      "title": "Scene loads are synchronous and there is no progress or preload API",
+      "missing": "A loading screen cannot show real progress: scene.load blocks the frame, there is no way to load or warm up assets in steps (models, textures, audio), and no event when they are ready.",
+      "workaround": "scenes/loading.scene.json draws a step bar that counts the three frames the script really runs before the blocking scene.load; it is honest about being steps, not a percentage.",
+      "workaroundFiles": [
+        "scripts/loading.js",
+        "scenes/loading.scene.json"
+      ],
+      "suggestion": "scene.preload(path) returning a handle with progress 0..1 (loading assets on a worker), or scene.loadAsync plus an `onProgress` callback; the same for assets.preload([paths]).",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "minor",
+      "title": "No animal sounds (bark, growl) in the CC0 sound kits the engine suggests",
+      "missing": "The guard dog needs a bark. The Kenney kits in the docs have impacts, interface sounds and jingles but nothing animal, and there is no sound generator command.",
+      "workaround": "A pitched heavy impact (impactPunch_heavy_000.ogg) stands in for the bark; the dog also flashes a red view cone and shows an exclamation mark, so the warning does not depend on sound.",
+      "workaroundFiles": [
+        "scripts/dog.js"
+      ],
+      "suggestion": "Document a CC0 animal/creature pack in the assets guide, or add an `audio.synth` helper (noise burst plus filtered sweep) for simple barks, growls and whooshes.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Joint3D connected empty string is rejected by the scene validator but documented as 'the world'",
+      "missing": "The Joint3D field doc says `Empty = the world`, but a scene or spawn with \"connected\": \"\" fails validation. The field has to be left out.",
+      "workaround": "scripts/rope_bridge.js only sets `connected` when there is a next plank; the last plank's joint omits the field.",
+      "workaroundFiles": [
+        "scripts/rope_bridge.js"
+      ],
+      "suggestion": "Accept the empty string as the world (as documented), or change the doc to say 'leave the field out'.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "A joint-driven body is silently stopped by an overlapping static collider",
+      "missing": "A hinge gate whose swept volume touched a static wall by a few centimetres did not open, with no warning. The motor pushed against the wall forever.",
+      "workaround": "Levels leave 0.2 m of clearance around every hinge gate and the arena's gate sits between two walls with that gap.",
+      "workaroundFiles": [
+        "prefabs/gate.prefab.json",
+        "scenes/test_arena.scene.json"
+      ],
+      "suggestion": "A validate or debug-draw warning when a Joint3D body overlaps a static collider it is not connected to at the start pose, or a `game_state` field listing joints that are stalled against the motor.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "scene.format without paths rewrites every scene and prefab of the project",
+      "missing": "`factoria call scene.format` with no arguments reformatted the whole project (every scene and prefab), turning a one-file edit into a huge diff. Nothing in the command's description warns about it.",
+      "workaround": "Always pass `{\"paths\": [...]}`; level generators write canonical JSON themselves and the project notes say never to run it bare.",
+      "suggestion": "Make `paths` required (or default to `check: true`), and print how many files it will change before writing more than a few.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "A chain of hinged planks rings for a long time; a rope bridge needs heavy damping and wide planks",
+      "missing": "A rope bridge built from dynamic planks joined by Joint3D hinges swung by about 1 m unloaded with the default damping and was unstable with planks narrower than 2 m. A bridge should be a one-line component, not a tuning exercise.",
+      "workaround": "scripts/rope_bridge.js uses linearDamping 3 and angularDamping 8, width 2 m, sag 0.35 and 9 planks; with these it hangs still and holds the courier.",
+      "workaroundFiles": [
+        "scripts/rope_bridge.js",
+        "tests/mechanics.test.js"
+      ],
+      "suggestion": "A `Rope`/`Chain` component (or solver iterations per joint chain) that is stable by default, or a documented recipe for bridges in the physics guide.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "scene.load called from a test only takes effect in the next frame",
+      "missing": "In a test, `scene.load(path)` changes scene.current at once but the new scene's scripts start only on the next step, so reading their state right after the call gives the old values. game.load() and in-game scene.load calls behave differently, which is easy to trip over.",
+      "workaround": "tests step two frames after scene.load before reading anything.",
+      "workaroundFiles": [
+        "tests/mechanics.test.js"
+      ],
+      "suggestion": "Document the difference in the testing guide, or make scene.load from a test start the scene immediately like game.load.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"
