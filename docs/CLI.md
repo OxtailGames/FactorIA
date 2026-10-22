@@ -54,7 +54,7 @@ Checks `factoria.json`, every scene/prefab, asset references, `ENGINE_FEEDBACK.j
 an unknown field, or a number outside a field's range (`Shape2D.sides` 200 when the range is 3..64: the value is
 refused, never clamped, and the message gives the range and the nearest allowed value). A file that is not in the
 canonical layout (a hand-written scene) is valid: it gives ONE note listing the files (`note:` lines, `notes` in `--json`; not an
-error, not a warning), and `factoria call scene.format` is the optional fix that keeps later diffs small. `scene.format` with `check` and
+error, not a warning), and `factoria call scene.format '{"paths":[...]}'` is the optional fix that keeps later diffs small. `scene.format` with `check` and
 `strict` is the CI gate if you want the layout enforced.
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
@@ -198,7 +198,8 @@ factoria call scene.list_entities
 factoria call scene.spawn '{"name":"Enemy","components":{"Transform":{"position":[100,50,0]}}}'
 factoria call scene.import_ascii @level1.json   # ASCII rows + legend -> Tilemap + coins/enemies; "path": "scenes/level1.scene.json" writes that scene FILE and leaves the running game alone
 factoria call prefab.save '{"id":"boss","path":"prefabs/boss.prefab.json"}'   # an entity of the start scene (or one spawned earlier in a --batch) -> prefab file
-factoria call scene.format '{"check":true}'     # list scene/prefab files not in the canonical layout; without "check" it rewrites them
+factoria call scene.format '{"check":true}'     # list scene/prefab files not in the canonical layout
+factoria call scene.format '{"paths":["scenes"]}'   # rewrite those files/folders; '{"all":true}' = the whole project; with none of paths/all/check it writes nothing and fails
 factoria call scene.format '{"check":true,"strict":true}'   # same, but exits non-zero when any file is not canonical (CI)
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30

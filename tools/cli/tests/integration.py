@@ -348,10 +348,10 @@ def test_template(tmp, template):
                                   for n in rep.get("notes", []))
           and not any("canonical" in w.get("message", "") for w in rep.get("warnings", [])),
           "validate notes (not warns) a prefab that is not canonical")
-    code, res, err = jrun(["call", "scene.format", "{}", "--project", proj])
+    code, res, err = jrun(["call", "scene.format", '{"all":true}', "--project", proj])
     check(code == 0 and res is not None and "prefabs/probe_messy.prefab.json" in res["formatted"], "call scene.format rewrites the messy prefab")
     check('"size": [10, 10]' in open(messy).read() and open(broken).read().endswith('"x",}\n}\n'), "the layout is canonical and the broken file is untouched")
-    code, res, err = jrun(["call", "scene.format", "{}", "--project", proj])
+    code, res, err = jrun(["call", "scene.format", '{"all":true}', "--project", proj])
     check(code == 0 and res is not None and res["formatted"] == [], "scene.format twice: the second run changes nothing")
     os.remove(broken)
 

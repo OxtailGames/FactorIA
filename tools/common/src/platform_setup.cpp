@@ -48,18 +48,25 @@ std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
     }
     Json platformList = Json::array();
     for (const std::string& p : platforms) platformList.push_back(p);
-    const CommandResult r = registry->call("project.new_plugin",
-                                           Json::object({{"name", backend}, {"template", backend}, {"platforms", platformList}}));
+    const CommandResult r = registry->call(
+        "project.new_plugin", Json::object({{"name", backend}, {"template", backend}, {"platforms", platformList}, {"dryRun", dryRun}}));
     if (!r.ok)
         throw CommandError(r.error.value("code", std::string("failed")),
                            "could not create the " + backend + " plugin: " + r.error.value("message", std::string()),
                            r.error.value("hint", std::string()));
     folder = r.result.value("folder", std::string());
-    done.push_back("created the plugin '" + backend + "' from its template in " + folder + " and declared it in factoria.json");
+    for (const Json& f : r.result.value("files", Json::array())) wrote(folder + "/" + f.get<std::string>());
+    for (const Json& k : r.result.value("keys", Json::array())) keys.push_back(k.get<std::string>());
+    done.push_back(std::string(dryRun ? "would create" : "created") + " the plugin '" + backend + "' from its template in " + folder +
+                   " and " + (dryRun ? "declare" : "declared") + " it in factoria.json");
     return folder;
 }
 
 void Context::run_cmake(const std::vector<std::string>& arguments, const std::string& what) {
+    if (dryRun) {
+        done.push_back("would " + what);
+        return;
+    }
     const std::string cmake = cmakeExe.empty() ? find_cmake() : cmakeExe;
     if (cmake.empty())
         throw CommandError("not_found", "cannot " + what + ": CMake 3.24 or newer is not installed",
@@ -86,7 +93,8 @@ void Context::build_plugin(const std::string& pluginDir, const std::vector<std::
     configure.insert(configure.end(), configureArguments.begin(), configureArguments.end());
     run_cmake(configure, "configure the " + backend + " plugin");
     run_cmake({"--build", build, "--config", "Release"}, "build the " + backend + " plugin");
-    done.push_back("built the " + backend + " plugin for " + runtime_platform() + " (" + pluginDir + "/" + runtime_platform() + "/)");
+    done.push_back(std::string(dryRun ? "would build" : "built") + " the " + backend + " plugin for " + runtime_platform() + " (" + pluginDir +
+                   "/" + runtime_platform() + "/)");
 }
 
 }  // namespace platform_setup
@@ -116,8 +124,16 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         "its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for "
         "this computer with CMake, and adds what that store needs." + perBackend +
         " Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps "
-        "lists what only a person can do (store dashboards, accounts). Example: {\"backend\": \"steam\", \"appId\": 480}.";
-    info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"backend"})}, {"properties", properties}});
+        "lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only the "
+        "plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With `dryRun` true "
+        "nothing is written, built or copied: the result is {backend, dryRun: true, folder, files[] (what it would write), keys[] "
+        "(the factoria.json keys it would write), wouldDo[], nextSteps[]}. An argument that does not exist is an error with a "
+        "\"did you mean\" (backend-specific ones like sdk or appId are listed above and are accepted for every backend). "
+        "Example: {\"backend\": \"steam\", \"appId\": 480}.";
+    properties["dryRun"] = Json::object({{"type", "boolean"}, {"default", false},
+                                         {"description", "true = write, build and copy nothing: list the files and factoria.json keys it would write (files, keys) and the steps (wouldDo)."}});
+    info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"backend"})}, {"properties", properties},
+                                     {"additionalProperties", false}});
     registry.add(info, [&registry, projectDir, androidSearch](const Json& a) {
         const std::string name = a.at("backend").get<std::string>();
         const auto& all = backends();
@@ -131,6 +147,7 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         ctx.projectDir = projectDir;
         ctx.backend = name;
         ctx.args = a;
+        ctx.dryRun = a.value("dryRun", false);
         ctx.registry = &registry;
         ctx.androidSearch = androidSearch;
         it->run(ctx);
@@ -140,8 +157,14 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         Json done = Json::array(), next = Json::array();
         for (const std::string& s : ctx.done) done.push_back(s);
         for (const std::string& s : ctx.nextSteps) next.push_back(s);
-        out["done"] = done;
+        out[ctx.dryRun ? "wouldDo" : "done"] = done;
         out["nextSteps"] = next;
+        Json files = Json::array(), keys = Json::array();
+        for (const std::string& s : ctx.files) files.push_back(s);
+        for (const std::string& s : ctx.keys) keys.push_back(s);
+        out["files"] = files;
+        out["keys"] = keys;
+        if (ctx.dryRun) out["dryRun"] = true;
         return out;
     });
 }

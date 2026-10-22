@@ -104,7 +104,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   failed to load does not count. MCP `audio_log`. Guide sections 9.7 and 10.
 - **Prefab files and tidy JSON:** `prefab.save` (MCP `prefab_save`) saves an entity you built in the running game, with its
   children, as `prefabs/<name>.prefab.json` (it leaves out ids, the root position and `tilemap:` tags; it never overwrites
-  without `"overwrite": true`). `scene.format` (MCP `scene_format`; `{"check": true}` only lists) puts hand-edited scenes and
+  without `"overwrite": true`). `scene.format` (MCP `scene_format`; `{"paths": [...]}` names the files, `{"check": true}` only lists; with neither it changes nothing and says so) puts hand-edited scenes and
   prefabs in the canonical layout. Guide section 6. Do not lay out prefab JSON by hand.
 - **Sensing:** `entity.isGrounded()`, `entity.isTouching([dx, dy])`, `physics.raycast(a, b, {ignore: this.entity})`.
   Skip the first two fixed steps before probing (bodies are created by the first physics step).

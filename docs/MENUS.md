@@ -31,7 +31,7 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
    Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
    texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
    `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
-9. **Check.** `factoria call scene.format` (the files below are written short; it rewrites them in the canonical
+9. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.

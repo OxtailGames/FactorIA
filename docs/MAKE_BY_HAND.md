@@ -269,7 +269,7 @@ warning), only the spacing differs from what the engine writes. Running `scene.f
 only, so later diffs stay small:
 
 ```bash
-factoria call scene.format
+factoria call scene.format '{"paths":["scenes"]}'
 factoria validate
 ```
 
