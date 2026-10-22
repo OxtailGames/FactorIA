@@ -1114,6 +1114,10 @@ void Physics3D::step(World& world, float dt) {
             if (sit == index_.end()) continue;
             Body& under = bodies_[sit->second];
             if (under.type != BodyType::Dynamic || !under.enabled) continue;
+            // Still on it: support is from the character's last move, and a script may have teleported it or stopped
+            // moving it since (the same contact test that finds the characters on a platform).
+            const Contact ct = collide(under, c, c.skin + 0.04f);
+            if (!ct.hit || ct.normal.y <= 0.7f) continue;
             wake(under);
             const Vec3 impulse = g * (c.charMass * h);
             under.vel += impulse * under.invMass;

@@ -1096,6 +1096,31 @@ TEST_CASE("3d character: its weight tips a seesaw on its pivot, and a jointed cr
         w.walk({0, 0, 0}, 120);
         CHECK(std::fabs(s.world.get<Transform>(plank)->rotation.z) < 1.0f);
     }
+    SUBCASE("a character teleported off it (no move since) weighs on it no more") {
+        // The plank rests on the floor on the hero's side; then the hero is put far away on the other side by its
+        // Transform and never moved again. The plank must swing exactly as when the hero is destroyed instead, not tip
+        // towards where the hero went.
+        float rot[2] = {0, 0};
+        for (int k = 0; k < 2; ++k) {
+            Sim s;
+            add_big_floor(s.world);
+            Entity plank = s.world.create("plank", "plank");
+            s.world.get<Transform>(plank)->position = {0, 1.0f, 0};
+            s.world.add<Collider3D>(plank).size = {4, 0.2f, 1.5f};
+            s.world.add<RigidBody3D>(plank).mass = 20.0f;
+            s.world.add<Joint3D>(plank).axis = {0, 0, 1};
+            Entity hero = add_character(s.world, {1.5f, 2.1f, 0});
+            Walker w{s, hero};
+            w.walk({0, 0, 0}, 120);
+            REQUIRE(s.world.get<Transform>(plank)->rotation.z < -5.0f);
+            if (k == 0) s.world.get<Transform>(hero)->position = {-10, 5, 0};
+            else s.world.destroy(hero);
+            s.run(120);
+            rot[k] = s.world.get<Transform>(plank)->rotation.z;
+        }
+        CHECK(rot[0] == doctest::Approx(rot[1]).epsilon(0.01));
+        CHECK(rot[0] < 5.0f);
+    }
     SUBCASE("free crate is pushed, jointed crate is not") {
         for (bool jointed : {false, true}) {
             Sim s;
