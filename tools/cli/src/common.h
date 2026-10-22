@@ -72,6 +72,7 @@ struct SessionOptions {
     std::string scene;
     int width = 0, height = 0;
     u64 seed = 1;
+    std::string date;  // game.today() for the run, "YYYY-MM-DD" ("" = the fixed default 2026-01-01); --date
     bool hotReload = false;
     // Headless sessions simulate every frame but only draw on screenshots (see RenderMode::OnDemand) and keep
     // `storage.*` in memory. `--render-all` / `--persist-storage` turn these off.
@@ -81,7 +82,12 @@ struct SessionOptions {
 };
 
 // The EngineConfig every project run starts from: projectDir, the shader compiler, the start scene and the seed.
-EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed = 1);
+EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed = 1,
+                                   const std::string& date = {});
+// The --date flag: "" when absent, else the date checked with parse_calendar_date. A date that does not exist (2026-02-29) or
+// is not YYYY-MM-DD throws a UsageError that says what is wrong and how to fix it, before any engine starts.
+std::string date_flag(const Args& args);
+inline const FlagSpec kDateFlag{"date", "YYYY-MM-DD", "The calendar date game.today() answers (default 2026-01-01: a run never reads the clock). A daily seed, a calendar event or a weekend bonus is tested by choosing the date. A replay (--input) carries its own date; --date overrides it."};
 // Makes `cfg` a headless run (`factoria run --headless`, the debugger's headless mode): no window, no audio device,
 // the fake platform backend (a development run never talks to a real store, docs/PLATFORM.md). Frames are simulated
 // but drawn only on demand unless `renderAll`; `storage.*` stays in memory unless `persistStorage`.

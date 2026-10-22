@@ -12,6 +12,7 @@
 #include "fa/core/perf.h"
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
+#include "fa/platform/local_date.h"
 #include "fa/runtime/play_session.h"
 
 namespace fa {
@@ -144,6 +145,12 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.init = [st] {
         GfxEnvironment env = app_gfx_environment();
         std::string err;
+        // The one place the wall clock is read: the player's date goes into the config like the seed does (--date overrides).
+        if (st->cfg.date.empty()) {
+            const CalendarDate today = local_calendar_date();
+            st->cfg.date = today.iso();
+            st->cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
+        }
         st->ok = st->engine.init(st->cfg, &env, &err);
         if (!st->ok) {
             FA_ERROR("engine", "Cannot start: {}", err);
@@ -183,16 +190,25 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         if (!st->ok) return;
         switch (e.type) {
             case AppEvent::Type::Resized: apply_expand(st->engine, e.width, e.height); break;
-            case AppEvent::Type::FocusLost: st->engine.input().release_all(); break;
+            case AppEvent::Type::FocusLost:
+                st->engine.input().release_all();
+                st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Blur);  // game.on("blur")
+                break;
             case AppEvent::Type::FocusGained:
                 st->mouseLocked = false;  // the window system unlocked the mouse with the focus: lock it again if requested
                 refresh_system_accessibility();  // the player may have changed a system setting meanwhile (game.accessibility)
+                st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Focus);
                 break;
-            case AppEvent::Type::Suspended: FA_INFO("player", "suspended"); break;
+            case AppEvent::Type::Suspended:
+                FA_INFO("player", "suspended");
+                st->engine.input().release_all();  // no key stays held while the app is away
+                st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Suspend);  // game.on("suspend"), pauseOnSuspend
+                break;
             case AppEvent::Type::Resumed:
                 FA_INFO("player", "resumed");
                 refresh_system_accessibility();
                 st->framesSinceResume = 0;
+                st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Resume);
                 break;
             default: break;
         }
@@ -301,15 +317,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         return code;
     };
 
-    Engine engine;
-    std::size_t errorsBefore = error_count();
-    std::string err;
-    if (!engine.init(config, nullptr, &err)) {
-        report["error"] = err;
-        return finish(2);
-    }
-    Engine::Impl& I = engine.runtime_impl();
-
+    EngineConfig effective = config;  // the replay file may add the date it was recorded on
     // Replay file.
     std::map<int, Json> replay;
     std::vector<std::pair<double, int>> timing;
@@ -325,6 +333,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             report["error"] = "Input replay must look like {\"frames\": {\"0\": {\"press\": [\"jump\"]}}} (file " +
                               options.inputReplayPath + ")";
             return finish(2);
+        }
+        // Optional "date" ("YYYY-MM-DD") and "utcOffsetMinutes": the calendar date the run was recorded on, which game.today()
+        // answers again so a daily seed replays. --date wins; a file without it plays on the fixed default date.
+        if (config.date.empty()) {
+            if (const Json& dj = r.value().value("date", Json()); !dj.is_null()) {
+                auto parsed = dj.is_string() ? parse_calendar_date(dj.get<std::string>(), "date") : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"", "Example: \"date\": \"2026-10-23\"."});
+                if (!parsed.ok()) {
+                    report["error"] = "Input replay " + options.inputReplayPath + ": " + parsed.error().to_string();
+                    return finish(2);
+                }
+                effective.date = dj.get<std::string>();
+                effective.dateUtcOffsetMinutes = r.value().value("utcOffsetMinutes", 0);
+            }
         }
         for (auto it = frames->begin(); it != frames->end(); ++it) {
             try {
@@ -348,6 +369,15 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             }
         }
     }
+    Engine engine;
+    std::size_t errorsBefore = error_count();
+    std::string err;
+    if (!engine.init(effective, nullptr, &err)) {
+        report["error"] = err;
+        return finish(2);
+    }
+    Engine::Impl& I = engine.runtime_impl();
+
     // Video: validated before the run, so a wrong request does not cost a whole replay.
     const bool wantVideo = !options.videoOutPath.empty();
     const std::string videoExt = wantVideo ? fs::extension(options.videoOutPath) : std::string();

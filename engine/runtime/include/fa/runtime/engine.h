@@ -59,6 +59,12 @@ struct EngineConfig {
     bool audioDevice = true;       // false = null audio device (always false when headless)
     int width = 0, height = 0;     // override design resolution (0 = project)
     std::uint64_t seed = 1;        // world RNG seed
+    // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
+    // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
+    // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless
+    // --date says otherwise; a replay file carries the date it was recorded on. An impossible date makes init fail.
+    std::string date;
+    int dateUtcOffsetMinutes = 0;  // the player's offset from UTC in minutes (utcOffsetMinutes of game.today()); 0 for a fixed date
     // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
     // a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 = run until closed.
     int maxFrames = 0;
@@ -215,6 +221,8 @@ int run_windowed(const EngineConfig& config);
 //       "30": { "release": ["jump"] } },
 //     "timing": [[0.0167, 1], [0.05, 3]] }     // optional: frame N runs with that dt and that many fixed steps
 //                                              // (editor play sessions record it); frames past its end step(1)
+//     "date": "2026-03-14", "utcOffsetMinutes": 60  // optional: what game.today() returns (editor play sessions
+//                                              // record it); --date wins; without it the fixed default date is used
 // "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).
 //
 // Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],

@@ -132,7 +132,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--scene S`, `--width W`, `--height H` | Start scene / resolution override |
 | `--headless` | No window; every frame is exactly `1/fixedHz` s |
 | `--frames N` | Frames to simulate (default 60) |
-| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad` and `touch` (see `docs/AI_GUIDE.md` 11.2) |
+| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad` and `touch` (see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
 | `--render-scale S` | Screenshot size = design size * S (0.25 to 4, default 1), drawn natively and sharp, not upscaled: the HUD, camera and visible area are the same as at 1. 1.5 on a 1280x720 game gives 1920x1080 for store pages. (`--width/--height` change the design instead.) |
 | `--screenshot-simulate MODE` | Save the screenshots as a colour-blind viewer sees them: `greyscale`, `protanopia`, `deuteranopia` or `tritanopia` (Machado 2009, severity 1.0, applied to the sRGB pixels in linear light; `greyscale` is Rec. 709 luminance). Only the saved PNGs change (not the video, not what the game draws; a `Camera.colorFilter` of the game is part of the frame and shows in both). The same option is `simulate` of `game.screenshot`. |
@@ -141,6 +141,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
 | `--record-video f.avi` | Record a video of the run: every frame drawn at `--render-scale`, at the project's `fixedHz` fps, with the audio mix when the run is not silent. `.avi` (Motion-JPEG + PCM) needs nothing; `.mp4` (H.264 + AAC) needs ffmpeg (`FACTORIA_FFMPEG`, `publish.ffmpeg` in `~/.factoria/export.json`, or `PATH`). Relative to the current directory; see `docs/EXPORTING.md` "Store page material" |
 | `--seed N` | World RNG seed |
+| `--date YYYY-MM-DD` | The calendar date `game.today()` returns. Headless runs use the fixed date `2026-01-01` by default (never the clock), and a replay (`--input`) that recorded a `"date"` plays with it; `--date` wins over both. An impossible date (`2026-02-29`) or another format is a usage error (exit 2) that says what is wrong. A windowed run uses the real local date |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
 | `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
 | `--persist-storage` | Let scripts' `storage.*` use the real save file (default headless: in memory, so runs do not leak state) |
@@ -153,17 +154,19 @@ factoria run --headless --frames 120 --screenshot-at 10,60 --json
 Report (JSON): `{ok, exitCode, frames, screenshots:[paths], scriptErrors:[...], sceneErrors:[...], stateOut?, audioOut?, videoPath?, videoFrames?, perf}`. `perf` is what the run cost (CPU ms per frame avg/p95/max, peak memory, draw calls, entities) and the input of the budgets in [PERFORMANCE.md](PERFORMANCE.md) (`factoria call perf.check`).
 Same seed + same input = same state and pixels.
 
-### `factoria screenshot [project] [--frames N] [--out shot.png] [--render-scale S] [--json]`
+### `factoria screenshot [project] [--frames N] [--out shot.png] [--render-scale S] [--date YYYY-MM-DD] [--json]`
 Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.factoria/screenshots/shot.png`). `--render-scale S` (0.25 to 4) makes it design size * S, drawn natively
 (1.5 on 1280x720 = 1920x1080, same HUD and visible area).
 
-### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
+### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--date YYYY-MM-DD] [--json]`
 Runs `tests/**/*.test.js` on a headless engine (or only the files, folders or globs named after the project, relative to
 it: `factoria test tests/saves.test.js`, `factoria test my-game "tests/ui*.test.js"`; a path that is not a `*.test.js`
 file is an error); prints one line per test, failure messages with expected/actual and
 the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
 screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
 and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.
+`game.today()` returns the fixed date `2026-01-01` in tests (`--date` changes it for the run, `game.setDate(iso)` per test; it is
+reset before each test).
 `console.log/warn/error` output of test files and behaviours is shown by default, indented under the test as
 `| text` (also with `--log-level warn`); engine info logs stay hidden. With `--json` it is `logs` per case (and a
 top-level `logs` for output outside tests).
@@ -184,7 +187,7 @@ Runs registered commands on a headless engine and prints the JSON result. Argume
 (e.g. a project tool's `ToolError`), `data: {...}` on stderr, exit 1; `--json` also prints
 `{"ok":false,"error":{code,message,hint,data}}` on stdout. Outside a project a scratch
 project is used, so `docs.*` and `project.create` work anywhere. Options: `--project DIR`, `--scene S` (start scene),
-`--seed N`, `--press a,b` (hold actions/keys before the command), `--input replay.json` (input replay applied while
+`--seed N`, `--date YYYY-MM-DD` (the date `game.today()` returns, default `2026-01-01`), `--press a,b` (hold actions/keys before the command), `--input replay.json` (input replay applied while
 stepping; steps through its last frame unless `--frames-before N` is given), `--frames-before N`, `--no-graphics`,
 `--render-all`, `--persist-storage`.
 
@@ -249,7 +252,7 @@ same data through `docs.components`, `docs.commands` and `factoria api`.
 
 ## MCP
 
-### `factoria mcp [--project DIR] [--scene S] [--no-graphics] [--no-hot-reload]`
+### `factoria mcp [--project DIR] [--scene S] [--date YYYY-MM-DD] [--no-graphics] [--no-hot-reload]`
 Model Context Protocol server on stdio (details: [MCP.md](MCP.md)). Creates a headless engine for the project
 (GPU if available, otherwise logic-only: `game_screenshot` then reports why), registers the engine, tooling,
 project (`project.create`, `project.templates`, `project.test`) and `ai.*` commands, and serves them. `mcp`, `call`,

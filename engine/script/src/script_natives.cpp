@@ -2206,6 +2206,41 @@ NATIVE(testText) {  // (codePoint): one typed character, as the keyboard would s
     return JS_UNDEFINED;
 }
 
+// ---- the date and the app's life ------------------------------------------------------------------------------------
+NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes]
+    SETUP;
+    const CalendarDate d = I->owner->today();
+    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes)});
+}
+
+NATIVE(testSetDate) {  // (iso): "" when set, else the teaching error
+    SETUP;
+    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0)).c_str());
+}
+
+NATIVE(appState) {  // [focused, suspended]
+    SETUP;
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewBool(ctx, I->owner->app_focused()));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewBool(ctx, I->owner->app_suspended()));
+    return a;
+}
+
+NATIVE(testAppEvent) {  // (0 suspend, 1 resume, 2 focus, 3 blur)
+    SETUP;
+    const int kind = static_cast<int>(arg_num(ctx, argc, argv, 0, 0));
+    static const ScriptSystem::AppLifecycle events[] = {ScriptSystem::AppLifecycle::Suspend, ScriptSystem::AppLifecycle::Resume,
+                                                    ScriptSystem::AppLifecycle::Focus, ScriptSystem::AppLifecycle::Blur};
+    if (kind >= 0 && kind < 4) I->owner->app_event(events[kind]);
+    return JS_UNDEFINED;
+}
+
+NATIVE(testAppReset) {
+    SETUP;
+    I->owner->reset_app_state();
+    return JS_UNDEFINED;
+}
+
 NATIVE(testStep) {
     SETUP;
     int n = static_cast<int>(arg_num(ctx, argc, argv, 0, 1));
@@ -2286,7 +2321,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

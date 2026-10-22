@@ -42,6 +42,7 @@ const std::vector<FlagSpec>& engine_flags() {
         {"project", "DIR", "Project folder (default: the project containing the current directory)."},
         {"scene", "PATH", "Start scene (default: the project's mainScene)."},
         {"seed", "N", "World RNG seed (default 1)."},
+        kDateFlag,
         {"frames-before", "N", "Step N headless frames before the first command."},
         {"press", "A,B", "Hold these actions/keys down before the first command (comma separated)."},
         {"input", "FILE", "Input replay JSON (see 'factoria run --help') applied while stepping; steps through its last frame unless --frames-before says otherwise. A relative path is looked up in the current directory, then in the project."},
@@ -55,6 +56,7 @@ SessionOptions session_options(const Context& ctx) {
     SessionOptions so;
     so.scene = ctx.args.str("scene");
     so.seed = ctx.args.uinteger("seed", 1);
+    so.date = date_flag(ctx.args);
     so.gfx = ctx.args.has("no-graphics") ? Gfx::None : Gfx::Auto;
     so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
     so.memoryStorage = !ctx.args.has("persist-storage");

@@ -405,23 +405,30 @@ describe("captions", () => {
 
 describe("suspend", () => {
   afterEach(cleanUp);
-  test("a very long frame (the app was in the background) pauses the game", () => {
+  test("the app going to the background opens the pause menu, which stays after resume", () => {
     start(YARD, {});
     expect(game.paused).toBe(false);
-    expect(comfort().observeFrame(0.016)).toBe(false);
+    game.blur();
+    game.step(2);
     expect(game.paused).toBe(false);
-    expect(comfort().observeFrame(2)).toBe(true);
+    game.suspend();
     game.step(2);
     expect(game.paused).toBe(true);
     expect(game.find("pause_panel").active).toBe(true);
     expect(comfort().autoPauses).toBe(1);
+    game.resume();
+    game.step(2);
+    expect(game.paused).toBe(true);
+    expect(game.find("pause_panel").active).toBe(true);
   });
 
   test("an already paused game and a finished level are left alone", () => {
     start(YARD, {});
     game.tap("pause");
     game.step(2);
-    expect(comfort().observeFrame(5)).toBe(false);
+    game.suspend();
+    expect(comfort().autoPauses).toBe(0);
+    game.resume();
     game.tap("pause");
     game.step(3);
     const bot = new Autoplay(game);

@@ -3197,6 +3197,18 @@ declare module "factoria" {
      */
     paused: boolean;
     /**
+     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), utcOffsetMinutes (minutes east of UTC) and iso ("YYYY-MM-DD"). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date; `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 unless --date says another; a replay (--input) plays with the date it was recorded on. Tests set it with game.setDate("2026-10-23"). Example: const seed = hash(game.today().iso); for a different challenge every day.
+     */
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    /**
+     * True while the game's window has the keyboard focus (always true on a phone with the app in the foreground, in headless runs and in tests until game.blur()). Changes are announced by game.on("focus") and game.on("blur").
+     */
+    readonly focused: boolean;
+    /**
+     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). The handler takes no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
+     */
+    on(event: "suspend" | "resume" | "focus" | "blur", fn: () => void): () => void;
+    /**
      * factoria.json contents.
      */
     readonly project: Readonly<Json>;
@@ -6839,6 +6851,34 @@ declare module "factoria:test" {
      * Same as the script `game.paused`: true while time.scale is 0; setting it keeps and restores time.scale. Reading a member the test game does not have (game.pasued) throws with a did-you-mean.
      */
     paused: boolean;
+    /**
+     * Same as the script `game.today()`: 2026-01-01 at the start of every test, or the date of --date, until game.setDate().
+     */
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    /**
+     * Same as the script `game.focused`.
+     */
+    readonly focused: boolean;
+    /**
+     * Sets the date game.today() answers, "YYYY-MM-DD", until the test ends (the next test starts from the run's date again). An impossible date such as "2026-02-29" or a wrong shape throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
+     */
+    setDate(iso: string): void;
+    /**
+     * The app goes to the background, as on a phone: the game.on("suspend") handlers run at once and, with pauseOnSuspend (the default), the game and the music freeze (game.paused is true) unless a handler paused it itself. Every test starts running.
+     */
+    suspend(): void;
+    /**
+     * The app comes back: undoes the freeze suspend() made (a pause the game made itself stays) and runs the game.on("resume") handlers.
+     */
+    resume(): void;
+    /**
+     * The window gains the focus: game.focused becomes true and the game.on("focus") handlers run. Does nothing when it already had it.
+     */
+    focus(): void;
+    /**
+     * The window loses the focus: game.focused becomes false and the game.on("blur") handlers run. Does not pause anything (a window that lost the focus keeps running).
+     */
+    blur(): void;
     /**
      * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
      */
