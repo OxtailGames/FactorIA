@@ -44,7 +44,7 @@ bool is_export_format(const std::string& format) {
 }
 
 const std::vector<std::string>& all_export_formats() {
-    static const std::vector<std::string> formats = {"apk", "aab", "gradle", "appimage"};
+    static const std::vector<std::string> formats = {"apk", "aab", "gradle", "appimage", "msix", "folder"};
     return formats;
 }
 
@@ -522,6 +522,7 @@ struct Plan {
     Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
     AndroidPlan android;             // android
     AppImagePlan appimage;           // linux, format "appimage"
+    MsixPlan msix;                   // windows, format "msix"
     std::vector<std::string> warnings;
 };
 
@@ -568,14 +569,22 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         if (!player.ok()) return player.error();
         plan.player = std::move(player.value());
     }
+    // --format wins over export.windows.format of factoria.json.
+    const std::string windowsFormat = !options.format.empty() ? to_lower(options.format) : p.settings.windows.format;
+    const bool msix = plan.platform == "windows" && windowsFormat == "msix";
+    if (msix) {
+        auto package = plan_msix(options, p, plan.outParent, plan.warnings);
+        if (!package.ok()) return package.error();
+        plan.msix = std::move(package.value());
+    }
     if (plan.platform == "android") {  // the Android export loads its own icons (they are a set of layers)
         auto android = plan_android(options, p, plan.outRoot, plan.warnings, forExport);
         if (!android.ok()) return android.error();
         plan.android = std::move(android.value());
     } else {
-        if (!options.format.empty() && !appimage)
-            plan.warnings.push_back("The format '" + options.format + "' only applies to android (apk, aab, gradle) and linux (appimage); " + plan.platform +
-                                    " has a single format, so it is ignored");
+        if (!options.format.empty() && !appimage && !msix && to_lower(options.format) != "folder")
+            plan.warnings.push_back("The format '" + options.format + "' only applies to android (apk, aab, gradle), linux (appimage) and windows (msix); " +
+                                    plan.platform + " has a single format, so it is ignored");
         if (plan.platform == "web") return plan;  // no icon: the page is the game's face
         const std::string rel = p.settings.icon_for(plan.platform);
         std::error_code iconEc;
@@ -689,6 +698,10 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
         out.format = "appimage";
         out.artifact = generic(plan.appimage.artifact);
     }
+    if (plan.msix.enabled) {
+        out.format = "msix";
+        out.artifact = generic(plan.msix.artifact);
+    }
     if (plan.platform == "android") {
         out.format = plan.android.format;
         out.artifact = generic(plan.android.artifact);
@@ -757,6 +770,10 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         r = build_appimage(options, p, plan.appimage, outRoot, report);
         keepOutput = !r.ok();
     }
+    if (r.ok() && plan.msix.enabled) {  // the folder is complete: a failed package leaves it
+        r = build_msix(options, p, plan.msix, outRoot, plan.icon, report);
+        keepOutput = !r.ok();
+    }
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
         if (!keepOutput) fs::remove_tree(outRoot, ec);
@@ -806,7 +823,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms [\"web\"], else a web build of "
         "the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with "
         "index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format \"zip\"; `mode` says where the player came from: explicit, package, "
-        "installed or build). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
+        "installed or build). windows with `format` \"msix\" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the "
+        "Microsoft Store, from any computer (reported as `artifact`, format \"msix\"; identity in export.windows.msix; sign it with `sign.windows`, upload it with "
+        "`publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
         "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). "
         "Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], "
         "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
@@ -820,7 +839,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
       "properties":{
         "platform":{"type":"string","description":"linux, windows, macos, android, ios or web (aliases win, mac, osx, html5 also work). web: a folder with index.html, the web player and game.pak, plus <slug>-web.zip next to it for itch.io. Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
-        "format":{"type":"string","enum":["apk","aab","gradle","appimage"],"description":"Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
+        "format":{"type":"string","enum":["apk","aab","gradle","appimage","msix","folder"],"description":"Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}

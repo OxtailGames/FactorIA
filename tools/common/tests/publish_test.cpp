@@ -1229,7 +1229,7 @@ TEST_CASE("publish commands: they are registered with the other tooling commands
     Fixture f;
     CommandRegistry reg;
     register_tooling_commands(reg, f.dir);
-    for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog", "publish.appstore", "publish.googleplay"}) CHECK_MESSAGE(reg.has(name), name);
+    for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog", "publish.appstore", "publish.googleplay", "publish.microsoft"}) CHECK_MESSAGE(reg.has(name), name);
 }
 
 TEST_CASE("publish dry run: a missing uploader, secret or app id is a warning and the plan is still returned") {
@@ -1265,4 +1265,173 @@ TEST_CASE("publish dry run: a missing uploader, secret or app id is a warning an
         o.dryRun = false;
         CHECK(has(f.fails(o).message, "has no organizationId"));
     }
+}
+
+// ---- Microsoft Store ----------------------------------------------------------------------------------------------------
+
+namespace {
+
+constexpr const char* kMsSecret = "ms-client-secret-VALUE";
+
+std::uint32_t crc32_of(const std::string& data) {
+    std::uint32_t crc = 0xFFFFFFFFu;
+    for (const unsigned char c : data) {
+        crc ^= c;
+        for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return ~crc;
+}
+
+void put16(std::string& s, unsigned v) {
+    s += static_cast<char>(v & 255);
+    s += static_cast<char>((v >> 8) & 255);
+}
+void put32(std::string& s, std::uint32_t v) {
+    put16(s, v & 0xFFFF);
+    put16(s, v >> 16);
+}
+
+// A zip of one stored entry, AppxManifest.xml: the smallest thing the planner accepts as an MSIX.
+std::string tiny_msix(const std::string& manifest) {
+    const std::string name = "AppxManifest.xml";
+    const auto size = static_cast<std::uint32_t>(manifest.size());
+    std::string z;
+    put32(z, 0x04034b50); put16(z, 20); put16(z, 0); put16(z, 0); put16(z, 0); put16(z, 0x21);
+    put32(z, crc32_of(manifest)); put32(z, size); put32(z, size);
+    put16(z, static_cast<unsigned>(name.size())); put16(z, 0);
+    z += name + manifest;
+    const auto central = static_cast<std::uint32_t>(z.size());
+    std::string c;
+    put32(c, 0x02014b50); put16(c, 20); put16(c, 20); put16(c, 0); put16(c, 0); put16(c, 0); put16(c, 0x21);
+    put32(c, crc32_of(manifest)); put32(c, size); put32(c, size);
+    put16(c, static_cast<unsigned>(name.size())); put16(c, 0); put16(c, 0); put16(c, 0); put16(c, 0); put32(c, 0); put32(c, 0);
+    c += name;
+    z += c;
+    put32(z, 0x06054b50); put16(z, 0); put16(z, 0); put16(z, 1); put16(z, 1);
+    put32(z, static_cast<std::uint32_t>(c.size())); put32(z, central); put16(z, 0);
+    return z;
+}
+
+const char* const kMicrosoftPublish = R"({"id": "com.mystudio.spacedodge", "publish": {"microsoft": {"productId": "9NBLGGH4NNS1"}}})";
+
+struct MicrosoftFixture : Fixture {
+    std::string msix = stdfs::weakly_canonical(dir + "/build/export").generic_string() + "/space-dodge-windows.msix";
+
+    MicrosoftFixture() : Fixture(kMicrosoftPublish) {
+        testing::write_all(msix, tiny_msix("<Package><Identity Name=\"12345Studio.SpaceDodge\" Publisher=\"CN=ABC\"/></Package>"));
+        vars["FACTORIA_MSSTORE"] = kFakeTool;
+        vars["FACTORIA_MSSTORE_TENANT_ID"] = "11111111-1111-1111-1111-111111111111";
+        vars["FACTORIA_MSSTORE_SELLER_ID"] = "123456789";
+        vars["FACTORIA_MSSTORE_CLIENT_ID"] = "22222222-2222-2222-2222-222222222222";
+        vars["FACTORIA_MSSTORE_CLIENT_SECRET"] = kMsSecret;
+    }
+    PublishOptions store(bool dryRun = true) const {
+        PublishOptions o = options("microsoft");
+        o.dryRun = dryRun;
+        o.host = "windows";
+        return o;
+    }
+    template <class F>
+    void edit(F change) const {
+        auto j = load_json_file(dir + "/factoria.json");
+        REQUIRE(j.ok());
+        change(*j);
+        REQUIRE(save_json_file(dir + "/factoria.json", *j).ok());
+    }
+};
+
+}  // namespace
+
+TEST_CASE("publish settings: microsoft productId is read, a wrong one teaches") {
+    auto parsed = parse_publish_settings(*parse_json(kMicrosoftPublish));
+    CHECK(parsed.errors.empty());
+    CHECK(parsed.settings.microsoft.productId == "9NBLGGH4NNS1");
+    parsed = parse_publish_settings(*parse_json(R"({"publish": {"microsoft": {"productId": "my-app", "tenant": "x"}}})"));
+    REQUIRE(parsed.errors.size() == 1);
+    CHECK(parsed.errors[0].pointer == "/publish/microsoft/productId");
+    CHECK(has(parsed.errors[0].hint, "Store ID"));
+    REQUIRE(parsed.warnings.size() == 1);
+    CHECK(parsed.warnings[0].pointer == "/publish/microsoft/tenant");
+}
+
+TEST_CASE("publish.microsoft dry run: the msstore command lines, and the client secret nowhere") {
+    MicrosoftFixture f;
+    const PublishReport r = f.ok(f.store());
+    CHECK(r.dryRun);
+    REQUIRE(r.steps.size() == 2);
+    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "reconfigure", "--tenantId", "11111111-1111-1111-1111-111111111111", "--sellerId", "123456789",
+                                                         "--clientId", "22222222-2222-2222-2222-222222222222", "--clientSecret", "<redacted>"});
+    const std::string folder = stdfs::path(f.msix).parent_path().generic_string();
+    CHECK(r.steps[1].command == std::vector<std::string>{kFakeTool, "publish", folder, "--inputFile", f.msix, "--appId", "9NBLGGH4NNS1", "--noCommit"});
+    CHECK(r.uploads[0].platform == "windows");
+    CHECK(has(r.uploads[0].destination, "Microsoft Store 9NBLGGH4NNS1 (draft)"));
+    CHECK_FALSE(has(r.to_json().dump(), kMsSecret));
+    CHECK(has(r.to_json()["nextSteps"].dump(), "unsigned"));
+
+    PublishOptions o = f.store();
+    o.releaseStatus = "completed";
+    const PublishReport done = f.ok(o);
+    CHECK(done.steps[1].command.back() == "9NBLGGH4NNS1");  // no --noCommit: the submission is sent
+    o.releaseStatus = "complete";
+    auto bad = publish_project(o);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(has(bad.error().hint, "Did you mean 'completed'?"));
+}
+
+TEST_CASE("publish.microsoft: a real run starts msstore twice and shows no secret") {
+    MicrosoftFixture f;
+    ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
+    PublishOptions o = f.store(false);
+    std::string progress;
+    o.progress = [&](const std::string& line) { progress += line + "\n"; };
+    const PublishReport r = f.ok(o);
+    CHECK(r.uploaded);
+    const auto calls = read_calls(f.record);
+    REQUIRE(calls.size() == 2);
+    CHECK(calls[0].args[0] == "reconfigure");
+    CHECK(calls[1].args[0] == "publish");
+    CHECK(calls[1].args[3] == f.msix);
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(has(text, kMsSecret));
+}
+
+TEST_CASE("publish.microsoft: a missing id, credential or package is a teaching error; the placeholder identity is a warning") {
+    {
+        MicrosoftFixture f;
+        f.vars.erase("FACTORIA_MSSTORE_CLIENT_SECRET");
+        const Error e = f.fails(f.store());
+        CHECK(has(e.message, "FACTORIA_MSSTORE_CLIENT_SECRET"));
+        CHECK(has(e.hint, "Azure AD"));
+        CHECK(has(f.ok(f.store()).to_json()["warnings"].dump(), "FACTORIA_MSSTORE_CLIENT_SECRET"));  // a dry run only warns
+    }
+    {
+        MicrosoftFixture f;
+        f.edit([](Json& j) { j["publish"]["microsoft"].erase("productId"); });
+        const Error e = f.fails(f.store());
+        CHECK(has(e.message, "productId"));
+    }
+    {
+        MicrosoftFixture f;
+        stdfs::remove(f.msix);
+        const Error e = f.fails(f.store());
+        CHECK(has(e.message + e.hint, ".msix"));
+    }
+    {
+        MicrosoftFixture f;
+        testing::write_all(f.msix, "PK\x03\x04 not a package");
+        const Error e = f.fails(f.store());
+        CHECK(has(e.message, "not an MSIX package"));
+    }
+    {
+        MicrosoftFixture f;
+        testing::write_all(f.msix, tiny_msix("<Package><Identity Name=\"FactorIA.spacedodge\" Publisher=\"CN=FactorIA Developer\"/></Package>"));
+        CHECK(has(f.ok(f.store()).to_json()["warnings"].dump(), "placeholder identity"));
+    }
+}
+
+TEST_CASE("publish.microsoft is a registered command") {
+    MicrosoftFixture f;
+    CommandRegistry reg;
+    register_tooling_commands(reg, f.dir);
+    REQUIRE(reg.has("publish.microsoft"));
+    CHECK(reg.info("publish.microsoft")->inputSchema["properties"].contains("releaseStatus"));
 }

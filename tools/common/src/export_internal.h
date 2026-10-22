@@ -66,7 +66,8 @@ struct Project {
 // The values of ExportOptions::format / export.android.format: "apk", "aab", "gradle" (lower case).
 const std::vector<std::string>& export_formats();
 bool is_export_format(const std::string& format);
-// Every value `format` of project.export accepts: the Android ones and "appimage" (linux).
+// Every value `format` of project.export accepts: the Android ones, "appimage" (linux), "msix" (windows) and "folder" (the
+// default of linux and windows).
 const std::vector<std::string>& all_export_formats();
 
 std::string host_platform();  // linux | windows | macos: the machine running factoria
@@ -168,6 +169,31 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
 // After the notices are in outRoot: <zipFile> holds the export folder (index.html at its root) for itch.io and other hosts. Sets
 // report.format and report.artifact; limits of itch.io are warnings.
 Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, ExportReport& report);
+
+// (export_appimage.cpp) The plain icon of a game that set none: a dark 256x256 square with a light "play" triangle, as a PNG.
+Image placeholder_icon_image();
+std::vector<std::uint8_t> placeholder_icon_png();
+
+// ---- windows MSIX (export_msix.cpp) ------------------------------------------------------------------
+
+// What the plan decides for `format: "msix"` on a Windows export. enabled is false for every other export.
+struct MsixPlan {
+    bool enabled = false;
+    stdfs::path artifact;  // <out>/<slug>-windows.msix, next to the export folder
+};
+
+// Checks the msix settings and names the file the package will be. Missing identity fields are warnings (the package gets a
+// placeholder identity that only installs on your own PC).
+Result<MsixPlan> plan_msix(const ExportOptions& o, const Project& p, const stdfs::path& outParent, std::vector<std::string>& warnings);
+
+// The AppxManifest.xml of the package (UTF-8, LF) for the game: identity, logos, the executable and the capabilities.
+// Placeholders are used where the settings have no identity; `placeholderIdentity` says so.
+std::string msix_manifest(const Project& p, bool& placeholderIdentity);
+
+// After the export folder is complete (notices included): writes the package from the folder's files and the logos made from
+// `icon` (an empty Image: the placeholder icon). Sets report.format / report.artifact / the first next steps.
+Result<void> build_msix(const ExportOptions& o, const Project& p, const MsixPlan& plan, const stdfs::path& outRoot, const Image& icon,
+                        ExportReport& report);
 
 // ---- linux AppImage (export_appimage.cpp) -----------------------------------------------------------
 

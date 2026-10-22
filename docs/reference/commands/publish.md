@@ -78,6 +78,21 @@ Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 
+## `publish.microsoft` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Upload the Windows MSIX package to the Microsoft Store (msstore publish).
+
+Runs `msstore reconfigure --tenantId ... --sellerId ... --clientId ... --clientSecret ...` and then `msstore publish <folder of the msix> --inputFile <msix> --appId <product id> [--noCommit]` (the Microsoft Store Developer CLI) on the package `factoria export --platform windows --format msix` writes (build/export/<game-slug>-windows.msix), or on `artifact`. Upload it UNSIGNED: the Store signs it. Needs: the app reserved in Partner Center with its first submission made by hand, factoria.json publish.microsoft {productId} (Partner Center > your app > Product identity > Store ID, 12 characters) and export.windows.msix {identityName, publisher, publisherDisplayName} copied from the same page (a package with another identity is refused), msstore (PATH, FACTORIA_MSSTORE, or publish.msstore of ~/.factoria/export.json; it needs the .NET runtime) and the Partner Center credentials of an Azure AD application with the Manager role in the environment variables FACTORIA_MSSTORE_TENANT_ID, FACTORIA_MSSTORE_SELLER_ID, FACTORIA_MSSTORE_CLIENT_ID and FACTORIA_MSSTORE_CLIENT_SECRET (never factoria.json; the secret is redacted in every result and log; msstore keeps the credentials in its own settings after reconfigure). `releaseStatus` draft (the default) adds --noCommit, so the submission waits in Partner Center; completed submits it for certification. Every submission needs a higher "version" in factoria.json. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed msstore is an error whose data is that report. Examples: {"dryRun":true}, {"releaseStatus":"completed"}. Details: docs_read {"name":"exporting"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `artifact` | string | no | The .msix to upload, relative to the project. Default: build/export/<game-slug>-windows.msix, which `factoria export --platform windows --format msix` writes. Upload it unsigned: the Store signs it. |
+| `out` | string | no | Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
+| `releaseStatus` | string ["draft","completed"] | no | draft: msstore publish --noCommit, the submission is prepared in Partner Center and waits for you to submit it; completed: it is also submitted for certification. Default: draft. |
+
 ## `publish.steam` (modifies state)
 
 Since 0.2.0.

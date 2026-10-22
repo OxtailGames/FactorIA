@@ -660,6 +660,7 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
+    register_sign_windows_command(registry, projectDir);
 }
 
 }  // namespace fa

@@ -27,6 +27,7 @@ std::string export_format_label(const std::string& format) {
     if (format == "apk") return "APK";
     if (format == "aab") return "AAB";
     if (format == "gradle") return "Gradle project";
+    if (format == "msix") return "MSIX";
     return "";
 }
 
@@ -42,6 +43,8 @@ std::string export_target_note(const ExportTarget& target, const std::string& fo
         return "A folder with index.html, the web player and game.pak, and a .zip of it to upload to itch.io as an HTML5 game. "
                "Serve the folder over http to try it (the next steps say how).";
     if (p == "macos") return "An .app with the game and its player, ready to run and share.";
+    if (p == "windows" && format == "msix")
+        return "A folder with the game and its player, and an .msix next to it: the package of the Microsoft Store (unsigned: the Store signs it).";
     return "A folder with the game and its player, ready to run and share.";
 }
 

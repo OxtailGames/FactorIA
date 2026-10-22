@@ -55,6 +55,36 @@ std::string ProjectExportSettings::ios_build_number() const {
     return !ios.buildNumber.empty() ? ios.buildNumber : projectVersion;
 }
 
+std::string ProjectExportSettings::msix_version() const {
+    if (!windows.msix.version.empty()) return windows.msix.version;
+    // The first three numbers of "version" (a part that is not a number counts as 0); the fourth is 0: the Store reserves it.
+    std::string out;
+    std::size_t i = 0;
+    for (int part = 0; part < 3; ++part) {
+        long n = 0;
+        while (i < projectVersion.size() && std::isdigit(static_cast<unsigned char>(projectVersion[i]))) n = std::min(n * 10 + (projectVersion[i++] - '0'), 65535L);
+        while (i < projectVersion.size() && projectVersion[i] != '.') ++i;  // "1.2.3-beta": the suffix is dropped
+        if (i < projectVersion.size()) ++i;
+        out += std::to_string(n) + ".";
+    }
+    return out + "0";
+}
+
+std::vector<std::string> ProjectExportSettings::msix_languages() const {
+    std::vector<std::string> out;
+    for (const std::string& l : !windows.msix.languages.empty() ? windows.msix.languages : projectLanguages) out.push_back(to_lower(l));
+    if (out.empty()) out.push_back("en-us");
+    return out;
+}
+
+bool is_msix_version(const std::string& v) {
+    static const std::regex re("^[0-9]{1,5}(\\.[0-9]{1,5}){3}$");
+    if (!std::regex_match(v, re)) return false;
+    for (const std::string& part : split(v, '.'))
+        if (std::stoi(part) > 65535) return false;
+    return true;
+}
+
 namespace {
 
 // "factoria.json#/export/android/minSdk: message"
@@ -187,9 +217,102 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
 
     // ---- platforms ---------------------------------------------------------------------------------------------
 
+    void msix(const Json& o, const std::string& base, WindowsMsixSettings& s) {
+        const std::string partner = "Copy it from Partner Center > your app > Product management > Product identity.";
+        std::string v;
+        if (take_string(o, base, "identityName", v, partner)) {
+            static const std::regex re("^[A-Za-z0-9][A-Za-z0-9.\\-]{1,48}[A-Za-z0-9]$");
+            if (v.empty()) {
+                // "" = not set
+            } else if (!std::regex_match(v, re)) {
+                error(base + "/identityName", "'" + v + "' is not a package identity name",
+                      "An identity name has 3 to 50 characters: letters, digits, '.' and '-', starting and ending with a letter or digit "
+                      "(e.g. \"12345MyStudio.MyGame\"). " + partner);
+            } else {
+                s.identityName = v;
+            }
+        }
+        if (take_string(o, base, "publisher", v, partner)) {
+            if (!v.empty() && (v.size() < 4 || to_lower(v.substr(0, 3)) != "cn=")) {
+                error(base + "/publisher", "'" + v + "' is not a publisher",
+                      "The publisher is the subject of your certificate and starts with \"CN=\", e.g. \"CN=0123ABCD-4567-89EF-0123-456789ABCDEF\". " + partner);
+            } else {
+                s.publisher = v;
+            }
+        }
+        take_string(o, base, "publisherDisplayName", s.publisherDisplayName,
+                    "Write the name players see as the publisher, e.g. \"My Studio\". " + partner);
+        take_string(o, base, "displayName", s.displayName, "Write the app name as text, or remove the key to use the game's name.");
+        take_string(o, base, "description", s.description, "Write a short description as text, or remove the key to use the display name.");
+        if (take_string(o, base, "backgroundColor", v, "Use \"#RRGGBB\" (e.g. \"#2B3350\") or \"transparent\".")) {
+            if (v != "transparent" && !is_hex_color(v))
+                error(base + "/backgroundColor", "'" + v + "' is not a colour", "Use \"#RRGGBB\" (e.g. \"#2B3350\") or \"transparent\".");
+            else
+                s.backgroundColor = v;
+        }
+        if (take_string(o, base, "version", v, "Write four numbers, e.g. \"1.2.3.0\"; remove the key to derive it from the project's \"version\".")) {
+            if (v.empty()) {
+                // "" = derived
+            } else if (!is_msix_version(v)) {
+                error(base + "/version", "'" + v + "' is not a package version",
+                      "An MSIX version is four numbers from 0 to 65535 separated by dots, e.g. \"1.2.3.0\". Remove the key to derive it from "
+                      "\"version\" (1.2.3 -> 1.2.3.0).");
+            } else {
+                s.version = v;
+                if (split(v, '.')[3] != "0")
+                    warn(base + "/version", "the fourth number of '" + v + "' is not 0",
+                         "The Microsoft Store reserves the fourth number of the version and rejects a package where it is not 0: use e.g. \"" +
+                             split(v, '.')[0] + "." + split(v, '.')[1] + "." + split(v, '.')[2] + ".0\" (a Store upload only needs the first three to grow).");
+            }
+        }
+        if (take_string(o, base, "minVersion", v, "Write four numbers, e.g. \"10.0.17763.0\" (Windows 10 version 1809).")) {
+            if (!is_msix_version(v))
+                error(base + "/minVersion", "'" + v + "' is not a Windows version",
+                      "Write four numbers separated by dots, e.g. \"10.0.17763.0\" (Windows 10 version 1809, the oldest the engine's player runs on).");
+            else
+                s.minVersion = v;
+        }
+        if (auto it = o.find("languages"); it != o.end() && !it->is_null()) {
+            const std::string hint = "Write an array of language tags, e.g. [\"en-us\", \"es-es\"]; remove the key to use localization.languages.";
+            if (!it->is_array()) {
+                error(base + "/languages", "expected an array of strings, got " + describe_json_value(*it), hint);
+            } else {
+                static const std::regex re("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$");
+                std::vector<std::string> languages;
+                bool ok = true;
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    const Json& e = (*it)[i];
+                    const std::string ptr = base + "/languages/" + std::to_string(i);
+                    if (!e.is_string()) {
+                        error(ptr, "expected a string, got " + describe_json_value(e), hint);
+                        ok = false;
+                    } else if (!std::regex_match(e.get<std::string>(), re)) {
+                        error(ptr, "'" + e.get<std::string>() + "' is not a language tag", hint);
+                        ok = false;
+                    } else {
+                        languages.push_back(e.get<std::string>());
+                    }
+                }
+                if (ok) s.languages = std::move(languages);
+            }
+        }
+        unknown_keys(o, base, names_of({"identityName", "publisher", "publisherDisplayName", "displayName", "description", "backgroundColor",
+                                        "version", "minVersion", "languages"}));
+    }
+
     void windows(const Json& o, const std::string& base, WindowsExportSettings& s) {
         take_path(o, base, "icon", s.icon);
-        unknown_keys(o, base, names_of({"icon"}));
+        std::string format;
+        if (take_string(o, base, "format", format, "Use \"folder\" or \"msix\".")) {
+            const auto allowed = names_of({"folder", "msix"});
+            if (std::find(allowed.begin(), allowed.end(), format) == allowed.end())
+                error(base + "/format", "unknown format '" + format + "'", did_you_mean(format, allowed));
+            else
+                s.format = format;
+        }
+        if (const Json* m = object_member(o, base, "msix", "{\"identityName\": \"12345MyStudio.MyGame\", \"publisher\": \"CN=...\", \"publisherDisplayName\": \"My Studio\"}"))
+            msix(*m, base + "/msix", s.msix);
+        unknown_keys(o, base, names_of({"icon", "format", "msix"}));
     }
 
     void macos(const Json& o, const std::string& base, MacosExportSettings& s) {
@@ -525,6 +648,10 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
     if (!pj.is_object()) return r.result;
     if (auto it = pj.find("version"); it != pj.end() && it->is_string()) s.projectVersion = it->get<std::string>();
     r.take_path(pj, "", "icon", s.icon);
+    if (auto loc = pj.find("localization"); loc != pj.end() && loc->is_object())
+        if (auto langs = loc->find("languages"); langs != loc->end() && langs->is_array())
+            for (const Json& l : *langs)
+                if (l.is_string() && !l.get<std::string>().empty()) s.projectLanguages.push_back(l.get<std::string>());
 
     auto it = pj.find("export");
     if (it == pj.end() || it->is_null()) return r.result;
@@ -854,6 +981,21 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
     if (!(before.windows == now.windows)) {
         Json& o = object_at(exp, "windows");
         sync_field(o, "icon", before.windows.icon, now.windows.icon, def.windows.icon);
+        sync_field(o, "format", before.windows.format, now.windows.format, def.windows.format);
+        if (!(before.windows.msix == now.windows.msix)) {
+            Json& m = object_at(o, "msix");
+            const WindowsMsixSettings &b = before.windows.msix, &n = now.windows.msix, &d = def.windows.msix;
+            sync_field(m, "identityName", b.identityName, n.identityName, d.identityName);
+            sync_field(m, "publisher", b.publisher, n.publisher, d.publisher);
+            sync_field(m, "publisherDisplayName", b.publisherDisplayName, n.publisherDisplayName, d.publisherDisplayName);
+            sync_field(m, "displayName", b.displayName, n.displayName, d.displayName);
+            sync_field(m, "description", b.description, n.description, d.description);
+            sync_field(m, "backgroundColor", b.backgroundColor, n.backgroundColor, d.backgroundColor);
+            sync_field(m, "version", b.version, n.version, d.version);
+            sync_field(m, "minVersion", b.minVersion, n.minVersion, d.minVersion);
+            sync_field(m, "languages", b.languages, n.languages, d.languages);
+            if (m.empty()) o.erase("msix");
+        }
         finish("windows");
     }
     if (!(before.macos == now.macos)) {

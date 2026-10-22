@@ -182,7 +182,8 @@ void Editor::draw_export_window() {
             at_track(std::string("export:") + t.platform);
             ImGui::TableSetColumnIndex(1);
             const bool android = std::string(t.platform) == "android";
-            const std::string format = android ? exportSaved_.android.format : std::string();
+            const bool windows = std::string(t.platform) == "windows";
+            const std::string format = android ? exportSaved_.android.format : windows ? exportSaved_.windows.format : std::string();
             if (!st) {
                 ImGui::TextDisabled("Checking...");
             } else if (st->ready) {
@@ -204,6 +205,26 @@ void Editor::draw_export_window() {
                 if (!st->hint.empty()) ImGui::TextDisabled("How to fix it: %s", st->hint.c_str());
             }
             if (st) draw_setup_buttons(t.platform, "export");  // what setup can install to fix the row (or the iOS tools)
+            if (windows) {  // folder or also an MSIX: the project's export.windows.format, saved when changed here
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Format");
+                ImGui::SameLine();
+                ImGui::BeginDisabled(busy || !exportSavedError_.empty());
+                const SettingsChoice* cur = find_choice(windows_formats(), exportSaved_.windows.format);
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 17.0f);
+                if (ImGui::BeginCombo("##windowsformat", cur ? cur->label : exportSaved_.windows.format.c_str())) {
+                    for (const SettingsChoice& c : windows_formats()) {
+                        if (ImGui::Selectable(c.label, exportSaved_.windows.format == c.value)) set_windows_format(c.value);
+                        ImGui::SetItemTooltip("%s", c.note);
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::EndDisabled();
+                at_track("export:windows-format");
+                ImGui::SetItemTooltip("What the Windows export produces: the folder, or also an MSIX for the Microsoft Store. This is the project's "
+                                      "export.windows.format: changing it saves it in factoria.json (the same setting as Platform settings > Windows).");
+                if (!exportSavedError_.empty()) ImGui::TextColored(kFailed, "factoria.json: %s", export_error_text(exportSavedError_).c_str());
+            }
             if (android) {  // what the Android export produces: the project's export.android.format, saved when changed here
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Format");

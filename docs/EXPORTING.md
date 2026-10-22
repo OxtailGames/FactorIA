@@ -211,7 +211,8 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 
 | Export | What it needs | Windows host | Linux host | macOS host |
 |---|---|---|---|---|
-| `windows` folder ([Desktop](#desktop-linux-windows-macos)) | the Windows player: from the download, or `factoria setup players` (about 60 MB for all OSes) or `--player`. The exe's icon and version info are written by the export on any host. Signing is by hand with `signtool` (patching the exe removes the player's signature) | yes | after setup | after setup |
+| `windows` folder ([Desktop](#desktop-linux-windows-macos)) | the Windows player: from the download, or `factoria setup players` (about 60 MB for all OSes) or `--player`. The exe's icon and version info are written by the export on any host. Signing is `sign.windows` (patching the exe removes the player's signature) | yes | after setup | after setup |
+| `windows --format msix` ([Microsoft Store](#microsoft-store)) | the same as the folder; the package itself needs nothing else | yes | yes | yes |
 | `linux` folder | the Linux player, same sources | after setup | yes | after setup |
 | `linux --format appimage` ([AppImage](#linux-appimage)) | `factoria setup appimage` (about 16 MB; Linux x86_64 only, so WSL on Windows) | in WSL, after setup | after setup (x86_64) | no |
 | `macos` `.app` | the macOS player, same sources. The ad hoc `codesign` runs only on a Mac; elsewhere the app is not signed | after setup | after setup | yes |
@@ -430,10 +431,17 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | iOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload. |
 | iOS | `usesNonExemptEncryption` | `false` | `ITSAppUsesNonExemptEncryption` in `Info.plist`. `true` only when the game uses encryption beyond what iOS provides (HTTPS and other system encryption are exempt). |
 | iOS | `privacy` | the engine's entries only | What the game adds to `PrivacyInfo.xcprivacy`: `tracking`, `trackingDomains`, `accessedApis` (`[{"category": "DiskSpace", "reasons": ["E174.1"]}]`), `collectedData` (`[{"type": "PurchaseHistory", "linked": true, "purposes": ["AppFunctionality"]}]`). The categories, reason codes, data types and purposes are in [MOBILE.md](MOBILE.md#store-privacy-forms). Edited in `factoria.json` only (the editor's window leaves it as it is). |
+| Windows | `format` | `folder` | `folder`: only `<slug>-windows/`. `msix`: also `<slug>-windows.msix` next to it, the package of the Microsoft Store (`--format msix` wins over it). See [Microsoft Store](#microsoft-store). |
+| Windows | `msix.identityName`, `msix.publisher`, `msix.publisherDisplayName` | empty (a placeholder identity) | The package identity, copied from Partner Center > Product identity: `Package/Identity/Name` (like `12345Studio.MyGame`), `Package/Identity/Publisher` (`CN=...`) and the publisher name players see. Without them the package installs on your PC but the Store rejects it. |
+| Windows | `msix.displayName`, `msix.description` | the game's name | The name and short description Windows shows. |
+| Windows | `msix.backgroundColor` | `transparent` | Tile background: `#RRGGBB` or `transparent`. |
+| Windows | `msix.version` | the project's `version` plus `.0` | Four numbers (`1.2.3.0`); the Store needs the fourth to be 0. |
+| Windows | `msix.minVersion` | `10.0.17763.0` | Oldest Windows 10 build (version 1809). |
+| Windows | `msix.languages` | the project's `localization.languages`, else `["en-us"]` | Language tags the Store lists for the app. |
 | All | `export.exclude` (directly in `export`) | `[]` | Project-relative globs no export ships, see [What is shipped](#what-is-shipped-and-what-is-not). |
 | Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](#scripts-as-bytecode). |
 
-`windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
+Wrong types or values are errors that name the JSON pointer and the fix
 (`factoria.json#/export/android/minSdk: minSdk (34) is higher than targetSdk (30) ...`). An unknown key inside
 `export` or a platform object is only a warning, with a "did you mean" (`categroy` -> `category`), because a newer engine
 may know keys an older one does not. `fa::save_export_settings` patches the text of `icon` and `export` in
@@ -461,6 +469,7 @@ does not know are kept when the file is saved. `factoria setup android` fills in
 | `android.keystorePassword` | Password of the keystore. `FACTORIA_ANDROID_KEYSTORE_PASSWORD` wins over it. |
 | `android.keyPassword` | Password of the signing key. `FACTORIA_ANDROID_KEY_PASSWORD` wins over it; when neither is set the keystore password is used. |
 | `sign.macos.identity` | The certificate `sign.macos` signs with (`Developer ID Application: Your Name (TEAMID)`). The `identity` argument and `FACTORIA_MACOS_SIGN_IDENTITY` win over it. Not a secret. |
+| `sign.windows.pfx` | The code-signing certificate (`.pfx`) `sign.windows` signs with. The `pfx` argument and `FACTORIA_WINDOWS_PFX` win over it. The password is only read from `FACTORIA_WINDOWS_PFX_PASSWORD`. |
 | `sign.macos.keychain` | A keychain file that holds the certificate. `FACTORIA_MACOS_KEYCHAIN` and the `keychain` argument win over it. |
 | `sign.macos.notaryProfile` | The notarytool keychain profile (`xcrun notarytool store-credentials <name>`). `FACTORIA_NOTARY_PROFILE` and the `keychainProfile` argument win over it. |
 
@@ -1061,9 +1070,9 @@ Details in [MOBILE.md](MOBILE.md).
 
 ## Uploading to stores
 
-Six commands upload a build to a store with the store's own uploader: four for the desktop exports, two for the mobile
-builds. They are commands like `project.export` (MCP tools `publish_steam`, `publish_itch`, `publish_epic`, `publish_gog`,
-`publish_appstore`, `publish_googleplay`; also `factoria call publish.steam '{"dryRun":true}'` and the editor console), so an
+Seven commands upload a build to a store with the store's own uploader: four for the desktop exports, three for the packages
+(mobile builds and the MSIX). They are commands like `project.export` (MCP tools `publish_steam`, `publish_itch`, `publish_epic`, `publish_gog`,
+`publish_appstore`, `publish_googleplay`, `publish_microsoft`; also `factoria call publish.steam '{"dryRun":true}'` and the editor console), so an
 AI can ship a build. FactorIA writes the
 build files and runs the tool; it never downloads or installs the tool, never takes a password, and never writes a secret
 to a file of the project.
@@ -1076,6 +1085,7 @@ to a file of the project.
 | `publish.gog` | `GOGGalaxyPipelineBuilder build-game` | a GOG build of your product |
 | `publish.appstore` | `xcrun altool --upload-package` (macOS only) | App Store Connect / TestFlight: the one `.ipa` |
 | `publish.googleplay` | `fastlane supply` | a track of your app in Google Play: the one `.aab` |
+| `publish.microsoft` | `msstore` (Microsoft Store Developer CLI) | a submission of your app in Partner Center: the one `.msix` |
 
 The first four upload the folders `project.export` wrote: `<project>/build/export/<game-slug>-<platform>` for `windows`,
 `macos` and `linux`. Export every platform first (`project_export {"platform":"windows"}`, ...). The mobile builds are one
@@ -1094,7 +1104,7 @@ Arguments (all optional; every command has `dryRun`):
 | `dryRun` | `true`: write the build files and return the exact command lines and what would be uploaded where. Nothing is started or sent. A missing uploader, secret, account or id (the Steam app id, the Epic ids...) is a warning, not an error: the plan is returned with the missing value shown as a placeholder (`MISSING_...`, and the tool's bare name), so you see the steps before you set anything up. |
 | `account`, `appId`, `branch` | `publish.steam` only: the Steam account (default `publish.steam.account`), the app id (default the number in `steam_appid.txt`) and the beta branch to set live (default `publish.steam.branch`). |
 | `branch` | `publish.gog` only: the GOG branch to put the build on (Pipeline Builder `--branch`). |
-| `artifact` | `publish.appstore` and `publish.googleplay` only: the `.ipa` / `.aab` to upload, inside the project. They take no `platforms` or `folders`. |
+| `artifact` | `publish.appstore`, `publish.googleplay` and `publish.microsoft` only: the `.ipa` / `.aab` / `.msix` to upload, inside the project (the MSIX default is `<out>/<slug>-windows.msix`). They take no `platforms` or `folders`. |
 | `track`, `releaseStatus` | `publish.googleplay` only: the release track (`internal`, `alpha`, `beta`, `production`, or a closed testing track) and `draft` or `completed` (default `publish.googleplay.track` / `.releaseStatus`, else `internal` and `draft`). |
 
 The result is `{store, dryRun, uploaded, version, tool, toolFrom, uploads, steps, files, warnings, nextSteps}` plus, after
@@ -1114,6 +1124,7 @@ publish_epic {"platforms":["windows"]}
 publish_gog {"branch":"testing"}
 publish_appstore {"dryRun":true}
 publish_googleplay {"track":"internal","releaseStatus":"draft"}
+publish_microsoft {"dryRun":true}
 ```
 
 Always run the dry run first; it also checks the tool, the ids and the exports, and it shows the files written to
@@ -1337,26 +1348,68 @@ publish_googleplay {"dryRun":true}
 
 ### Microsoft Store
 
-The engine covers the Windows folder only: `factoria export --platform windows` writes the exe with the game's icon and
-version information (name, version, file name) and, with `--release`, `game.pak`. It does not sign the exe (patching it
-removes the player's signature), does not build an MSIX package and does not upload to Partner Center. An
-`export.windows.msix` option that builds the package is planned. Until then, by hand with the Windows SDK:
+`factoria export --platform windows --format msix` (or `export.windows.format: "msix"`) writes the Windows folder as usual and,
+next to it, `<out>/<slug>-windows.msix`: the package of the Microsoft Store and of `Add-AppxPackage`. It is built on any
+computer (macOS, Linux, Windows) by FactorIA itself, with no Windows SDK: the same game folder is the package payload,
+with `AppxManifest.xml`, `AppxBlockMap.xml` (SHA-256 per 64 KiB block), `[Content_Types].xml` and the logos. The package is
+deterministic (same game, same bytes) and unsigned. The report has `format: "msix"` and the package among its `artifacts`.
 
-1. In Partner Center reserve the app name. Its product identity page gives the package `Identity Name` (like
-   `12345Studio.MyGame`), the `Publisher` (a `CN=...` string) and the publisher display name: copy them exactly.
-2. Put the exported folder in a package folder with an `AppxManifest.xml` (`Identity Name=` and `Publisher=` from step 1, a
-   four-number `Version`, `Executable` the game's exe, `EntryPoint="Windows.FullTrustApplication"`, capability `runFullTrust`)
-   and the logos in `Assets/`. The MSIX Packaging Tool can write the manifest from the folder. Microsoft requires the
-   `StoreLogo` (50x50 at 100% scale) and at least the medium tile at 100%; provide `Square44x44Logo`, `Square150x150Logo` and
-   `StoreLogo` at 100%, 200% and 400% (`.scale-200.png` names), plus the 16 to 256 target-size icons from the
-   [icon list](https://learn.microsoft.com/windows/apps/design/iconography/app-icon-construction).
-3. `makeappx pack /d <package folder> /p MyGame.msix`.
-4. To try it on your PC, sign it with `signtool sign /fd SHA256 /f test.pfx /p <password> MyGame.msix` (a certificate whose
-   subject equals the manifest `Publisher`). For the Store, upload it unsigned: Microsoft signs it after certification.
-   Microsoft's [manual packaging guide](https://learn.microsoft.com/windows/msix/package/manual-packaging-root) covers each tool.
-5. Create the submission in Partner Center (pricing, age rating, privacy policy URL, listing and screenshots; see
-   [AI content disclosure](#ai-content-disclosure) for the content questions), upload the `.msix` and send it to
-   certification. An update raises the manifest `Version`.
+```
+factoria export --platform windows --format msix --release
+```
+
+**Identity.** Reserve the app name in Partner Center, then copy from its Product identity page into `factoria.json`:
+
+```json
+"export": { "windows": { "format": "msix", "msix": {
+    "identityName": "12345Studio.MyGame",
+    "publisher": "CN=0123ABCD-4567-89EF-0123-456789ABCDEF",
+    "publisherDisplayName": "My Studio" } } }
+```
+
+Without them the package gets a placeholder identity (`FactorIA.<slug>`, `CN=FactorIA Developer`): it installs on your own
+PC once signed, but the Store rejects it. `project.validate` and the export warn about it. The other fields
+(`displayName`, `description`, `backgroundColor`, `version`, `minVersion`, `languages`) are in the
+[settings table](#icon-and-settings-per-platform). The version is the game's `version` plus `.0`: the Store reserves the fourth number.
+
+**Logos.** The manifest's `StoreLogo`, `Square44x44Logo`, `Square150x150Logo`, `Wide310x150Logo` and `Square310x310Logo`
+(and the scale and target-size variants Windows looks for) are cut from the game's icon (`export.windows.icon`, else `icon`)
+and written as PNG into `Assets/`. The package has no `resources.pri`; whether every Windows version finds the qualified
+files without one has not been checked on a real PC. Replace the icon with a square picture of at least 400x400.
+
+**Upload to the Store, unsigned.** Upload the `.msix` as it is: Microsoft signs it after certification, with the publisher
+of your account. Create the submission by hand in Partner Center (pricing, age rating, privacy policy URL, listing and
+screenshots; see [AI content disclosure](#ai-content-disclosure) for the content questions) and upload the package, or, once
+the app and a first submission exist, `publish.microsoft` (below) uploads later versions. An update raises `version`.
+
+**Try it on a PC without the Store.** Windows only installs signed packages, and the certificate subject must equal the
+manifest `Publisher`.
+
+- With a certificate: `sign.windows {"pfx":"signing.pfx"}` signs the package (`signtool` on Windows, `osslsigncode` on the
+  other computers; `FACTORIA_SIGNTOOL` and `FACTORIA_OSSLSIGNCODE` point at the tool). The password is only read from
+  `FACTORIA_WINDOWS_PFX_PASSWORD`, never from `factoria.json` or an argument. The pfx can also be `FACTORIA_WINDOWS_PFX` or
+  `sign.windows.pfx` of `~/.factoria/export.json`. The command checks the certificate subject (with `openssl`, when present)
+  against the manifest `Publisher` and refuses when they differ. `exe: true` also signs the game's exe, for a game shared
+  as a folder or a zip. `dryRun` shows the command lines with the password as `<redacted>`.
+- Without one, on Windows: `sign.windows {"testCertificate":true}` creates a self-signed certificate with the right subject,
+  signs the package and writes its public part (`<slug>-windows-test-certificate.cer`) next to it. Install the certificate once, in an
+  administrator PowerShell: `Import-Certificate -FilePath <slug>-windows-test-certificate.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople`;
+  then `Add-AppxPackage <slug>-windows.msix`.
+- With Developer Mode on, `Add-AppxPackage -AllowUnsigned <file>` installs an unsigned package for testing (Windows 11 and
+  recent Windows 10); such a package has no verified identity and cannot be updated by the Store.
+
+The engine could not install a package on a real Windows PC while writing this: the byte layout is checked in the tests, and
+the first install of a game is yours to confirm. Report a failure in `ENGINE_FEEDBACK.json`.
+
+**`publish.microsoft`.** Runs the Microsoft Store Developer CLI (`msstore`, installed by you: `winget install "Microsoft Store Developer CLI"`
+or the .NET tool; `FACTORIA_MSSTORE` points at it): `msstore reconfigure --tenantId ... --sellerId ... --clientId ... --clientSecret ...`
+and then `msstore publish <folder> --inputFile <msix> --appId <productId> --noCommit`. `publish.microsoft.productId` of
+`factoria.json` is the 12-character Store ID (Partner Center > your app > Product identity). The credentials come from an Azure AD
+application you associate with Partner Center (Account settings > Tenants > Azure AD applications) and only from the environment:
+`FACTORIA_MSSTORE_TENANT_ID`, `FACTORIA_MSSTORE_SELLER_ID`, `FACTORIA_MSSTORE_CLIENT_ID` and `FACTORIA_MSSTORE_CLIENT_SECRET`
+(the secret is never shown: `<redacted>`). `releaseStatus: "draft"` (default) leaves the submission waiting in Partner
+Center (`--noCommit`); `completed` sends it to certification. The first submission of a new app is always by hand.
+FactorIA ran `msstore` only against a fake in its tests; a real upload needs a Partner Center account.
 
 ### Testing without a store
 

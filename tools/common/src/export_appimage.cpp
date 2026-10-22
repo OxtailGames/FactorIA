@@ -34,23 +34,6 @@ bool is_file_at(const stdfs::path& p) {
     return stdfs::is_regular_file(os_path(p), ec);
 }
 
-// The plain icon of a game that set none: a dark square with a light "play" triangle.
-std::vector<std::uint8_t> placeholder_icon_png() {
-    Image img;
-    img.width = img.height = 256;
-    img.rgba.resize(256u * 256u * 4u);
-    for (int y = 0; y < 256; ++y)
-        for (int x = 0; x < 256; ++x) {
-            const bool inside = x >= 96 && x <= 176 && std::abs(y - 128) * 80 <= (176 - x) * 48;
-            std::uint8_t* px = &img.rgba[(static_cast<std::size_t>(y) * 256 + x) * 4];
-            px[0] = inside ? 235 : 43;
-            px[1] = inside ? 238 : 51;
-            px[2] = inside ? 245 : 80;
-            px[3] = 255;
-        }
-    return encode_png(img);
-}
-
 std::string last_lines(const std::string& text, std::size_t n) {
     std::vector<std::string> lines;
     for (const std::string& line : split(text, '\n')) {
@@ -63,6 +46,25 @@ std::string last_lines(const std::string& text, std::size_t n) {
 }
 
 }  // namespace
+
+// The plain icon of a game that set none: a dark square with a light "play" triangle.
+Image placeholder_icon_image() {
+    Image img;
+    img.width = img.height = 256;
+    img.rgba.resize(256u * 256u * 4u);
+    for (int y = 0; y < 256; ++y)
+        for (int x = 0; x < 256; ++x) {
+            const bool inside = x >= 96 && x <= 176 && std::abs(y - 128) * 80 <= (176 - x) * 48;
+            std::uint8_t* px = &img.rgba[(static_cast<std::size_t>(y) * 256 + x) * 4];
+            px[0] = inside ? 235 : 43;
+            px[1] = inside ? 238 : 51;
+            px[2] = inside ? 245 : 80;
+            px[3] = 255;
+        }
+    return img;
+}
+
+std::vector<std::uint8_t> placeholder_icon_png() { return encode_png(placeholder_icon_image()); }
 
 Result<AppImagePlan> plan_appimage(const ExportOptions& o, const Project& p, const stdfs::path& outRoot) {
     const SetupContext ctx = o.setup ? *o.setup : SetupContext{};
