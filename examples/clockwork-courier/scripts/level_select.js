@@ -11,6 +11,7 @@
 //
 // Opening the screen asks the cloud to settle (cloud_sync.sync): if it brought progress in, the cards are redrawn.
 import { Behaviour, ui, world, scene, session, input, i18n } from "factoria";
+import * as fmt from "./fmt.js";
 import * as levels from "./levels.js";
 import * as progress from "./progress.js";
 import * as daily from "./daily.js";
@@ -72,7 +73,7 @@ export default class LevelSelect extends Behaviour {
     playUi("error_001", 0.6);
     const i = levels.LEVELS.findIndex((l) => l.id === level.id);
     if (!progress.isDistrictUnlocked(level.district)) {
-      this.setText("select_hint", i18n.t("select.hintDistrict", { needed: progress.districtStarsNeeded(level.district), have: progress.starsBefore(level.district) }));
+      this.setText("select_hint", i18n.t("select.hintDistrict", { count: progress.districtStarsNeeded(level.district), have: progress.starsBefore(level.district) }));
     } else {
       this.setText("select_hint", i18n.t("select.hintLevel", { level: i18n.t(levels.LEVELS[i - 1].nameKey) }));
     }
@@ -89,17 +90,37 @@ export default class LevelSelect extends Behaviour {
 
   /** Redraws every card, the totals and the buttons from the saved progress. */
   refresh() {
+    this.capSizes();
     for (const l of levels.LEVELS) this.drawCard(l);
     for (const d of levels.DISTRICTS) {
-      this.setText("district_" + d.id + "_title", i18n.t(d.nameKey) + (progress.isDistrictUnlocked(d.id) ? "" : "  " + i18n.t("select.districtLocked", { needed: d.stars, have: progress.starsBefore(d.id) })));
+      this.setText("district_" + d.id + "_title", i18n.t(d.nameKey) + (progress.isDistrictUnlocked(d.id) ? "" : "  " + i18n.t("select.districtLocked", { count: d.stars, have: progress.starsBefore(d.id) })));
     }
     this.setText("select_total", i18n.t("select.total", { stars: progress.totalStars(), max: levels.LEVELS.length * 3 }));
     const nameButton = world.find("select_name");
     if (nameButton) nameButton.get("Button").text = progress.hasName() ? i18n.t("select.name", { name: progress.name() }) : i18n.t("select.noName");
     const time = daily.todaysTime();
     const dailyButton = world.find("select_daily");
-    if (dailyButton) dailyButton.get("Button").text = time === null ? i18n.t("select.daily") : i18n.t("select.dailyDone", { time: time.toFixed(1) });
+    if (dailyButton) dailyButton.get("Button").text = time === null ? i18n.t("select.daily") : i18n.t("select.dailyDone", { time: fmt.decimal(time) });
     this.showCloud(session.cloudStatus?.status ?? "");
+  }
+
+  /**
+   * The cards, headings and district titles sit at fixed places and fit a fixed width, so at a big text size (ui.textScale) their
+   * text would be clipped or overlap. Their effective size stops at 1.15 times the design size (1.3 for the headings); the other
+   * texts of the screen (buttons, hint) still follow the player's setting. (FB-0042)
+   */
+  capSizes() {
+    const s = Math.max(ui.textScale, 0.01);
+    const cap = (id, comp, base, max) => {
+      const e = world.find(id);
+      if (e && e.has(comp)) e.get(comp).fontSize = (base * Math.min(max, s)) / s;
+    };
+    cap("select_title", "Text", 44, 1.3);
+    cap("select_total", "Text", 26, 1.3);
+    cap("select_name", "Button", 24, 1.15);
+    cap("select_cloud", "Text", 20, 1.15);
+    for (const d of levels.DISTRICTS) cap("district_" + d.id + "_title", "Text", 28, 1.15);
+    for (const l of levels.LEVELS) cap("card_" + l.id, "Button", 24, 1.15);
   }
 
   drawCard(l) {
@@ -112,7 +133,7 @@ export default class LevelSelect extends Behaviour {
     b.color = open ? [0.24, 0.27, 0.36, 0.95] : [0.14, 0.15, 0.2, 0.9];
     if (!open) b.text = name + "\n" + i18n.t("select.locked");
     else if (!res) b.text = name + "\n" + i18n.t("select.new");
-    else b.text = name + "\n" + starText(res.stars) + "   " + res.time.toFixed(1) + " s";
+    else b.text = name + "\n" + starText(res.stars) + "   " + i18n.t("select.cardTime", { time: fmt.decimal(res.time) });
     b.textColor = !open ? [0.6, 0.62, 0.7, 1] : res && res.stars === 3 ? [1, 0.85, 0.3, 1] : [1, 1, 1, 1];
   }
 

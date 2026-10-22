@@ -65,7 +65,7 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
-    "language": "Language: {language}",
+    "language": "Language",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
     "on": "on",
@@ -77,7 +77,8 @@
       "medium": "medium",
       "high": "high"
     },
-    "assist": "Assist mode (slower spring and dogs)",
+    "assist": "Assist mode",
+    "assistNote": "A slower spring, slower dogs and a wider jump grace.",
     "reducedMotion": "Reduced motion",
     "haptics": "Vibration",
     "tapToMove": "Tap to move",
@@ -86,12 +87,15 @@
     "controlSize": "Control size",
     "controlOpacity": "Control opacity",
     "cameraSensitivity": "Camera speed",
-    "invertY": "Invert camera Y"
+    "invertY": "Invert camera Y",
+    "languageNote": "The language is saved and used the next time you open the game too."
   },
   "credits": {
     "madeWith": "Made with FactorIA",
     "software": "This game uses the following software:",
-    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game."
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.",
+    "assets": "Art, music and sounds: Kenney, Quaternius, MintoDog and Fupi (CC0).",
+    "font": "Japanese text: Noto Sans JP, (c) 2014-2021 Adobe, SIL Open Font License 1.1."
   },
   "hud": {
     "parcels": "Parcels {delivered} / {total}",
@@ -136,9 +140,15 @@
       "rooftops": "Rooftops",
       "market": "Market"
     },
-    "districtLocked": "(needs {needed} stars, you have {have})",
+    "districtLocked": {
+      "one": "(needs {count} star, you have {have})",
+      "other": "(needs {count} stars, you have {have})"
+    },
     "hintLevel": "Win {level} first.",
-    "hintDistrict": "Needs {needed} stars from the earlier districts (you have {have}).",
+    "hintDistrict": {
+      "one": "Needs {count} star from the earlier districts (you have {have}).",
+      "other": "Needs {count} stars from the earlier districts (you have {have})."
+    },
     "daily": "Daily route",
     "dailyDone": "Daily route: {time} s",
     "cloud": {
@@ -148,7 +158,8 @@
       "merged": "Cloud save: joined both copies",
       "offline": "Cloud save: could not reach the store",
       "unreadable": "Cloud save: could not be read, left untouched"
-    }
+    },
+    "cardTime": "{time} s"
   },
   "profile": {
     "title": "Who is delivering?",
@@ -157,7 +168,8 @@
     "space": "Space",
     "delete": "Delete",
     "done": "Done",
-    "empty": "Pick a name with at least one letter or digit."
+    "empty": "Pick a name with at least one letter or digit.",
+    "placeholder": "Your name"
   },
   "daily": {
     "done": "Daily route done!",
@@ -194,7 +206,10 @@
       "equipped": "The robot wears this paint.",
       "free": "Free paint.",
       "owned": "Unlocked.",
-      "stars": "Needs {stars} stars (you have {have}).",
+      "stars": {
+        "one": "Needs {count} star (you have {have}).",
+        "other": "Needs {count} stars (you have {have})."
+      },
       "buy": "A paint from the store."
     },
     "paint": {
@@ -294,8 +309,14 @@
     "testAd": "Test ad",
     "claim": "Claim reward",
     "skip": "Skip",
-    "moreTimeAd": "Watch an ad: {seconds} more seconds",
-    "moreTimeFree": "{seconds} more seconds (free)"
+    "moreTimeAd": {
+      "one": "Watch an ad: {count} more second",
+      "other": "Watch an ad: {count} more seconds"
+    },
+    "moreTimeFree": {
+      "one": "{count} more second (free)",
+      "other": "{count} more seconds (free)"
+    }
   },
   "captions": {
     "dogBark": "[Dog barks]",
@@ -308,5 +329,12 @@
     "title": "Quit the game?",
     "stay": "Stay",
     "yes": "Quit"
+  },
+  "format": {
+    "decimal": "."
+  },
+  "touch": {
+    "jump": "Jump",
+    "action": "Act"
   }
 }

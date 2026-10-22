@@ -12,6 +12,7 @@ export default class Achievements extends Behaviour {
 
   onEnable() {
     this.remote = new Set();
+    if (!this.offLanguage) this.offLanguage = i18n.on("change", () => this.entity.active && this.render());
     this.render();
     if (!platform.has("achievements")) return;
     const token = (this.token = (this.token ?? 0) + 1);
@@ -23,6 +24,10 @@ export default class Achievements extends Behaviour {
         this.render();
       })
       .catch(() => {}); // signed out or offline: the local list is shown
+  }
+
+  onDestroy() {
+    this.offLanguage?.();
   }
 
   onUpdate(dt) {

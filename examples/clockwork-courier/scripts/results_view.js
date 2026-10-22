@@ -7,6 +7,7 @@
 //   starText(n, max)      "***" style string of n filled stars out of max (level select shares it)
 //   goalLines(levelId, goals)  one line per goal: "[x] Fast: under 50 s"
 import { i18n } from "factoria";
+import * as fmt from "./fmt.js";
 import * as levels from "./levels.js";
 import * as progress from "./progress.js";
 import * as stars from "./stars.js";
@@ -40,13 +41,13 @@ export function lines(levelId, run) {
     return {
       results_heading: i18n.t(name ? "daily.doneNamed" : "daily.done", { name }),
       results_stars: "",
-      results_time: i18n.t("results.time", { time: run.time.toFixed(1) }) + "   " + i18n.t("daily.best", { time: saved.toFixed(1) }),
+      results_time: i18n.t("results.time", { time: fmt.decimal(run.time) }) + "   " + i18n.t("daily.best", { time: fmt.decimal(saved) }),
       results_spring: i18n.t("results.spring", { seconds: Math.ceil(run.left) }),
     };
   }
   const saved = progress.resultFor(levelId);
   const best = saved ? saved.time : run.time;
-  const timeLine = i18n.t("results.time", { time: run.time.toFixed(1) }) + "   " + i18n.t(run.best ? "results.newBest" : "results.best", { time: best.toFixed(1) });
+  const timeLine = i18n.t("results.time", { time: fmt.decimal(run.time) }) + "   " + i18n.t(run.best ? "results.newBest" : "results.best", { time: fmt.decimal(best) });
   return {
     results_heading: i18n.t(name ? "results.titleNamed" : "results.title", { name }),
     results_stars: starText(run.stars),

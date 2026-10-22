@@ -13,8 +13,8 @@ export const QUALITIES = ["low", "medium", "high"];
 /** Frame caps of the options menu (0 = unlimited). Phones refuse a cap (ENGINE_FEEDBACK): the option is greyed out there. */
 export const FRAME_CAPS = [30, 60, 0];
 
-/** Text sizes of the options menu (ui.textScale). */
-export const TEXT_SCALES = [0.85, 1, 1.15, 1.3, 1.5];
+/** Text sizes of the options menu (ui.textScale): 85 to 200 percent. */
+export const TEXT_SCALES = [0.85, 1, 1.15, 1.3, 1.5, 2];
 
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
@@ -95,14 +95,32 @@ export function applyScene(s = load()) {
   accessibility.applyToScene(s);
 }
 
+/**
+ * The language a first run starts in: the first of the system's languages (best first, tags like "es-MX" or "ja_JP") the game
+ * has, matching the whole tag or its first part; else `fallback`. The engine does the same when a window opens
+ * (i18n.systemLanguages); this is the same rule written down so a test can feed it any list (a headless run has no system language).
+ * @param {string[]} systemLanguages @param {string[]} supported @param {string} fallback
+ */
+export function pickLanguage(systemLanguages, supported, fallback) {
+  const lower = supported.map((l) => l.toLowerCase());
+  for (const tag of systemLanguages) {
+    const clean = tag.toLowerCase().replace("_", "-");
+    let i = lower.indexOf(clean);
+    if (i < 0) i = lower.indexOf(clean.split("-")[0]);
+    if (i >= 0) return supported[i];
+  }
+  return fallback;
+}
+
 /** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
   ui.textScale = s.textScale;
-  if (s.language && s.language !== i18n.language) {
+  const wanted = s.language || (i18n.systemLanguages.length > 0 ? pickLanguage(i18n.systemLanguages, i18n.languages, i18n.language) : null);
+  if (wanted && wanted !== i18n.language) {
     try {
-      i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
+      i18n.setLanguage(wanted); // rewrites every Text and widget with a key at once
     } catch (e) {
       console.warn(`settings: the saved language was ignored: ${e.message}`);
     }

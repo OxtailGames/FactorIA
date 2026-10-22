@@ -39,7 +39,7 @@ export class Toasts {
       this.entity = world.spawn({
         id: "toast",
         components: {
-          Panel: { size: [560, 64], anchor: [0.5, 0.9], color: [0.05, 0.07, 0.12, 0], layer: 400, layout: "column", justify: "center" },
+          Panel: { anchor: [0.5, 0.82], pivot: [0.5, 0.5], fit: true, padding: [16, 10, 16, 10], color: [0.05, 0.07, 0.12, 0], layer: 400, layout: "column", justify: "center" },
         },
         children: [
           { id: "toast_text", components: { Text: { text: this.current, fontSize: 26, space: "screen", layer: 401, color: [1, 0.85, 0.3, 0], maxWidth: 520 } } },

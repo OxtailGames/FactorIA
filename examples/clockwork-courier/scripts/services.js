@@ -115,7 +115,7 @@ export default class StoreServices extends Behaviour {
         this.attempt.continued = true;
         this.bump("more_time_used");
       }),
-      store.listen((p) => this.toasts.show(i18n.t("shop.granted", { name: p.productId }))),
+      store.listen((p) => this.toasts.show(i18n.t("shop.granted", { name: i18n.has(`shop.product.${p.productId}`) ? i18n.t(`shop.product.${p.productId}`) : p.productId }))),
       platform.on("player", (p) => p.signedIn && this.flush()),
     ];
     this.paintCourier();

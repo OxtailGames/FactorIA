@@ -4,14 +4,15 @@
     "name": "Options",
     "components": {
       "Panel": {
-        "size": [760, 640],
         "anchor": [0.5, 0.5],
+        "safeArea": true,
         "layer": 300,
         "layout": "column",
         "direction": "auto",
         "align": "start",
         "spacing": 12,
-        "padding": [24, 16, 24, 16]
+        "padding": [24, 16, 24, 16],
+        "fit": true
       },
       "Script": {
         "path": "scripts/ui/options.js"
@@ -40,7 +41,10 @@
             "direction": "auto",
             "padding": [0, 0, 0, 0],
             "spacing": 6,
-            "fit": true
+            "fit": true,
+            "fallbackLayout": "grid",
+            "columns": 3,
+            "uniformSize": true
           }
         },
         "children": [
@@ -128,14 +132,13 @@
       {
         "id": "video_section",
         "components": {
-          "Panel": {
+          "ScrollList": {
             "size": [712, 360],
             "layer": 301,
-            "color": [0, 0, 0, 0.25],
-            "layout": "column",
-            "direction": "auto",
-            "align": "start",
-            "spacing": 8
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
           }
         },
         "children": [
@@ -231,26 +234,53 @@
       {
         "id": "audio_section",
         "components": {
-          "Panel": {
+          "ScrollList": {
             "size": [712, 360],
             "layer": 301,
-            "color": [0, 0, 0, 0.25],
-            "layout": "column",
-            "direction": "auto",
-            "align": "start",
-            "spacing": 8
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
           }
         },
         "children": [
           {
+            "id": "master_volume_name",
+            "components": {
+              "Text": {
+                "text": "Master",
+                "key": "options.volume.master",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
             "id": "master_volume",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Master",
-                "key": "options.volume.master",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
+              }
+            }
+          },
+          {
+            "id": "music_volume_name",
+            "components": {
+              "Text": {
+                "text": "Music",
+                "key": "options.volume.music",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
               }
             }
           },
@@ -258,11 +288,25 @@
             "id": "music_volume",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Music",
-                "key": "options.volume.music",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
+              }
+            }
+          },
+          {
+            "id": "sfx_volume_name",
+            "components": {
+              "Text": {
+                "text": "Effects",
+                "key": "options.volume.effects",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
               }
             }
           },
@@ -270,11 +314,25 @@
             "id": "sfx_volume",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Effects",
-                "key": "options.volume.effects",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
+              }
+            }
+          },
+          {
+            "id": "ui_volume_name",
+            "components": {
+              "Text": {
+                "text": "Interface",
+                "key": "options.volume.interface",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
               }
             }
           },
@@ -282,10 +340,10 @@
             "id": "ui_volume",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Interface",
-                "key": "options.volume.interface",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
               }
             }
@@ -320,14 +378,13 @@
       {
         "id": "play_section",
         "components": {
-          "Panel": {
+          "ScrollList": {
             "size": [712, 360],
             "layer": 301,
-            "color": [0, 0, 0, 0.25],
-            "layout": "column",
-            "direction": "auto",
-            "align": "start",
-            "spacing": 8
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
           }
         },
         "children": [
@@ -340,6 +397,21 @@
                 "key": "options.assist",
                 "size": [560, 38],
                 "layer": 302
+              }
+            }
+          },
+          {
+            "id": "assist_note",
+            "components": {
+              "Text": {
+                "text": "Slower spring, slower dogs, a wider jump grace.",
+                "key": "options.assistNote",
+                "fontSize": 18,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696,
+                "color": [0.75, 0.8, 0.9, 1]
               }
             }
           },
@@ -397,14 +469,13 @@
       {
         "id": "touch_section",
         "components": {
-          "Panel": {
+          "ScrollList": {
             "size": [712, 360],
             "layer": 301,
-            "color": [0, 0, 0, 0.25],
-            "layout": "column",
-            "direction": "auto",
-            "align": "start",
-            "spacing": 8
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
           }
         },
         "children": [
@@ -421,14 +492,42 @@
             }
           },
           {
+            "id": "control_size_name",
+            "components": {
+              "Text": {
+                "text": "Control size",
+                "key": "options.controlSize",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
+              }
+            }
+          },
+          {
             "id": "control_size",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Control size",
-                "key": "options.controlSize",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
+              }
+            }
+          },
+          {
+            "id": "control_opacity_name",
+            "components": {
+              "Text": {
+                "text": "Control opacity",
+                "key": "options.controlOpacity",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
               }
             }
           },
@@ -436,11 +535,25 @@
             "id": "control_opacity",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Control opacity",
-                "key": "options.controlOpacity",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
+              }
+            }
+          },
+          {
+            "id": "camera_sensitivity_name",
+            "components": {
+              "Text": {
+                "text": "Camera speed",
+                "key": "options.cameraSensitivity",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302,
+                "align": "start",
+                "maxWidth": 696
               }
             }
           },
@@ -448,10 +561,10 @@
             "id": "camera_sensitivity",
             "components": {
               "Slider": {
-                "autoSize": true,
-                "label": "Camera speed",
-                "key": "options.cameraSensitivity",
-                "size": [560, 38],
+                "autoSize": false,
+                "label": "",
+                "key": "",
+                "size": [700, 44],
                 "layer": 302
               }
             }
@@ -473,14 +586,13 @@
       {
         "id": "controls_section",
         "components": {
-          "Panel": {
+          "ScrollList": {
             "size": [712, 360],
             "layer": 301,
-            "color": [0, 0, 0, 0.25],
-            "layout": "column",
-            "direction": "auto",
-            "align": "start",
-            "spacing": 8
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
           }
         },
         "children": [
@@ -515,26 +627,42 @@
       {
         "id": "language_section",
         "components": {
-          "Panel": {
+          "ScrollList": {
             "size": [712, 360],
             "layer": 301,
-            "color": [0, 0, 0, 0.25],
-            "layout": "column",
-            "direction": "auto",
-            "align": "start",
-            "spacing": 8
+            "color": [0, 0, 0, 0.18],
+            "spacing": 8,
+            "padding": [8, 8, 8, 8],
+            "fill": true
           }
         },
         "children": [
           {
-            "id": "language",
+            "id": "language_title",
             "components": {
-              "Button": {
-                "autoSize": true,
-                "text": "Language: English",
-                "size": [560, 38],
-                "layer": 302,
-                "fontSize": 22
+              "Text": {
+                "text": "Language",
+                "key": "options.language",
+                "fontSize": 24,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 560,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "language_note",
+            "components": {
+              "Text": {
+                "text": "The language is saved and used the next time you open the game too.",
+                "key": "options.languageNote",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 560,
+                "layer": 302
               }
             }
           }
