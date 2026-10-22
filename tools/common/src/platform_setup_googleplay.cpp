@@ -205,23 +205,27 @@ Backend googleplay_backend() {
         // The Play Games project id.
         const stdfs::path idsFile = stdfs::path(folder) / kIdsFile;
         if (wantedId) {
-            if (!is_file(idsFile))
+            if (!is_file(idsFile) && !ctx.dryRun)
                 throw CommandError("not_found", idsFile.generic_string() + " does not exist, so the project id has nowhere to go",
                                    "The plugin in " + folder + " is not made from the googleplay template. Copy platforms/plugins/googleplay from the "
                                    "engine over it, or remove the plugin from factoria.json and run platform.add_backend again.");
-            if (read_project_id(idsFile) == *wantedId) {
+            if (is_file(idsFile) && read_project_id(idsFile) == *wantedId) {
                 ctx.done.push_back("kept the Play Games project id " + (wantedId->empty() ? std::string("(none)") : *wantedId) + " in " + idsFile.generic_string());
             } else {
-                write_project_id(idsFile, *wantedId);
-                ctx.done.push_back(wantedId->empty() ? "turned Play Games off (emptied the project id in " + idsFile.generic_string() + ")"
-                                                      : "set the Play Games project id " + *wantedId + " in " + idsFile.generic_string());
+                if (!ctx.dryRun) write_project_id(idsFile, *wantedId);
+                ctx.wrote(idsFile.generic_string());
+                const std::string would = ctx.dryRun ? "would " : "";
+                ctx.done.push_back(wantedId->empty() ? std::string(ctx.dryRun ? "would turn Play Games off (empty" : "turned Play Games off (emptied") + " the project id in " + idsFile.generic_string() + ")"
+                                                      : would + "set the Play Games project id " + *wantedId + " in " + idsFile.generic_string());
             }
         }
         const std::string gamesId = is_file(idsFile) ? read_project_id(idsFile) : std::string();
         ctx.extra["playGamesId"] = gamesId;
 
         // The C bridge for each ABI.
-        if (build) {
+        if (build && ctx.dryRun) {
+            ctx.done.push_back("would build the C bridge for arm64-v8a and x86_64 with the NDK in " + tc.ndk);
+        } else if (build) {
             int minSdk = 26;
             if (auto settings = load_export_settings(ctx.projectDir); settings.ok()) minSdk = settings->android.minSdk;
             ctx.cmakeExe = tc.cmake;

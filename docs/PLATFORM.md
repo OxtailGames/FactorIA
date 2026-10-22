@@ -260,7 +260,7 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 backend in one call: it writes the backend's plugin from its template (`project.new_plugin` with `"template":
 "<backend>"`) unless factoria.json already declares it, builds it for this computer with CMake (the CMake `setup`
 installs when there is none; the Google Play bridge is built with the Android SDK's NDK instead), and adds what that
-store needs. Running it again keeps what is there. Its result lists what it did (`done`) and what only a person can do
+store needs. Running it again keeps what is there. It patches factoria.json instead of rewriting it (only `plugins.<backend>` is added; the other keys, their order and the layout stay as they are). `"dryRun": true` writes, builds and copies nothing and lists the `files` and factoria.json `keys` it would write (`wouldDo` has the steps); an argument it does not know is an error with a "did you mean". Its result lists what it did (`done`) and what only a person can do
 (`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which arguments it reads.
 
 ### Steam (Steamworks)

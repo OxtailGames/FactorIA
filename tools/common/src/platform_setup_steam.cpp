@@ -146,12 +146,15 @@ unsigned write_app_id(Context& ctx, unsigned wanted, bool asked) {
             return wanted;
         }
     }
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    out << wanted << "\n";
-    out.close();
-    if (!out)
-        throw CommandError("failed", "cannot write " + file.generic_string(), "Check that the project folder can be written to.");
-    ctx.done.push_back("wrote steam_appid.txt with app id " + std::to_string(wanted) +
+    if (!ctx.dryRun) {
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        out << wanted << "\n";
+        out.close();
+        if (!out)
+            throw CommandError("failed", "cannot write " + file.generic_string(), "Check that the project folder can be written to.");
+    }
+    ctx.wrote(file.generic_string());
+    ctx.done.push_back(std::string(ctx.dryRun ? "would write" : "wrote") + " steam_appid.txt with app id " + std::to_string(wanted) +
                        (wanted == kTestAppId ? " (Valve's test app Spacewar): for development only, `factoria export` never ships it" :
                                                ": for development only, `factoria export` never ships it"));
     return wanted;
@@ -212,14 +215,18 @@ Backend steam_backend() {
                 }
                 const stdfs::path destination = stdfs::path(folder) / r.platform / r.file;
                 std::error_code ec;
-                stdfs::create_directories(destination.parent_path(), ec);
-                stdfs::copy_file(source, destination, stdfs::copy_options::overwrite_existing, ec);
+                if (!ctx.dryRun) {
+                    stdfs::create_directories(destination.parent_path(), ec);
+                    stdfs::copy_file(source, destination, stdfs::copy_options::overwrite_existing, ec);
+                }
+                ctx.wrote(destination.generic_string());
                 if (ec)
                     throw CommandError("failed", "cannot copy " + source.generic_string() + " to " + destination.generic_string() + ": " + ec.message(),
                                        "Check that the plugin's folder can be written to, and run platform.add_backend again.");
                 copied.push_back(std::string(r.platform) + "/" + r.file);
             }
-            ctx.done.push_back("copied Valve's redistributable libraries next to the plugin (" + join(copied, ", ") + ")");
+            ctx.done.push_back(std::string(ctx.dryRun ? "would copy" : "copied") + " Valve's redistributable libraries next to the plugin (" +
+                               join(copied, ", ") + ")");
         }
         bool hostLibrary = false;  // Valve's library for this computer is next to the plugin (copied now, or already there)
         for (const Redistributable& r : kRedistributables)

@@ -373,7 +373,7 @@ TEST_CASE("scene.format: rewrites messy scenes and prefabs to exactly the dump_s
     const Json sceneData = Json::parse(kMessyScene);
     const Json prefabData = Json::parse(kMessyPrefab);
 
-    auto r = s.call("scene.format");
+    auto r = s.call("scene.format", Json{{"all", true}});
     REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(r.result["formatted"] == Json::parse(R"(["prefabs/coin.prefab.json", "scenes/messy.scene.json"])"));
     CHECK(r.result["unchanged"] == 1);
@@ -398,7 +398,7 @@ TEST_CASE("scene.format: rewrites messy scenes and prefabs to exactly the dump_s
 
     // A second run changes nothing: no file is listed or touched.
     const auto stamp = stdfs::last_write_time(p.dir / "scenes/messy.scene.json");
-    auto second = s.call("scene.format");
+    auto second = s.call("scene.format", Json{{"all", true}});
     REQUIRE_MESSAGE(second.ok, error_text(second));
     CHECK(second.result["formatted"].empty());
     CHECK(second.result["unchanged"] == 3);
@@ -426,7 +426,7 @@ TEST_CASE("scene.format: check lists the files that are not canonical and writes
     CHECK(p.read("prefabs/coin.prefab.json") == kMessyPrefab);
 
     // Once formatted, check has nothing to list.
-    REQUIRE(s.call("scene.format").ok);
+    REQUIRE(s.call("scene.format", Json{{"all", true}}).ok);
     auto clean = s.call("scene.format", Json{{"check", true}});
     REQUIRE(clean.ok);
     CHECK(clean.result["notCanonical"].empty());
@@ -451,8 +451,8 @@ TEST_CASE("scene.format: check + strict fails with the files listed, and passes 
     CHECK(contains(bad.error["hint"].get<std::string>(), "scene.format without 'check'"));
     CHECK(p.read("scenes/messy.scene.json") == kMessyScene);  // check writes nothing, strict or not
 
-    // strict is about check: on its own the command formats, as ever.
-    auto fixed = s.call("scene.format", Json{{"strict", true}});
+    // strict is about check: on its own the command formats (here the whole project, asked for with all).
+    auto fixed = s.call("scene.format", Json{{"all", true}, {"strict", true}});
     REQUIRE_MESSAGE(fixed.ok, error_text(fixed));
     CHECK(fixed.result["formatted"].size() == 2);
     auto clean = s.call("scene.format", Json{{"check", true}, {"strict", true}});
@@ -476,7 +476,7 @@ TEST_CASE("scene.format: invalid JSON is reported with file, line and column and
 
     for (bool check : {true, false}) {
         INFO(check);
-        auto r = s.call("scene.format", Json{{"check", check}});
+        auto r = s.call("scene.format", Json{{"check", check}, {"all", !check}});
         REQUIRE_MESSAGE(r.ok, error_text(r));
         REQUIRE(r.result["errors"].size() == 2);
         const Json& e = r.result["errors"][0];
@@ -530,6 +530,12 @@ TEST_CASE("scene.format: paths are files or folders; the default skips tool and 
     CHECK(all.result["notCanonical"] == Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
     CHECK(all.result["unchanged"] == 2);
     CHECK(p.read("data/levels.json") == "{ \"a\":   [1,\n 2] }");
+
+    // all = the same as the default used to be.
+    auto everything = s.call("scene.format", Json{{"all", true}});
+    REQUIRE_MESSAGE(everything.ok, error_text(everything));
+    CHECK(everything.result["formatted"] == Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
+    CHECK_FALSE(s.call("scene.format", Json{{"all", true}, {"paths", Json::array({"prefabs"})}}).ok);
 
     // A folder with no scenes says so.
     auto none = s.call("scene.format", Json{{"paths", Json::array({"data"})}});
@@ -587,7 +593,7 @@ TEST_CASE("scene.format: a byte order mark and CRLF line endings are canonicalis
     REQUIRE(check.ok);
     CHECK(check.result["notCanonical"] == Json::parse(R"(["prefabs/windows.prefab.json"])"));
 
-    REQUIRE(s.call("scene.format").ok);
+    REQUIRE(s.call("scene.format", Json{{"all", true}}).ok);
     CHECK(p.read("prefabs/windows.prefab.json") == dump_scene_json(data));
     CHECK(p.json("prefabs/windows.prefab.json") == data);
 }
@@ -607,4 +613,31 @@ TEST_CASE("scene.format: formats what prefab.save wrote, and a hand-formatted co
     REQUIRE(dirty.ok);
     CHECK(dirty.result["formatted"].size() == 1);
     CHECK(s.project.read("prefabs/squad.prefab.json") == canonical);
+}
+
+TEST_CASE("scene.format: with neither paths, all nor check it writes nothing and teaches how to ask") {
+    Session s("format_no_args");
+    const TempProject& p = s.project;
+    p.write("scenes/main.scene.json", dump_scene_json(Json::parse(kScene)));
+    p.write("scenes/messy.scene.json", kMessyScene);
+    p.write("prefabs/coin.prefab.json", kMessyPrefab);
+
+    for (const Json& args : {Json::object(), Json{{"strict", true}}}) {
+        auto r = s.call("scene.format", args);
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "paths_required");
+        const std::string text = r.error["message"].get<std::string>() + " " + r.error["hint"].get<std::string>();
+        CHECK(contains(text, "2 scene/prefab file(s) would change"));  // how many
+        CHECK(contains(text, "prefabs/coin.prefab.json"));              // which
+        CHECK(contains(text, "scenes/messy.scene.json"));
+        CHECK(contains(text, "paths"));
+        CHECK(contains(text, "\"all\": true"));
+        CHECK(p.read("scenes/messy.scene.json") == kMessyScene);  // nothing was written
+        CHECK(p.read("prefabs/coin.prefab.json") == kMessyPrefab);
+    }
+    // The ways that do work.
+    CHECK(s.call("scene.format", Json{{"check", true}}).ok);
+    REQUIRE(s.call("scene.format", Json{{"paths", Json::array({"scenes/messy.scene.json"})}}).ok);
+    CHECK(p.read("prefabs/coin.prefab.json") == kMessyPrefab);  // not named, not touched
+    CHECK(p.read("scenes/messy.scene.json") != kMessyScene);
 }

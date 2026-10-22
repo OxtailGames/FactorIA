@@ -16,6 +16,6 @@ test("scenes/main.scene.json is what levels/level1.json builds", () => {
 });
 
 test("scenes and prefabs are in the canonical layout", () => {
-  // `factoria call scene.format` rewrites them; `{"check": true}` only lists the files that still need it.
+  // `factoria call scene.format '{"paths":["prefabs","scenes"]}'` rewrites them; `{"check": true}` only lists the files that still need it.
   expect(fa.call("scene.format", { check: true }).notCanonical).toEqual([]);
 });

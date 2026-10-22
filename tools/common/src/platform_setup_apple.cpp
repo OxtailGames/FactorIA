@@ -64,7 +64,9 @@ Backend apple_backend() {
                                "ios/ folders back.");
 
         const std::string folder = ctx.ensure_plugin({"ios", "macos"});
-        if (build) {
+        if (build && ctx.dryRun) {
+            ctx.done.push_back("would configure and build the apple plugin with Xcode (" + join(slices, ", ") + ")");
+        } else if (build) {
             ctx.run_cmake({"-S", folder, "-B", folder + "/build", "-DCMAKE_BUILD_TYPE=Release", "-DFA_APPLE_SLICES=" + join(slices, ";")},
                           "configure the apple plugin");
             ctx.run_cmake({"--build", folder + "/build"}, "build the apple plugin");
