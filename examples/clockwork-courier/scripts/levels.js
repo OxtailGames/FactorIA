@@ -33,6 +33,16 @@ export const LEVELS = [
   { id: "market_3", name: "Midnight Rush", nameKey: "levels.market_3", district: "market", scene: "scenes/market_3.scene.json", spring: 180, parTime: 100, parcels: 3, optionalParcels: 1, music: MUSIC.market },
 ];
 
+/**
+ * The districts in play order and the stars the player must have won in the districts before it (P3, scripts/progress.js):
+ * the first district is always open, the second needs STARS stars from the first one (of the 9 it offers).
+ * @type {{ id: string, nameKey: string, stars: number }[]}
+ */
+export const DISTRICTS = [
+  { id: "rooftops", nameKey: "select.district.rooftops", stars: 0 },
+  { id: "market", nameKey: "select.district.market", stars: 6 },
+];
+
 /** Scenes outside the player's list that tests (and the editor) load: the movement yard and the prop arena. */
 export const TEST_LEVELS = [
   { id: "test_yard", name: "Test Yard", nameKey: "levels.test_yard", district: "test", scene: "scenes/test_yard.scene.json", spring: 60, parTime: 40, parcels: 1, optionalParcels: 0, music: "" },
