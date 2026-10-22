@@ -140,6 +140,13 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
         if (it->second.seen != stamp + 1) it = joints_.erase(it);
         else ++it;
     }
+    // Solve order: by the owner body's creation sequence (which follows the scene's entity order and restarts at reset()),
+    // never by entity bits, so a scene simulates the same whatever the World held before it.
+    jointOrder_.clear();
+    for (auto& [key, j] : joints_) jointOrder_.push_back(&j);
+    std::sort(jointOrder_.begin(), jointOrder_.end(), [](const JointState* a, const JointState* b) {
+        return a->seqA != b->seqA ? a->seqA < b->seqA : a->e.bits() < b->e.bits();
+    });
 }
 
 // Hinge angle: rotation of A relative to B about the axis, continuous (unwrapped against the previous value).
@@ -157,7 +164,8 @@ static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, cons
 
 bool Physics3D::prepare_joints(float h) {
     bool any = false;
-    for (auto& [key, j] : joints_) {
+    for (JointState* jp : jointOrder_) {
+        JointState& j = *jp;
         if (!j.active) continue;
         auto ia = index_.find(j.e.bits());
         if (ia == index_.end()) { j.active = false; continue; }
@@ -232,7 +240,8 @@ bool Physics3D::prepare_joints(float h) {
 }
 
 void Physics3D::solve_joints(float h) {
-    for (auto& [key, j] : joints_) {
+    for (JointState* jp : jointOrder_) {
+        JointState& j = *jp;
         if (!j.active) continue;
         Body& A = bodies_[j.ia];
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
@@ -301,7 +310,8 @@ void Physics3D::solve_joints(float h) {
 }
 
 void Physics3D::finish_joints(World& world) {
-    for (auto& [key, j] : joints_) {
+    for (JointState* jp : jointOrder_) {
+        JointState& j = *jp;
         if (!j.active || j.type != JointType3D::Hinge) continue;
         auto ia = index_.find(j.e.bits());
         if (ia == index_.end()) continue;

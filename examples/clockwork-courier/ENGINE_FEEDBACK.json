@@ -706,9 +706,11 @@
       "suggestion": "game.load() should rebuild the physics world and reseed world.rng exactly like a first load (or document which state survives).",
       "effort": "medium",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
+      "engineIssue": "m25/fb-0033",
       "notes": [
-        "2026-10-22 (clockwork-courier-p5): the rope bridge and seesaw of rooftops_3 fall or take 7% more frames after other test files; storage, session and module state were reset, so the order dependence seems to live in the physics world. Workaround: heavier plank damping (scripts/rope_bridge.js), narrower seesaw waypoints (tests/helpers/routes.js), a 10 percent tolerance in tests/levels.test.js."
+        "2026-10-22 (clockwork-courier-p5): the rope bridge and seesaw of rooftops_3 fall or take 7% more frames after other test files; storage, session and module state were reset, so the order dependence seems to live in the physics world. Workaround: heavier plank damping (scripts/rope_bridge.js), narrower seesaw waypoints (tests/helpers/routes.js), a 10 percent tolerance in tests/levels.test.js.",
+        "2026-10-22 (engine): root cause was Physics3D solving Joint3D constraints in the order of their owner entity bits (a std::map), i.e. in the history of the World (slot reuse, earlier scenes), and Physics3D::reset() keeping joint state. Joints are now solved in body creation order (the scene order) and reset() drops them. Same scene gives bit-identical poses whatever ran before. The tolerance in tests/levels.test.js is removed; the damping and waypoints stay as gameplay."
       ]
     },
     {
