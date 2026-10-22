@@ -3,6 +3,7 @@
 // are plain screen-space Shape2D / Text entities of the scene; this script only sets their size, colour and text.
 import { Behaviour, world, i18n } from "factoria";
 import { EVENTS } from "./events.js";
+import * as progress from "./progress.js";
 
 export default class Hud extends Behaviour {
   /** Width of the full bar in design pixels (the fill entity shrinks from this). */
@@ -37,6 +38,20 @@ export default class Hud extends Behaviour {
       i18n.on("change", () => this.refreshParcels()),
     ];
     this.refreshParcels();
+    this.showName();
+  }
+
+  /** The courier's name (P3 profile) under the parcel counter; a Text spawned here so the level scenes stay as they are. */
+  showName() {
+    const name = progress.name();
+    if (!name) return;
+    world.spawn({
+      id: "name_text",
+      components: {
+        Transform: { position: [24, 114, 0] },
+        Text: { anchor: [0, 0], safeArea: true, space: "screen", text: name, fontSize: 20, color: [1, 1, 1, 0.75], layer: 100 },
+      },
+    });
   }
 
   onDestroy() {

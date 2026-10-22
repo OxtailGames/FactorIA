@@ -27,6 +27,9 @@ export const EVENTS = Object.freeze({
   levelCompleted: "level_completed",
   /** The level was lost: { level: id, reason: "spring_empty" } (a catch is not a loss: see courierCaught). */
   levelFailed: "level_failed",
+  /** The daily route ended delivered (P3, scripts/daily.js): { date: "YYYY-MM-DD", level: id, time: seconds }. The
+   *  leaderboard entry and achievements of the store services (P4) listen to it; a normal level sends level_completed. */
+  dailyRouteFinished: "daily_route_finished",
   /** A guard dog noticed the courier and starts barking and chasing: { dog: entity id, position: [x, y, z] of the dog }. */
   dogAlerted: "dog_alerted",
   /** A guard dog lost the courier for good and goes back to its route: { dog: entity id }. */

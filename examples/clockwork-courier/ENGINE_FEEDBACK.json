@@ -377,6 +377,109 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "No calendar date API and no way to pin the date in tests",
+      "missing": "A daily route (a different challenge each calendar day) needs the real date. The scripting API has no `time.today` or similar; the only source is the JS `Date`, which reads the wall clock (the docs tell games never to use Date.now) and has no test hook: `factoria:test` cannot set the date, so a test of date-driven behaviour is either flaky or impossible. The docs say nothing about how a game should get the date.",
+      "workaround": "scripts/clock.js is the only place that reads `new Date()`; everything else asks clock.today(), and tests pin the day with clock.setToday() (stored in `session`). Dates are YYYY-MM-DD of the local day.",
+      "workaroundFiles": [
+        "scripts/clock.js"
+      ],
+      "suggestion": "Add `time.calendar()` (or `game.today()`) returning {year, month, day, utcOffsetMinutes, iso} from the real clock, recorded in replays, plus `game.setDate(\"2026-10-22\")` in factoria:test (and a --date flag for headless runs) so date-driven logic is deterministic. Document the rule in the scripting guide next to rng.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No on-screen keyboard or text input for gamepad and touch",
+      "missing": "TextField only takes typed characters from a keyboard. A first-run name screen on a gamepad-only or touch device (consoles, phones without the OS keyboard in headless/desktop) has no way to enter text, and nothing tells a game how to ask the OS for one.",
+      "workaround": "profile.scene.json has a grid of 36 buttons built at runtime (key_A..key_9, space, delete) that edit the TextField text; d-pad focus walks the grid.",
+      "workaroundFiles": [
+        "scripts/profile.js",
+        "scenes/profile.scene.json"
+      ],
+      "suggestion": "A built-in OnScreenKeyboard widget or ui.openKeyboard(field) that uses the platform keyboard on mobile and a focus-navigable grid elsewhere.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A localized Text cannot take parameters and is rewritten every frame",
+      "missing": "Text.key looks up a fixed string and rewrites it every frame, so text with a name, a time or a count (Delivered, Ana! / Time: 41.5 s) cannot use a key. Writing text in a script is overwritten unless key is cleared first.",
+      "workaround": "Scripts clear Text.key and write the string built from i18n.t with replacements (level_flow.setText, results_view.js, level_select.js).",
+      "workaroundFiles": [
+        "scripts/level_flow.js",
+        "scripts/results_view.js"
+      ],
+      "suggestion": "Text.keyArgs (an object of replacements) or a {name} placeholder filled from a bound value, re-localized on language change.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Default UI font has no star glyph",
+      "missing": "Star ratings need a filled and an empty star; the built-in font only has ASCII, so a star symbol renders as a missing glyph.",
+      "workaround": "Stars are drawn as * (earned) and - (missing) in results_view.starText.",
+      "workaroundFiles": [
+        "scripts/results_view.js"
+      ],
+      "suggestion": "Ship a symbols font or a Rating widget (n of max, filled/empty sprites).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0023",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "No way to share a UI panel between scenes",
+      "missing": "The results and retry panels are copied into all eight level scenes; changing one means editing eight files. UI prefabs with child text overrides were not an obvious fit.",
+      "workaround": "The layout stays duplicated; texts are written at runtime from one script (results_view.js).",
+      "workaroundFiles": [
+        "scripts/results_view.js"
+      ],
+      "suggestion": "Document or support UI prefabs with child overrides, or a scene include, in the menus guide.",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
