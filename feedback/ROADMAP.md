@@ -8,15 +8,16 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
 M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24 and M25 are done; M23 has the Mac
 App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 is not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
-M25, the second reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 52 entries: one fixed on the
-way (CC/FB-0033) and 51 open, ranked below (11 major, 33 minor, 7 nice-to-have, no blocker). Their triage is the next
+M25, the second reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055
+came from the CI fix of its rope bridges): one fixed on the way (CC/FB-0033) and 54 open, ranked below (11 major, 36
+minor, 7 nice-to-have, no blocker). Their triage is the next
 milestone, and it also ranks M19 and the rest of M12.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-51 entries from 6 project(s), 51 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+54 entries from 6 project(s), 54 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
 ## 1. glTF animation of rigid (non-skinned) meshes parented to bone nodes is ignored
 
@@ -194,7 +195,18 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Left the two warnings (they are not errors). [P2] P2 sounds: validate still warns for loopcity_0.ogg (peaks at 0.3 dBFS), pluck_001.ogg and toggle_001.ogg (loudness) although assets.json sets normalize: true for them; the warning should read the import settings.
 
-## 17. A chain of hinged planks rings for a long time; a rope bridge needs heavy damping and wide planks
+## 17. 3D physics is not identical across platforms
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0055
+- **Suggestion:** Document that physics is deterministic per build, not across platforms; offer a robustness check (run a test N times with tiny perturbations) so games find chaotic spots before CI does; consider strict floating point (no FMA contraction) in the physics module.
+- **Workarounds seen:**
+  - Made the bridges settle (ends off the slabs) and checked the level route under small position nudges (±0.2 mm to ±1.5 cm of every plank and of the courier) so it passes whatever the rounding.
+
+## 18. A chain of hinged planks rings for a long time; a rope bridge needs heavy damping and wide planks
 
 - **Category:** physics
 - **Severity:** minor (score 2)
@@ -205,7 +217,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - scripts/rope_bridge.js uses linearDamping 3 and angularDamping 8, width 2 m, sag 0.35 and 9 planks; with these it hangs still and holds the courier.
 
-## 18. A fill ScrollList makes its whole panel screen-tall
+## 19. A fill ScrollList makes its whole panel screen-tall
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -216,7 +228,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Each list gets a design size and fill: the panel uses the screen height only when the content is taller (credits, achievements, leaderboards, shop, options).
 
-## 19. A headless test cannot set the system language
+## 20. A headless test cannot set the system language
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -227,7 +239,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The rule is a pure function, settings.pickLanguage(systemLanguages, supported, fallback), tested with lists; the engine's own pick is not exercised.
 
-## 20. A joint-driven body is silently stopped by an overlapping static collider
+## 21. A joint-driven body is silently stopped by an overlapping static collider
 
 - **Category:** physics
 - **Severity:** minor (score 2)
@@ -238,7 +250,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Levels leave 0.2 m of clearance around every hinge gate and the arena's gate sits between two walls with that gap.
 
-## 21. A localized Text cannot take parameters and is rewritten every frame
+## 22. A localized Text cannot take parameters and is rewritten every frame
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -249,7 +261,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Scripts clear Text.key and write the string built from i18n.t with replacements (level_flow.setText, results_view.js, level_select.js).
 
-## 22. Android export needs the exact CMake 3.31.6 in the SDK and a JDK, with no offline way around it
+## 23. Android export needs the exact CMake 3.31.6 in the SDK and a JDK, with no offline way around it
 
 - **Category:** platform
 - **Severity:** minor (score 2)
@@ -260,7 +272,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Scratch scripts outside the repo: a cmake.dir in local.properties pointing at the system CMake (4.4.4), -Pfactoria.cmakeVersion=4.4.4 and JAVA_HOME from a JDK that was already installed (the one bundled with Unity Hub); then Gradle --offline built a 52.8 MB apk in 2m23s.
 
-## 23. Desktop export does not check that the bundled player matches the factoria that exports
+## 24. Desktop export does not check that the bundled player matches the factoria that exports
 
 - **Category:** platform
 - **Severity:** minor (score 2)
@@ -271,7 +283,18 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Rebuilt the engine so factoria and factoria_player match (or pass --player <build dir>/player/factoria_player) and exported again; macOS verified running. SHIPPING.md says how to check.
 
-## 24. Joint3D connected empty string is rejected by the scene validator but documented as 'the world'
+## 25. Joint3D chains never come fully to rest and unrelated chains affect each other
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0054
+- **Suggestion:** Let jointed bodies sleep as a group once all of them are calm, and solve separate joint islands independently so one island cannot disturb another.
+- **Workarounds seen:**
+  - None in the engine: the autoplay route crosses the see-saw with smaller, more careful steps (tests/helpers/routes.js).
+
+## 26. Joint3D connected empty string is rejected by the scene validator but documented as 'the world'
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -282,7 +305,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - scripts/rope_bridge.js only sets `connected` when there is a next plank; the last plank's joint omits the field.
 
-## 25. MeshRenderer tints the whole model: no per-material colour
+## 27. MeshRenderer tints the whole model: no per-material colour
 
 - **Category:** rendering-3d
 - **Severity:** minor (score 2)
@@ -293,7 +316,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - scripts/paints.js stores a dark tint plus an emissive per paint, tuned by looking at screenshots.
 
-## 26. No animal sounds (bark, growl) in the CC0 sound kits the engine suggests
+## 28. No animal sounds (bark, growl) in the CC0 sound kits the engine suggests
 
 - **Category:** assets
 - **Severity:** minor (score 2)
@@ -304,7 +327,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - A pitched heavy impact (impactPunch_heavy_000.ogg) stands in for the bark; the dog also flashes a red view cone and shows an exclamation mark, so the warning does not depend on sound.
 
-## 27. No command to scaffold the menu kit; it can only be extracted from the docs by hand
+## 29. No command to scaffold the menu kit; it can only be extracted from the docs by hand
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -315,7 +338,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Wrote a small script that splits the doc's fenced blocks (```lang path) into files.
 
-## 28. No graphics quality API: no render scale, no GPU info and the frame cap throws on phones
+## 30. No graphics quality API: no render scale, no GPU info and the frame cap throws on phones
 
 - **Category:** performance
 - **Severity:** minor (score 2)
@@ -326,7 +349,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The quality preset (scripts/accessibility.js) only changes what scripts own: Light.castShadows, view distance fog, particle counts and lantern lights. The frame cap option is disabled on phones (scripts/ui/options.js) and a phone starts at medium quality by a screen-size guess (scripts/settings.js).
 
-## 29. No locale-aware number formatting
+## 31. No locale-aware number formatting
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -337,7 +360,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Each locale file states format.decimal and scripts/fmt.js applies it (decimal, clock) before the value goes into i18n.t.
 
-## 30. No per-day or per-season leaderboards: the catalog is static
+## 32. No per-day or per-season leaderboards: the catalog is static
 
 - **Category:** platform
 - **Severity:** minor (score 2)
@@ -348,7 +371,18 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - One 'daily_route' board holds the best time ever; the day is only in the daily_route_finished event.
 
-## 31. No way to share a UI panel between scenes
+## 33. No warning when a dynamic body starts inside a static collider
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0053
+- **Suggestion:** Warn once (entity id, collider it overlaps, depth) when a dynamic body overlaps a static collider on its first physics step, and let project.validate report it for scenes.
+- **Workarounds seen:**
+  - Moved both ends of each bridge 0.2 m off the slabs and wrote the rule in the header of scripts/rope_bridge.js.
+
+## 34. No way to share a UI panel between scenes
 
 - **Category:** scene
 - **Severity:** minor (score 2)
@@ -359,7 +393,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The layout stays duplicated; texts are written at runtime from one script (results_view.js).
 
-## 32. Slider value set from a script sends no ui.change and shows the raw number
+## 35. Slider value set from a script sends no ui.change and shows the raw number
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -370,7 +404,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/comfort.test.js clicks the middle of the track and checks the saved value is inside the range; the options show the multiplier as a plain number.
 
-## 33. Test API cannot hold a mouse button or turn the wheel, so mouse drag orbit and wheel zoom are untestable end to end
+## 36. Test API cannot hold a mouse button or turn the wheel, so mouse drag orbit and wheel zoom are untestable end to end
 
 - **Category:** input
 - **Severity:** minor (score 2)
@@ -381,7 +415,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/camera.test.js calls orbit() and zoom() directly; the drag and wheel reading in follow_camera.js readInput() has no test.
 
-## 34. The fake store cannot simulate a refund or a revoked purchase
+## 37. The fake store cannot simulate a refund or a revoked purchase
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -392,7 +426,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - store.reconcile({authoritative:true}) revokes products the store no longer lists; tests call game.platform.reset() and then reconcile. On the fake backend the start-up reconcile is not authoritative (a dev run would lose its purchases at each start).
 
-## 35. The test API cannot observe a quit request
+## 38. The test API cannot observe a quit request
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -403,7 +437,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/comfort.test.js patches the quit function of the engine object for the duration of the test and restores it.
 
-## 36. Toggle and Slider labels do not wrap or shrink
+## 39. Toggle and Slider labels do not wrap or shrink
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -414,7 +448,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Sliders are fixed size with an empty label and a Text above each one (maxWidth wraps it); the options list width follows ui.textScale (fitWidth in scripts/ui/options.js); the Toggle labels stay short in every locale.
 
-## 37. TouchButton has no localization key
+## 40. TouchButton has no localization key
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -425,7 +459,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - scripts/hud.js writes the label in the current language at start and at every i18n change, and sizes the font to fit the 96 px disc.
 
-## 38. Validator flags a method named start() as a lifecycle-hook lookalike
+## 41. Validator flags a method named start() as a lifecycle-hook lookalike
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -436,7 +470,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Renamed it to fill().
 
-## 39. Web player: typing in a TextInput from the browser pane did not fill it
+## 42. Web player: typing in a TextInput from the browser pane did not fill it
 
 - **Category:** input
 - **Severity:** minor (score 2)
@@ -447,7 +481,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Filled the name with the on-screen keyboard of the game (scripts/profile.js) for the check.
 
-## 40. assets.set_provenance re-sorts the whole assets.json
+## 43. assets.set_provenance re-sorts the whole assets.json
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -458,7 +492,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The font entry was inserted by hand in assets.json, in the same shape.
 
-## 41. glTF with two skins sharing the same joints: second skin is drawn wrong, no way to fix without editing the file
+## 44. glTF with two skins sharing the same joints: second skin is drawn wrong, no way to fix without editing the file
 
 - **Category:** animation
 - **Severity:** minor (score 2)
@@ -469,7 +503,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Dropped the two hand meshes from the glb in the same script (the arms end in balls anyway).
 
-## 42. perf.measure and the test API give no triangles or lights, and renderStats is zero headless
+## 45. perf.measure and the test API give no triangles or lights, and renderStats is zero headless
 
 - **Category:** performance
 - **Severity:** minor (score 2)
@@ -480,7 +514,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/budget.test.js counts entities, MeshRenderer, Light and ParticleEmitter of every level in the running scene (static numbers); perf.json holds the draw-call budget of the heaviest level.
 
-## 43. platform.add_backend ignores dryRun and rewrites the whole factoria.json
+## 46. platform.add_backend ignores dryRun and rewrites the whole factoria.json
 
 - **Category:** platform
 - **Severity:** minor (score 2)
@@ -491,7 +525,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Kept the real result (it is what makes the export write Products.storekit) and committed it; the reformatting is in the same commit as the plugin.
 
-## 44. purchases.finish() throws synchronously for an unknown transaction instead of rejecting
+## 47. purchases.finish() throws synchronously for an unknown transaction instead of rejecting
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -502,7 +536,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - store.grant wraps the call in try/await/catch.
 
-## 45. A Button or Text with `key` loses its dynamic text, and keys with {placeholders} warn in validate
+## 48. A Button or Text with `key` loses its dynamic text, and keys with {placeholders} warn in validate
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -513,7 +547,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The dynamic buttons of the shop have no `key`; scripts/ui/shop.js sets the text with i18n.t(key, args) at every refresh.
 
-## 46. Default UI font has no star glyph
+## 49. Default UI font has no star glyph
 
 - **Category:** ui
 - **Severity:** nice-to-have (score 1)
@@ -524,7 +558,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Stars are drawn as * (earned) and - (missing) in results_view.starText.
 
-## 47. Entity animator facade does not expose the parameter values
+## 50. Entity animator facade does not expose the parameter values
 
 - **Category:** scripting
 - **Severity:** nice-to-have (score 1)
@@ -535,7 +569,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/animator.test.js uses game.find(id).get("Animator").values.
 
-## 48. No control over the sibling order of a spawned UI child
+## 51. No control over the sibling order of a spawned UI child
 
 - **Category:** ui
 - **Severity:** nice-to-have (score 1)
@@ -546,7 +580,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - scripts/more_time.js spawns the new button and then calls setParent again on the two stock buttons so they come after it.
 
-## 49. No overflow or pseudo-localisation check
+## 52. No overflow or pseudo-localisation check
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -557,7 +591,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - A tour script drove factoria session through every screen per language and scale and listed widgets whose ui.state rect left the screen; tests/i18n.test.js repeats the key screens.
 
-## 50. No video playback, and --record-video writes a very large AVI
+## 53. No video playback, and --record-video writes a very large AVI
 
 - **Category:** assets
 - **Severity:** nice-to-have (score 1)
@@ -568,7 +602,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The intro is an animated scene (scenes/intro.scene.json, scripts/intro.js). The trailer is a scripted director scene recorded with --record-video; SHIPPING.md has the ffmpeg command to make the mp4.
 
-## 51. scene.load called from a test only takes effect in the next frame
+## 54. scene.load called from a test only takes effect in the next frame
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)

@@ -1567,8 +1567,8 @@
         "Script": {
           "path": "scripts/rope_bridge.js",
           "props": {
-            "from": [0, 0, -25],
-            "to": [0, 0, -35.0],
+            "from": [0, 0, -25.2],
+            "to": [0, 0, -34.8],
             "planks": 9,
             "width": 2.0,
             "sag": 0.35,

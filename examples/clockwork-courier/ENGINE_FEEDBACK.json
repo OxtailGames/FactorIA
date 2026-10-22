@@ -1116,6 +1116,70 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0053",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-ci-fix",
+        "model": "claude-opus-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "No warning when a dynamic body starts inside a static collider",
+      "missing": "The rope bridges of rooftops_3 and market_3 started with their end planks 0.15 m inside the roof slabs. The engine pushed them out with no log line, the hinge chain buckled upwards and never settled, and the levels played differently on Linux CI than on this Mac. It took a day of tracing plank positions to find.",
+      "workaround": "Moved both ends of each bridge 0.2 m off the slabs and wrote the rule in the header of scripts/rope_bridge.js.",
+      "workaroundFiles": [
+        "scripts/rope_bridge.js",
+        "scenes/rooftops_3.scene.json",
+        "scenes/market_3.scene.json"
+      ],
+      "suggestion": "Warn once (entity id, collider it overlaps, depth) when a dynamic body overlaps a static collider on its first physics step, and let project.validate report it for scenes.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0054",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-ci-fix",
+        "model": "claude-opus-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "Joint3D chains never come fully to rest and unrelated chains affect each other",
+      "missing": "A chain of 9 hinged planks with linearDamping 8 and angularDamping 30 keeps trembling about 4 cm and never falls asleep. The state of the rope bridge also changes how the see-saw (another joint group far away, not touching it) moves, so a fix in one part of a level shifts the timing of another.",
+      "workaround": "None in the engine: the autoplay route crosses the see-saw with smaller, more careful steps (tests/helpers/routes.js).",
+      "workaroundFiles": [
+        "tests/helpers/routes.js"
+      ],
+      "suggestion": "Let jointed bodies sleep as a group once all of them are calm, and solve separate joint islands independently so one island cannot disturb another.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0055",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-ci-fix",
+        "model": "claude-opus-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "3D physics is not identical across platforms",
+      "missing": "The same level, input and seed gave different results on Linux (GCC, x86-64) and macOS (Clang, arm64): the courier fell off a rope bridge on Linux CI and not on the Mac. A chaotic setup turns floating-point differences into a different game, so a test that passes on one platform fails on another, and replays recorded on one platform drift on another.",
+      "workaround": "Made the bridges settle (ends off the slabs) and checked the level route under small position nudges (±0.2 mm to ±1.5 cm of every plank and of the courier) so it passes whatever the rounding.",
+      "workaroundFiles": [
+        "scenes/rooftops_3.scene.json",
+        "scenes/market_3.scene.json",
+        "tests/helpers/routes.js"
+      ],
+      "suggestion": "Document that physics is deterministic per build, not across platforms; offer a robustness check (run a test N times with tiny perturbations) so games find chaotic spots before CI does; consider strict floating point (no FMA contraction) in the physics module.",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
