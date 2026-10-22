@@ -1076,6 +1076,52 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 | `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
 | `max` | integer | no | Return at most this many (the newest). Default 200. |
 
+## project
+
+### `checkpoint.create` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back.
+
+Copies the project's files into .factoria/checkpoints (content-addressed: a file that did not change since an earlier checkpoint is not copied again, so the second checkpoint of a project is cheap). Includes scripts, scenes, tests and assets; skips folders starting with '.', node_modules and a top-level build/. Keeps the newest 30 checkpoints. The editor makes one before every AI run (the Revert button of the AI Assistant), so call this yourself only before a risky change the user did not ask the editor to track. Returns {id, label, created (epoch seconds), files, bytes (size of the files), bytesStored (newly copied), filesHashed}. Example: {"label":"before the refactor"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `label` | string | no | A short name shown by checkpoint.list and the editor, e.g. "before the refactor". |
+
+### `checkpoint.diff`
+
+Not released yet (on main after 0.1.6).
+
+Show which files changed since a checkpoint (modified, added, deleted).
+
+Compares the files now with checkpoint `id`. Returns {modified, added, deleted} (project-relative paths) and counts. Changes nothing. Example: {"id":"20261022-153012-7"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | A checkpoint id from checkpoint.list. |
+
+### `checkpoint.list`
+
+Not released yet (on main after 0.1.6).
+
+List the project's checkpoints, newest first.
+
+Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limit}. Only the newest `limit` checkpoints are kept.
+
+### `checkpoint.restore` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it.
+
+Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). First it saves an automatic checkpoint "Before restoring <label>" and returns its id as safetyCheckpointId: restoring that one takes this restore back. Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). Returns {modified, added, deleted (what was done), safetyCheckpointId}. Example: {"id":"20261022-153012-7"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | A checkpoint id from checkpoint.list. |
+
 ## docs
 
 ### `docs.commands`
@@ -1722,7 +1768,7 @@ Tests run inside this engine instance and change the world; reload the scene aft
 
 Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
 
-Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Warns once per scene or prefab file that is not in the canonical layout (fix: scene.format), and reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Example: {} Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()).
+Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in `notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, `notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Example: {} Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()).
 
 ## publish
 
@@ -1851,7 +1897,7 @@ Destruction is applied immediately when called outside a frame. Example: scene.d
 
 Rewrite scene and prefab files in the canonical compact layout, without loading them.
 
-Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values and key order are kept, and every file is read back and compared with the original data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or folders (searched recursively), project-relative; default: the whole project, skipping folders that start with '.', node_modules and a top-level build/. With `check` true nothing is written: the files that are not canonical are listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint says to run scene.format without `check`) when any file is not canonical: `factoria call` exits non-zero, so a CI step can gate on it. project.validate also warns once per non-canonical scene or prefab. Example: scene.format {"paths":["prefabs"],"check":true}
+Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values and key order are kept, and every file is read back and compared with the original data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or folders (searched recursively), project-relative; default: the whole project, skipping folders that start with '.', node_modules and a top-level build/. With `check` true nothing is written: the files that are not canonical are listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint says to run scene.format without `check`) when any file is not canonical: `factoria call` exits non-zero, so a CI step can gate on it. project.validate lists the non-canonical ones in one informational note (not a warning). Example: scene.format {"paths":["prefabs"],"check":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

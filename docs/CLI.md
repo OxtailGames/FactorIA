@@ -52,7 +52,9 @@ Checks `factoria.json`, every scene/prefab, asset references, `ENGINE_FEEDBACK.j
 `scene.format`). Each is loaded, prefabs on their own too, and what the loader refuses is an error with its JSON pointer:
 an unknown field, or a number outside a field's range (`Shape2D.sides` 200 when the range is 3..64: the value is
 refused, never clamped, and the message gives the range and the nearest allowed value). A file that is not in the
-canonical layout is a warning (fix: `factoria call scene.format`).
+canonical layout (a hand-written scene) is valid: it gives ONE note listing the files (`note:` lines, `notes` in `--json`; not an
+error, not a warning), and `factoria call scene.format` is the optional fix that keeps later diffs small. `scene.format` with `check` and
+`strict` is the CI gate if you want the layout enforced.
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
