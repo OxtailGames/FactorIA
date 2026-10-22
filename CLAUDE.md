@@ -15,6 +15,8 @@ ctest --test-dir build/dev --output-on-failure
 ```
 
 - Build a single module's tests: `cmake --build build/dev --target fa_test_core`.
+- Editor autotest while iterating: `FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M <build>/tools/editor/fa_editor_autotest`
+  runs only those sections (docs/EDITOR.md, "Run only some sections"); the full `ctest` is still required before a push.
 - Windows, from any shell (loads MSVC itself; prints only errors, unique warnings and failing tests, full logs in the
   build dir): `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name>
   [-Target fa_test_core] [-Tests core | -Test]`.

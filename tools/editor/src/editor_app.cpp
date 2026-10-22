@@ -8,6 +8,7 @@
 #include <thread>
 #include <filesystem>
 
+#include "autotest_sections.h"
 #include "editor_internal.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
@@ -211,6 +212,15 @@ int Editor::run() {
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
+    if (autotest_ && !atWelcome_)  // FA_EDITOR_AUTOTEST_SECTIONS=K,M: only those sections (checked before a window opens)
+        if (const char* sections = std::getenv("FA_EDITOR_AUTOTEST_SECTIONS"); sections && *sections) {
+            auto picked = parse_autotest_sections(sections);
+            if (!picked) {
+                std::fprintf(stderr, "error: %s\nhint: %s\n", picked.error().message.c_str(), picked.error().hint.c_str());
+                return 2;
+            }
+            atSections_ = std::move(*picked);
+        }
     AppDesc d;
     windowTitle_ = editor_window_title(FA_ENGINE_VERSION, "");
     d.title = windowTitle_;

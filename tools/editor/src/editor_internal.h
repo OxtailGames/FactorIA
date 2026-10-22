@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <condition_variable>
 #include <deque>
@@ -626,6 +627,24 @@ public:
     int atFrameBudget_ = 4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
+    // FA_EDITOR_AUTOTEST_SECTIONS (autotest_sections.h, read by run()): the sections to run, empty for all of them.
+    std::set<std::string> atSections_;
+    bool at_section_selected(const std::string& id) const { return atSections_.empty() || atSections_.count(id) > 0; }
+    // What each section cost (autotest_result.json, and a table on stdout at the end): every frame drawn while it ran, the
+    // frames the script held for a condition included, its seconds and its failed checks.
+    struct AtSectionCost {
+        std::string id;
+        std::uint64_t frames = 0;
+        double seconds = 0;
+        std::size_t failures = 0;
+    };
+    std::vector<AtSectionCost> atCosts_;
+    std::uint64_t atFramesDrawn_ = 0;  // every autotest frame (atFrame_ does not count the held ones)
+    std::uint64_t atSectionFrame0_ = 0;
+    std::chrono::steady_clock::time_point atSectionStart_{};
+    std::size_t atSectionFailures0_ = 0;
+    void at_section_begin(const std::string& id);  // ends the running section's cost record (if any) and starts id's
+    Json at_section_report();                      // ends the last record, prints the table, returns the records as JSON
 };
 
 // Helpers shared across panel files.
