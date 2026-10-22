@@ -8,6 +8,7 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
 M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M23 has the Mac
 App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 is not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
+M25, a second reference game (3D, mobile first), is in progress: it is how M19 and the rest of M12 get ranked.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
@@ -595,8 +596,55 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: no milestone is in progress. The MSIX package waits for an install on a Windows PC (M23's acceptance criterion); M19
-and M23's consoles wait for a game that needs them. No ranked entry is open.
+Next: M25 below, a second reference game, to find what M19 and M12's next packages should be. The MSIX package waits for
+an install on a Windows PC (M23's acceptance criterion); M23's consoles wait for a game that needs them. No ranked entry
+is open.
+
+## M25. A second reference game: 3D and mobile (L, high) — in progress (the `m25/reference-game` PR)
+
+Planned 2026-10-22 against `3eeac02`. Lantern Keep (M21) is a 2D desktop platformer, so the feedback loop has never seen
+production 3D (M18), touch as the main input, a game running on phones and in a browser, the asset import pipeline (M15)
+with real packs, `Captions` and `game.accessibility` (M22) in a game, or a CJK language; and M19 and the rest of M12 wait
+for "a game that needs them". **Clockwork Courier** (`examples/clockwork-courier`, ids `CC/FB-n`) is that game: a wind-up
+robot delivers parcels across a toy town before its spring runs down, while guard dogs patrol and chase it. Six short 3D
+levels in two districts: the Rooftops by day (sun, shadows, sky) and the Night Market (lanterns as point lights, fog,
+glowing signs). Touch first (a stick, jump and action buttons, drag to orbit, pinch to zoom), keyboard and gamepad too.
+
+Built like Lantern Keep: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public
+commands, no engine change. The game asks on purpose for what the engine may not have (navigation for the dogs and a
+tap-to-move mode, a loading screen with progress, a rewarded ad, an intro video, ducking the music on pause, touch
+gestures, a daily route): each gap gets its workaround and an `ENGINE_FEEDBACK.json` entry, and those entries rank M19
+and M12's next packages.
+
+Assets are CC0 only, imported with `assets.import` and recorded in `assets.json`: Quaternius' robot (RobotExpressive, from
+the three.js examples), Kenney's Fantasy Town Kit, Platformer Kit, Cube Pets, Impact Sounds, Interface Sounds and Music
+Jingles, and three loops from OpenGameArt (Fupi's Loop Town, MintoDog's Urban Shop and Cozy Puzzle Title).
+
+Packages, in this order: P1, P2, then P3-P5 at once, then P6 and P7.
+- **P1 courier, camera and touch**: `CharacterController3D`, an `Animator` state machine (idle, walk, run, jump, fall,
+  land, celebrate) with footstep events, a follow camera that does not go through walls, touch orbit and pinch, the
+  on-screen controls, one test level, and the contracts the other packages build on (level list, progress, game events).
+- **P2 world**: six levels from the kits (glTF pieces, mesh colliders, instanced props), parcels, delivery doors, wind-up
+  keys, checkpoints, guard dogs (patrol, sight, chase), crates, hinge gates, a seesaw, a rope bridge, day and night
+  lighting, music per district, 3D particles, and a bot that finishes every level.
+- **P3 progress and saves**: stars per level, the level select, a named profile (on-screen keyboard), cloud saves, a daily
+  route.
+- **P4 store services**: achievements, leaderboards and a paint shop on the fake store, a rewarded "more time" offer and a
+  "remove ads" purchase; StoreKit testing in the iOS simulator if the Apple backend allows it.
+- **P5 mobile comfort and accessibility**: graphics quality and a frame-rate cap, haptics, pause when the app is suspended,
+  Android Back everywhere, a left-handed layout, control size and opacity, camera sensitivity, reduced motion (also from
+  `game.accessibility`), assist mode, captions for sound cues, markers readable without colour.
+- **P6 shipping**: icon, capsules, a trailer replay, store texts, exports run on the iOS simulator, the Android emulator,
+  a browser and macOS, a render budget test on the busiest level, `SHIPPING.md`.
+- **P7 languages**: Spanish and Japanese (a CJK font, line breaks without spaces), every screen at 100 % and 200 % text.
+
+Acceptance criteria:
+- The test bot finishes all six levels in ctest (`example_clockwork-courier_*`); touch-only, gamepad-only and
+  keyboard-only tests drive the menus and a level.
+- The exported game starts and takes input on the iOS simulator, the Android emulator, a browser and macOS.
+- The busiest level stays under its draw-call budget in a headless run (render stats).
+- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
+  next milestone.
 
 ## Out of scope: Roblox
 
