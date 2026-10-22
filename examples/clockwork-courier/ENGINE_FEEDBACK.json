@@ -1039,15 +1039,15 @@
         "model": "claude-sonnet-5-5"
       },
       "category": "platform",
-      "severity": "major",
-      "title": "macOS export: the app does not find its game, or runs an older engine than the project",
-      "missing": "factoria export --platform macos --release: the .app starts and stops with \"no factoria.json in '/'\" (it looks for the project in the working directory, not next to the executable, when opened from Finder or `open`). Without --release the app runs, but the bundled factoria_player is the one next to factoria (dated six days before the factoria binary here) and does not know Text.key, Text.safeArea or the Button component, so scripts/intro.js throws \"not a function\". Could not tell the engine apart from a stale local build, so this may be only my machine; the export prints no player version.",
-      "workaround": "None: macOS could not be verified running. iOS (simulator), Android (device) and web were verified with input; macOS is exported but untested.",
+      "severity": "minor",
+      "title": "Desktop export does not check that the bundled player matches the factoria that exports",
+      "missing": "factoria export --platform macos bundles the factoria_player next to the factoria binary and says nothing about its version. Here that player was once a build six days older than factoria: the --release app stopped with \"no factoria.json in '/'\" and the normal app did not know Text.key, Text.safeArea or Button (scripts/intro.js threw \"not a function\"). With a player built from the same checkout both apps run from '/' (game.pak found in Contents/Resources, Apple backend ready, exit 0), so the engine's lookup works; what is missing is the check.",
+      "workaround": "Rebuilt the engine so factoria and factoria_player match (or pass --player <build dir>/player/factoria_player) and exported again; macOS verified running. SHIPPING.md says how to check.",
       "workaroundFiles": [
         "SHIPPING.md"
       ],
-      "suggestion": "Make the .app locate game.pak inside Contents/Resources (or next to the executable) whatever the working directory, and have the export refuse (or warn) when the player's version differs from the factoria that exports; print the player version and path in the export report.",
-      "effort": "medium",
+      "suggestion": "Print the player path and version in the export report, and warn (or refuse without --allow-player-mismatch) when the player's version or build id differs from the factoria that exports. The Windows export already reads the player's version information; do the same on macOS and Linux (factoria_player --version).",
+      "effort": "small",
       "occurrences": 1,
       "status": "open"
     },
