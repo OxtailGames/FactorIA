@@ -28,7 +28,7 @@ describe("title screen", () => {
     expect(game.find("play")).not.toBeNull();
     game.click("play");
     game.step(10);
-    expect(scene.current).toBe(YARD);
+    expect(scene.current).toBe("scenes/rooftops_1.scene.json"); // P2: Play starts the first level of the list
   });
 
   test("has Play, Options and Credits, and Quit on desktop", () => {

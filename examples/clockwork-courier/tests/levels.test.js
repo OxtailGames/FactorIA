@@ -51,6 +51,7 @@ for (const level of LEVELS) {
       expect(JSON.stringify(r)).toContain('"reached":true');
       const names = log.map((e) => e.name);
       expect(names).not.toContain("level_failed");
+      expect(names).not.toContain("courier_caught"); // the bot slips past the dogs (sneaking where a route says walk)
       const delivered = log.filter((e) => e.name === "parcel_delivered").pop().data;
       expect(delivered.delivered).toBe(level.parcels);
       expect(delivered.optional).toBe(level.optionalParcels);

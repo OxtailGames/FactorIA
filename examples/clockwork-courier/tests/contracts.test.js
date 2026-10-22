@@ -28,12 +28,14 @@ describe("levels.js", () => {
   });
 
   test("helpers", () => {
-    expect(levels.first().id).toBe("test_yard");
+    expect(levels.first().id).toBe("rooftops_1");
     expect(levels.byId("test_yard").scene).toBe("scenes/test_yard.scene.json");
     expect(levels.byId("nope")).toBeNull();
     expect(levels.byScene("scenes/test_yard.scene.json").id).toBe("test_yard");
     expect(levels.next("test_yard")).toBeNull();
-    expect(levels.inDistrict("test").length).toBe(1);
+    expect(levels.next("rooftops_1").id).toBe("rooftops_2");
+    expect(levels.next("market_3")).toBeNull();
+    expect(levels.inDistrict("test").length).toBe(0); // the test levels are not in the player list
     expect(levels.inDistrict("nowhere")).toEqual([]);
   });
 
@@ -57,7 +59,7 @@ describe("progress.js", () => {
 
   test("record keeps the first result and returns true", () => {
     expect(progress.record("test_yard", { time: 31.234, springLeft: 28.7, stars: 2 })).toBe(true);
-    expect(progress.resultFor("test_yard")).toEqual({ time: 31.23, springLeft: 28.7, stars: 2 });
+    expect(progress.resultFor("test_yard")).toEqual({ time: 31.23, springLeft: 28.7, stars: 2, goals: null });
   });
 
   test("a worse result does not replace a better one", () => {
@@ -73,7 +75,7 @@ describe("progress.js", () => {
   });
 
   test("the first level is always unlocked, an unknown one never", () => {
-    expect(progress.isUnlocked("test_yard")).toBe(true);
+    expect(progress.isUnlocked("rooftops_1")).toBe(true);
     expect(progress.isUnlocked("nope")).toBe(false);
   });
 
@@ -96,6 +98,8 @@ describe("events.js", () => {
       [
         "checkpoint_reached",
         "courier_caught",
+        "dog_alerted",
+        "dog_gave_up",
         "game_paused",
         "game_resumed",
         "level_completed",
@@ -118,16 +122,16 @@ describe("events.js", () => {
     expect(log[0]).toEqual({ level: "test_yard", parcels: 1, spring: 60 });
   });
 
-  test("the courier is caught: courier_caught then level_failed with reason caught", () => {
+  test("the courier is caught: courier_caught only (P2: it respawns at the checkpoint, the level goes on)", () => {
     game.load("scenes/test_yard.scene.json");
     game.step(3);
     const log = [];
     for (const n of ["courier_caught", "level_failed"]) game.world.on(n, (d) => log.push([n, d]));
     game.find("courier").behaviour.caught("test_guard");
-    game.step(3);
-    expect(log.map((e) => e[0])).toEqual(["courier_caught", "level_failed"]);
+    game.step(200);
+    expect(log.map((e) => e[0])).toEqual(["courier_caught"]);
     expect(log[0][1].by).toBe("test_guard");
-    expect(log[1][1].reason).toBe("caught");
+    expect(game.find("courier").behaviour.isCaught).toBe(false);
   });
 
   test("checkpoint_reached moves the respawn point", () => {

@@ -76,10 +76,13 @@ describe("states", () => {
     expect(courier().position.z).toBeCloseTo(z0, 1);
   });
 
-  test("being caught plays Death and stays down", () => {
+  test("being caught plays Death while the courier lies down, then it gets up (P2: a catch is not the end)", () => {
     courier().behaviour.caught("test");
     game.step(80);
     expect(state()).toBe("caught");
+    game.step(120);
+    expect(courier().behaviour.isCaught).toBe(false);
+    expect(state()).not.toBe("caught");
   });
 
   test("a wound down spring sits the courier down", () => {

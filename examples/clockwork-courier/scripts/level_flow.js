@@ -46,7 +46,9 @@ export default class LevelFlow extends Behaviour {
     ui.on("click", "retry_retry", () => scene.load(scene.current));
     ui.on("click", "results_next", () => {
       const nxt = levels.next(this.levelId);
-      if (nxt) scene.load(nxt.scene);
+      if (!nxt) return;
+      session.nextScene = nxt.scene; // through the loading screen, like Play
+      scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "results_title", () => scene.load("scenes/main.scene.json"));
     ui.on("click", "retry_title", () => scene.load("scenes/main.scene.json"));
