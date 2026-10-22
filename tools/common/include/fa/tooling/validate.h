@@ -3,7 +3,7 @@
 // Checks: factoria.json vs schemas/project.schema.json (+ mainScene exists, input
 // bindings valid), ENGINE_FEEDBACK.json present and valid, every scene/prefab in
 // the project loads (messages from fa::load_scene_file are forwarded), asset
-// paths referenced by reflected Asset fields exist, scenes and prefabs are in the canonical layout (warning), the
+// paths referenced by reflected Asset fields exist, scenes and prefabs that are formatted by hand (ONE informational note, not a warning: they are valid), the
 // `icon` / `export` settings of factoria.json (fa/tooling/export_settings.h) and the icon files they name, the files an
 // export ships (texture size, a file over 20 MB, the total against the store limits) and the textures Sprites draw (fully
 // transparent images, a background that should be transparent; docs/ASSETS.md, "Checks"), the "localization" section,
@@ -38,6 +38,8 @@ struct ValidationReport {
     bool ok = true;  // no errors (warnings allowed)
     std::vector<ValidationIssue> errors;
     std::vector<ValidationIssue> warnings;
+    // Informational: valid, nothing to fix (a hand-formatted scene, say). Not errors, not warnings, counted by nothing.
+    std::vector<ValidationIssue> notes;
     int scenesChecked = 0;
     int scriptsChecked = 0;
     int materialsChecked = 0;  // *.material.json files (custom materials; their snippets are compiled when sokol-shdc is found)

@@ -95,6 +95,9 @@ struct Toast {
     std::string text;
     int level = 0;  // 0 info, 1 warn, 2 error
     double expires = 0;
+    std::string actionLabel;        // optional button in the toast (empty: none)
+    std::function<void()> action;   // what the button does
+    std::string actionId;           // autotest widget name of the button
 };
 
 struct TextureEntry {
@@ -189,6 +192,9 @@ public:
 
     // ---------------------------------------------------------------- UI helpers
     void notify(const std::string& text, int level = 0);
+    // A toast with a button: it stays longer and does not vanish while the mouse is over it.
+    void notify_action(const std::string& text, const std::string& label, std::function<void()> action, const std::string& id);
+    void open_screenshots_folder();
     void set_window_title(const std::string& title);  // the OS window's title (editor_window_title); windowTitle_ keeps it
     void focus_window(const char* name) { pendingFocus_ = name; }
     void run_console_line(const std::string& line);
@@ -520,6 +526,7 @@ public:
 
     // toasts
     std::vector<Toast> toasts_;
+    bool toastHover_ = false;
 
     // feedback panel
     Json feedbackDoc_;

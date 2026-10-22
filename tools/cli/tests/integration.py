@@ -344,8 +344,10 @@ def test_template(tmp, template):
     check(code == 1 and "prefabs/probe_messy.prefab.json" in err and "scene.format without 'check'" in err,
           "call scene.format check+strict exits non-zero and lists the non-canonical files")
     code, rep, err = jrun(["validate", proj, "--json"])
-    check(rep is not None and any(w.get("file") == "prefabs/probe_messy.prefab.json" and "canonical" in w.get("message", "")
-                                  for w in rep.get("warnings", [])), "validate warns about a prefab that is not canonical")
+    check(rep is not None and any("prefabs/probe_messy.prefab.json" in n.get("message", "") and "formatted by hand" in n.get("message", "")
+                                  for n in rep.get("notes", []))
+          and not any("canonical" in w.get("message", "") for w in rep.get("warnings", [])),
+          "validate notes (not warns) a prefab that is not canonical")
     code, res, err = jrun(["call", "scene.format", "{}", "--project", proj])
     check(code == 0 and res is not None and "prefabs/probe_messy.prefab.json" in res["formatted"], "call scene.format rewrites the messy prefab")
     check('"size": [10, 10]' in open(messy).read() and open(broken).read().endswith('"x",}\n}\n'), "the layout is canonical and the broken file is untouched")

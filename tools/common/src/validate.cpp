@@ -224,11 +224,24 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
 
 // A scene or prefab file whose text differs from the layout the engine writes (scene.format's, shared through
 // canonical_scene_layout). A file that cannot be read or parsed is reported elsewhere. The VFS root is the project.
-void warn_if_not_canonical(Ctx& c, const std::string& rel) {
+void collect_if_not_canonical(std::vector<std::string>& handFormatted, const std::string& rel) {
     auto layout = canonical_scene_layout(rel);
-    if (layout.ok() && !layout->same)
-        c.warn(rel, "", "The file is not in the canonical layout (only whitespace differs from what the engine writes).",
-               "Run `factoria call scene.format` (command scene.format) to rewrite it; it changes whitespace only, and keeps diffs small.");
+    if (layout.ok() && !layout->same) handFormatted.push_back(rel);
+}
+
+// ONE note for all of them: they are valid, only the whitespace differs.
+void note_hand_formatted(ValidationReport& report, const std::vector<std::string>& files) {
+    if (files.empty()) return;
+    constexpr std::size_t kListed = 10;
+    std::string list;
+    for (std::size_t i = 0; i < files.size() && i < kListed; ++i) list += (i ? ", " : "") + files[i];
+    if (files.size() > kListed) list += ", and " + std::to_string(files.size() - kListed) + " more";
+    ValidationIssue n;
+    n.file = files.front();
+    n.message = std::to_string(files.size()) + " scene/prefab file" + (files.size() == 1 ? " is" : "s are") + " formatted by hand: " + list +
+                " (" + (files.size() == 1 ? "it is" : "they are") + " valid; only whitespace differs from what scene.save writes).";
+    n.hint = "Optional: `factoria call scene.format` rewrites " + std::string(files.size() == 1 ? "it" : "them") + " so later diffs stay small.";
+    report.notes.push_back(std::move(n));
 }
 
 // A prefab file loaded on its own into a scratch world, so that what the scene loader rejects (an unknown component or
@@ -480,16 +493,18 @@ std::string ValidationIssue::to_string() const {
 }
 
 Json ValidationReport::to_json() const {
-    Json e = Json::array(), w = Json::array();
+    Json e = Json::array(), w = Json::array(), n = Json::array();
+    for (const auto& i : notes) n.push_back(i.to_json());
     for (const auto& i : errors) e.push_back(i.to_json());
     for (const auto& i : warnings) w.push_back(i.to_json());
-    return Json::object({{"ok", ok}, {"errors", e}, {"warnings", w}, {"scenesChecked", scenesChecked}, {"scriptsChecked", scriptsChecked}, {"materialsChecked", materialsChecked}});
+    return Json::object({{"ok", ok}, {"errors", e}, {"warnings", w}, {"notes", n}, {"scenesChecked", scenesChecked}, {"scriptsChecked", scriptsChecked}, {"materialsChecked", materialsChecked}});
 }
 
 std::string ValidationReport::to_text() const {
     std::ostringstream o;
     for (const auto& i : errors) o << "error: " << i.to_string() << "\n";
     for (const auto& i : warnings) o << "warning: " << i.to_string() << "\n";
+    for (const auto& i : notes) o << "note: " << i.to_string() << "\n";
     o << (ok ? "OK" : "FAILED") << ": " << errors.size() << " error(s), " << warnings.size() << " warning(s), "
       << scenesChecked << " scene(s), " << scriptsChecked << " script(s)"
       << (materialsChecked ? ", " + std::to_string(materialsChecked) + " material(s)" : std::string()) << " checked.\n";
@@ -520,7 +535,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         RootGuard guard(c.dir);
         // Every scene and prefab of the project, wherever it lives (scenes/, prefabs/, levels/...): the same files
         // scene.format formats (hidden folders, node_modules and a top-level build/ are skipped).
-        std::vector<std::string> sceneFiles, prefabFiles;
+        std::vector<std::string> sceneFiles, prefabFiles, handFormatted;
         for (const std::string& rel : project_scene_files())
             (ends_with(to_lower(rel), ".scene.json") ? sceneFiles : prefabFiles).push_back(rel);
         for (const auto& rel : sceneFiles) {
@@ -533,7 +548,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 if (stdfs::path(issue.file).is_absolute()) issue.file = stdfs::relative(issue.file, c.dir, ec).generic_string();
                 (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
             }
-            warn_if_not_canonical(c, rel);
+            collect_if_not_canonical(handFormatted, rel);
             check_fit_panels(c, rel, world);
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             if (!text) continue;
@@ -551,11 +566,12 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             auto parsed = text ? parse_json(*text, rel) : Result<Json>(make_error("cannot read " + rel));
             if (!parsed.ok()) { c.error(rel, "", parsed.error().message, "Fix the JSON syntax."); continue; }
-            warn_if_not_canonical(c, rel);
+            collect_if_not_canonical(handFormatted, rel);
             check_prefab_loads(c, rel);
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
+        note_hand_formatted(c.report, handFormatted);
         assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
         if (sceneFiles.empty())
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
@@ -636,7 +652,9 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
                        "disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown "
                        "field or a value outside a field's range (\"Field 'sides': value 200 is outside the allowed range 3..64\"; "
                        "the offending field keeps its default, nothing is clamped). "
-                       "Warns once per scene or prefab file that is not in the canonical layout (fix: scene.format), and reports "
+                       "Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in "
+                       "`notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, "
+                       "`notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports "
                        "a .json that a script imports and that is not valid JSON once, as that file with line and column. "
                        "Example: {}";
     registry.add(info, [projectDir](const Json&) { return validate_project(projectDir).to_json(); });

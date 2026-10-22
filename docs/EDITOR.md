@@ -37,7 +37,7 @@ dragging files from the Project panel ([Project panel](#project-panel)). Use Und
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
 | Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
 | Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
@@ -386,7 +386,7 @@ The AI's commands run on the editor's main thread, but never for long at a time:
 ### Run only some sections
 
 The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
-play, AI marshaling, viewport click and keys), T (toolbar Screenshot), A (Audio panel), A2 (Profiler panel), B (commands that
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel) and O (the CLI
