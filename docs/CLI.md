@@ -88,7 +88,7 @@ Opens the visual editor (only in builds with the editor). It is AI-first: the vi
 are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
 `scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
-### `factoria setup [android|players|cmake|xcode|appimage|shaders] [--accept-licenses] [--platforms LIST] [--force] [--json]`
+### `factoria setup [android|players|cmake|xcode|appimage|shaders|vscode] [--accept-licenses] [--platforms LIST] [--force] [--json]`
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
@@ -101,7 +101,11 @@ in a terminal, and without one refuses until `--accept-licenses` says you have r
 when missing and lists what you do next (it never runs `sudo`). `appimage` (Linux x86_64, also WSL) installs appimagetool and the
 AppImage runtime, about 16 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`. `shaders` installs sokol-shdc, the shader compiler of custom
 materials (8-12 MB, the build for this computer, pinned by commit and SHA-256); the downloads of factoria already carry
-one, so it is for source builds. `--force` installs again even when something is found.
+one, so it is for source builds. `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
+VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
+downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
+removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `--force` installs again
+even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):
 [EXPORTING.md](EXPORTING.md#setting-up-this-computer).
@@ -112,6 +116,7 @@ factoria setup android --accept-licenses
 factoria setup players --platforms windows,linux
 factoria setup appimage
 factoria setup shaders
+factoria setup vscode
 ```
 
 ## Running
@@ -161,6 +166,14 @@ and the same commands as `factoria call` (including `fs.*`) are available to scr
 top-level `logs` for output outside tests).
 
 ## Commands (the tool surface of MCP and the AI agent)
+
+### `factoria dap`
+The script debugger as a Debug Adapter Protocol server on stdin/stdout. VS Code starts it for you (the extension that
+`factoria setup vscode` installs runs `factoria dap`); you do not run it by hand. The session's launch arguments (`mode`:
+`play`, `headless` or `test`, `project`, `scene`, `frames`, `input`, `tests`, `filter`, `stopOnEntry`) come from the
+client's `launch` request. stdout carries only protocol; logs go to stderr and to the debug console. Any DAP client can
+use it. Guide, launch attributes and limits: [DEBUGGING.md](DEBUGGING.md). For AIs the same facility is the command
+`script.trace`.
 
 ### `factoria call <command> ['<json args>'] [options]` / `factoria call --batch '<json array>'`
 Runs registered commands on a headless engine and prints the JSON result. Arguments: inline JSON, `@file.json`, or

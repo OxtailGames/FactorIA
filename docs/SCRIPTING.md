@@ -716,6 +716,12 @@ Tools hot-reload when the file changes; MCP clients are notified.
 (MCP and `factoria call` print it next to the message; it is not appended to the message). Any other thrown Error is a script bug: code `failed`, the message with `file:line`, and it is
 also recorded as a script error. `ToolError` is not recorded as a script error.
 
+## Debugging
+
+F5 in VS Code runs the game (or the tests) with breakpoints, stepping, the Variables view and a debug console; the
+command `script.trace` gives an AI the same facts as one JSON answer. Install the VS Code extension with
+`factoria setup vscode`. Guide: [DEBUGGING.md](DEBUGGING.md).
+
 ## Tests (`tests/*.test.js`)
 
 ```js

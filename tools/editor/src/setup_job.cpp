@@ -95,6 +95,17 @@ SetupAction xcode_action(const SetupComponent& c, bool short_label) {
     return a;
 }
 
+SetupAction vscode_action(const SetupComponent& c, bool reinstall) {
+    SetupAction a;
+    a.component = "vscode";
+    a.key = "vscode";
+    a.force = reinstall;
+    a.label = reinstall ? "Reinstall" : "Install";
+    a.tooltip = "Copies the FactorIA extension (the script debugger: breakpoints and stepping on F5) into VS Code's extensions folder "
+                "and into VS Code Insiders, VSCodium and Cursor when they are installed. Nothing is downloaded. Restart VS Code afterwards.";
+    return a;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -123,6 +134,7 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     if (component == "android") return "Android build tools";
     if (component == "cmake") return "CMake";
     if (component == "xcode") return "Xcode";
+    if (component == "vscode") return "the VS Code debugger";
     if (component != "players") return component;
     std::vector<std::string> desktops;
     bool mobile = false, web = false;
@@ -189,6 +201,7 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
         if (installed) return std::nullopt;
         return xcode_action(c, true);
     }
+    if (c.id == "vscode") return vscode_action(c, installed);
     return std::nullopt;
 }
 

@@ -19,7 +19,7 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode"};
     return ids;
 }
 
@@ -157,7 +157,9 @@ Command make_setup_command() {
         "  appimage Linux x86_64 (and WSL): appimagetool and the AppImage runtime, so 'factoria export --platform linux --format appimage'\n"
         "           also builds the game as one AppImage file.\n"
         "  shaders  sokol-shdc, the shader compiler of custom materials (*.material.json): the pinned build for this computer, checked\n"
-        "           against a SHA-256. Not needed when $SOKOL_SHDC or a sokol-shdc next to factoria is found (downloads carry one).";
+        "           against a SHA-256. Not needed when $SOKOL_SHDC or a sokol-shdc next to factoria is found (downloads carry one).\n"
+        "  vscode   the script debugger for VS Code (and Insiders, VSCodium, Cursor): copies the extension built into factoria to\n"
+        "           ~/.vscode/extensions, so F5 in a project debugs its scripts (docs/DEBUGGING.md). Nothing is downloaded.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses", "factoria setup players",
@@ -203,6 +205,8 @@ Command make_setup_command() {
                          {{"force", "", "Download them again even when installed."}}, {"factoria setup appimage"}));
     g.subs.push_back(sub("shaders", "Install the pinned sokol-shdc that custom materials are compiled with (not needed when a download of factoria carries it).",
                          {{"force", "", "Download it again even when one is found."}}, {"factoria setup shaders"}));
+    g.subs.push_back(sub("vscode", "Install the FactorIA debugger extension into VS Code (and Insiders, VSCodium, Cursor).",
+                         {{"force", "", "Copy it again even when this version is installed."}}, {"factoria setup vscode"}));
     return g;
 }
 

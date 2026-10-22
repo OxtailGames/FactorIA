@@ -53,6 +53,7 @@ tools/             developer tools (desktop only)
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles; asset providers (images, sounds, 3D models) and the assets.generate_* commands
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
+  vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
 templates/         project templates used by `factoria new`
 schemas/           JSON Schemas (project, feedback, AI config); scene schema is generated
 docs/              documentation in English (embedded into the binary); translations in docs/i18n/<lang>/
