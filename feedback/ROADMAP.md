@@ -506,7 +506,9 @@ Left open:
   particle and material editors.
 - The script debugger (docs/design/SCRIPT_DEBUGGER.md, "Left open"): attaching to the editor's running game (needs the
   game off the editor's UI thread, or a pause that keeps the editor drawing); restart frame, step back, data and column
-  breakpoints; publishing the VS Code extension to the Marketplace and Open VSX.
+  breakpoints; publishing the VS Code extension to the Marketplace and Open VSX. Not yet tried by hand: F5 in VS Code
+  itself and the `play` mode (`cli_dap` covers headless and test mode over stdio); on Windows the protocol's private fd
+  and the case-insensitive path mapping are covered only by CI.
 
 ## M21. Docs and material for shipping (M, high) — DONE (PRs #115-#124, the `m21/reference-game` and `m21/ai-cost-guide` PRs)
 
