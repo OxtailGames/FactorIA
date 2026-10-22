@@ -40,7 +40,7 @@ require a real privacy policy URL, even for a game that collects nothing (`store
 | Web | `factoria export --platform web --out OUT` | 1 s. `OUT/clockwork-courier-web/` 16 MB and `clockwork-courier-web.zip` 10 MB, the file for itch.io (HTML5 game). Opened in a browser pane over localhost: the intro, title, level select, a level and moving the courier all work. |
 | iOS | `factoria export --platform ios --out OUT`, then `cd OUT/clockwork-courier-ios && ./build_ios.sh --simulator --build` | Export is quick; the simulator build took 1m05s, the .app is 59 MB. Ran on the iOS Simulator: intro, title, a level, taps and swipes move the courier. |
 | Android | `factoria export --platform android --out OUT` (apk; `--format aab` for Google Play; `--release` needs `export.android.signing` or `--allow-debug-key` for a private test) | apk 52.8 MB in 2m23s (source mode, Gradle `--offline`). Ran on an emulator: intro, title, a level, taps; Android Back at the title asks "Quit?" and Back again closes the question (`tests/comfort.test.js`, "title: Back asks before quitting"). |
-| macOS | `factoria export --platform macos [--release] --out OUT` | Exports (`Clockwork Courier.app`), but NOT verified running here: see problems. |
+| macOS | `factoria export --platform macos [--release] --out OUT` (build the Apple plugin first: "App Store" below) | `Clockwork Courier.app` 20 MB, a few seconds. Both the normal and the `--release` app, started from `/` with `--frames 400`: the Apple backend starts, the intro and the first level load, exit 0, no warnings. |
 | Windows, Linux | not run on this machine | `factoria export --platform windows` / `linux`; `windows --format msix` makes the Microsoft Store package. |
 
 Problems found while exporting (each is in `ENGINE_FEEDBACK.json`; the ids are in the entries, not here):
@@ -52,10 +52,11 @@ Problems found while exporting (each is in `ENGINE_FEEDBACK.json`; the ids are i
 - The first launch on a fresh emulator may show "System UI isn't responding": tap Wait. Launch with
   `adb shell am start -n com.factoria.examples.clockworkcourier/android.app.NativeActivity` (the activity is the engine's
   `android.app.NativeActivity`, not a `MainActivity`).
-- macOS: the `--release` app stops with "no factoria.json in '/'"; the normal app runs a player older than the project
-  (it does not know `Text.key`, `Text.safeArea` or `Button`). The `factoria_player` that is bundled is the one next to the
-  `factoria` binary, which on this machine was an older build than the binary. Rebuild the engine so both match
-  (`cmake --build build/macos-release`) and export again; check with `open -n "Clockwork Courier.app" --stderr err.log`.
+- macOS: the export bundles the `factoria_player` next to the `factoria` binary and does not say which version it is.
+  Once that player was an older build than `factoria`: the `--release` app stopped with "no factoria.json in '/'" and the
+  normal app did not know `Text.key`, `Text.safeArea` or `Button`. Rebuild the engine so both match (`cmake --build
+  <build dir>`, or pass `--player <build dir>/player/factoria_player`) and export again; check with
+  `"Clockwork Courier.app/Contents/MacOS/clockwork-courier" --frames 200` or `open -n "Clockwork Courier.app" --stderr err.log`.
 - `platform.add_backend` has no real dry run and reformats `factoria.json`; the commit that added the plugin shows it.
 
 ## App Store (iOS and Mac App Store)
