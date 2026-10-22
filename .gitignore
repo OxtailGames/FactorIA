@@ -10,6 +10,7 @@ compile_commands.json
 
 # IDEs / OS
 .vscode/
+!/templates/common/.vscode/
 .idea/
 *.swp
 .DS_Store

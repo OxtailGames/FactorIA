@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "factoria",
+      "request": "launch",
+      "name": "Play",
+      "mode": "play",
+      "project": "${workspaceFolder}"
+    },
+    {
+      "type": "factoria",
+      "request": "launch",
+      "name": "Headless (600 frames)",
+      "mode": "headless",
+      "project": "${workspaceFolder}",
+      "frames": 600
+    },
+    {
+      "type": "factoria",
+      "request": "launch",
+      "name": "Tests",
+      "mode": "test",
+      "project": "${workspaceFolder}"
+    }
+  ]
+}

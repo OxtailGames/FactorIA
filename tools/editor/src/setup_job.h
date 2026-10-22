@@ -40,7 +40,7 @@ std::optional<int> parse_progress_percent(const std::string& line);
 // What a button runs
 
 struct SetupAction {
-    std::string component;               // "android" | "players" | "cmake" | "xcode"
+    std::string component;               // "android" | "players" | "cmake" | "xcode" | "vscode"
     std::vector<std::string> platforms;  // players: "windows" | "linux" | "macos" | "mobile" (empty = the default)
     bool force = false;                  // reinstall what is found
     std::string label;                   // the button: "Install Android build tools", "Download Windows player"...

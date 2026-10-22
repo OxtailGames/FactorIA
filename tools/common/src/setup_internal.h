@@ -8,6 +8,7 @@
 //   setup_xcode.cpp    Xcode: status and guidance
 //   setup_appimage.cpp appimagetool + the AppImage runtime (Linux x86_64)
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
+//   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
 #pragma once
 
 #include <chrono>
@@ -150,6 +151,9 @@ SetupComponent shaders_status(const SetupContext& ctx);
 SetupResult shaders_install(const SetupContext& ctx, const SetupInstallOptions& options);
 // The install of one given binary entry (tests pass one whose hash matches their fake download; null = unsupported).
 SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& options, const SokolShdcBinary* bin);
+
+SetupComponent vscode_status(const SetupContext& ctx);
+SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 // What the three installers and the status share about Java and the SDK folders.
 bool jdk_usable(const std::string& dir);        // bin/java + bin/javac + Java 17 or newer
