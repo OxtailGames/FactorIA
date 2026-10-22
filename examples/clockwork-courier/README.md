@@ -129,7 +129,10 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/dog.js`, `nav.js`, `tap_move.js` | Guard dogs, the grid path finder, tap-to-move. |
 | `scripts/gate.js`, `lever.js`, `seesaw.js`, `rope_bridge.js`, `mover.js`, `crate.js` | Physics props (joints, kinematic platforms, dynamic bodies). |
 | `scripts/wind_key.js`, `checkpoint.js`, `stars.js`, `loading.js`, `music.js`, `fx.js` | Keys, checkpoints, star rules, loading screen, music director, particles. |
-| `scripts/main_menu.js`, `scripts/ui/` | Title screen and the menu kit (menu stack, options, interface sounds). |
+| `scripts/main_menu.js`, `scripts/ui/` | Title screen (Play and Continue go to the level select or the name screen) and the menu kit (menu stack, options, interface sounds). |
+| `scripts/save_data.js`, `progress.js`, `cloud_sync.js` | Save format v2 (parse, migrate, merge), the progress API over it, cloud upload / download with conflict merge. |
+| `scripts/level_select.js`, `profile.js`, `results_view.js` | Level select, name screen with the on-screen keyboard, the text of the results panel. |
+| `scripts/daily.js`, `clock.js` | The daily route (seeded by the date) and the calendar date (pinnable in tests). |
 | `scripts/hud.js`, `parcel.js`, `delivery_door.js` | Spring bar, parcel counter, pickup and delivery. |
 | `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
@@ -144,10 +147,42 @@ result and retry panels of the yard. The title's Play button goes to `levels.fir
 
 ### Contract: progress (`scripts/progress.js`)
 
-Saved in `storage` under the key `progress` as `{ version: 1, results: { [levelId]: { time, springLeft, stars } } }`.
-`load()`, `resultFor(id)`, `record(id, result)` (keeps the better result: more stars, then less time; returns whether
-it replaced the old one), `isUnlocked(id)` (first level always, then the previous one needs a result), `reset()`.
-A damaged save loads as empty.
+One slot, saved in `storage` under the key `progress` as
+`{ version: 2, counter, name, results: { [levelId]: { time, springLeft, stars, goals } }, daily: route | null, dailyTimes: { [date]: { level, time } } }`
+(`counter` grows with every save and decides which copy is newer; the last 30 daily dates are kept).
+A v1 save (`{ version: 1, results }`) is migrated on load. An unreadable or newer-version save is copied to
+`progressBackup` first and the game starts empty; `storage.corrupt` files are handled the same way.
+API: `load()`, `resultFor(id)`, `record(id, result)` (keeps the better result: more stars, then less time; returns
+whether it replaced the old one), `totalStars()`, `isUnlocked(id)` (the previous level needs a result and the level's
+district must be open), `isDistrictUnlocked(d)` (district stars, see `levels.DISTRICTS`: the market needs 6),
+`nextUnfinished()` (what Continue starts), `name()`, `hasName()`, `setName(text)` (max 12 characters),
+`dailyRoute()`, `setDailyRoute(r)`, `dailyTime(date)`, `recordDaily(date, level, time)`, `reset()`.
+
+### Contract: cloud saves (`scripts/cloud_sync.js`)
+
+`sync()` (async, called by the level select) downloads through `platform.cloud.load`, merges with the local copy
+and uploads if the local one is newer; `push(data)` uploads after a save. Merge (`save_data.merge`): best result per
+level, best time per daily date, the name of the copy with the higher counter, counter + 1. It returns a status
+(`synced`, `uploaded`, `downloaded`, `merged`, `offline`, `unreadable`) shown on the level select. No cloud backend or an
+offline one never blocks play. Tested on the fake store (`game.platform`).
+
+### Contract: daily route (`scripts/daily.js`, `scripts/clock.js`)
+
+`clock.today()` is the calendar date `YYYY-MM-DD` (the engine has no calendar API, ENGINE_FEEDBACK FB-0019); tests pin it
+with `clock.setToday(date)`. `daily.routeFor(date, levelIds)` is deterministic: the level and a permutation of the
+parcel spots (never the normal layout) come from `rng.create(fnv1a(date))`. `daily.current()` saves the route of
+today on first use, `start(route)` / `active()` / `clear()` hold it in `session.daily`, `place(route)` moves the parcels
+in the level scene, `finish(time)` records the day's best time and sends `daily_route_finished`. A daily run gives no
+stars. The pool is the open levels; a new player only has `rooftops_1`, which has two parcel spots, so its route
+alternates between the two layouts only.
+
+### Contract: screens (P3)
+
+Level select (`scenes/level_select.scene.json`): cards `card_<levelId>`, `select_daily`, `select_name`, `select_back`;
+locked cards stay focusable and show why in `select_hint`. Name screen (`scenes/profile.scene.json`): `profile_field`,
+a button grid `key_<A-Z0-9>`, `key_space`, `key_back`, `profile_ok`, `profile_back`. Set `session.profileReturn` to the
+scene to return to. Locale keys: `select.*`, `profile.*`, `daily.*`, `menu.continue`, `results.*`. Stars are written
+with `*` and `-` (the font has no star glyph). The HUD shows the name (`name_text`).
 
 ### Contract: events (`scripts/events.js`)
 
@@ -165,7 +200,8 @@ A damaged save loads as empty.
 | `dog_alerted` | `{ dog, position }` |
 | `dog_gave_up` | `{ dog }` |
 | `checkpoint_reached` | `{ checkpoint, position }` (moves the respawn point) |
-| `level_completed` | `{ level, time, springLeft, stars, goals: { fast, springy, thorough }, best }` |
+| `level_completed` | `{ level, time, springLeft, stars, goals: { fast, springy, thorough }, best, daily }` (`daily` true for a daily run) |
+| `daily_route_finished` | `{ date, level, time }` |
 | `level_failed` | `{ level, reason }` (`spring_empty`; a catch and a fall respawn at the last checkpoint) |
 | `game_paused`, `game_resumed` | none |
 
