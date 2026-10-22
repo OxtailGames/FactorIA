@@ -36,9 +36,11 @@ list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
 # compiled against it (docs/design/CUSTOM_SHADERS.md), also by an installed factoria without the engine source.
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
+# The VS Code extension of the script debugger (tools/vscode/): `factoria setup vscode` copies it into VS Code's extensions folder.
+file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/vscode/*)
 # Which version added each component, field and command (fa/tooling/api_export.h).
 set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
-    ${FA_EMBED_SHADER_TEMPLATES}
+    ${FA_EMBED_SHADER_TEMPLATES} ${FA_EMBED_VSCODE}
     ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h)
 if(FA_EMBED_ALL)
     fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
