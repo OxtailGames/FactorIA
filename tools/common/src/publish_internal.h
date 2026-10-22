@@ -46,6 +46,8 @@ struct Context {
     stdfs::path artifact;       // absolute .ipa / .aab
     bool artifactGiven = false; // the `artifact` option named it (so FactorIA did not build it and cannot tell how it was signed)
     std::string bundleId, iosBuild;  // "id" of factoria.json: bundle id / Android package; iOS CFBundleVersion
+    std::string macosBuild;          // macOS CFBundleVersion (export.macos.buildNumber)
+    std::string appstoreTarget;      // publish.appstore: "ios" (.ipa) | "macos" (.pkg of the Mac App Store)
     int androidVersionCode = 0;
     bool androidKeystore = false;    // export.android.signing.keystore is set in factoria.json
     std::string tool;           // absolute path of the uploader

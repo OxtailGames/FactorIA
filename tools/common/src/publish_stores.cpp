@@ -337,6 +337,9 @@ std::string env_first(const Context& c, const char* a, const char* b) {
 
 Result<std::vector<Job>> plan_appstore(Context& c) {
     AppStorePublishSettings s = c.settings.appstore;
+    const bool mac = c.appstoreTarget == "macos";  // the Mac App Store .pkg of sign.macos, else the iOS .ipa
+    const std::string kind = mac ? "macOS" : "iOS";
+    const std::string build = mac ? c.macosBuild : c.iosBuild;
     if (s.appleId.empty()) {
         if (auto e = dry_missing(c, err("appstore: factoria.json#/publish/appstore/appleId is not set",
                    pointer_hint("the Apple ID of your app", "\"publish\": {\"appstore\": {\"appleId\": \"6448277777\"}}") +
@@ -352,8 +355,8 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
     }
     static const std::regex versionRe("^[0-9]+(\\.[0-9]+){0,2}$");
     if (!std::regex_match(c.version, versionRe))
-        return err("appstore: the version '" + c.version + "' of factoria.json cannot be an iOS version (CFBundleShortVersionString)",
-                   "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in factoria.json and export the game for iOS again.");
+        return err("appstore: the version '" + c.version + "' of factoria.json cannot be " + std::string(mac ? "a macOS" : "an iOS") + " version (CFBundleShortVersionString)",
+                   "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in factoria.json and export the game for " + kind + " again.");
 
     std::string keyPath = env_first(c, kAppStoreKeyVar, "FACTORIA_NOTARY_API_KEY");
     std::string keyId = env_first(c, kAppStoreKeyIdVar, "FACTORIA_NOTARY_API_KEY_ID");
@@ -381,18 +384,22 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
 
     Job job;
     job.title = "xcrun altool --upload-package (app " + s.appleId + ")";
-    job.argv = {"", "altool", "--upload-package", generic(c.artifact), "--type", "ios", "--apple-id", s.appleId, "--bundle-id", c.bundleId,
-                "--bundle-version", c.iosBuild, "--bundle-short-version-string", c.version, "--apiKey", keyId, "--apiIssuer", issuer};
+    job.argv = {"", "altool", "--upload-package", generic(c.artifact), "--type", mac ? "macos" : "ios", "--apple-id", s.appleId, "--bundle-id", c.bundleId,
+                "--bundle-version", build, "--bundle-short-version-string", c.version, "--apiKey", keyId, "--apiIssuer", issuer};
     job.shown = job.argv;
     job.env["API_PRIVATE_KEYS_DIR"] = generic(key.parent_path());  // where altool looks for AuthKey_<KeyID>.p8
-    job.uploads.push_back({"ios", "App Store Connect app " + s.appleId + " (" + c.bundleId + "), version " + c.version + " build " + c.iosBuild});
+    job.uploads.push_back({mac ? "macos" : "ios", "App Store Connect app " + s.appleId + " (" + c.bundleId + "), version " + c.version + " build " + build});
     job.failureHint = "altool reports the reason in its output: 'Unable to authenticate' means a wrong Key ID/Issuer ID or a key without the App Manager role; a bundle id or version that does not match "
-                      "the .ipa means the .ipa was built from other settings (export again and archive again); 'build number already used' means raise export.ios.buildNumber, export, archive and upload again.";
-    c.warnings.push_back("altool checks --bundle-id, --bundle-version and --bundle-short-version-string against the .ipa: they are read from factoria.json (id " + c.bundleId + ", version " + c.version +
-                         ", export.ios.buildNumber " + c.iosBuild + "), so the .ipa must come from an iOS export made with the same factoria.json.");
+                      "the package means it was built from other settings (export again and " + std::string(mac ? "sign again" : "archive again") + "); 'build number already used' means raise export." +
+                      (mac ? "macos" : "ios") + ".buildNumber, export, " + (mac ? "sign" : "archive") + " and upload again.";
+    c.warnings.push_back("altool checks --bundle-id, --bundle-version and --bundle-short-version-string against the " + std::string(mac ? ".pkg" : ".ipa") + ": they are read from factoria.json (id " + c.bundleId +
+                         ", version " + c.version + ", export." + (mac ? "macos" : "ios") + ".buildNumber " + build + "), so the " + (mac ? ".pkg must come from a macOS export signed with sign.macos distribution appStore" : ".ipa must come from an iOS export") +
+                         " made with the same factoria.json.");
+    if (mac && c.artifactGiven)
+        c.warnings.push_back("The .pkg was given by `artifact`: FactorIA cannot tell how it was signed. App Store Connect refuses a package that is not signed with a \"3rd Party Mac Developer Installer\" / \"Mac Installer Distribution\" certificate (`pkgutil --check-signature <pkg>` shows it).");
     c.nextSteps.push_back("App Store Connect now processes the build (a few minutes to an hour; it e-mails you if it is rejected). When it shows under App Store Connect > your app > TestFlight, add it to a "
                           "tester group; to submit it for review pick it on the version page of the App Store tab.");
-    c.nextSteps.push_back("App Store Connect takes each build number once per version: raise export.ios.buildNumber in factoria.json before the next export and archive.");
+    c.nextSteps.push_back("App Store Connect takes each build number once per version: raise export." + std::string(mac ? "macos" : "ios") + ".buildNumber in factoria.json before the next export and " + (mac ? "sign." : "archive."));
     return std::vector<Job>{std::move(job)};
 }
 

@@ -45,7 +45,7 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
 namespace {
 
 // Info.plist of the .app. The keys the settings decide (export.macos in factoria.json): LSApplicationCategoryType,
-// LSMinimumSystemVersion, NSHumanReadableCopyright; the icon is Contents/Resources/AppIcon.icns, named by CFBundleIconFile.
+// LSMinimumSystemVersion, NSHumanReadableCopyright, CFBundleVersion (buildNumber), ITSAppUsesNonExemptEncryption; the icon is Contents/Resources/AppIcon.icns, named by CFBundleIconFile.
 std::string macos_plist(const Project& p, const std::string& exeName, bool hasIcon) {
     const MacosExportSettings& m = p.settings.macos;
     std::string plist =
@@ -58,7 +58,8 @@ std::string macos_plist(const Project& p, const std::string& exeName, bool hasIc
         "\t<key>CFBundleDisplayName</key><string>" + xml_escape(p.name) + "</string>\n"
         "\t<key>CFBundlePackageType</key><string>APPL</string>\n"
         "\t<key>CFBundleShortVersionString</key><string>" + xml_escape(p.version) + "</string>\n"
-        "\t<key>CFBundleVersion</key><string>" + xml_escape(p.version) + "</string>\n";
+        "\t<key>CFBundleVersion</key><string>" + xml_escape(p.settings.macos_build_number().empty() ? p.version : p.settings.macos_build_number()) + "</string>\n"
+        "\t<key>ITSAppUsesNonExemptEncryption</key>" + (m.usesNonExemptEncryption ? "<true/>" : "<false/>") + "\n";
     if (hasIcon) plist += "\t<key>CFBundleIconFile</key><string>AppIcon</string>\n";
     plist += "\t<key>LSMinimumSystemVersion</key><string>" + xml_escape(m.minimumSystemVersion) + "</string>\n"
              "\t<key>NSHighResolutionCapable</key><true/>\n"
@@ -318,7 +319,10 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
             "To distribute outside your machine, sign it with your Developer ID and have Apple notarize it, on a Mac: factoria call sign.macos "
             "'{\"identity\":\"Developer ID Application: <you> (TEAMID)\",\"keychainProfile\":\"<notarytool profile>\"}' signs the app and its plugin "
             "libraries, notarizes it, staples the ticket and writes " + slug + "-macos.zip to share; add \"dryRun\":true to see the commands first "
-            "(docs/EXPORTING.md, \"Signing and notarizing for macOS\")"};
+            "(docs/EXPORTING.md, \"Signing and notarizing for macOS\")",
+            "For the Mac App Store: sign.macos with \"distribution\":\"appStore\" sandboxes the app, signs it for the store and writes " + slug +
+            "-macos.pkg, which publish.appstore uploads (export.macos.buildNumber / usesNonExemptEncryption / entitlements are the store's settings; "
+            "docs/EXPORTING.md, \"Mac App Store\")"};
         if (!entitlementsFile.empty()) {
             std::vector<std::string> names;
             for (auto it = entitlements.begin(); it != entitlements.end(); ++it) names.push_back(it.key());

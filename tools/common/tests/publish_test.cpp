@@ -917,6 +917,55 @@ TEST_CASE("publish.appstore: a real run starts altool with the key folder in its
     for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(leaks_keys(text));
 }
 
+TEST_CASE("publish.appstore uploads the Mac App Store .pkg with --type macos and the macOS build number") {
+    MobileFixture f;
+    f.edit([](Json& j) { j["export"]["macos"]["buildNumber"] = "7"; });
+    const std::string pkg = stdfs::weakly_canonical(f.dir + "/build/export/space-dodge-macos.pkg").generic_string();
+    testing::write_all(pkg, "xar! flat package");
+    {  // both an .ipa and a .pkg: it must be told which
+        const Error e = f.fails(f.store("appstore"));
+        CHECK(has(e.message, "both an .ipa and a Mac App Store .pkg"));
+        CHECK(has(e.hint, "platforms"));
+    }
+    PublishOptions o = f.store("appstore");
+    o.platforms = {"mac"};
+    PublishReport r = f.ok(o);
+    REQUIRE(r.steps.size() == 1);
+    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "altool", "--upload-package", pkg, "--type", "macos", "--apple-id", "6448277777", "--bundle-id",
+                                                         "com.mystudio.spacedodge", "--bundle-version", "7", "--bundle-short-version-string", "1.2.3", "--apiKey", "ABCDE12345",
+                                                         "--apiIssuer", "11111111-2222-3333-4444-555555555555"});
+    CHECK(r.uploads[0].platform == "macos");
+    CHECK(has(r.uploads[0].destination, "build 7"));
+    CHECK(has(r.to_json()["warnings"].dump(), "sign.macos distribution appStore"));
+    CHECK_FALSE(leaks_keys(r.to_json().dump()));
+
+    o = f.store("appstore");  // by the extension of `artifact`
+    o.artifact = pkg;
+    r = f.ok(o);
+    CHECK(r.steps[0].command[3] == pkg);
+    CHECK(r.steps[0].command[5] == "macos");
+    CHECK(has(r.to_json()["warnings"].dump(), "FactorIA cannot tell how it was signed"));
+
+    o = f.store("appstore");  // the .ipa still by `platforms`
+    o.platforms = {"ios"};
+    CHECK(f.ok(o).steps[0].command[5] == "ios");
+
+    stdfs::remove(f.ipa);  // only the .pkg: no need to say
+    CHECK(f.ok(f.store("appstore")).steps[0].command[5] == "macos");
+
+    testing::write_all(pkg, "PK\x03\x04 not a pkg");
+    const Error bad = f.fails(f.store("appstore"));
+    CHECK(has(bad.message, "is not a valid .pkg"));
+    stdfs::remove(pkg);
+    o = f.store("appstore");
+    o.platforms = {"macos"};
+    const Error none = f.fails(o);
+    CHECK(has(none.message, "there is no .pkg to upload"));
+    CHECK(has(none.hint, "sign.macos"));
+    o.platforms = {"ios", "macos"};
+    CHECK(has(f.fails(o).message, "one upload is one file"));
+}
+
 TEST_CASE("publish.appstore: a failing altool is a report with the reason to check") {
     MobileFixture f;
     ScopedEnv exitCode("FA_FAKE_TOOL_EXIT", "1");
@@ -984,8 +1033,12 @@ TEST_CASE("publish.appstore: missing settings, key, .ipa or Mac are teaching err
         testing::write_all(f.dir + "/fake.ipa", "not a zip");
         o.artifact = f.dir + "/fake.ipa";
         CHECK(has(f.fails(o).message, "not a zip file"));
+        o.artifact.clear();
         o.platforms = {"windows"};
-        CHECK(has(f.fails(o).message, "`platforms` and `folders` do not apply"));
+        CHECK(has(f.fails(o).message, "`platforms` must be [\"ios\"] or [\"macos\"]"));
+        PublishOptions play = f.store("googleplay");
+        play.platforms = {"windows"};
+        CHECK(has(f.fails(play).message, "`platforms` and `folders` do not apply"));
     }
     {
         MobileFixture f;  // xcrun and altool exist only on macOS: a real run elsewhere is refused, a dry run still shows the plan

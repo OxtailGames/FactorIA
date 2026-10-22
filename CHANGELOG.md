@@ -2,6 +2,16 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Mac App Store
+
+- `sign.macos` takes `distribution: "appStore"`: it signs the macOS export with the App Sandbox, an Apple Distribution
+  certificate and a provisioning profile, and builds the signed installer `<game-slug>-macos.pkg` with `productbuild`.
+  `identity: "-"` signs ad hoc so you can run the sandboxed game on your own Mac.
+- `publish.appstore` uploads that `.pkg` too (`platforms: ["macos"]`).
+- New `export.macos` settings: `buildNumber`, `usesNonExemptEncryption` and `entitlements`.
+
 ## 0.2.0
 
 FactorIA 0.2.0 is about finishing and shipping a game: edit scenes by hand next to your AI, translate the game, add

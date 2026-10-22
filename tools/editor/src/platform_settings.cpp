@@ -174,6 +174,7 @@ Json settings_json(const ProjectExportSettings& s) {
         o["category"] = s.macos.category;
         o["minimumSystemVersion"] = s.macos.minimumSystemVersion;
         put(o, "copyright", s.macos.copyright);
+        put(o, "buildNumber", s.macos.buildNumber);
         exp["macos"] = o;
     }
     {
@@ -601,6 +602,7 @@ ProjectExportSettings PlatformSettings::effective_project() const {
     s.macos.minimumSystemVersion = trim(s.macos.minimumSystemVersion);
     if (s.macos.minimumSystemVersion.empty()) s.macos.minimumSystemVersion = def.macos.minimumSystemVersion;
     s.macos.copyright = trim(s.macos.copyright);
+    s.macos.buildNumber = trim(s.macos.buildNumber);
 
     std::vector<std::string> cats;
     for (const std::string& c : s.linux.categories)
