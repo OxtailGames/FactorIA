@@ -1,6 +1,6 @@
 // P3: the daily route (scripts/daily.js): the same route for the same date, another for the next day, only on levels the
 // player has open, the parcels really move, the finish records its own best time and sends daily_route_finished, and
-// it never touches the stars of the level. Dates are pinned with scripts/clock.js (the engine has no calendar API).
+// it never touches the stars of the level. Dates are chosen with game.setDate (the engine's game.today() reads them).
 import { test, describe, expect, game, beforeEach } from "factoria:test";
 import { scene, session, storage } from "factoria";
 import * as progress from "../scripts/progress.js";
@@ -19,13 +19,13 @@ describe("daily route", () => {
     storage.remove("progress");
     session.daily = null;
     session.nextScene = null;
-    clock.setToday("2026-10-22");
+    game.setDate("2026-10-22");
   });
 
-  test("the clock gives a calendar date, and can be pinned for tests", () => {
-    clock.setToday(null);
-    expect(clock.today()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    clock.setToday("2026-10-22");
+  test("the clock gives the engine's calendar date, and tests choose it with game.setDate", () => {
+    game.setDate("2026-03-14");
+    expect(clock.today()).toBe("2026-03-14");
+    game.setDate("2026-10-22");
     expect(clock.today()).toBe("2026-10-22");
     expect(clock.addDays("2026-10-31", 1)).toBe("2026-11-01");
     expect(clock.addDays("2026-12-31", 1)).toBe("2027-01-01");
@@ -77,7 +77,7 @@ describe("daily route", () => {
   test("a new day picks a new route and saves it", () => {
     for (const id of ["rooftops_1", "rooftops_2", "rooftops_3"]) win(id, 3); // a player with four open levels: a wide pool
     const today = daily.current();
-    clock.setToday("2026-10-23");
+    game.setDate("2026-10-23");
     const tomorrow = daily.current();
     expect(tomorrow.date).toBe("2026-10-23");
     expect(JSON.stringify([today.level, today.order])).not.toBe(JSON.stringify([tomorrow.level, tomorrow.order]));

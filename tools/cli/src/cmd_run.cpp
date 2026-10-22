@@ -69,6 +69,7 @@ Command make_run_command() {
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
                {"record-video", "FILE", "Headless: write every frame (drawn at --render-scale, at the project's fixedHz fps) and the audio to a video. .avi (Motion-JPEG + PCM) needs nothing; .mp4 (H.264 + AAC) needs ffmpeg (FACTORIA_FFMPEG, publish.ffmpeg in ~/.factoria/export.json, or PATH). Relative to the current directory."},
                {"seed", "N", "World RNG seed (default 1)."},
+               kDateFlag,
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
                {"render-all", "", "Headless: draw every frame (default: only screenshot frames and the last frame)."},
                {"persist-storage", "", "Headless: scripts' storage.* uses the real save file (default: in memory)."},
@@ -81,7 +82,7 @@ Command make_run_command() {
         const Args& a = ctx.args;
         std::string dir = resolve_project_dir(ctx, 0);
         fs::set_project_root(dir);
-        EngineConfig cfg = project_engine_config(dir, a.str("scene"), a.uinteger("seed", 1));
+        EngineConfig cfg = project_engine_config(dir, a.str("scene"), a.uinteger("seed", 1), date_flag(a));
         cfg.width = a.integer("width", 0);
         cfg.height = a.integer("height", 0);
         if (!a.has("headless")) {
@@ -184,6 +185,7 @@ Command make_screenshot_command() {
                {"height", "H", "Override the resolution height."},
                {"render-scale", "S", "Image size = design size * S (0.25 to 4, default 1), drawn natively and sharp: HUD and visible area unchanged, 1.5 on 1280x720 = 1920x1080."},
                {"seed", "N", "World RNG seed (default 1)."},
+               kDateFlag,
                {"json", "", "Print {path, frames} as JSON."}};
     c.examples = {"factoria screenshot", "factoria screenshot games/my-game --frames 120 --out /tmp/level.png --json"};
     c.run = [](Context& ctx) {
@@ -195,6 +197,7 @@ Command make_screenshot_command() {
         so.width = a.integer("width", 0);
         so.height = a.integer("height", 0);
         so.seed = a.uinteger("seed", 1);
+        so.date = date_flag(a);
         auto session = Session::open(dir, so);
         int frames = a.integer("frames", 30);
         if (frames < 0) throw UsageError("--frames must be >= 0.");
@@ -224,6 +227,7 @@ Command make_test_command() {
                {"filter", "TEXT", "Only run tests whose name contains TEXT."},
                {"render-all", "", "Draw every frame (default: only when a test takes a screenshot)."},
                {"persist-storage", "", "Scripts' storage.* uses the real save file (default: in memory)."},
+               kDateFlag,
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria test", "factoria test --filter jump --json", "factoria test tests/saves.test.js", "factoria test my-game \"tests/ui*.test.js\""};
     c.run = [](Context& ctx) {
@@ -255,6 +259,7 @@ Command make_test_command() {
         so.gfx = Gfx::Auto;
         so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
         so.memoryStorage = !ctx.args.has("persist-storage");
+        so.date = date_flag(ctx.args);
         auto session = Session::open(dir, so);
         TestReport rep = run_project_tests(session->engine(), ctx.args.str("filter"), given);
         if (ctx.args.has("json")) {

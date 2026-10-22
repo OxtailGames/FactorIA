@@ -1229,6 +1229,8 @@ its pivot; a free crate is pushed, a jointed one is not.
 
 ### M26.3 Calendar date and app lifecycle (M) — CC/FB-0019, CC/FB-0035
 
+Done (branch `m26/calendar-lifecycle`): `game.today()`, `game.setDate`, `--date` and the replay date; `game.on("suspend"|"resume"|"focus"|"blur")`, `game.focused`, `pauseOnSuspend` and the test hooks; Clockwork Courier uses them.
+
 - `game.today()` returns `{year, month, day, weekday, utcOffsetMinutes, iso}`: the real date in a player, a fixed date
   (`EngineConfig::date`) in `factoria test` and headless runs, the recorded one when a replay plays. `game.setDate(iso)`
   in `factoria:test` and `--date` on the CLI set it. SCRIPTING.md tells games to read the date there, never through

@@ -445,6 +445,7 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
     FA_TRY(read_string(j, "mainScene", "", s.mainScene));
     FA_TRY(read_string(j, "feedbackFile", "", s.feedbackFile));
     FA_TRY(read_string(j, "icon", "", s.icon));
+    FA_TRY(read_bool(j, "pauseOnSuspend", "", s.pauseOnSuspend));
 
     if (auto it = j.find("display"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/display", "an object like {\"width\": 1280, \"height\": 720}", *it);
@@ -598,6 +599,10 @@ constexpr const char* kSchemaText =
     "mainScene": {
       "type": "string",
       "description": "Project-relative path of the scene loaded at startup, e.g. \"scenes/main.scene.json\"."
+    },
+    "pauseOnSuspend": {
+      "type": "boolean",
+      "description": "Default true. While the app is in the background (a phone's home button or an incoming call) the engine freezes the game (game.paused becomes true, unless a game.on(\"suspend\") handler paused it already) and silences the music and every sound, and unfreezes both when the app comes back. Set false to decide yourself in game.on(\"suspend\") and game.on(\"resume\") handlers. A window that merely loses the focus is never paused (use game.on(\"blur\")). docs/MOBILE.md, Lifecycle."
     },
     "display": {
       "type": "object",

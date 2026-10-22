@@ -402,6 +402,12 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.project = proj.value();
     I.projectMtime = fs::modified_time(kProjectFileName);
     I.paused = config.editorMode;
+    {
+        auto date = parse_calendar_date(config.date.empty() ? std::string_view(kDefaultDate) : std::string_view(config.date), "the date");
+        if (!date.ok()) return fail(date.error().to_string());
+        date->utcOffsetMinutes = config.dateUtcOffsetMinutes;
+        I.scripts.set_start_date(date.value());
+    }
     I.windowed = gfx != nullptr && !config.headless;
     if (I.windowed && !config.editorMode) {
         I.appWindow = std::make_unique<AppWindowControl>();

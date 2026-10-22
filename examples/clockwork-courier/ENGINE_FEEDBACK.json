@@ -453,10 +453,12 @@
       "suggestion": "Add `time.calendar()` (or `game.today()`) returning {year, month, day, utcOffsetMinutes, iso} from the real clock, recorded in replays, plus `game.setDate(\"2026-10-22\")` in factoria:test (and a --date flag for headless runs) so date-driven logic is deterministic. Document the rule in the scripting guide next to rng.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.3 (Calendar date and app lifecycle) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.3 (Calendar date and app lifecycle) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/calendar-lifecycle (M26.3): game.today() gives the real local date in a player, a fixed one in tests and headless runs, the recorded one in a replay; game.setDate and --date choose it."
+      ],
+      "engineIssue": "m26/calendar-lifecycle"
     },
     {
       "id": "FB-0020",
@@ -853,10 +855,12 @@
       "suggestion": "Expose game.onSuspend/onResume (and window focus) to scripts, and have a project setting that pauses the game on suspend by default.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.3 (Calendar date and app lifecycle) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.3 (Calendar date and app lifecycle) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/calendar-lifecycle (M26.3): game.on(\"suspend\"|\"resume\"|\"focus\"|\"blur\"), game.focused, and pauseOnSuspend (default true) pause the game and the music in the background."
+      ],
+      "engineIssue": "m26/calendar-lifecycle"
     },
     {
       "id": "FB-0036",

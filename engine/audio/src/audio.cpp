@@ -127,6 +127,7 @@ struct Audio::Impl {
     VoiceId musicVoice = 0;
     std::string musicPath;
 
+    bool paused = false;  // set_paused: the mix is silent and no voice advances
     bool recording = false;
     std::vector<float> rec;
     int recRate = kRate;
@@ -357,6 +358,7 @@ struct Audio::Impl {
         std::memset(out, 0, sizeof(float) * std::size_t(frames) * 2);
         const double rateRatio = double(kRate) / double(deviceRate);
         for (Voice& v : voices) {
+            if (paused) break;
             if (v.dead || !v.clip || v.clip->frames == 0) { v.dead = true; continue; }
             const Clip& c = *v.clip;
             Stream* const stream = v.stream.get();
@@ -635,6 +637,16 @@ void Audio::stop_music(float fadeSeconds) {
     }
     im.musicVoice = 0;
     im.musicPath.clear();
+}
+
+void Audio::set_paused(bool paused) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->paused = paused;
+}
+
+bool Audio::paused() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->paused;
 }
 
 void Audio::advance_null_device(double seconds) { impl_->advance(seconds); }
