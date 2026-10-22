@@ -1,0 +1,4 @@
+URL de asistencia: https://example.com/clockwork-courier/es/soporte  (MARCADOR: sustituir antes de enviar)
+URL de marketing: https://example.com/clockwork-courier/es  (MARCADOR)
+URL de la política de privacidad: https://example.com/clockwork-courier/es/privacidad  (MARCADOR: las dos tiendas piden una, aunque el juego no recoja nada)
+Correo de asistencia: support@example.com  (MARCADOR)

@@ -1,0 +1,100 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "seesaw",
+    "tags": ["seesaw"],
+    "components": {
+      "RigidBody3D": {
+        "type": "dynamic",
+        "mass": 40,
+        "gravityScale": 0,
+        "angularDamping": 1
+      },
+      "Collider3D": {
+        "shape": "box",
+        "size": [6, 0.2, 1.8],
+        "friction": 0.7
+      },
+      "Joint3D": {
+        "type": "hinge",
+        "axis": [0, 0, 1],
+        "anchor": [0, 0, 0],
+        "useLimits": true,
+        "useMotor": true,
+        "lowerLimit": -14,
+        "upperLimit": 14,
+        "maxMotorTorque": 4000
+      },
+      "Script": {
+        "path": "scripts/seesaw.js"
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "plank",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0],
+            "scale": [6, 0.2, 1.8]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.74, 0.55, 0.3, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      },
+      {
+        "name": "stripe_l",
+        "components": {
+          "Transform": {
+            "position": [-2.2, 0.101, 0],
+            "scale": [0.5, 0.01, 1.8]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.9, 0.75, 0.2, 1],
+            "roughness": 0.8,
+            "castShadows": false,
+            "emissive": [0.2, 0.15, 0, 1]
+          }
+        }
+      },
+      {
+        "name": "stripe_r",
+        "components": {
+          "Transform": {
+            "position": [2.2, 0.101, 0],
+            "scale": [0.5, 0.01, 1.8]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.9, 0.75, 0.2, 1],
+            "roughness": 0.8,
+            "castShadows": false,
+            "emissive": [0.2, 0.15, 0, 1]
+          }
+        }
+      },
+      {
+        "name": "post",
+        "components": {
+          "Transform": {
+            "position": [0, -0.45, 0],
+            "scale": [0.3, 0.8, 1.2]
+          },
+          "MeshRenderer": {
+            "mesh": "cube",
+            "color": [0.4, 0.4, 0.45, 1],
+            "roughness": 0.8,
+            "castShadows": true
+          }
+        }
+      }
+    ]
+  }
+}

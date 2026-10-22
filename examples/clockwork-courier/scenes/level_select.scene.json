@@ -1,0 +1,103 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": { "position": [0, 1.5, 8] },
+        "Camera": { "projection": "perspective", "fov": 40, "primary": true, "clearColor": [0.09, 0.11, 0.17, 1] }
+      }
+    },
+    {
+      "id": "select_title",
+      "components": {
+        "Transform": { "position": [48, 26, 0] },
+        "Text": { "text": "Choose a level", "key": "select.title", "fontSize": 44, "space": "screen", "layer": 300 }
+      }
+    },
+    {
+      "id": "select_total",
+      "components": {
+        "Transform": { "position": [48, 84, 0] },
+        "Text": { "text": "", "fontSize": 26, "space": "screen", "layer": 300, "color": [1, 0.85, 0.3, 1] }
+      }
+    },
+    {
+      "id": "select_name",
+      "components": {
+        "Transform": { "position": [-48, 28, 0] },
+        "Button": { "anchor": [1, 0], "pivot": [1, 1], "autoSize": true, "text": "Courier", "layer": 210 }
+      }
+    },
+    {
+      "id": "select_cloud",
+      "components": {
+        "Transform": { "position": [-48, 92, 0] },
+        "Text": { "text": "", "fontSize": 20, "space": "screen", "layer": 300, "anchor": [1, 0], "pivot": [1, 1], "align": "right", "color": [1, 1, 1, 0.7] }
+      }
+    },
+    {
+      "id": "district_rooftops",
+      "components": {
+        "Transform": { "position": [0, 130, 0] },
+        "Panel": { "anchor": [0.5, 0], "pivot": [0.5, 1], "layer": 150, "layout": "column", "fit": true, "spacing": 8, "padding": [16, 10, 16, 14], "color": [0.02, 0.03, 0.06, 0.45] }
+      },
+      "children": [
+        { "id": "district_rooftops_title", "components": { "Text": { "text": "Rooftops", "fontSize": 28, "space": "screen", "layer": 300, "color": [1, 0.85, 0.3, 1] } } },
+        {
+          "id": "district_rooftops_row",
+          "components": { "Panel": { "layer": 160, "layout": "row", "fit": true, "spacing": 14, "color": [0, 0, 0, 0] } },
+          "children": [
+            { "id": "card_rooftops_1", "components": { "Button": { "size": [352, 124], "color": [0.24, 0.27, 0.36, 0.95], "text": "First Roofs", "layer": 210, "autoFocus": true } } },
+            { "id": "card_rooftops_2", "components": { "Button": { "size": [352, 124], "color": [0.24, 0.27, 0.36, 0.95], "text": "Chimney Row", "layer": 210 } } },
+            { "id": "card_rooftops_3", "components": { "Button": { "size": [352, 124], "color": [0.24, 0.27, 0.36, 0.95], "text": "Clock Square", "layer": 210 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "district_market",
+      "components": {
+        "Transform": { "position": [0, 362, 0] },
+        "Panel": { "anchor": [0.5, 0], "pivot": [0.5, 1], "layer": 150, "layout": "column", "fit": true, "spacing": 8, "padding": [16, 10, 16, 14], "color": [0.02, 0.03, 0.06, 0.45] }
+      },
+      "children": [
+        { "id": "district_market_title", "components": { "Text": { "text": "Market", "fontSize": 28, "space": "screen", "layer": 300, "color": [1, 0.85, 0.3, 1] } } },
+        {
+          "id": "district_market_row",
+          "components": { "Panel": { "layer": 160, "layout": "row", "fit": true, "spacing": 14, "color": [0, 0, 0, 0] } },
+          "children": [
+            { "id": "card_market_1", "components": { "Button": { "size": [352, 124], "color": [0.24, 0.27, 0.36, 0.95], "text": "Lantern Lane", "layer": 210 } } },
+            { "id": "card_market_2", "components": { "Button": { "size": [352, 124], "color": [0.24, 0.27, 0.36, 0.95], "text": "Stall Street", "layer": 210 } } },
+            { "id": "card_market_3", "components": { "Button": { "size": [352, 124], "color": [0.24, 0.27, 0.36, 0.95], "text": "Midnight Rush", "layer": 210 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "select_hint",
+      "components": {
+        "Transform": { "position": [0, 586, 0] },
+        "Text": { "text": "", "fontSize": 22, "space": "screen", "layer": 300, "anchor": [0.5, 0], "pivot": [0.5, 1], "align": "center", "color": [1, 0.6, 0.45, 1] }
+      }
+    },
+    {
+      "id": "select_actions",
+      "components": {
+        "Transform": { "position": [0, -24, 0] },
+        "Panel": { "anchor": [0.5, 1], "pivot": [0.5, 0], "layer": 150, "layout": "row", "fit": true, "spacing": 16, "color": [0, 0, 0, 0] }
+      },
+      "children": [
+        { "id": "select_daily", "components": { "Button": { "autoSize": true, "text": "Daily route", "layer": 210 } } },
+        { "id": "select_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 210 } } }
+      ]
+    },
+    { "id": "select", "components": { "Script": { "path": "scripts/level_select.js" } } },
+    { "id": "music", "components": { "Script": { "path": "scripts/music.js" } } }
+  ],
+  "settings": {
+    "ambientLight": [0.4, 0.44, 0.52, 1],
+    "skyColor": [0.16, 0.2, 0.3, 1],
+    "horizonColor": [0.45, 0.5, 0.58, 1]
+  }
+}

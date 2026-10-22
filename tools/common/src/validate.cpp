@@ -428,7 +428,8 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
 }
 
 // Native plugins: each one built for every platform it applies to. A missing build for this machine's platform is an
-// error (scripts that use the plugin fail); one for another platform is a warning (only that export fails).
+// error (scripts that use the plugin fail) unless the plugin is "optional" (then a warning: the game runs without it);
+// one for another platform is a warning (only that export fails).
 void check_plugins(Ctx& c) {
     auto project = load_project(c.dir);
     if (!project.ok()) return;  // a bad "plugins" value is reported by the schema check
@@ -437,7 +438,10 @@ void check_plugins(Ctx& c) {
             if (auto build = plugin_build(c.dir, p, platform); !build.ok()) {
                 std::string message = build.error().message;
                 message = message.substr(message.find(": ") + 2);  // the file and pointer go in their own fields
-                if (platform == runtime_platform()) c.error(kProjectFileName, "/plugins/" + p.name, message, build.error().hint);
+                if (platform == runtime_platform() && p.optional)
+                    c.warn(kProjectFileName, "/plugins/" + p.name,
+                           "optional plugin: the game runs without it on this computer (" + platform + "): " + message, build.error().hint);
+                else if (platform == runtime_platform()) c.error(kProjectFileName, "/plugins/" + p.name, message, build.error().hint);
                 else c.warn(kProjectFileName, "/plugins/" + p.name, "exporting for " + platform + " fails: " + message, build.error().hint);
             }
 }

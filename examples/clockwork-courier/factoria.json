@@ -1,0 +1,88 @@
+{
+  "format": "factoria.project/1",
+  "name": "Clockwork Courier",
+  "id": "com.factoria.examples.clockworkcourier",
+  "version": "1.0.0",
+  "engine": "0.2.0",
+  "mainScene": "scenes/intro.scene.json",
+  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ja"], "fallbackFonts": ["assets/fonts/NotoSansJP-Regular-subset.ttf"] },
+  "input": {
+    "actions": {
+      "move_forward": ["W", "Up", "GamepadLeftStickUp"],
+      "move_back": ["S", "Down", "GamepadLeftStickDown"],
+      "move_left": ["A", "Left", "GamepadLeftStickLeft"],
+      "move_right": ["D", "Right", "GamepadLeftStickRight"],
+      "walk": ["LeftShift", "RightShift"],
+      "jump": ["Space", "GamepadA"],
+      "action": ["F", "GamepadX"],
+      "pause": ["Escape", "P", "GamepadStart"],
+      "camera_left": ["Q", "GamepadRightStickLeft"],
+      "camera_right": ["E", "GamepadRightStickRight"],
+      "camera_up": ["GamepadRightStickUp"],
+      "camera_down": ["GamepadRightStickDown"],
+      "zoom_in": ["R", "GamepadRightShoulder"],
+      "zoom_out": ["V", "GamepadLeftShoulder"]
+    }
+  },
+  "platform": {
+    "achievements": [
+      {"id": "first_delivery", "nameKey": "ach.first_delivery.name", "descriptionKey": "ach.first_delivery.desc", "name": "First Delivery", "description": "Hand in a parcel in any level."},
+      {"id": "rooftops_done", "nameKey": "ach.rooftops_done.name", "descriptionKey": "ach.rooftops_done.desc", "name": "Rooftop Regular", "description": "Finish all three Rooftops levels."},
+      {"id": "market_done", "nameKey": "ach.market_done.name", "descriptionKey": "ach.market_done.desc", "name": "Night Owl", "description": "Finish all three Night Market levels."},
+      {"id": "star_collector", "nameKey": "ach.star_collector.name", "descriptionKey": "ach.star_collector.desc", "name": "Star Collector", "description": "Earn 9 stars in total."},
+      {"id": "all_stars", "nameKey": "ach.all_stars.name", "descriptionKey": "ach.all_stars.desc", "name": "Every Star", "description": "Earn all 18 stars."},
+      {"id": "clean_run", "nameKey": "ach.clean_run.name", "descriptionKey": "ach.clean_run.desc", "name": "Light Paws", "description": "Finish a level without being caught by a dog."},
+      {"id": "last_second", "nameKey": "ach.last_second.name", "descriptionKey": "ach.last_second.desc", "name": "Last Tick", "description": "Deliver with less than 5 seconds of spring left."},
+      {"id": "quick_courier", "nameKey": "ach.quick_courier.name", "descriptionKey": "ach.quick_courier.desc", "name": "Clockwork Speed", "description": "Finish a level within its par time."},
+      {"id": "extra_mile", "nameKey": "ach.extra_mile.name", "descriptionKey": "ach.extra_mile.desc", "name": "The Extra Mile", "description": "Deliver the optional parcel of a level."},
+      {"id": "first_shortcut", "nameKey": "ach.first_shortcut.name", "descriptionKey": "ach.first_shortcut.desc", "name": "Cutting Corners", "description": "Take a shortcut in any level."},
+      {"id": "all_shortcuts", "nameKey": "ach.all_shortcuts.name", "descriptionKey": "ach.all_shortcuts.desc", "name": "Know the Town", "description": "Find every shortcut of the town."},
+      {"id": "dog_whisperer", "nameKey": "ach.dog_whisperer.name", "descriptionKey": "ach.dog_whisperer.desc", "name": "Dog Whisperer", "description": "Make guard dogs give up the chase 5 times."},
+      {"id": "daily_courier", "nameKey": "ach.daily_courier.name", "descriptionKey": "ach.daily_courier.desc", "name": "Daily Courier", "description": "Finish the daily route."},
+      {"id": "fresh_paint", "nameKey": "ach.fresh_paint.name", "descriptionKey": "ach.fresh_paint.desc", "name": "Fresh Coat", "description": "Paint the robot a new colour."}
+    ],
+    "stats": [
+      {"id": "levels_won", "type": "int"},
+      {"id": "parcels_delivered", "type": "int"},
+      {"id": "times_caught", "type": "int"},
+      {"id": "springs_run_down", "type": "int"},
+      {"id": "dogs_shaken", "type": "int"},
+      {"id": "keys_wound", "type": "int"},
+      {"id": "shortcuts_found", "type": "int"},
+      {"id": "more_time_used", "type": "int"}
+    ],
+    "leaderboards": [
+      {"id": "time_rooftops_1", "name": "Best time: First Roofs", "order": "ascending"},
+      {"id": "time_rooftops_2", "name": "Best time: Chimney Row", "order": "ascending"},
+      {"id": "time_rooftops_3", "name": "Best time: Clock Square", "order": "ascending"},
+      {"id": "time_market_1", "name": "Best time: Lantern Lane", "order": "ascending"},
+      {"id": "time_market_2", "name": "Best time: Stall Street", "order": "ascending"},
+      {"id": "time_market_3", "name": "Best time: Midnight Rush", "order": "ascending"},
+      {"id": "total_stars", "name": "Total stars", "order": "descending"},
+      {"id": "daily_route", "name": "Daily route time", "order": "ascending"}
+    ],
+    "products": [
+      {"id": "remove_ads", "type": "nonConsumable", "titleKey": "shop.product.remove_ads", "title": "Remove ads", "description": "No more ad offers. More time stays free.", "price": 2.99, "currency": "USD"},
+      {"id": "paint_copper", "type": "nonConsumable", "titleKey": "shop.product.paint_copper", "title": "Copper paint", "description": "A shiny copper coat for the robot.", "price": 0.99, "currency": "USD"},
+      {"id": "paint_neon", "type": "nonConsumable", "titleKey": "shop.product.paint_neon", "title": "Neon paint", "description": "A glowing green coat for the robot.", "price": 0.99, "currency": "USD"},
+      {"id": "tip_jar", "type": "consumable", "titleKey": "shop.product.tip_jar", "title": "Oil can", "description": "A tip for the developers. Changes nothing in the game.", "price": 1.99, "currency": "USD"}
+    ],
+    "backend": "auto"
+  },
+  "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "icon": "assets/icon.png",
+  "export": {
+    "exclude": ["store/**", "screenshots/**"],
+    "android": {"versionCode": 10000, "adaptiveIcon": {"foreground": "assets/icon_fg.png", "background": "#1d2240"}},
+    "ios": {"iconBackground": "#1d2240", "buildNumber": "1", "usesNonExemptEncryption": false, "privacy": {"tracking": false}},
+    "macos": {"category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 Oxtail Games",
+              "buildNumber": "1", "usesNonExemptEncryption": false},
+    "linux": {"categories": ["Game", "AdventureGame"]}
+  },
+  "plugins": {
+    "apple": {"path": "plugins/apple", "platforms": ["ios", "macos"], "optional": true}
+  }
+}

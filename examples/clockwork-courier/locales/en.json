@@ -1,0 +1,347 @@
+{
+  "$name": "English",
+  "menu": {
+    "title": "Clockwork Courier",
+    "play": "Play",
+    "continue": "Continue",
+    "options": "Options",
+    "credits": "Credits",
+    "quit": "Quit",
+    "back": "Back",
+    "shop": "Shop",
+    "achievements": "Achievements",
+    "leaderboards": "Leaderboards"
+  },
+  "loading": {
+    "text": "Loading..."
+  },
+  "intro": {
+    "studio": "Oxtail Games",
+    "presents": "presents",
+    "title": "Clockwork Courier",
+    "skip": "Skip",
+    "hint": "Tap or press any key to skip"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "mainMenu": "Quit to title",
+    "restart": "Restart"
+  },
+  "options": {
+    "title": "Options",
+    "tab": {
+      "video": "Video",
+      "audio": "Audio",
+      "controls": "Controls",
+      "language": "Language",
+      "play": "Play",
+      "touch": "Touch"
+    },
+    "fullscreen": "Full screen",
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "colorFilter": "Color filter: {filter}",
+    "filter": {
+      "none": "off",
+      "greyscale": "greyscale",
+      "highContrast": "high contrast",
+      "protanopia": "protanopia (red)",
+      "deuteranopia": "deuteranopia (green)",
+      "tritanopia": "tritanopia (blue)"
+    },
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": {
+      "master": "Master",
+      "music": "Music",
+      "effects": "Effects",
+      "interface": "Interface"
+    },
+    "action": {
+      "move_forward": "Move forward",
+      "move_back": "Move back",
+      "move_left": "Move left",
+      "move_right": "Move right",
+      "jump": "Jump",
+      "action": "Action",
+      "pause": "Pause"
+    },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language",
+    "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
+    "on": "on",
+    "off": "off",
+    "percent": "{value} percent",
+    "quality": "Quality: {quality}",
+    "qualityLevel": {
+      "low": "low",
+      "medium": "medium",
+      "high": "high"
+    },
+    "assist": "Assist mode",
+    "assistNote": "A slower spring, slower dogs and a wider jump grace.",
+    "reducedMotion": "Reduced motion",
+    "haptics": "Vibration",
+    "tapToMove": "Tap to move",
+    "textSize": "Text size: {percent} percent",
+    "leftHanded": "Left-handed layout",
+    "controlSize": "Control size",
+    "controlOpacity": "Control opacity",
+    "cameraSensitivity": "Camera speed",
+    "invertY": "Invert camera Y",
+    "languageNote": "The language is saved and used the next time you open the game too."
+  },
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.",
+    "assets": "Art, music and sounds: Kenney, Quaternius, MintoDog and Fupi (CC0).",
+    "font": "Japanese text: Noto Sans JP, (c) 2014-2021 Adobe, SIL Open Font License 1.1."
+  },
+  "hud": {
+    "parcels": "Parcels {delivered} / {total}",
+    "parcelsCarrying": "Parcels {delivered} / {total}  (carrying one)",
+    "spring": "Spring",
+    "springLow": "Low"
+  },
+  "levels": {
+    "rooftops_1": "First Roofs",
+    "rooftops_2": "Chimney Row",
+    "rooftops_3": "Clock Square",
+    "market_1": "Lantern Lane",
+    "market_2": "Stall Street",
+    "market_3": "Midnight Rush",
+    "test_arena": "Test Arena",
+    "test_yard": "Test Yard"
+  },
+  "results": {
+    "title": "Delivered!",
+    "titleNamed": "Delivered, {name}!",
+    "time": "Time: {time} s",
+    "best": "Best: {time} s",
+    "newBest": "New best!",
+    "spring": "Spring left: {seconds} s",
+    "goal": {
+      "fast": "Fast: under {par} s",
+      "springy": "Springy: {percent} percent of the spring left",
+      "thorough": "Thorough: every bonus parcel"
+    },
+    "next": "Next level",
+    "retry": "Play again",
+    "toTitle": "Quit to title"
+  },
+  "select": {
+    "title": "Choose a level",
+    "total": "Stars {stars} / {max}",
+    "name": "Courier: {name}",
+    "noName": "Set your name",
+    "locked": "Locked",
+    "new": "New",
+    "district": {
+      "rooftops": "Rooftops",
+      "market": "Market"
+    },
+    "districtLocked": {
+      "one": "(needs {count} star, you have {have})",
+      "other": "(needs {count} stars, you have {have})"
+    },
+    "hintLevel": "Win {level} first.",
+    "hintDistrict": {
+      "one": "Needs {count} star from the earlier districts (you have {have}).",
+      "other": "Needs {count} stars from the earlier districts (you have {have})."
+    },
+    "daily": "Daily route",
+    "dailyDone": "Daily route: {time} s",
+    "cloud": {
+      "synced": "Cloud save: up to date",
+      "uploaded": "Cloud save: uploaded",
+      "downloaded": "Cloud save: loaded from the cloud",
+      "merged": "Cloud save: joined both copies",
+      "offline": "Cloud save: could not reach the store",
+      "unreadable": "Cloud save: could not be read, left untouched"
+    },
+    "cardTime": "{time} s"
+  },
+  "profile": {
+    "title": "Who is delivering?",
+    "hint": "Type a name or pick the letters.",
+    "anonymous": "Courier",
+    "space": "Space",
+    "delete": "Delete",
+    "done": "Done",
+    "empty": "Pick a name with at least one letter or digit.",
+    "placeholder": "Your name"
+  },
+  "daily": {
+    "done": "Daily route done!",
+    "doneNamed": "Daily route done, {name}!",
+    "best": "Best today: {time} s"
+  },
+  "retry": {
+    "title": "The spring ran down",
+    "hint": "Be quicker, or find a shorter way.",
+    "retry": "Try again",
+    "toTitle": "Quit to title"
+  },
+  "shop": {
+    "title": "Paint shop",
+    "prev": "<",
+    "next": ">",
+    "equip": "Put on",
+    "equipped": "Wearing it",
+    "locked": "Locked",
+    "buy": "Buy {price}",
+    "removeAds": "Remove ads  {price}",
+    "adsRemoved": "Ads removed, thank you",
+    "tip": "Oil can for the robot  {price}  (given: {count})",
+    "restore": "Restore purchases",
+    "working": "Talking to the store...",
+    "thanks": "Thank you!",
+    "cancelled": "Cancelled. Nothing was charged.",
+    "pending": "Waiting for approval. It will appear here when the store confirms it.",
+    "unreachable": "The store did not answer ({code}). Nothing was charged. Try again later.",
+    "restored": "Purchases restored.",
+    "nothingToRestore": "Nothing to restore on this account.",
+    "granted": "Purchase received: {name}",
+    "state": {
+      "equipped": "The robot wears this paint.",
+      "free": "Free paint.",
+      "owned": "Unlocked.",
+      "stars": {
+        "one": "Needs {count} star (you have {have}).",
+        "other": "Needs {count} stars (you have {have})."
+      },
+      "buy": "A paint from the store."
+    },
+    "paint": {
+      "factory": "Factory orange",
+      "rust": "Rust",
+      "mint": "Mint",
+      "midnight": "Midnight",
+      "gold": "Gold",
+      "copper": "Copper",
+      "neon": "Neon"
+    },
+    "product": {
+      "remove_ads": "Remove ads",
+      "paint_copper": "Copper paint",
+      "paint_neon": "Neon paint",
+      "tip_jar": "Oil can"
+    }
+  },
+  "ach": {
+    "title": "Achievements",
+    "count": "{unlocked} of {total} unlocked",
+    "toast": "Achievement unlocked: {name}",
+    "first_delivery": {
+      "name": "First Delivery",
+      "desc": "Hand in a parcel in any level."
+    },
+    "rooftops_done": {
+      "name": "Rooftop Regular",
+      "desc": "Finish all three Rooftops levels."
+    },
+    "market_done": {
+      "name": "Night Owl",
+      "desc": "Finish all three Night Market levels."
+    },
+    "star_collector": {
+      "name": "Star Collector",
+      "desc": "Earn 9 stars in total."
+    },
+    "all_stars": {
+      "name": "Every Star",
+      "desc": "Earn all 18 stars."
+    },
+    "clean_run": {
+      "name": "Light Paws",
+      "desc": "Finish a level without being caught by a dog."
+    },
+    "last_second": {
+      "name": "Last Tick",
+      "desc": "Deliver with less than 5 seconds of spring left."
+    },
+    "quick_courier": {
+      "name": "Clockwork Speed",
+      "desc": "Finish a level within its par time."
+    },
+    "extra_mile": {
+      "name": "The Extra Mile",
+      "desc": "Deliver the optional parcel of a level."
+    },
+    "first_shortcut": {
+      "name": "Cutting Corners",
+      "desc": "Take a shortcut in any level."
+    },
+    "all_shortcuts": {
+      "name": "Know the Town",
+      "desc": "Find every shortcut of the town."
+    },
+    "dog_whisperer": {
+      "name": "Dog Whisperer",
+      "desc": "Make guard dogs give up the chase 5 times."
+    },
+    "daily_courier": {
+      "name": "Daily Courier",
+      "desc": "Finish the daily route."
+    },
+    "fresh_paint": {
+      "name": "Fresh Coat",
+      "desc": "Paint the robot a new colour."
+    }
+  },
+  "board": {
+    "title": "Leaderboards",
+    "time": "Best time: {level}",
+    "daily": "Daily route",
+    "stars": "Total stars",
+    "yourBest": "Your best: {score}",
+    "loading": "Loading...",
+    "signedOut": "You are not signed in, so there are no rankings to show. Your scores are kept and sent when you sign in.",
+    "unavailable": "This version of the game has no leaderboards.",
+    "empty": "Nobody has a score here yet. Win this level to be the first.",
+    "error": "The store did not answer ({code}).",
+    "rank": "Your rank: {rank}",
+    "noRank": "You are not on this board yet.",
+    "signIn": "Sign in",
+    "retry": "Try again"
+  },
+  "ads": {
+    "testAd": "Test ad",
+    "claim": "Claim reward",
+    "skip": "Skip",
+    "moreTimeAd": {
+      "one": "Watch an ad: {count} more second",
+      "other": "Watch an ad: {count} more seconds"
+    },
+    "moreTimeFree": {
+      "one": "{count} more second (free)",
+      "other": "{count} more seconds (free)"
+    }
+  },
+  "captions": {
+    "dogBark": "[Dog barks]",
+    "key": "[Bell: the spring is wound]",
+    "delivery": "[Chime: parcel delivered]",
+    "springLow": "[Alarm: the spring is nearly out]",
+    "caught": "[Thud: the dog caught you]"
+  },
+  "quit": {
+    "title": "Quit the game?",
+    "stay": "Stay",
+    "yes": "Quit"
+  },
+  "format": {
+    "decimal": "."
+  },
+  "touch": {
+    "jump": "Jump",
+    "action": "Act"
+  }
+}

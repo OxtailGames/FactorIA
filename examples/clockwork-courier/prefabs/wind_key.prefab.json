@@ -1,0 +1,50 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "wind_key",
+    "tags": ["key"],
+    "components": {
+      "Collider3D": {
+        "shape": "sphere",
+        "isTrigger": true,
+        "radius": 0.8
+      },
+      "Script": {
+        "path": "scripts/wind_key.js"
+      },
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "model",
+        "components": {
+          "Transform": {
+            "position": [0, -0.3, 0],
+            "rotation": [0, 0, 0],
+            "scale": [1.8, 1.8, 1.8]
+          },
+          "MeshRenderer": {
+            "mesh": "assets/models/props/key.glb",
+            "emissive": [0.45, 0.32, 0.02, 1]
+          }
+        }
+      },
+      {
+        "name": "light",
+        "components": {
+          "Transform": {
+            "position": [0, 0.2, 0]
+          },
+          "Light": {
+            "type": "point",
+            "color": [1, 0.8, 0.3, 1],
+            "intensity": 1.1,
+            "range": 4
+          }
+        }
+      }
+    ]
+  }
+}

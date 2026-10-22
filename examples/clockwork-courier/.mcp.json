@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "factoria": {
+      "command": "factoria",
+      "args": [
+        "mcp",
+        "--project",
+        "."
+      ]
+    }
+  }
+}
