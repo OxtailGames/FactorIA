@@ -15,6 +15,7 @@
 #                 the screen of the running app: the player logs "input: first touch at design (x, y)", at the middle
 #                 of the design size for the "fit" and "stretch" scale modes (read from <app>/game/factoria.json), and
 #                 the process survives. Needs CMake (the UI test project is generated, then built by xcodebuild).
+#                 When XCTest only timed out reaching the app (a busy simulator), the UI test runs once more.
 #   4. suspend    Settings is launched on top of the app: "player: suspended", the process survives; the app is
 #                 launched again: same process, "player: resumed" and "player: 60 frames rendered after resume"
 #                 (the Metal view draws again), the screen shows a picture.
@@ -33,7 +34,8 @@
 #
 # Output (outDir, default build/ios-smoke): console.log (the player's stdout and stderr; the engine logs to stderr),
 # screen.png, summary.txt; on failure also unified.log (the simulator's system log: the player, XCTest and accessibility)
-# and crash reports; when the touch UI test fails, its result bundle and a sample of what the player was doing.
+# and crash reports; when the touch UI test fails, its result bundles (touch-test.xcresult, touch-test-retry.xcresult)
+# and a sample of what the player was doing.
 #
 # The console is captured with `simctl launch --console-pty`, not with --stdout/--stderr: from the iOS 27 runtime
 # (Xcode 27) on, those two paths are opened inside the simulator's own file system (`/tmp/x` lands in
@@ -210,10 +212,21 @@ first_line 'audio: stream running' | tee -a "$OUT/summary.txt"
 # After `--boot` the build is up to date and xcodebuild only runs the test.
 touch_project >"$OUT/touch-test.log" 2>&1 ||
     fail "touch: cannot generate the UI test project (platforms/ios/touch-test): see touch-test.log"
-rm -rf "$OUT/touch-test.xcresult"
-TEST_RUNNER_FA_TOUCH_BUNDLE_ID="$BUNDLE_ID" touch_xcodebuild test \
-    -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
-    -resultBundlePath "$OUT/touch-test.xcresult" >>"$OUT/touch-test.log" 2>&1 || {
+rm -rf "$OUT/touch-test.xcresult" "$OUT/touch-test-retry.xcresult"
+touch_test() {  # touch_test <result bundle name>: runs the UI test once, its output appended to touch-test.log
+    TEST_RUNNER_FA_TOUCH_BUNDLE_ID="$BUNDLE_ID" touch_xcodebuild test \
+        -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+        -resultBundlePath "$OUT/$1" >>"$OUT/touch-test.log" 2>&1
+}
+# XCTest gives up after 30 s when the simulator is slow to bring the app to the front or to load accessibility into it.
+# On a busy runner FrontBoard once answered the activation after 42 s while the player kept rendering: the app is in
+# front by then, so only these timeouts run the test once more. A hung app times out again, and every later check of
+# this step (the touch the player logged, its position, the process) still applies.
+touch_test touch-test.xcresult || {
+    grep -qE "Timed out (attempting to launch app|waiting for AX loaded notification)" "$OUT/touch-test.log" &&
+        echo "touch: XCTest timed out reaching the app, running the UI test once more" | tee -a "$OUT/summary.txt" &&
+        touch_test touch-test-retry.xcresult
+} || {
     grep -E 'error|Test Case|failed' "$OUT/touch-test.log" | tail -n 20
     # CI failures so far were XCTest timing out on the app (AX loaded, launch), never the tap: keep what the player's
     # main thread, which answers XCTest's accessibility requests, was doing.
