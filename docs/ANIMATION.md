@@ -89,6 +89,7 @@ hero.animator.set("grounded", hero.isGrounded());
 if (input.pressed("jump")) hero.animator.trigger("jump");   // true for one step only
 hero.animator.on("started_running", () => particles.burst(dust));
 console.log(hero.animator.state);                    // "run"
+console.log(hero.animator.get("speed"));             // a parameter's current value (tests read it the same way)
 ```
 
 Rules, all checked in the fixed step:
