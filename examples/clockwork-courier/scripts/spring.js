@@ -38,6 +38,13 @@ export default class Spring extends Behaviour {
     this.running = false;
   }
 
+  /** Starts the drain again with `seconds` left after the spring ran down (the rewarded "more time", scripts/more_time.js). */
+  resume(seconds) {
+    this.left = Math.min(this.max, seconds);
+    this.empty = false;
+    this.running = true;
+  }
+
   get fraction() {
     return this.max > 0 ? Math.max(0, Math.min(1, this.left / this.max)) : 0;
   }
