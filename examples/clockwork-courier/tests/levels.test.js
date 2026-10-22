@@ -69,9 +69,9 @@ for (const level of LEVELS) {
       const fast = play(level, ROUTES[level.id].shortcut);
       expect(JSON.stringify(fast.r)).toContain('"reached":true');
       expect(fast.log.map((e) => e.name)).toContain("level_completed");
-      // Not slower than the main route, give or take 5 s: the rope bridge and the seesaw of rooftops_3 are physics, and
-      // the main route takes 2000..2800 frames depending on which tests ran before it in the same process (FB-0033).
-      expect(fast.r.frames).toBeLessThanOrEqual(main.r.frames + 300);
+      // Not slower than the main route. The rope bridge and the seesaw are physics; a scene simulates the same whatever
+      // ran before it in the process (FB-0033, fixed in the engine), so the frame counts are stable.
+      expect(fast.r.frames).toBeLessThanOrEqual(main.r.frames);
     });
   });
 }
