@@ -46,10 +46,15 @@ Inserted at offset 0 (after a UTF-8 BOM or a `#!` line, if any). `import` declar
 top level, so this is valid before them:
 
 ```js
-const __fa_d = globalThis.__fa_dbg, __fa_h = __fa_d.h, __fa_f = __fa_d.m(MID, (__fa_x) => eval(__fa_x));
+var __fa_d = globalThis.__fa_dbg, __fa_h = __fa_d.h, __fa_f = __fa_d.m(MID, (__fa_x) => eval(__fa_x)); function __fa_i() { __fa_d = globalThis.__fa_dbg; __fa_h = __fa_d.h; return __fa_d; }
 ```
 
 `m` pushes the module frame (named `(module)`) and keeps its closure as the **Module** scope of every frame of the file.
+
+The names are `var` and `__fa_i` is a hoisted function because of import cycles: another module can call a function of
+this file before its prologue has run. Function frame prologues therefore start with `(__fa_d || __fa_i())`, which
+initialises `__fa_d` and `__fa_h` on that early call (the module-level `__fa_f` stays undefined then; functions use their
+own `__fa_f`). A hook always runs after its function's `e`, so `__fa_h` is set by then.
 
 ### Statement hooks
 
@@ -81,7 +86,7 @@ Every function with a block body (declarations, expressions, arrows, methods, ge
 generators, async functions) becomes, inside its own braces and after its directive prologue:
 
 ```js
-{ let __fa_f; try { __fa_f = __fa_d.e(FID, (__fa_x) => eval(__fa_x)); BODY } catch (__fa_c) { throw __fa_d.c(__fa_f, __fa_c); } finally { __fa_d.x(__fa_f); } }
+{ let __fa_f; try { __fa_f = (__fa_d || __fa_i()).e(FID, (__fa_x) => eval(__fa_x)); BODY } catch (__fa_c) { throw __fa_d.c(__fa_f, __fa_c); } finally { __fa_d.x(__fa_f); } }
 ```
 
 - `e` pushes a frame record for function `FID` (`info.functions`) and keeps the closure: it is created inside the

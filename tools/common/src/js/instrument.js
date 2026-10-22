@@ -253,7 +253,7 @@
             const scope = newScope(cur, "function", scopeNames);
             const fid = info.functions.length;
             info.functions.push({ name, line: sp.line, column: sp.column, endLine: pos(Math.max(fn.end - 1, 0)).line, scope });
-            const entry = "{ let __fa_f; try { __fa_f = __fa_d.e(" + fid + ", " + CLOSURE + "); ";
+            const entry = "{ let __fa_f; try { __fa_f = (__fa_d || __fa_i()).e(" + fid + ", " + CLOSURE + "); ";
             const exit = " } catch (__fa_c) { throw __fa_d.c(__fa_f, __fa_c); } finally { __fa_d.x(__fa_f); } }";
 
             cur = scope;
@@ -480,8 +480,8 @@
             if (!m) return JSON.stringify({ code: source, info });  // only a hashbang: nothing to instrument
             prologueAt = m.index + m[0].length;
         }
-        insert(prologueAt, "const __fa_d = globalThis.__fa_dbg, __fa_h = __fa_d.h, __fa_f = __fa_d.m(" + moduleId + ", " +
-            CLOSURE + "); ");
+        insert(prologueAt, "var __fa_d = globalThis.__fa_dbg, __fa_h = __fa_d.h, __fa_f = __fa_d.m(" + moduleId + ", " +
+            CLOSURE + "); function __fa_i() { __fa_d = globalThis.__fa_dbg; __fa_h = __fa_d.h; return __fa_d; } ");
         statementList(ast.body);
 
         // ---- apply
