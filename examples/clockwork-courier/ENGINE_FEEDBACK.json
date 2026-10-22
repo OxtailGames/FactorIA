@@ -15,14 +15,15 @@
       "severity": "major",
       "title": "glTF animation of rigid (non-skinned) meshes parented to bone nodes is ignored",
       "missing": "assets/models/robot.glb (RobotExpressive style) animates by moving node transforms: every body part is a plain mesh child of a bone node and only the two hands are skinned. The Animator only drives skins, so the model stayed frozen in bind pose in every clip (identical screenshots at frames 5, 12, 18, 30 with Running). This layout is very common (three.js examples, many CC0 character packs, Blender exports without weight painting). No warning is printed.",
-      "workaround": "Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it.",
+      "workaround": "Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it. [P2] The same happens with Kenney cube-pets animal-dog.glb, where the MESH nodes themselves are the animated bones (8 clips, no skin): the dog stood frozen in every clip. tools/skinify.py now also treats an animated mesh node as its own bone (7 joints), and the Animator then plays walk/run/idle. Second asset of two in this game with the same layout, so it is common in CC0 packs.",
       "workaroundFiles": [
-        "tools/skinify.py",
-        "assets/models/robot.glb"
+        "assets/models/pets/animal-dog.glb",
+        "assets/models/robot.glb",
+        "tools/skinify.py"
       ],
       "suggestion": "Support node-transform animation of non-skinned mesh nodes in the Animator (drive the node world matrix of a MeshRenderer model's nodes), or auto-convert rigid-per-bone meshes to a skin at load. At least print a warning when a model has clips but no skin.",
       "effort": "large",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -132,6 +133,30 @@
       "missing": "entity.animator has state and setters but no values; tests had to read get(\"Animator\").values to assert speed/grounded parameters.",
       "workaround": "tests/animator.test.js uses game.find(id).get(\"Animator\").values.",
       "suggestion": "Expose animator.values (read-only) or animator.get(name) on the facade.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "major",
+      "title": "assets.import of a .glb does not copy the texture file it references",
+      "missing": "Importing Kenney .glb models (fantasy-town-kit, platformer-kit, cube-pets) with assets.import copies only the .glb. The files reference an external image (uri 'Textures/colormap.png') and rendering then logs 'texture file not found: assets/models/Textures/colormap.png' and draws untextured. The error is only visible at render time (not in the import result nor in validate). Worse: three kits ship DIFFERENT colormap.png files under the same relative name, so importing two kits into assets/models/ silently makes them collide.",
+      "workaround": "Moved each kit into its own folder (assets/models/town, props, pets), copied that kit's Textures/colormap.png next to it by hand and re-keyed assets.json (with provenance for the png).",
+      "workaroundFiles": [
+        "assets/models/town/Textures/colormap.png",
+        "assets/models/props/Textures/colormap.png",
+        "assets/models/pets/Textures/colormap.png",
+        "assets.json"
+      ],
+      "suggestion": "assets.import for .glb/.gltf should copy every external uri it references (keeping the relative layout under a folder named after the model or the pack), add provenance for them, and warn when the destination folder already holds a different file of the same name. validate should report a model whose external texture is missing.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"

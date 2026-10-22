@@ -4,7 +4,8 @@
 //
 //   left         seconds left        max       the most the spring can hold (wind() never goes past it)
 //   fraction     left / max, 0..1    running   false stops the drain (level over)
-//   wind(s)      adds seconds, sends spring_wound
+//   wind(s)      adds seconds, sends spring_wound (a wind-up key, scripts/wind_key.js)
+//   drain(s)     takes seconds away at once (the price of a catch); at zero spring_empty follows
 import { Behaviour } from "factoria";
 import { EVENTS, emit } from "./events.js";
 
@@ -46,6 +47,11 @@ export default class Spring extends Behaviour {
     const before = this.left;
     this.left = Math.min(this.max, this.left + seconds);
     emit(EVENTS.springWound, { seconds: this.left - before, left: this.left });
+  }
+
+  /** Takes `seconds` away at once. */
+  drain(seconds) {
+    this.left = Math.max(0, this.left - seconds);
   }
 
   onFixedUpdate(dt) {

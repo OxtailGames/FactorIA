@@ -1,4 +1,5 @@
-"""Turn a glTF whose rigid meshes hang under bone nodes into a properly skinned one (every vertex 100% on its bone)."""
+"""Turn a glTF whose rigid meshes hang under bone nodes into a properly skinned one (every vertex 100% on its bone).
+Usage: python3 skinify.py in.glb out.glb. Used for robot.glb and pets/animal-dog.glb (see ENGINE_FEEDBACK FB-0001)."""
 import json, struct, math, sys
 P = sys.argv[1]
 b = open(P, 'rb').read()
@@ -66,8 +67,10 @@ for mi in mesh_nodes:
             break
         joint_set.add(k)
 # drop nodes that are mesh nodes themselves from joints
+# (a mesh node that is itself animated, like the legs of Kenney's cube pets, is its own bone)
 for mi in mesh_nodes:
-    joint_set.discard(mi)
+    if mi not in chan_nodes:
+        joint_set.discard(mi)
 for i in list(joint_set):
     if nodes[i].get('name') in ('RootNode', 'RobotArmature'):
         joint_set.discard(i)
@@ -104,8 +107,8 @@ for mi in mesh_nodes:
         raise SystemExit('mesh shared by two nodes')
     used_meshes[n['mesh']] = mi
     k = mi
-    bone = None
-    while k in parent:
+    bone = mi if mi in jindex else None
+    while bone is None and k in parent:
         k = parent[k]
         if k in jindex:
             bone = k
