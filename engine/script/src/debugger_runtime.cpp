@@ -539,7 +539,9 @@ Dbg::EvalOutcome Dbg::run_in(JSValueConst closure, const std::string& code) {
         JSValue exc = JS_GetException(ctx);
         if (timedOut) {
             out.errorName = "InternalError";
-            out.error = std::format("the expression took too long (> {:g} s) and was stopped", sys->callbackLimit);
+            out.error = sys->debug_session_ended()
+                            ? std::string("the expression was stopped because the debug session ended")
+                            : std::format("the expression took too long (> {:g} s) and was stopped", sys->callbackLimit);
         } else {
             out.errorName = JS_IsObject(exc) ? str_prop(ctx, exc, "name") : std::string();
             out.error = exception_summary(ctx, exc);

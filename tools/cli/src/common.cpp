@@ -121,6 +121,23 @@ std::string resolve_project_dir(const Context& ctx, std::size_t posIndex, bool r
     return dir;
 }
 
+EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed) {
+    EngineConfig cfg;
+    cfg.projectDir = projectDir;
+    cfg.shaderCompiler = make_engine_shader_compiler(projectDir);
+    cfg.scene = scene;
+    cfg.seed = seed;
+    return cfg;
+}
+
+void apply_headless_config(EngineConfig& cfg, bool renderAll, bool persistStorage) {
+    cfg.headless = true;
+    cfg.audioDevice = false;
+    cfg.renderMode = renderAll ? RenderMode::Always : RenderMode::OnDemand;
+    cfg.memoryStorage = !persistStorage;
+    cfg.platformBackend = "fake";  // headless runs never talk to a real store (docs/PLATFORM.md)
+}
+
 std::string feedback_path(const std::string& projectDir) {
     std::string file = kFeedbackFileName;
     auto ps = load_project(projectDir);
@@ -173,6 +190,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     cfg.renderMode = opt.renderMode;
     cfg.memoryStorage = opt.memoryStorage;
     cfg.platformBackend = "fake";  // call, session, test and the MCP server never talk to a real store (docs/PLATFORM.md)
+    cfg.scriptDebugger = opt.scriptDebugger;
 
     std::string firstError;
     if (opt.gfx != Gfx::None) {

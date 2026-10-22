@@ -29,6 +29,7 @@ Command make_session_command();
 Command make_commands_command();
 Command make_api_command();
 Command make_mcp_command();
+Command make_dap_command();
 Command make_ai_command();
 Command make_feedback_command();
 Command make_docs_command();
@@ -76,7 +77,15 @@ struct SessionOptions {
     // `storage.*` in memory. `--render-all` / `--persist-storage` turn these off.
     RenderMode renderMode = RenderMode::OnDemand;
     bool memoryStorage = true;
+    std::shared_ptr<ScriptDebugger> scriptDebugger;  // debug the scripts of the session (`factoria dap`, test mode)
 };
+
+// The EngineConfig every project run starts from: projectDir, the shader compiler, the start scene and the seed.
+EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed = 1);
+// Makes `cfg` a headless run (`factoria run --headless`, the debugger's headless mode): no window, no audio device,
+// the fake platform backend (a development run never talks to a real store, docs/PLATFORM.md). Frames are simulated
+// but drawn only on demand unless `renderAll`; `storage.*` stays in memory unless `persistStorage`.
+void apply_headless_config(EngineConfig& cfg, bool renderAll, bool persistStorage);
 
 // A headless Engine for a project (or, with an empty projectDir, a throw-away scratch project
 // so that `commands`/`api` work anywhere). Commands of tooling/AI are NOT registered here.

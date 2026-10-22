@@ -158,8 +158,10 @@ void ScriptSystem::Impl::pop_guard() {
     if (!guards.empty()) guards.pop_back();
 }
 
+bool ScriptSystem::Impl::debug_session_ended() const { return debugger && debugger->impl().interrupt_requested(); }
+
 bool ScriptSystem::Impl::check_interrupt() {
-    if (debugger && debugger->impl().interrupt_requested()) {  // the debugger is being terminated: stop running scripts
+    if (debug_session_ended()) {  // stop running scripts
         timedOut = true;
         timedOutLabel = "debugger terminate";
         return true;
@@ -363,7 +365,7 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
             lastCallTimedOut = true;
             JSValue exc = JS_GetException(ctx);
             JS_FreeValue(ctx, exc);
-            if (debugger && debugger->impl().interrupt_requested()) return JS_UNDEFINED;  // stopped by terminate, not slow
+            if (debug_session_ended()) return JS_UNDEFINED;  // stopped by terminate, not slow
             ScriptError e;
             e.message = std::format("script took too long (> {:g} s) in {}", limit, label);
             e.file = label;
@@ -661,7 +663,8 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
         JS_FreeValue(ctx, exc);
         if (timedOut) {
             timedOut = false;
-            e.message = "script took too long (> 10 s) while loading " + path;
+            e.message = debug_session_ended() ? "loading " + path + " was stopped because the debug session ended"
+                                              : "script took too long (> 10 s) while loading " + path;
             e.file = path;
         }
         std::string where = e.file.empty() || e.file == "<import>" ? path : e.file;
