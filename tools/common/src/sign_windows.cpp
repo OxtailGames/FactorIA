@@ -415,9 +415,9 @@ Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
         auto r = runner.go("Check the osslsigncode version", v, false);
         if (!r.ok()) return r.error();
         const auto [major, minor] = osslsigncode_version(r->stdoutText + " " + r->stderrText);
-        if (major == 0) rep.warnings.push_back("could not read the version of " + toolPath + "; MSIX signing needs osslsigncode 2.2 or newer.");
-        else if (major < 2 || (major == 2 && minor < 2))
-            return err(who + toolPath + " is osslsigncode " + std::to_string(major) + "." + std::to_string(minor) + ", which cannot sign MSIX packages (APPX support arrived in 2.2)",
+        if (major == 0) rep.warnings.push_back("could not read the version of " + toolPath + "; MSIX signing needs osslsigncode 2.9 or newer.");
+        else if (major < 2 || (major == 2 && minor < 9))
+            return err(who + toolPath + " is osslsigncode " + std::to_string(major) + "." + std::to_string(minor) + ", which cannot sign MSIX packages correctly (APPX signing arrived in 2.7 and its zip order was fixed in 2.9)",
                        "Install a newer one: brew install osslsigncode, or build it from https://github.com/mtrojnar/osslsigncode. FACTORIA_OSSLSIGNCODE points at the one to use.");
     }
 
@@ -562,7 +562,7 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         "when it is installed). `testCertificate: true` (Windows) instead creates a self-signed certificate for the package's Publisher in your user certificate store, signs with it and saves "
         "the public part as <slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople as Administrator) and "
         "`Add-AppxPackage -Path <the .msix>` installs the game (docs/EXPORTING.md, \"Trying the package on your PC\"). The tool: signtool.exe on Windows (FACTORIA_SIGNTOOL, else the newest "
-        "Windows SDK, else PATH); osslsigncode on macOS and Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.2 or newer). Digest SHA-256 and an RFC 3161 time stamp (`timestampUrl`, default "
+        "Windows SDK, else PATH); osslsigncode on macOS and Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.9 or newer). Digest SHA-256 and an RFC 3161 time stamp (`timestampUrl`, default "
         "http://timestamp.digicert.com). `dryRun: true` checks everything and returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, certificate, "
         "certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, testCertificateFile, steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. "
         "Signing again after every export is needed: the next project.export replaces the package. Examples: {\"dryRun\":true}, {\"pfx\":\"C:/keys/code-signing.pfx\"}, {\"testCertificate\":true}.";

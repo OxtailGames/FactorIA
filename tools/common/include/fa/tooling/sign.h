@@ -100,7 +100,7 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
 //     from $FACTORIA_WINDOWS_PFX_PASSWORD (never an argument, a file of the game, a report or a log). `testCertificate` makes a
 //     self-signed one for the manifest's Publisher instead (Windows only; PowerShell), to try the package on this PC.
 //   * the tool: signtool.exe on Windows ($FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode elsewhere
-//     ($FACTORIA_OSSLSIGNCODE, else PATH; version 2.2 or newer, older ones cannot sign MSIX).
+//     ($FACTORIA_OSSLSIGNCODE, else PATH; version 2.9 or newer: APPX signing arrived in 2.7 and its zip order was fixed in 2.9).
 struct SignWindowsOptions {
     std::string projectDir;            // folder containing factoria.json
     std::string msix;                  // the .msix to sign ("" = <out>/<game-slug>-windows.msix of the project)
