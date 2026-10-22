@@ -70,7 +70,7 @@
           "anchor": [0.72, 0.5],
           "color": [0, 0, 0, 0],
           "layout": "column",
-          "spacing": 12,
+          "spacing": 8,
           "fit": true
         },
         "Script": {
@@ -109,6 +109,36 @@
               "text": "Play",
               "key": "menu.play",
               "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "shop_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Shop",
+              "key": "menu.shop"
+            }
+          }
+        },
+        {
+          "id": "achievements_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Achievements",
+              "key": "menu.achievements"
+            }
+          }
+        },
+        {
+          "id": "leaderboards_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Leaderboards",
+              "key": "menu.leaderboards"
             }
           }
         },
@@ -191,6 +221,116 @@
             }
           }
         }
+      ]
+    },
+    {
+      "id": "shop",
+      "active": false,
+      "components": {
+        "Panel": {
+          "anchor": [0.72, 0.5],
+          "layer": 300,
+          "color": [0.04, 0.05, 0.09, 0.82],
+          "layout": "column",
+          "spacing": 10,
+          "padding": [24, 20, 24, 20],
+          "fit": true
+        },
+        "Script": {
+          "path": "scripts/ui/shop.js"
+        }
+      },
+      "children": [
+        { "id": "shop_title", "components": { "Text": { "text": "Shop", "fontSize": 40, "space": "screen", "maxWidth": 520, "layer": 301, "key": "shop.title" } } },
+        {
+          "id": "shop_paint_row",
+          "components": {
+            "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "spacing": 12, "padding": [0, 0, 0, 0], "fit": true }
+          },
+          "children": [
+            { "id": "shop_prev", "components": { "Button": { "size": [72, 56], "text": "<", "key": "shop.prev", "layer": 302 } } },
+            { "id": "shop_paint_name", "components": { "Text": { "text": "Factory", "fontSize": 30, "space": "screen", "maxWidth": 260, "layer": 302, "color": [1, 0.85, 0.3, 1] } } },
+            { "id": "shop_next", "components": { "Button": { "size": [72, 56], "text": ">", "key": "shop.next", "layer": 302 } } }
+          ]
+        },
+        { "id": "shop_paint_state", "components": { "Text": { "text": "", "fontSize": 22, "space": "screen", "maxWidth": 520, "layer": 302 } } },
+        { "id": "shop_paint_action", "components": { "Button": { "autoSize": true, "text": "Equip", "layer": 302, "autoFocus": true } } },
+        { "id": "shop_remove_ads", "components": { "Button": { "autoSize": true, "text": "Remove ads", "layer": 302 } } },
+        { "id": "shop_tip", "components": { "Button": { "autoSize": true, "text": "Oil can", "layer": 302 } } },
+        { "id": "shop_restore", "components": { "Button": { "autoSize": true, "text": "Restore purchases", "key": "shop.restore", "layer": 302 } } },
+        { "id": "shop_status", "components": { "Text": { "text": "", "fontSize": 20, "space": "screen", "maxWidth": 520, "layer": 302, "color": [0.75, 0.85, 1, 1] } } },
+        { "id": "shop_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
+      ]
+    },
+    {
+      "id": "achievements",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [760, 620],
+          "anchor": [0.5, 0.5],
+          "layer": 300,
+          "color": [0.04, 0.05, 0.09, 0.9],
+          "layout": "column",
+          "spacing": 14,
+          "padding": [24, 20, 24, 20]
+        },
+        "Script": {
+          "path": "scripts/ui/achievements.js"
+        }
+      },
+      "children": [
+        { "id": "achievements_title", "components": { "Text": { "text": "Achievements", "fontSize": 40, "space": "screen", "maxWidth": 520, "layer": 301, "key": "ach.title" } } },
+        { "id": "achievements_count", "components": { "Text": { "text": "", "fontSize": 22, "space": "screen", "maxWidth": 520, "layer": 302, "color": [0.75, 0.85, 1, 1] } } },
+        {
+          "id": "achievements_list",
+          "components": {
+            "ScrollList": { "size": [712, 400], "layer": 301, "color": [0, 0, 0, 0.25], "spacing": 12, "padding": [16, 16, 16, 16] }
+          }
+        },
+        { "id": "achievements_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302, "autoFocus": true } } }
+      ]
+    },
+    {
+      "id": "leaderboards",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [760, 560],
+          "anchor": [0.5, 0.5],
+          "layer": 300,
+          "color": [0.04, 0.05, 0.09, 0.9],
+          "layout": "column",
+          "spacing": 8,
+          "padding": [24, 20, 24, 20]
+        },
+        "Script": {
+          "path": "scripts/ui/leaderboards.js"
+        }
+      },
+      "children": [
+        { "id": "board_title", "components": { "Text": { "text": "Leaderboards", "fontSize": 40, "space": "screen", "maxWidth": 520, "layer": 301, "key": "board.title" } } },
+        {
+          "id": "board_row",
+          "components": {
+            "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "spacing": 12, "padding": [0, 0, 0, 0], "fit": true }
+          },
+          "children": [
+            { "id": "board_prev", "components": { "Button": { "size": [72, 56], "text": "<", "key": "shop.prev", "layer": 302, "autoFocus": true } } },
+            { "id": "board_name", "components": { "Text": { "text": "", "fontSize": 28, "space": "screen", "maxWidth": 520, "layer": 302, "color": [1, 0.85, 0.3, 1] } } },
+            { "id": "board_next", "components": { "Button": { "size": [72, 56], "text": ">", "key": "shop.next", "layer": 302 } } }
+          ]
+        },
+        { "id": "board_status", "components": { "Text": { "text": "", "fontSize": 22, "space": "screen", "maxWidth": 700, "layer": 302, "color": [0.75, 0.85, 1, 1] } } },
+        {
+          "id": "board_list",
+          "components": {
+            "ScrollList": { "size": [712, 250], "layer": 301, "color": [0, 0, 0, 0.25], "spacing": 10, "padding": [16, 16, 16, 16] }
+          }
+        },
+        { "id": "board_signin", "active": false, "components": { "Button": { "autoSize": true, "text": "Sign in", "key": "board.signIn", "layer": 302 } } },
+        { "id": "board_retry", "active": false, "components": { "Button": { "autoSize": true, "text": "Try again", "key": "board.retry", "layer": 302 } } },
+        { "id": "board_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
       ]
     },
     {

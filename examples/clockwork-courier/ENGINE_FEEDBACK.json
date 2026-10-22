@@ -480,6 +480,250 @@
       "suggestion": "Document or support UI prefabs with child overrides, or a scene include, in the menus guide.",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0024",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The fake store cannot simulate a refund or a revoked purchase",
+      "missing": "purchases.restore() on the fake keeps every non-consumable forever, so the path 'the store no longer lists a product I own' (refund, Family Sharing removed) cannot be driven from a test. game.platform.reset() wipes everything, which is the only way to emulate it.",
+      "workaround": "store.reconcile({authoritative:true}) revokes products the store no longer lists; tests call game.platform.reset() and then reconcile. On the fake backend the start-up reconcile is not authoritative (a dev run would lose its purchases at each start).",
+      "workaroundFiles": [
+        "scripts/store.js",
+        "tests/shop.test.js"
+      ],
+      "suggestion": "game.platform.revoke(productId) (and an equivalent dev command) that removes the product from restore() and emits no event, like the Apple 'refunded transaction is never delivered' rule.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0025",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "purchases.finish() throws synchronously for an unknown transaction instead of rejecting",
+      "missing": "Every other platform call returns a Promise that rejects, but purchases.finish(id) with an id the game was not told about throws at the call, so `await platform.purchases.finish(id).catch(...)` does not catch it.",
+      "workaround": "store.grant wraps the call in try/await/catch.",
+      "workaroundFiles": [
+        "scripts/store.js"
+      ],
+      "suggestion": "Return a rejected Promise with the same message and hint, like the rest of the platform API.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0026",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "storage and the platform fake keep their state between tests of a run",
+      "missing": "storage.set data and the fake store (owned products, unlocks, delayFrames, backend) survive from one test to the next and from one file to the next, so each test must clean up by hand; one forgotten key makes a later file fail only in the full run.",
+      "workaround": "tests/helpers/store.js: fresh() before and cleanup() after every test.",
+      "workaroundFiles": [
+        "tests/helpers/store.js"
+      ],
+      "suggestion": "An option (or the default) that clears storage and resets game.platform before each test, or game.resetState().",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-10-22: tests/helpers/store.js: fresh() before and cleanup() after every test."
+      ]
+    },
+    {
+      "id": "FB-0027",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A Button or Text with `key` loses its dynamic text, and keys with {placeholders} warn in validate",
+      "missing": "The locale system rewrites the text of every entity that has `key` each frame, so a button whose label is built from state (price, count, 'Equip/Equipped') must have no key at all, and then validate cannot check its text against the locales; a key with {price} placeholders on a component is a warning.",
+      "workaround": "The dynamic buttons of the shop have no `key`; scripts/ui/shop.js sets the text with i18n.t(key, args) at every refresh.",
+      "workaroundFiles": [
+        "scripts/ui/shop.js",
+        "scenes/main.scene.json"
+      ],
+      "suggestion": "A `keyArgs` object (or a Text/Button `args` field scripts can set) so the engine formats the key with placeholders.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-10-22: The dynamic buttons of the shop have no `key`; scripts/ui/shop.js sets the text with i18n.t(key, args) at every refresh."
+      ]
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "No ads API: no rewarded ad, no consent or tracking-permission flow, no dev/release flag",
+      "missing": "A game that offers a rewarded ad (\"watch to get 20 s more\") has nothing in the engine to show one with: no ad provider interface, no user-consent (GDPR/UMP) or App Tracking Transparency flow, no way to know whether this is a development or a release build (so a test ad stub cannot be switched off for the store build), no 'ad loaded' state.",
+      "workaround": "scripts/ads.js defines the provider interface (name, available(), showRewarded(placement) -> {rewarded, reason}) and a stub overlay (scripts/ad_stub.js) used only while platform.backend is 'fake'; any other backend has no provider and the retry screen shows no ad offer. A real SDK plugin would call ads.setProvider().",
+      "workaroundFiles": [
+        "scripts/ads.js",
+        "scripts/ad_stub.js",
+        "scripts/more_time.js"
+      ],
+      "suggestion": "A platform.ads service next to purchases: ads.available(placement), ads.showRewarded(placement) -> {rewarded}, ads.consent() (with the ATT/UMP sheets) and a platform.release boolean; the fake backend answers with a scripted test ad so games and tests share one path.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Catalog is not readable from scripts and leaderboards have no localizable name",
+      "missing": "game.project.platform (the catalog of factoria.json) is not exposed to scripts, so the code must repeat the product types (consumable or not) and the ids; achievements and products have titleKey/descriptionKey but a leaderboard has only a plain `name`, so the in-game board titles are a second copy in the locale files.",
+      "workaround": "scripts/store.js keeps a TYPES table; the leaderboards screen builds its titles from the level name keys; a test compares the code's lists with game.platform.state().catalog.",
+      "workaroundFiles": [
+        "scripts/store.js",
+        "scripts/ui/leaderboards.js",
+        "tests/services.test.js"
+      ],
+      "suggestion": "platform.catalog (read only: ids, types, titles) and nameKey on leaderboards.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "No per-day or per-season leaderboards: the catalog is static",
+      "missing": "A 'daily route' board must be a new board every day, but boards are declared in factoria.json and Game Center / Steam create them by hand. There is no board id suffix, reset period or season in the catalog.",
+      "workaround": "One 'daily_route' board holds the best time ever; the day is only in the daily_route_finished event.",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/services.js"
+      ],
+      "suggestion": "A `period` (daily, weekly) on a leaderboard that the backends map to their recurring boards, or leaderboards.submit(id, score, {suffix: date}).",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-3d",
+      "severity": "minor",
+      "title": "MeshRenderer tints the whole model: no per-material colour",
+      "missing": "A paint scheme for the robot (the glTF has an orange body, dark eyes, grey metal) can only multiply every material by one colour and add one emissive, so the base orange limits the palette (mint needed a dark tint plus a strong emissive to read as teal) and the eyes change colour too.",
+      "workaround": "scripts/paints.js stores a dark tint plus an emissive per paint, tuned by looking at screenshots.",
+      "workaroundFiles": [
+        "scripts/paints.js"
+      ],
+      "suggestion": "MeshRenderer.materialColors: {materialName: [r,g,b,a]} overrides, or a colour per glTF material slot.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "No control over the sibling order of a spawned UI child",
+      "missing": "world.spawn(json, {parent}) always appends, so a button added at run time to a Panel with a column layout lands below the existing ones; the layout follows the hierarchy order.",
+      "workaround": "scripts/more_time.js spawns the new button and then calls setParent again on the two stock buttons so they come after it.",
+      "workaroundFiles": [
+        "scripts/more_time.js"
+      ],
+      "suggestion": "A `index` (or `before`) option in world.spawn's options and entity.setParent(parent, index).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "major",
+      "title": "The result of a physics scene depends on which tests ran before it in the same run",
+      "missing": "tests/levels.test.js plays the main route of rooftops_3 (rope bridge) with the waypoint bot: it needs 2815 frames when the file runs alone and 2009 after other test files, with nothing in the project reading the previous tests' state (every play() reloads the scene and clears the save). Same scene, same input, different physics, so a test that compares two runs flips with the order and number of earlier tests.",
+      "workaround": "The 'shortcut is not slower' check allows 300 frames of tolerance.",
+      "workaroundFiles": [
+        "tests/levels.test.js"
+      ],
+      "suggestion": "game.load() should rebuild the physics world and reseed world.rng exactly like a first load (or document which state survives).",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-22",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Products.storekit exists only with a built Apple plugin and has one locale",
+      "missing": "factoria export --platform ios writes Products.storekit only when the Apple plugin is declared AND built (plugins/apple/ios/*/libapple.a), so a game that has not run platform.add_backend on a Mac gets no local StoreKit file and no hint that the catalog was skipped. The file has one en_US localization: the titleKey translations (es) never reach it.",
+      "workaround": "Checked on a scratch copy: add_backend apple, cmake build of the plugin, export; the four products came out right (ids, types, prices). The real project does not declare the plugin.",
+      "workaroundFiles": [
+        "factoria.json"
+      ],
+      "suggestion": "Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

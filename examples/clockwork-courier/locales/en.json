@@ -7,7 +7,10 @@
     "options": "Options",
     "credits": "Credits",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "shop": "Shop",
+    "achievements": "Achievements",
+    "leaderboards": "Leaderboards"
   },
   "loading": {
     "text": "Loading..."
@@ -147,5 +150,132 @@
     "hint": "Be quicker, or find a shorter way.",
     "retry": "Try again",
     "toTitle": "Quit to title"
+  },
+  "shop": {
+    "title": "Paint shop",
+    "prev": "<",
+    "next": ">",
+    "equip": "Put on",
+    "equipped": "Wearing it",
+    "locked": "Locked",
+    "buy": "Buy {price}",
+    "removeAds": "Remove ads  {price}",
+    "adsRemoved": "Ads removed, thank you",
+    "tip": "Oil can for the robot  {price}  (given: {count})",
+    "restore": "Restore purchases",
+    "working": "Talking to the store...",
+    "thanks": "Thank you!",
+    "cancelled": "Cancelled. Nothing was charged.",
+    "pending": "Waiting for approval. It will appear here when the store confirms it.",
+    "unreachable": "The store did not answer ({code}). Nothing was charged. Try again later.",
+    "restored": "Purchases restored.",
+    "nothingToRestore": "Nothing to restore on this account.",
+    "granted": "Purchase received: {name}",
+    "state": {
+      "equipped": "The robot wears this paint.",
+      "free": "Free paint.",
+      "owned": "Unlocked.",
+      "stars": "Needs {stars} stars (you have {have}).",
+      "buy": "A paint from the store."
+    },
+    "paint": {
+      "factory": "Factory orange",
+      "rust": "Rust",
+      "mint": "Mint",
+      "midnight": "Midnight",
+      "gold": "Gold",
+      "copper": "Copper",
+      "neon": "Neon"
+    },
+    "product": {
+      "remove_ads": "Remove ads",
+      "paint_copper": "Copper paint",
+      "paint_neon": "Neon paint",
+      "tip_jar": "Oil can"
+    }
+  },
+  "ach": {
+    "title": "Achievements",
+    "count": "{unlocked} of {total} unlocked",
+    "toast": "Achievement unlocked: {name}",
+    "first_delivery": {
+      "name": "First Delivery",
+      "desc": "Hand in a parcel in any level."
+    },
+    "rooftops_done": {
+      "name": "Rooftop Regular",
+      "desc": "Finish all three Rooftops levels."
+    },
+    "market_done": {
+      "name": "Night Owl",
+      "desc": "Finish all three Night Market levels."
+    },
+    "star_collector": {
+      "name": "Star Collector",
+      "desc": "Earn 9 stars in total."
+    },
+    "all_stars": {
+      "name": "Every Star",
+      "desc": "Earn all 18 stars."
+    },
+    "clean_run": {
+      "name": "Light Paws",
+      "desc": "Finish a level without being caught by a dog."
+    },
+    "last_second": {
+      "name": "Last Tick",
+      "desc": "Deliver with less than 5 seconds of spring left."
+    },
+    "quick_courier": {
+      "name": "Clockwork Speed",
+      "desc": "Finish a level within its par time."
+    },
+    "extra_mile": {
+      "name": "The Extra Mile",
+      "desc": "Deliver the optional parcel of a level."
+    },
+    "first_shortcut": {
+      "name": "Cutting Corners",
+      "desc": "Take a shortcut in any level."
+    },
+    "all_shortcuts": {
+      "name": "Know the Town",
+      "desc": "Find every shortcut of the town."
+    },
+    "dog_whisperer": {
+      "name": "Dog Whisperer",
+      "desc": "Make guard dogs give up the chase 5 times."
+    },
+    "daily_courier": {
+      "name": "Daily Courier",
+      "desc": "Finish the daily route."
+    },
+    "fresh_paint": {
+      "name": "Fresh Coat",
+      "desc": "Paint the robot a new colour."
+    }
+  },
+  "board": {
+    "title": "Leaderboards",
+    "time": "Best time: {level}",
+    "daily": "Daily route",
+    "stars": "Total stars",
+    "yourBest": "Your best: {score}",
+    "loading": "Loading...",
+    "signedOut": "You are not signed in, so there are no rankings to show. Your scores are kept and sent when you sign in.",
+    "unavailable": "This version of the game has no leaderboards.",
+    "empty": "Nobody has a score here yet. Win this level to be the first.",
+    "error": "The store did not answer ({code}).",
+    "rank": "Your rank: {rank}",
+    "noRank": "You are not on this board yet.",
+    "signIn": "Sign in",
+    "retry": "Try again"
+  },
+  "ads": {
+    "testAd": "Test ad",
+    "claim": "Claim reward",
+    "skip": "Skip",
+    "moreTimeAd": "Watch an ad: {seconds} more seconds",
+    "moreTimeFree": "{seconds} more seconds (free)"
   }
 }
