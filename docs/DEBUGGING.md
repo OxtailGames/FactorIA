@@ -83,7 +83,7 @@ Click the gutter of a `.js` file of the project. A breakpoint on a line that hol
 a `}`) moves to the next line that has one. Breakable lines are the lines where a statement starts.
 
 - **Condition** (right-click the breakpoint > Edit Breakpoint > Expression): stops only when the JavaScript expression
-  is true, evaluated in the scope of that line: `this.health < 20`, `dt > 0.05`.
+  is true, evaluated in the scope of that line: `this.jumpSpeed < 100`, `dt > 0.05`.
 - **Hit count** (Edit Breakpoint > Hit Count): stops on the Nth hit, e.g. `10`, `> 5` or `% 3`.
 - **Logpoint** (right-click the gutter > Add Logpoint): prints a message to the debug console instead of stopping.
   Put expressions in braces: `vy={this.body.velocity.y} dt={dt}`.
@@ -167,33 +167,38 @@ Output:
 `hits[].point` is the index in `points`; `frame` is the frame it ran in; `stack` lists the calls, innermost first.
 `errors` lists the script errors thrown during the run (with file and line), whether or not a point was involved.
 
-### Example: why does the player never jump?
+### Example: why does the player not jump?
 
-1. Run the Player's `onUpdate` and look at what it sees when the Jump action is pressed:
+`scripts/player.js` of the 2d-platformer template has, in `onUpdate(dt)` (line 16): the move line (17), then
+`if (input.pressed("jump") && this.entity.isGrounded()) {` (18) and `this.body.velocity.y = this.jumpSpeed;` (19). The
+fields are `speed = 300` and `jumpSpeed = 620`.
+
+1. Look at what the condition sees on line 18 on the frames where the jump action is pressed:
 
 ```
-script_trace {"points":[{"file":"scripts/player.js","line":17,
-                         "watch":["input.pressed(\"jump\")","this.onGround","this.body.velocity.y"]}],
+script_trace {"points":[{"file":"scripts/player.js","line":18,"condition":"input.pressed(\"jump\")",
+                         "watch":["this.entity.isGrounded()","this.body.velocity","this.jumpSpeed"]}],
               "frames":120,"input":"<the input.json path that play_report gave>","maxHits":5}
 ```
 
-2. Read `hits[*].watch`. If `this.onGround` is always `false`, trace the line that sets it, with a condition to keep the
-   answer short:
+2. Read `hits[*].watch`. If `this.entity.isGrounded()` is always `false`, the body never rests on anything. Follow the
+   velocity over time with a logpoint, which is cheaper than hits with locals:
 
 ```
-script_trace {"points":[{"file":"scripts/player.js","line":31,"condition":"this.body.velocity.y === 0",
-                         "watch":["this.onGround","this.body.velocity"],"log":""}],
-              "frames":120,"maxHits":3}
-```
-
-3. A logpoint is cheaper when you only need a value over time:
-
-```
-script_trace {"points":[{"file":"scripts/player.js","line":17,"log":"vy={this.body.velocity.y} ground={this.onGround}"}],
+script_trace {"points":[{"file":"scripts/player.js","line":17,
+                         "log":"x={this.body.velocity.x} y={this.body.velocity.y} grounded={this.entity.isGrounded()}"}],
               "frames":300,"maxHits":50}
 ```
 
    `logs` then holds one line per frame (up to `maxHits`).
+
+3. If the jump line (19) runs but the player does not rise, check the field with a condition to keep the answer short:
+
+```
+script_trace {"points":[{"file":"scripts/player.js","line":19,"condition":"this.jumpSpeed <= 0",
+                         "watch":["this.speed","this.jumpSpeed"]}],
+              "frames":120,"maxHits":3}
+```
 
 4. Fix the code, then run the same call again: the answer shows the change. When it is right, keep it as a test
    ([SCRIPTING.md](SCRIPTING.md)).
