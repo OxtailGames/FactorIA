@@ -22,6 +22,12 @@ Physics
   other scenes, destroyed entities or reused entity slots (a level test could take 2000 or 2800 frames depending on
   which tests ran first).
 
+Native plugins
+
+- `"optional": true` on a plugin in `factoria.json` says the game runs without it: when its build for your computer is
+  missing (a store SDK only some developers build), `factoria validate` warns instead of failing. Exporting for a
+  platform still needs that platform's build.
+
 Mac App Store
 
 - `sign.macos` takes `distribution: "appStore"`: it signs the macOS export with the App Sandbox, an Apple Distribution
