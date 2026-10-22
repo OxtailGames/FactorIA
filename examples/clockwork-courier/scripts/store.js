@@ -47,7 +47,7 @@ export function reset() {
   storage.remove(KEY);
 }
 
-/** The kind of every product of factoria.json platform.products (the script API does not expose the catalog: FB-0024). */
+/** The kind of every product of factoria.json platform.products (the script API does not expose the catalog: FB-0029). */
 const TYPES = { remove_ads: "nonConsumable", paint_copper: "nonConsumable", paint_neon: "nonConsumable", tip_jar: "consumable" };
 
 /** The catalog entry of a product, or null. */
@@ -117,7 +117,7 @@ export async function grant(purchase) {
   const first = grantLocal(purchase);
   if (purchase.transactionId) {
     try {
-      // try/await, not .catch(): finish() throws at the call for an unknown id (FB-0020)
+      // try/await, not .catch(): finish() throws at the call for an unknown id (FB-0025)
       await platform.purchases.finish(purchase.transactionId);
     } catch (e) {
       /* the store hands it over again at the next start */
@@ -153,7 +153,7 @@ export async function buy(productId) {
 /**
  * Adds what the store lists (non-consumables) to the save. With `authoritative` it also removes the products the store no
  * longer lists: a refund or a revoked purchase. The fake store keeps nothing between runs while the save does, so
- * revoking is off for it by default (a development run would lose every purchase at each start; the fake cannot refund, FB-0019).
+ * revoking is off for it by default (a development run would lose every purchase at each start; the fake cannot refund, FB-0024).
  * @param {{ authoritative?: boolean }} [options]
  * @returns {Promise<{ ok: boolean, added: string[], revoked: string[], error?: any }>}
  */

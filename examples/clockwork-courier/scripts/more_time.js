@@ -24,7 +24,7 @@ export function install(flow) {
   if (!box || world.find(BUTTON)) return;
   world.spawn({ id: BUTTON, active: false, components: { Button: { autoSize: true, text: "", layer: 302 } } }, { parent: box });
   // The layout stacks children in the order of the hierarchy: take the two stock buttons out and back in, behind the new one
-  // (spawn cannot insert at an index, FB-0027).
+  // (spawn cannot insert at an index, FB-0032).
   for (const id of ["retry_retry", "retry_title"]) world.find(id)?.setParent(box);
   ui.on("click", BUTTON, () => run(flow));
 }

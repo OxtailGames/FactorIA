@@ -1,6 +1,6 @@
 // Helpers of the store tests (services, shop, leaderboards, ads): a clean save and a clean fake store, events sent by hand,
 // and short readers of what the platform and the save hold. `storage` keeps its data across the tests of a run and the fake
-// store keeps its state until it is reset (FB-0021), so every test starts with fresh().
+// store keeps its state until it is reset (FB-0026), so every test starts with fresh().
 import { game } from "factoria:test";
 import { storage } from "factoria";
 
