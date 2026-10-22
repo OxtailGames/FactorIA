@@ -4,7 +4,7 @@
   "id": "com.factoria.examples.clockworkcourier",
   "version": "0.1.0",
   "engine": "0.2.0",
-  "mainScene": "scenes/main.scene.json",
+  "mainScene": "scenes/intro.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
   "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
