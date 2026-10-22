@@ -14,8 +14,8 @@
 // A catch is not the end of the level: the courier lies down for `caughtTime` seconds (the Death clip), the spring pays
 // `caughtPenalty` seconds, and it gets up at the last checkpoint with `graceTime` seconds of safety.
 //
-// Moving platforms: a CharacterController3D is not carried by the body it stands on (ENGINE_FEEDBACK FB-0010), so the
-// courier adds the velocity of the kinematic RigidBody3D under its feet to its own move.
+// Moving platforms carry the courier (CharacterController3D.carriedByPlatforms); seesaws and bridge planks feel its weight
+// (CharacterController3D.applyWeight, mass) and are never shoved by it.
 import { Behaviour, input, physics, world, audio } from "factoria";
 import { EVENTS, emit } from "./events.js";
 import * as fx from "./fx.js";
@@ -216,8 +216,7 @@ export default class Courier extends Behaviour {
 
     // ---------------------------------------------------------------------------------------------------------- move
     const before = this.vy;
-    const carry = this.platformCarry(dt);
-    const r = physics.moveCharacter(this.entity, [this.vx * dt + carry[0], this.vy * dt + carry[1], this.vz * dt + carry[2]]);
+    const r = physics.moveCharacter(this.entity, [this.vx * dt, this.vy * dt, this.vz * dt]);
     const wasGrounded = this.grounded;
     this.grounded = r.isGrounded && !jumped;
     this.ground = r.ground;
@@ -225,8 +224,8 @@ export default class Courier extends Behaviour {
     if (r.hitCeiling && this.vy > 0) this.vy = 0;
     if (r.hitWall) {
       // Slide: keep only the velocity that actually happened.
-      this.vx = (r.moved.x - carry[0]) / dt;
-      this.vz = (r.moved.z - carry[2]) / dt;
+      this.vx = r.moved.x / dt;
+      this.vz = r.moved.z / dt;
     }
     if (this.grounded && !wasGrounded && before < -this.thudSpeed) {
       audio.play("assets/audio/impactSoft_heavy_000.ogg", { bus: "sfx", volume: Math.min(0.8, -before / 20) });
@@ -261,16 +260,6 @@ export default class Courier extends Behaviour {
       volume: this.footstepVolume * (run ? 1 : 0.6),
       pitch: left ? 1 : 0.94,
     });
-  }
-
-  /** How far the body under the feet moves the courier this step: the velocity of a kinematic RigidBody3D (a moving platform). */
-  platformCarry(dt) {
-    const g = this.ground;
-    if (!g || !this.grounded) return [0, 0, 0];
-    const rb = g.get("RigidBody3D");
-    if (!rb || rb.type !== "kinematic") return [0, 0, 0];
-    const v = rb.velocity;
-    return [v.x * dt, v.y * dt, v.z * dt];
   }
 
   /** Puts the courier back at the last checkpoint (or where it started) after a fall. */

@@ -1219,6 +1219,10 @@ hand-ordered `factoria.json` as it was.
 
 ### M26.2 Character controller on moving and dynamic bodies (M) — CC/FB-0010, CC/FB-0011
 
+Done (branch `m26/character-platforms`): kinematic platforms carry a character (displacement and turn;
+`carriedByPlatforms`), the character weighs on the dynamic body below (`applyWeight`, `mass`) and pushes free bodies
+with `pushStrength` but never a jointed one; Clockwork Courier's workarounds are gone.
+
 - `physics.moveCharacter` adds the displacement (and the turn) of the kinematic body the character stands on, as it
   already does for dynamic ones (physics3d_character.cpp); `CharacterController3D.carriedByPlatforms` (default true)
   turns it off. The comment in `physics.h` on what carries a character is fixed.

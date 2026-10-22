@@ -6,7 +6,7 @@
 
 Since 0.2.0.
 
-A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
+A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, is carried by the kinematic platform it stands on (carriedByPlatforms), weighs on the dynamic body below it (applyWeight, mass: a seesaw tips) and pushes the free dynamic bodies it walks into (pushStrength). Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -19,6 +19,10 @@ A walking character: a kinematic capsule that moves and slides. Move it with phy
 | `layer` | int | `0` | Collision category of the character, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers the character collides with. -1 = all layers. |
 | `velocity` | vec3 | `[0.0,0.0,0.0]` | Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion. |
+| `carriedByPlatforms` | bool | `true` | When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a moving platform slides out from under it and the script must carry it. (not released yet, on main after 0.2.0) |
+| `applyWeight` | bool | `true` | When true (default) a character standing on a dynamic RigidBody3D presses on it with mass * gravity at its feet, every physics step: a seesaw tips towards the side it stands on, a bridge plank or a crate feels the load. Set false for a character that weighs nothing. (not released yet, on main after 0.2.0) |
+| `mass` | float | `70.0` | Weight in kilograms pressed on the dynamic body below when applyWeight is on (see applyWeight). Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
+| `pushStrength` | float | `1.0` | How hard the character shoves the free dynamic bodies it walks into: 1 (default) gives them its own speed, 0.5 half of it, 0 none (they block it like a wall). A body held by a Joint3D (a seesaw on its pivot, a bridge plank, a door) is never shoved whatever the value. Range 0.0..10.0. (not released yet, on main after 0.2.0) |
 | `isGrounded` | bool | `false` | Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only. Runtime-only (not saved). |
 | `groundNormal` | vec3 | `[0.0,1.0,0.0]` | Runtime: the normal of the ground under the character after the last move (up when airborne). Read-only. Runtime-only (not saved). |
 

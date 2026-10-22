@@ -1,9 +1,9 @@
 // @ts-check
-// A seesaw: a dynamic plank on a hinge (Joint3D) that tips under the courier. Characters do not press on dynamic bodies
-// in this engine (a CharacterController3D is kinematic: ENGINE_FEEDBACK FB-0011), so the courier's weight is simulated
-// here: while it stands on the plank, the hinge motor drives the plank so that the side it stands on goes down; when it
-// steps off, the plank keeps its tilt (a real seesaw rests on whichever end is heavier). The way across is to walk up
-// the raised end, over the pivot, and the plank tips under you onto the far platform.
+// A seesaw: a dynamic plank on a hinge (Joint3D) that tips under the courier. The courier weighs on the plank
+// (CharacterController3D.applyWeight, mass) and never shoves it, so the engine tips it by itself; this script only
+// limits the tilt and, while nobody stands on it, drives the plank to `rest` with the hinge motor (a real seesaw rests on
+// whichever end is heavier). The way across is to walk up the raised end, over the pivot, and the plank tips under you
+// onto the far platform.
 //
 //   along      "x" or "z": the world axis the plank lies along (the hinge axis is the other horizontal one)
 //   maxAngle   how far it tips, degrees (the Joint3D limits are set from it)
@@ -19,16 +19,12 @@ export default class Seesaw extends Behaviour {
   gain = 8;
   /** Fastest the plank tips, degrees per second. */
   maxSpeed = 50;
-  /** Distance from the pivot (metres) at which the courier's weight counts fully; closer than that it counts less. */
-  fullWeightAt = 0.7;
   rest = 1;
   /** Id of the courier entity. */
   courierId = "courier";
 
   onStart() {
     this.joint = this.entity.get("Joint3D");
-    this.body = this.entity.get("RigidBody3D");
-    this.pivot = this.entity.worldPosition;
     this.courier = world.find(this.courierId);
     if (this.joint) {
       this.joint.useLimits = true;
@@ -60,17 +56,25 @@ export default class Seesaw extends Behaviour {
     return this.along === "x" ? -s : s;
   }
 
-  onFixedUpdate() {
+  onFixedUpdate(dt) {
     if (!this.joint) return;
-    // The courier pushes dynamic bodies it walks into (a CharacterController3D): that would slide the plank off its pivot.
-    if (this.body) this.body.velocity = [0, 0, 0];
     const cb = this.courier ? this.courier.behaviour : null;
     if (cb && cb.grounded && cb.ground && cb.ground.id === this.entity.id) {
-      const pos = this.courier.position;
-      const off = (this.along === "x" ? pos.x : pos.z) - (this.along === "x" ? this.pivot.x : this.pivot.z);
-      const weight = Math.min(1, Math.abs(off) / this.fullWeightAt);
-      if (weight > 0.05) this.target = this.angleFor(Math.sign(off)) * (0.35 + 0.65 * weight);
+      // The courier's weight tips the plank by itself (CharacterController3D.applyWeight): the motor lets go of it.
+      this.joint.useMotor = false;
+      this.alone = 0;
+      const side = this.downSide;
+      if (side !== 0) this.target = this.angleFor(side);
+      return;
     }
+    // A hop or a stumble on the plank is not leaving it: the motor waits a little before it takes the plank over.
+    this.alone = (this.alone || 0) + dt;
+    if (this.alone < 0.4) {
+      this.joint.useMotor = false;
+      return;
+    }
+    // Nobody on it: the motor takes the plank to the end that is down (or `rest` at the start) and holds it there.
+    this.joint.useMotor = true;
     const err = this.target - this.angle;
     this.joint.motorSpeed = Math.max(-this.maxSpeed, Math.min(this.maxSpeed, err * this.gain));
   }

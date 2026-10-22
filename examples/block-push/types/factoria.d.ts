@@ -3082,7 +3082,7 @@ declare module "factoria" {
     readonly angle: number;
   }
   /**
-   * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
+   * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, is carried by the kinematic platform it stands on (carriedByPlatforms), weighs on the dynamic body below it (applyWeight, mass: a seesaw tips) and pushes the free dynamic bodies it walks into (pushStrength). Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
    * 
    * Category: Physics
    * @since 0.2.0
@@ -3135,6 +3135,26 @@ declare module "factoria" {
      */
     get velocity(): Vec3;
     set velocity(value: Vec3Like);
+    /**
+     * When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a moving platform slides out from under it and the script must carry it.
+     * @since unreleased
+     */
+    carriedByPlatforms: boolean;
+    /**
+     * When true (default) a character standing on a dynamic RigidBody3D presses on it with mass * gravity at its feet, every physics step: a seesaw tips towards the side it stands on, a bridge plank or a crate feels the load. Set false for a character that weighs nothing.
+     * @since unreleased
+     */
+    applyWeight: boolean;
+    /**
+     * Weight in kilograms pressed on the dynamic body below when applyWeight is on (see applyWeight).
+     * @since unreleased
+     */
+    mass: number;
+    /**
+     * How hard the character shoves the free dynamic bodies it walks into: 1 (default) gives them its own speed, 0.5 half of it, 0 none (they block it like a wall). A body held by a Joint3D (a seesaw on its pivot, a bridge plank, a door) is never shoved whatever the value.
+     * @since unreleased
+     */
+    pushStrength: number;
     /**
      * Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only.
      * @since 0.2.0
@@ -4297,7 +4317,7 @@ declare module "factoria" {
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
     Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
     Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
-    CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like };
+    CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };

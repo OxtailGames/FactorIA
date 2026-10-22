@@ -1,7 +1,7 @@
 // @ts-check
 // A moving platform: a kinematic RigidBody3D that goes to `offset` and back at `speed`, waiting `wait` seconds at each end.
-// It moves by setting the body's velocity (never the Transform), so dynamic bodies on it are carried by the engine, and
-// scripts/courier.js adds the same velocity to the courier (a CharacterController3D is not carried: ENGINE_FEEDBACK).
+// It moves by setting the body's velocity (never the Transform), so the engine carries whatever stands on it: dynamic
+// bodies and the courier (CharacterController3D.carriedByPlatforms).
 //
 // The velocity is clamped at each end so the platform lands exactly on its end point whatever dt is, and the whole
 // motion is a function of the fixed steps only (deterministic). `phase` (0..1) starts it part-way, so two platforms
