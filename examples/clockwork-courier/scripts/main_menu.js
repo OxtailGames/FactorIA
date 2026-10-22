@@ -17,7 +17,7 @@ export default class MainMenu extends Behaviour {
     this.menus = new MenuStack("main_menu");
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
-      session.nextScene = levels.first().scene; // scenes/loading.scene.json shows "Loading" for a frame, then loads it
+      session.nextScene = levels.first().scene; // scenes/loading.scene.json shows a step bar for three frames, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));

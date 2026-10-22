@@ -1,11 +1,156 @@
 {
   "format": "factoria.scene/1",
   "entities": [
-    { "id": "camera", "components": { "Transform": { "position": [640, 360, 0] }, "Camera": { "clearColor": [0.1, 0.12, 0.18, 1] } } },
-    { "id": "loading",
+    {
+      "id": "camera",
       "components": {
-        "Transform": { "position": [-48, -48, 0] },
-        "Text": { "text": "Loading...", "key": "loading.text", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
-        "Script": { "path": "scripts/loading.js" } } }
+        "Transform": {
+          "position": [
+            640,
+            360,
+            0
+          ]
+        },
+        "Camera": {
+          "clearColor": [
+            0.1,
+            0.12,
+            0.18,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "loading_level",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            -90,
+            0
+          ]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 44,
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ]
+        }
+      }
+    },
+    {
+      "id": "loading_bar_back",
+      "components": {
+        "Transform": {
+          "position": [
+            -240,
+            0,
+            0
+          ]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [
+            480,
+            16
+          ],
+          "color": [
+            0.2,
+            0.22,
+            0.3,
+            1
+          ],
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "pivot": [
+            0,
+            0.5
+          ]
+        }
+      }
+    },
+    {
+      "id": "loading_bar",
+      "components": {
+        "Transform": {
+          "position": [
+            -240,
+            0,
+            0
+          ]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [
+            1,
+            16
+          ],
+          "color": [
+            1,
+            0.75,
+            0.25,
+            1
+          ],
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "pivot": [
+            0,
+            0.5
+          ],
+          "layer": 1
+        }
+      }
+    },
+    {
+      "id": "loading",
+      "components": {
+        "Transform": {
+          "position": [
+            -48,
+            -48,
+            0
+          ]
+        },
+        "Text": {
+          "text": "Loading...",
+          "key": "loading.text",
+          "fontSize": 36,
+          "space": "screen",
+          "anchor": [
+            1,
+            1
+          ],
+          "pivot": [
+            1,
+            0
+          ]
+        },
+        "Script": {
+          "path": "scripts/loading.js"
+        }
+      }
+    },
+    {
+      "id": "music",
+      "components": {
+        "Script": {
+          "path": "scripts/music.js"
+        }
+      }
+    }
   ]
 }

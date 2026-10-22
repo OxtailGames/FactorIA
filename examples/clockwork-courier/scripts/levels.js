@@ -25,12 +25,12 @@ export const MUSIC = Object.freeze({
 
 /** @type {Level[]} */
 export const LEVELS = [
-  { id: "rooftops_1", name: "First Roofs", nameKey: "levels.rooftops_1", district: "rooftops", scene: "scenes/rooftops_1.scene.json", spring: 110, parTime: 75, parcels: 1, optionalParcels: 1, music: MUSIC.rooftops },
-  { id: "rooftops_2", name: "Chimney Row", nameKey: "levels.rooftops_2", district: "rooftops", scene: "scenes/rooftops_2.scene.json", spring: 140, parTime: 95, parcels: 2, optionalParcels: 1, music: MUSIC.rooftops },
-  { id: "rooftops_3", name: "Clock Square", nameKey: "levels.rooftops_3", district: "rooftops", scene: "scenes/rooftops_3.scene.json", spring: 160, parTime: 110, parcels: 2, optionalParcels: 1, music: MUSIC.rooftops },
-  { id: "market_1", name: "Lantern Lane", nameKey: "levels.market_1", district: "market", scene: "scenes/market_1.scene.json", spring: 140, parTime: 95, parcels: 2, optionalParcels: 1, music: MUSIC.market },
-  { id: "market_2", name: "Stall Street", nameKey: "levels.market_2", district: "market", scene: "scenes/market_2.scene.json", spring: 160, parTime: 110, parcels: 2, optionalParcels: 1, music: MUSIC.market },
-  { id: "market_3", name: "Midnight Rush", nameKey: "levels.market_3", district: "market", scene: "scenes/market_3.scene.json", spring: 180, parTime: 125, parcels: 3, optionalParcels: 1, music: MUSIC.market },
+  { id: "rooftops_1", name: "First Roofs", nameKey: "levels.rooftops_1", district: "rooftops", scene: "scenes/rooftops_1.scene.json", spring: 110, parTime: 50, parcels: 1, optionalParcels: 1, music: MUSIC.rooftops },
+  { id: "rooftops_2", name: "Chimney Row", nameKey: "levels.rooftops_2", district: "rooftops", scene: "scenes/rooftops_2.scene.json", spring: 140, parTime: 70, parcels: 2, optionalParcels: 1, music: MUSIC.rooftops },
+  { id: "rooftops_3", name: "Clock Square", nameKey: "levels.rooftops_3", district: "rooftops", scene: "scenes/rooftops_3.scene.json", spring: 160, parTime: 100, parcels: 2, optionalParcels: 1, music: MUSIC.rooftops },
+  { id: "market_1", name: "Lantern Lane", nameKey: "levels.market_1", district: "market", scene: "scenes/market_1.scene.json", spring: 140, parTime: 60, parcels: 2, optionalParcels: 1, music: MUSIC.market },
+  { id: "market_2", name: "Stall Street", nameKey: "levels.market_2", district: "market", scene: "scenes/market_2.scene.json", spring: 160, parTime: 80, parcels: 2, optionalParcels: 1, music: MUSIC.market },
+  { id: "market_3", name: "Midnight Rush", nameKey: "levels.market_3", district: "market", scene: "scenes/market_3.scene.json", spring: 180, parTime: 100, parcels: 3, optionalParcels: 1, music: MUSIC.market },
 ];
 
 /** Scenes outside the player's list that tests (and the editor) load: the movement yard and the prop arena. */
