@@ -207,6 +207,14 @@ project's `scaleMode`.
 
 - Going to the background and back keeps the process: the game gets `Suspended`/`Resumed` (`player: suspended`,
   `player: resumed` in the log) and the GL surface is rebuilt.
+- Scripts hear it with `game.on("suspend", fn)` and `game.on("resume", fn)`; `game.on("blur", fn)` and
+  `game.on("focus", fn)` fire when the window loses or gains focus (desktop, and a phone's system dialogs), and
+  `game.focused` says which. Held inputs are released on suspend and blur, so no key or finger stays stuck.
+- `"pauseOnSuspend"` in `factoria.json` (default `true`) freezes the simulation (`time.scale` 0, the same as
+  `game.paused = true`) and the music while the app is in the background and restores them on resume. The `suspend`
+  handlers run first, so a game that opens its own pause menu there (`game.paused = true`) stays paused after resume,
+  waiting for the player. Set `false` for a game that must keep running (a timer, a server clock).
+- Tests: `game.suspend()`, `game.resume()`, `game.blur()` and `game.focus()` in `factoria:test` do what the OS does.
 - Configuration changes the manifest lists (orientation, screen size, density, dark mode, locale, font size, the SIM's
   `mcc`/`mnc` and the others in `android:configChanges`) are handled in place: the game keeps running.
 - A change of the app's assets paths cannot be listed: a new wallpaper colour palette or theme (Android 12+), a system

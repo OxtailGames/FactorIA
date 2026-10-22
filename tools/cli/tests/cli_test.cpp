@@ -207,6 +207,45 @@ TEST_CASE("run --input: a missing file lists the places tried and suggests a clo
     CHECK(r.err.find("a folder of that name exists") != std::string::npos);
 }
 
+// game.today(): the fixed default in headless runs, the replay's recorded date when it has one, --date over both; an
+// impossible date is a teaching usage error.
+TEST_CASE("run --headless: the date is fixed, a replay keeps its own, --date wins, an impossible date fails") {
+    PathsFixture f;
+    auto scene = (f.project / "scenes/main.scene.json");
+    std::ifstream in(scene);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    auto at = text.rfind("]");
+    REQUIRE(at != std::string::npos);
+    text.insert(at, R"(, {"id": "probe", "name": "probe", "components": {"Script": {"path": "scripts/probe.js"}}})");
+    PathsFixture::write(scene, text);
+    PathsFixture::write(f.project / "scripts/probe.js",
+                        "import { Behaviour, game } from \"factoria\";\n"
+                        "export default class Probe extends Behaviour {\n"
+                        "  onStart() { this.entity.name = \"date:\" + game.today().iso; }\n}\n");
+    PathsFixture::write(f.project / "replays/dated.json", R"({"date": "2027-07-04", "frames": {"0": {}}})");
+    auto state = [&](std::vector<std::string> args) {
+        std::vector<std::string> a = {"run", f.project.string(), "--headless", "--frames", "3", "--state-out", "state.json"};
+        a.insert(a.end(), args.begin(), args.end());
+        auto r = run(a);
+        CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+        std::ifstream s(f.elsewhere / "state.json");
+        return std::string((std::istreambuf_iterator<char>(s)), std::istreambuf_iterator<char>());
+    };
+    CHECK(state({}).find("date:2026-01-01") != std::string::npos);
+    CHECK(state({"--input", "replays/dated.json"}).find("date:2027-07-04") != std::string::npos);
+    CHECK(state({"--input", "replays/dated.json", "--date", "2030-12-31"}).find("date:2030-12-31") != std::string::npos);
+    CHECK(state({"--date", "2028-02-29"}).find("date:2028-02-29") != std::string::npos);
+
+    auto bad = run({"run", f.project.string(), "--headless", "--frames", "3", "--date", "2026-02-29"});
+    CHECK(bad.code == 2);
+    CHECK(bad.err.find("not a real date") != std::string::npos);
+    CHECK(bad.err.find("leap year") != std::string::npos);
+    bad = run({"run", f.project.string(), "--headless", "--frames", "3", "--date", "today"});
+    CHECK(bad.code == 2);
+    CHECK(bad.err.find("YYYY-MM-DD") != std::string::npos);
+}
+
 // Whoever parses stdout of a --json command gets an object, also when it fails: {"ok": false, "error": {code, message,
 // hint}} (the text for people still goes to stderr).
 TEST_CASE("--json: a failure is a JSON error object on stdout, whatever the command and the kind of failure") {

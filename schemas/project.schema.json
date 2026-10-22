@@ -39,6 +39,10 @@
       "type": "string",
       "description": "Project-relative path of the scene loaded at startup, e.g. \"scenes/main.scene.json\"."
     },
+    "pauseOnSuspend": {
+      "type": "boolean",
+      "description": "Default true. While the app is in the background (a phone's home button or an incoming call) the engine freezes the game (game.paused becomes true, unless a game.on(\"suspend\") handler paused it already) and silences the music and every sound, and unfreezes both when the app comes back. Set false to decide yourself in game.on(\"suspend\") and game.on(\"resume\") handlers. A window that merely loses the focus is never paused (use game.on(\"blur\")). docs/MOBILE.md, Lifecycle."
+    },
     "display": {
       "type": "object",
       "description": "Window and design-resolution settings. The game always renders at the design resolution.",

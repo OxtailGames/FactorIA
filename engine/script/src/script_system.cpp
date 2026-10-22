@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "fa_script_js.h"
+#include "fa/audio/audio.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -994,6 +995,78 @@ Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
 std::string ScriptSystem::typescript_declarations(const SinceFn& since) const { return impl_->typescript_declarations(since); }
 
 double ScriptSystem::time_scale() const { return impl_->timeScale; }
+
+CalendarDate ScriptSystem::today() const { return impl_->date; }
+
+void ScriptSystem::set_start_date(const CalendarDate& date) { impl_->startDate = impl_->date = date; }
+
+std::string ScriptSystem::set_date(std::string_view iso) {
+    auto parsed = parse_calendar_date(iso, "game.setDate:");
+    if (!parsed.ok()) return parsed.error().message + ". " + parsed.error().hint;
+    CalendarDate d = parsed.value();
+    d.utcOffsetMinutes = impl_->date.utcOffsetMinutes;
+    impl_->date = d;
+    return {};
+}
+
+bool ScriptSystem::app_focused() const { return impl_->appFocused; }
+bool ScriptSystem::app_suspended() const { return impl_->appSuspended; }
+
+void ScriptSystem::app_event(AppLifecycle event) {
+    Impl& I = *impl_;
+    if (!I.initialized) return;
+    auto send = [&](const char* name) {
+        I.host->world().events().game.push_back(GameEvent{name, Json::object(), kNullEntity});
+        dispatch_events();
+    };
+    // Suspending twice, or resuming a running app, changes nothing and sends nothing (platforms repeat these events).
+    switch (event) {
+        case AppLifecycle::Focus:
+            if (I.appFocused) return;
+            I.appFocused = true;
+            send("app.focus");
+            break;
+        case AppLifecycle::Blur:
+            if (!I.appFocused) return;
+            I.appFocused = false;
+            send("app.blur");
+            break;
+        case AppLifecycle::Suspend: {
+            if (I.appSuspended) return;
+            I.appSuspended = true;
+            send("app.suspend");  // first, so a script can open its own pause menu: that pause is then the one that stays
+            const Json settings = I.host->project_settings();
+            const bool pauseOnSuspend = !settings.is_object() || !settings.contains("pauseOnSuspend") ||
+                                        !settings["pauseOnSuspend"].is_boolean() || settings["pauseOnSuspend"].get<bool>();
+            if (pauseOnSuspend) {
+                if (I.timeScale > 0.0) {
+                    I.scaleBeforeSuspend = I.timeScale;
+                    I.timeScale = 0.0;
+                    I.pausedBySuspend = true;
+                }
+                I.host->audio().set_paused(true);
+            }
+            break;
+        }
+        case AppLifecycle::Resume:
+            if (!I.appSuspended) return;
+            I.appSuspended = false;
+            if (I.pausedBySuspend && I.timeScale == 0.0) I.timeScale = I.scaleBeforeSuspend;
+            I.pausedBySuspend = false;
+            I.host->audio().set_paused(false);
+            send("app.resume");
+            break;
+    }
+}
+
+void ScriptSystem::reset_app_state() {
+    Impl& I = *impl_;
+    I.appFocused = true;
+    I.appSuspended = false;
+    I.pausedBySuspend = false;
+    if (I.initialized) I.host->audio().set_paused(false);
+    I.date = I.startDate;
+}
 
 Json ScriptSystem::stats() const {
     const auto& I = *impl_;

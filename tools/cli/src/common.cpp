@@ -121,12 +121,21 @@ std::string resolve_project_dir(const Context& ctx, std::size_t posIndex, bool r
     return dir;
 }
 
-EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed) {
+std::string date_flag(const Args& args) {
+    if (!args.has("date")) return {};
+    const std::string text = args.str("date");
+    auto parsed = parse_calendar_date(text, "--date");
+    if (!parsed.ok()) throw UsageError(parsed.error().message, parsed.error().hint);
+    return text;
+}
+
+EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed, const std::string& date) {
     EngineConfig cfg;
     cfg.projectDir = projectDir;
     cfg.shaderCompiler = make_engine_shader_compiler(projectDir);
     cfg.scene = scene;
     cfg.seed = seed;
+    cfg.date = date;
     return cfg;
 }
 
@@ -186,6 +195,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     cfg.width = opt.width;
     cfg.height = opt.height;
     cfg.seed = opt.seed;
+    cfg.date = opt.date;
     cfg.hotReload = opt.hotReload;
     cfg.renderMode = opt.renderMode;
     cfg.memoryStorage = opt.memoryStorage;

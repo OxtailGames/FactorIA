@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "fa/core/command.h"
+#include "fa/core/date.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
@@ -285,6 +286,26 @@ public:
     // time.scale as scripts set it (game.paused sets 0): the engine scales physics steps, particles and sprite
     // animators by it, so 0 freezes gameplay while the UI and runWhilePaused behaviours keep running.
     double time_scale() const;
+
+    // ---- The calendar date (`game.today()`, docs/SCRIPTING.md "The date") and the app's life (`game.on("suspend")`).
+    // The date is an input of the run: the host sets it once with set_start_date (EngineConfig::date), a test changes it with
+    // set_date (game.setDate) and every test starts from the start date again. Nothing here reads the clock.
+    CalendarDate today() const;
+    void set_start_date(const CalendarDate& date);
+    // game.setDate: "" when done, else the teaching error of parse_calendar_date.
+    std::string set_date(std::string_view iso);
+
+    // What happened to the app: the window gained or lost focus, or the app went to the background (mobile) or came back.
+    // Sends the game event "app.<name>" to the scripts at once. Suspend, then, when factoria.json "pauseOnSuspend" is not false
+    // (default true) and the game is not paused already, freezes the game (time.scale 0, game.paused) and silences the audio;
+    // Resume undoes exactly that (a game the script paused itself, a pause menu, stays paused). Hosts call it from the app's
+    // events; tests through game.suspend() / resume() / blur() / focus().
+    enum class AppLifecycle { Suspend, Resume, Focus, Blur };
+    void app_event(AppLifecycle event);
+    bool app_focused() const;
+    bool app_suspended() const;
+    // A new test: focus, no suspend (the audio and time.scale are put back by the test reset), the date back to the start date.
+    void reset_app_state();
 
     struct Impl;
 

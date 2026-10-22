@@ -158,6 +158,14 @@ struct ScriptSystem::Impl {
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;
 
+    // ---- the calendar date and the app's life (script_system.cpp: ScriptSystem::today / app_event)
+    CalendarDate startDate;  // what the host set: EngineConfig::date
+    CalendarDate date;       // game.today(): startDate, or what game.setDate set in a test
+    bool appFocused = true;
+    bool appSuspended = false;
+    bool pausedBySuspend = false;  // the suspend froze the game (time.scale 0) and will unfreeze it on resume
+    double scaleBeforeSuspend = 1.0;
+
     // ---- test runner state
     bool inTestRun = false;
 

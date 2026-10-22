@@ -63,6 +63,19 @@ Microsoft Store
 - New `publish.microsoft` uploads the package with the Microsoft Store Developer CLI.
 - The web export and the AppImage use a shared zip writer; their bytes did not change in meaning.
 
+Scripting
+
+- New `game.today()` returns `{ year, month, day, weekday, utcOffsetMinutes, iso }`: the player's real local date in a
+  built game, the fixed date `2026-01-01` in `factoria test` and headless runs, and the date a replay recorded when it
+  plays (an old replay without one uses the fixed date). `game.setDate("YYYY-MM-DD")` in `factoria:test` changes it, and
+  `--date` does the same for `run`, `screenshot`, `test`, `call`, `session` and `mcp`. An impossible date (`2026-02-29`)
+  or another format is an error that says what is wrong. Read the date with `game.today()`, never `Date`.
+- New `game.on("suspend" | "resume" | "focus" | "blur", fn)` and `game.focused` tell scripts when the app goes to the
+  background and back, or the window loses the focus. The new `factoria.json` setting `pauseOnSuspend` (default `true`)
+  pauses the game and the music while the app is in the background; `game.suspend()`, `game.resume()`, `game.focus()`
+  and `game.blur()` in `factoria:test` test it. A pause menu opened by a `suspend` handler stays after resume.
+- Clockwork Courier uses the date and the lifecycle API instead of its workarounds (FB-0019, FB-0035).
+
 ## 0.2.0
 
 FactorIA 0.2.0 is about finishing and shipping a game: edit scenes by hand next to your AI, translate the game, add

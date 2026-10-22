@@ -560,6 +560,9 @@ the press is released over the same widget; a Slider follows the pointer while p
   unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
   logs nothing when the store rejects.
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
+- `game.today()` (see "The date") · `game.focused` · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
+  see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
+  app is in the background)
 - `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize` ·
   `game.platform` (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"` or `"web"`: e.g. no Quit button on phones)
 - `game.accessibility` (read-only, frozen) → `{ textScale, reduceMotion, highContrast, screenReader }`: the player's
@@ -588,6 +591,26 @@ the press is released over the same widget; a Slider follows the pointer while p
   player or offer a recovery. A test starts from a damaged save with `game.setStorageText('{"broken')` (from
   `factoria:test`; it sets the text the next storage load reads and reloads, then `storage.corrupt` is `true`).
   On the web the save folder lives in IndexedDB and the same rules apply to its copy of the file.
+
+### The date: `game.today()` (never `Date`)
+`new Date()` and `Date.now()` read the wall clock, so a run is different every time and a test cannot pin it. Read the
+calendar date with `game.today()` instead, as you use `rng` for chance:
+
+```js
+import { game, rng } from "factoria";
+const t = game.today();   // { year: 2026, month: 3, day: 14, weekday: 6, utcOffsetMinutes: 60, iso: "2026-03-14" }
+rng.seed(t.year * 10000 + t.month * 100 + t.day);   // a daily challenge: everybody plays the same seed on the same day
+```
+
+`weekday` is 0 = Sunday to 6 = Saturday; `utcOffsetMinutes` is the local offset from UTC. In a built game the date is the
+player's real local date, read when the game starts and again each time the app comes back to the foreground or the
+window gets the focus, before `game.on("resume")` / `game.on("focus")` run: a game left in the background overnight
+sees the new day in its "resume" handler, while one that stays in front past midnight keeps its date until then.
+In `factoria test`, `factoria run --headless`, `call`, `session`, `mcp` and `screenshot` it is the fixed date `2026-01-01`,
+so runs are reproducible; `--date YYYY-MM-DD` chooses another (see CLI.md). A replay recorded in the editor stores the
+date it was played on and plays back with it, so a daily run replays identically (an older replay without a date uses the
+fixed default). In tests `game.setDate("2026-03-14")` changes it (reset before each test); an impossible date throws an
+error that says which part is wrong.
 
 ### rng (deterministic, seeded per run)
 `rng.seed(n)` reseeds the world RNG (seed → level determinism from tools/tests) · `rng.float()` [0,1) · `rng.range(a, b)` · `rng.int(a, b)` (inclusive) · `rng.chance(p)` · `rng.pick(array)` · `rng.shuffle(array)` (a shuffled copy)
@@ -752,6 +775,8 @@ test("player jumps", () => {
   `keyDown(key)`, `keyUp(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
+  `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
+  `focus()`, `blur()` (what the OS does to the app, so lifecycle code can be tested),
   `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
 
 `game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like

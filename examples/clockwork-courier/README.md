@@ -122,8 +122,8 @@ Subtitles option of the Audio tab switches them. The spring-low warning is a yel
 key a T handle on a base) and a dog that noticed the courier shows a bright "!" on a dark ball over its head, as well
 as barking.
 
-On a phone: the game pauses when the app goes to the background (`scripts/comfort.js`, see ENGINE_FEEDBACK FB-0035 for
-how it knows); Android Back closes the top screen everywhere (an options tab or panel, the pause menu, credits), pauses
+On a phone: the game pauses when the app goes to the background (`scripts/comfort.js`: `game.on("suspend")`
+opens the pause menu, FB-0035); Android Back closes the top screen everywhere (an options tab or panel, the pause menu, credits), pauses
 in a level, is ignored on the loading screen and, on the title with nothing open, asks "Quit the game?" first
 (`prefabs/ui/quit_confirm.prefab.json`). Every screen is laid out inside the safe area (`tests/comfort.test.js` checks
 the rectangles with a notch).
@@ -207,7 +207,7 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/main_menu.js`, `scripts/ui/` | Title screen (Play and Continue go to the level select or the name screen) and the menu kit (menu stack, options, interface sounds). The title asks before quitting on Android Back. |
 | `scripts/save_data.js`, `progress.js`, `cloud_sync.js` | Save format v2 (parse, migrate, merge), the progress API over it, cloud upload / download with conflict merge. |
 | `scripts/level_select.js`, `profile.js`, `results_view.js` | Level select, name screen with the on-screen keyboard, the text of the results panel. |
-| `scripts/daily.js`, `clock.js` | The daily route (seeded by the date) and the calendar date (pinnable in tests). |
+| `scripts/daily.js`, `clock.js` | The daily route (seeded by the date) and the calendar date (`game.today()`, set in tests with `game.setDate`). |
 | `scripts/fmt.js`, `locales/`, `assets/fonts/make_subset.py` | P7 languages: number and time formatting by locale, the three locale files, the script that builds the Japanese font subset. |
 | `scripts/settings.js`, `accessibility.js`, `haptics.js`, `comfort.js` | Saved options and what they change in a scene; assist, reduced motion and quality numbers; vibration pulses; per-level comfort entity (suspend pause, low-spring warning, catch and delivery haptics). |
 | `scripts/hud.js`, `parcel.js`, `delivery_door.js` | Spring bar, parcel counter, pickup and delivery. |
@@ -251,8 +251,8 @@ offline one never blocks play. Tested on the fake store (`game.platform`).
 
 ### Contract: daily route (`scripts/daily.js`, `scripts/clock.js`)
 
-`clock.today()` is the calendar date `YYYY-MM-DD` (the engine has no calendar API, ENGINE_FEEDBACK FB-0019); tests pin it
-with `clock.setToday(date)`. `daily.routeFor(date, levelIds)` is deterministic: the level and a permutation of the
+`clock.today()` is the calendar date `YYYY-MM-DD` (the engine's `game.today()`, FB-0019); tests choose it
+with `game.setDate(date)`. `daily.routeFor(date, levelIds)` is deterministic: the level and a permutation of the
 parcel spots (never the normal layout) come from `rng.create(fnv1a(date))`. `daily.current()` saves the route of
 today on first use, `start(route)` / `active()` / `clear()` hold it in `session.daily`, `place(route)` moves the parcels
 in the level scene, `finish(time)` records the day's best time and sends `daily_route_finished`. A daily run gives no
@@ -358,7 +358,7 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - The rope bridge needs heavy damping to stop ringing; narrower planks than 2 m are unstable.
 - The loading bar counts steps, not real progress.
 - Quality presets only change what scripts own (shadows, fog, particles, lights): the engine has no render scale or GPU
-  info API (FB-0036). The pause on suspend is a long-frame heuristic (FB-0035).
+  info API (FB-0036).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
   FB-0033); the level tests allow 10 percent between the main route and the shortcut.
 - The profile keyboard has the letters A to Z only: a Japanese name is typed with the system keyboard (FB-0020).

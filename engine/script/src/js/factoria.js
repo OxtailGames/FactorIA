@@ -1112,6 +1112,7 @@
     get current() { return N.scenePath(); },
   };
 
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1121,6 +1122,27 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
+    // The calendar date: { year, month, day, weekday (0 = Sunday), utcOffsetMinutes, iso: "YYYY-MM-DD" }. The player's real local
+    // date in a game with a window; a fixed date (2026-01-01, or --date) in tests and headless runs; the recorded one in a replay.
+    today() {
+      const t = N.today();
+      const pad = (n, w) => String(n).padStart(w, "0");
+      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], utcOffsetMinutes: t[4], iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}` });
+    },
+    // True while the game's window has the focus (always true on a phone that is in the foreground).
+    get focused() { return N.appState()[0]; },
+    // on(event, fn): "suspend" (the app goes to the background), "resume" (comes back), "focus" and "blur" (the window gains or
+    // loses the keyboard focus). fn gets no arguments. Returns the function that stops listening; listeners end with the scene,
+    // like world.on. With factoria.json "pauseOnSuspend" (default true) the engine freezes the game and the music after the
+    // "suspend" handlers ran (unless a handler paused it already) and unfreezes it before the "resume" handlers.
+    on(event, fn) {
+      if (!APP_EVENTS.includes(event)) {
+        const sug = closest(String(event), APP_EVENTS);
+        throw new Error(`game.on(event, fn): unknown event ${inspect(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${APP_EVENTS.map((n) => `"${n}"`).join(", ")}`);
+      }
+      if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
+      return addListener("app." + event, () => fn(), null);
+    },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     get platform() { return N.platform(); },
@@ -1800,6 +1822,22 @@
   const gameApiBase = {
     get paused() { return game.paused; },
     set paused(v) { game.paused = v; },
+    today() { return game.today(); },
+    get focused() { return game.focused; },
+    // setDate("2026-10-23"): the date game.today() answers until the test ends (every test starts from the date of the run:
+    // 2026-01-01, or --date). An impossible date (2026-02-29) or a wrong shape throws and says what is wrong.
+    setDate(iso) {
+      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23", but got ${inspect(iso)}`);
+      const err = N.testSetDate(iso);
+      if (err) throw new Error(err);
+    },
+    // suspend() / resume(): the app goes to the background and comes back, as on a phone: sends the "suspend" / "resume" event to
+    // game.on listeners at once and, with pauseOnSuspend (default), freezes the game and the music in between. focus() / blur():
+    // the window gains or loses the focus (game.focused). Every test starts focused and running.
+    suspend() { N.testAppEvent(0); },
+    resume() { N.testAppEvent(1); },
+    focus() { N.testAppEvent(2); },
+    blur() { N.testAppEvent(3); },
     load(path) {
       const err = N.testLoad(path);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
@@ -1947,6 +1985,7 @@
       N.captionClear();
       N.testAccessibility();
       N.setTimeScale(1); pausedScale = null;
+      N.testAppReset();
       const start = N.nowMs();
       const seq0 = N.logSeq();
       let passed = true, message = "";
