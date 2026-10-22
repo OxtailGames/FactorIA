@@ -998,3 +998,148 @@ TEST_CASE("3d physics: a scene simulates the same whatever the World and the phy
         CHECK(run_bridge(s, build_bridge_scene(s.world), 240) == reference);
     }
 }
+
+// ------------------------------------- character on moving and dynamic bodies ----
+
+namespace {
+
+// A 8 x 0.4 x 4 kinematic platform whose top is at y = 1, moving at `velocity`.
+Entity add_moving_platform(World& w, Vec3 velocity) {
+    Entity p = w.create("platform", "platform");
+    w.get<Transform>(p)->position = {0, 0.8f, 0};
+    w.add<Collider3D>(p).size = {8, 0.4f, 4};
+    RigidBody3D& rb = w.add<RigidBody3D>(p);
+    rb.type = BodyType::Kinematic;
+    rb.velocity = velocity;
+    return p;
+}
+
+}  // namespace
+
+TEST_CASE("3d character: a kinematic platform carries it for 300 frames; carriedByPlatforms=false lets it slide off") {
+    for (bool carried : {true, false}) {
+        Sim s;
+        add_big_floor(s.world);
+        Entity platform = add_moving_platform(s.world, {1.0f, 0, 0});
+        Entity hero = add_character(s.world, {-2, 1.95f, 0});
+        s.world.get<CharacterController3D>(hero)->carriedByPlatforms = carried;
+        Walker w{s, hero};
+        w.walk({0, 0, 0}, 30);
+        REQUIRE(w.grounded);
+        const float startHero = pos_of(s.world, hero).x, startPlat = pos_of(s.world, platform).x;
+        float worstOffset = 0.0f;
+        for (int i = 0; i < 300; ++i) {
+            w.frame({0, 0, 0});
+            worstOffset = std::max(worstOffset, std::fabs((pos_of(s.world, hero).x - startHero) -
+                                                          (pos_of(s.world, platform).x - startPlat)));
+        }
+        const float moved = pos_of(s.world, platform).x - startPlat;
+        CHECK(moved == doctest::Approx(5.0f).epsilon(0.03));
+        if (carried) {
+            CHECK(worstOffset < 0.05f);
+            CHECK(w.grounded);
+            CHECK(pos_of(s.world, hero).y == doctest::Approx(1.92f).epsilon(0.02));
+        } else {
+            CHECK(std::fabs(pos_of(s.world, hero).x - startHero) < 0.5f);  // it stayed, the platform left
+        }
+    }
+}
+
+TEST_CASE("3d character: a turning kinematic platform carries it round and turns it") {
+    Sim s;
+    Entity platform = add_moving_platform(s.world, {});
+    s.world.get<RigidBody3D>(platform)->angularVelocity = {0, 36.0f, 0};  // 10 s per turn
+    Entity hero = add_character(s.world, {2.5f, 1.95f, 0});
+    Walker w{s, hero};
+    w.walk({0, 0, 0}, 30);
+    REQUIRE(w.grounded);
+    const Vec3 c = pos_of(s.world, platform);
+    const float r0 = std::hypot(pos_of(s.world, hero).x - c.x, pos_of(s.world, hero).z - c.z);
+    const float yaw0 = s.world.get<Transform>(hero)->rotation.y;
+    w.walk({0, 0, 0}, 150);  // 2.5 s = 90 degrees
+    const Vec3 p = pos_of(s.world, hero);
+    CHECK(std::hypot(p.x - c.x, p.z - c.z) == doctest::Approx(r0).epsilon(0.03));
+    CHECK(std::fabs(p.z - c.z) > 0.8f * r0);  // a quarter turn: it is now beside the platform's z axis
+    CHECK(std::fabs(s.world.get<Transform>(hero)->rotation.y - yaw0) > 60.0f);
+}
+
+TEST_CASE("3d character: its weight tips a seesaw on its pivot, and a jointed crate is not shoved") {
+    SUBCASE("seesaw") {
+        Sim s;
+        add_big_floor(s.world);
+        Entity plank = s.world.create("plank", "plank");
+        s.world.get<Transform>(plank)->position = {0, 1.0f, 0};
+        s.world.add<Collider3D>(plank).size = {4, 0.2f, 1.5f};
+        s.world.add<RigidBody3D>(plank).mass = 20.0f;
+        Joint3D& j = s.world.add<Joint3D>(plank);  // hinge on the world at the plank's centre, axis z
+        j.axis = {0, 0, 1};
+        Entity hero = add_character(s.world, {1.5f, 2.1f, 0});
+        Walker w{s, hero};
+        w.walk({0, 0, 0}, 120);
+        const Vec3 p = pos_of(s.world, plank);
+        CHECK(s.world.get<Transform>(plank)->rotation.z < -5.0f);  // the +x end, where it stands, went down
+        CHECK(std::fabs(p.x) < 0.05f);
+        CHECK(std::fabs(p.z) < 0.05f);
+        CHECK(p.y == doctest::Approx(1.0f).epsilon(0.05));
+        CHECK(w.grounded);
+    }
+    SUBCASE("a weightless character (applyWeight=false) leaves it level") {
+        Sim s;
+        Entity plank = s.world.create("plank", "plank");
+        s.world.get<Transform>(plank)->position = {0, 1.0f, 0};
+        s.world.add<Collider3D>(plank).size = {4, 0.2f, 1.5f};
+        s.world.add<RigidBody3D>(plank).mass = 20.0f;
+        s.world.add<Joint3D>(plank).axis = {0, 0, 1};
+        Entity hero = add_character(s.world, {1.5f, 2.1f, 0});
+        s.world.get<CharacterController3D>(hero)->applyWeight = false;
+        Walker w{s, hero};
+        w.walk({0, 0, 0}, 120);
+        CHECK(std::fabs(s.world.get<Transform>(plank)->rotation.z) < 1.0f);
+    }
+    SUBCASE("a character teleported off it (no move since) weighs on it no more") {
+        // The plank rests on the floor on the hero's side; then the hero is put far away on the other side by its
+        // Transform and never moved again. The plank must swing exactly as when the hero is destroyed instead, not tip
+        // towards where the hero went.
+        float rot[2] = {0, 0};
+        for (int k = 0; k < 2; ++k) {
+            Sim s;
+            add_big_floor(s.world);
+            Entity plank = s.world.create("plank", "plank");
+            s.world.get<Transform>(plank)->position = {0, 1.0f, 0};
+            s.world.add<Collider3D>(plank).size = {4, 0.2f, 1.5f};
+            s.world.add<RigidBody3D>(plank).mass = 20.0f;
+            s.world.add<Joint3D>(plank).axis = {0, 0, 1};
+            Entity hero = add_character(s.world, {1.5f, 2.1f, 0});
+            Walker w{s, hero};
+            w.walk({0, 0, 0}, 120);
+            REQUIRE(s.world.get<Transform>(plank)->rotation.z < -5.0f);
+            if (k == 0) s.world.get<Transform>(hero)->position = {-10, 5, 0};
+            else s.world.destroy(hero);
+            s.run(120);
+            rot[k] = s.world.get<Transform>(plank)->rotation.z;
+        }
+        CHECK(rot[0] == doctest::Approx(rot[1]).epsilon(0.01));
+        CHECK(rot[0] < 5.0f);
+    }
+    SUBCASE("free crate is pushed, jointed crate is not") {
+        for (bool jointed : {false, true}) {
+            Sim s;
+            add_big_floor(s.world);
+            Entity crate = s.world.create("crate", "crate");
+            s.world.get<Transform>(crate)->position = {2.0f, 0.5f, 0};
+            s.world.add<Collider3D>(crate);
+            s.world.add<RigidBody3D>(crate).mass = 5.0f;
+            if (jointed) s.world.add<Joint3D>(crate).axis = {0, 1, 0};
+            Entity hero = add_character(s.world, {0, 1.0f, 0});
+            Walker w{s, hero};
+            w.walk({0, 0, 0}, 30);
+            w.walk({2, 0, 0}, 120);
+            if (jointed) {
+                CHECK(std::fabs(pos_of(s.world, crate).x - 2.0f) < 0.1f);
+                CHECK(pos_of(s.world, hero).x < 1.2f);
+            } else {
+                CHECK(pos_of(s.world, crate).x > 3.2f);
+            }
+        }
+    }
+}
