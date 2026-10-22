@@ -10,17 +10,22 @@ Everything below was run on a MacBook (Apple M5, macOS) on 2026-10-22 with the `
 
 | Path | What |
 |---|---|
-| `assets/icon.png` (1024), `assets/icon_fg.png` (432, Android adaptive foreground; background colour in `export.android.adaptiveIcon`) | Game icon. |
+| `assets/icon.png` (1024), `assets/icon_fg.png` (432, Android adaptive foreground; background colour in `export.android.adaptiveIcon`) | Game icon, drawn by `factoria call assets.draw_icon @tools/icon.json`. |
 | `store/keyart.png` (2880x1620) | Key art; the capsules are cut from it. |
-| `store/capsules/{googleplay,itch,steam}/clockwork-courier_WxH.png` | Google Play 512x512 and 1024x500, itch.io 630x500, Steam 748x896, 920x430, 1438x810, 1280x720, 600x900, 462x174, 3840x1240, 1232x706. |
-| `store/screenshots/{phone,tablet,desktop}/NN_<level>.png` | Five per set: phone 2868x1320, tablet 2752x2064, desktop 1920x1080. |
+| `store/capsules/{googleplay,itch,steam}/clockwork-courier_WxH.png` | Google Play 512x512 and 1024x500, itch.io 630x500, Steam 748x896, 920x430, 1438x810, 1280x720, 600x900, 462x174, 3840x1240, 1232x706. Not in git: see below. |
+| `store/screenshots/{phone,tablet,desktop}/NN_<level>.png` | Five per set: phone 2868x1320, tablet 2752x2064, desktop 1920x1080. Not in git: see below. |
+| `store/make_store_images.py` | Writes the screenshots (recorded headless from the bot input in `store/trailer/replays/`) and the capsules (`assets.draw_capsules` on the key art). |
 | `store/{en,es,ja}/*` | Listing text per language: name, subtitle, short and long description, keywords, promotional text, what's new, category, age rating answers, privacy text, URLs. |
 | `store/check_store.py` | `python3 store/check_store.py` checks every text against the length limits of the three stores. Run it after editing a text. |
 | `store/trailer/` | The trailer (see "Trailer"). |
 | `perf.json` | Performance budget: `factoria call perf.check`. |
 
-`tests/budget.test.js` checks that every icon, capsule and screenshot exists at the size in the table (a missing file reads as
-32x32, so it fails), and the entity, mesh, light and particle budget of each level.
+The screenshots and capsules (about 17 MB) are git-ignored, like the trailer video: write them before an upload, from the
+game folder, with `python3 store/make_store_images.py path/to/factoria` (about 10 s; the files come out the same every
+time). Run it again after a change to a level or to the key art.
+
+`tests/budget.test.js` checks the size of the icons and the key art (a missing file reads as 32x32, so it fails), the size of
+every screenshot and capsule that is there, and the entity, mesh, light and particle budget of each level.
 
 `factoria.json` `export.exclude` is `["store/**", "screenshots/**"]`: the store material and the screenshots are not packed
 into the game.
@@ -57,8 +62,9 @@ Problems found while exporting (each is in `ENGINE_FEEDBACK.json`; the ids are i
 
 Engine: the Xcode project and the app, icon from `assets/icon.png`, `ITSAppUsesNonExemptEncryption` (false), privacy
 `tracking` false, `Products.storekit` for the in-app purchases (written on export because `plugins/apple` is declared:
-`platform.add_backend apple` put it in `factoria.json` and built `plugins/apple`; the folder `plugins/apple/build` is
-ignored by git). Test purchases: open the exported Xcode project, Edit Scheme, Options, StoreKit Configuration =
+`platform.add_backend apple` put it in `factoria.json` and built `plugins/apple`). The plugin's libraries are not in git:
+build them once on a Mac before exporting for iOS or macOS, `cmake -S plugins/apple -B plugins/apple/build && cmake --build
+plugins/apple/build` (`plugins/apple/README.md`); without them the export says which file is missing. Test purchases: open the exported Xcode project, Edit Scheme, Options, StoreKit Configuration =
 `Products.storekit`. StoreKit cannot be checked without Xcode.
 
 By hand: App Store Connect record (bundle id `com.factoria.examples.clockworkcourier`), team and signing in Xcode,
@@ -93,7 +99,7 @@ The engine has no video editor, so the trailer is a scripted scene recorded by t
 
 - `store/trailer/trailer.js` is the director (a Behaviour): camera moves, captions and fades, driven only by `time.dt`.
 - `store/trailer/make_trailer.py` writes `store/trailer/scenes/shot_N.scene.json` (a level, the director, captions, a black
-  cover) and `.factoria/tmp/trailer_input.json` (the recorded bot input of each level in `store/trailer/replays/`, cut to the
+  cover; git-ignored) and `.factoria/tmp/trailer_input.json` (the recorded bot input of each level in `store/trailer/replays/`, cut to the
   length of its shot on one global frame counter).
 - Shots (43.6 s in all, 2615 frames at 60 fps): rooftops_1 7.5 s (title card, "A tiny robot. A big city. One spring."),
   rooftops_3 10 s, market_1 8 s, rooftops_2 9 s, market_3 9 s.
