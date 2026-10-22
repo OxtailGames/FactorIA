@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Physics
+
+- 3D physics no longer depends on what the World held before a scene loaded: `Joint3D` constraints are solved in the
+  scene's entity order instead of the order of their entity ids, so a rope bridge or a seesaw behaves the same after
+  other scenes, destroyed entities or reused entity slots (a level test could take 2000 or 2800 frames depending on
+  which tests ran first).
+
 Mac App Store
 
 - `sign.macos` takes `distribution: "appStore"`: it signs the macOS export with the App Sandbox, an Apple Distribution
