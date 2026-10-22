@@ -23,7 +23,9 @@
       "video": "Vídeo",
       "audio": "Audio",
       "controls": "Controles",
-      "language": "Idioma"
+      "language": "Idioma",
+      "play": "Juego",
+      "touch": "Táctil"
     },
     "fullscreen": "Pantalla completa",
     "vsync": "VSync",
@@ -64,7 +66,23 @@
     "subtitles": "Subtítulos",
     "on": "activado",
     "off": "desactivado",
-    "percent": "{value} por ciento"
+    "percent": "{value} por ciento",
+    "quality": "Calidad: {quality}",
+    "qualityLevel": {
+      "low": "baja",
+      "medium": "media",
+      "high": "alta"
+    },
+    "assist": "Modo asistido (muelle y perros más lentos)",
+    "reducedMotion": "Movimiento reducido",
+    "haptics": "Vibración",
+    "tapToMove": "Tocar para moverse",
+    "textSize": "Tamaño del texto: {percent} por ciento",
+    "leftHanded": "Disposición para zurdos",
+    "controlSize": "Tamaño de los controles",
+    "controlOpacity": "Opacidad de los controles",
+    "cameraSensitivity": "Velocidad de cámara",
+    "invertY": "Invertir cámara en Y"
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
@@ -74,7 +92,8 @@
   "hud": {
     "parcels": "Paquetes {delivered} / {total}",
     "parcelsCarrying": "Paquetes {delivered} / {total}  (llevas uno)",
-    "spring": "Muelle"
+    "spring": "Muelle",
+    "springLow": "Poco"
   },
   "levels": {
     "rooftops_1": "Primeros tejados",
@@ -99,5 +118,17 @@
     "hint": "Sé más rápido, o busca un camino más corto.",
     "retry": "Reintentar",
     "toTitle": "Salir al título"
+  },
+  "captions": {
+    "dogBark": "[Ladra un perro]",
+    "key": "[Campana: se da cuerda al muelle]",
+    "delivery": "[Campanilla: paquete entregado]",
+    "springLow": "[Alarma: el muelle casi se agota]",
+    "caught": "[Golpe: el perro te ha atrapado]"
+  },
+  "quit": {
+    "title": "¿Salir del juego?",
+    "stay": "Quedarme",
+    "yes": "Salir"
   }
 }
