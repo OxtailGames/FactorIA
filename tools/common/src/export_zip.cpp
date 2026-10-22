@@ -22,6 +22,11 @@ void put32(std::string& o, std::uint32_t v) {
     put16(o, v >> 16);
 }
 
+void put64(std::string& o, std::uint64_t v) {
+    put32(o, static_cast<std::uint32_t>(v & 0xFFFFFFFFull));
+    put32(o, static_cast<std::uint32_t>(v >> 32));
+}
+
 constexpr std::uint32_t kDosDate = (0 << 9) | (1 << 5) | 1;  // 1980-01-01: the same bytes for the same game, whenever it is zipped
 constexpr std::uint32_t kUtf8Names = 0x0800;
 constexpr std::uint64_t kClassicLimit = 0xFFFFFFFFull;  // sizes and offsets of a zip without ZIP64
@@ -32,7 +37,7 @@ std::uint32_t zip_crc32(std::string_view data) {
     return static_cast<std::uint32_t>(buminiz::mz_crc32(buminiz::mz_crc32(0, nullptr, 0), reinterpret_cast<const unsigned char*>(data.data()), data.size()));
 }
 
-ZipWriter::ZipWriter(const stdfs::path& file) : file_(file) {
+ZipWriter::ZipWriter(const stdfs::path& file, ZipStyle style) : file_(file), style_(style) {
     std::error_code ec;
     stdfs::remove(os_path(file_), ec);
     out_.open(os_path(file_), std::ios::binary | std::ios::trunc);
@@ -53,6 +58,7 @@ Result<void> ZipWriter::add(const std::string& name, std::string_view data, bool
         return err("export: the zip would have more than 65535 entries, more than a zip made here can hold", "Ship fewer files: pack them (export --release writes one game.pak).");
     if (data.size() >= kClassicLimit || written_ + data.size() + 30 + name.size() >= kClassicLimit)
         return err("export: " + name + " would take the zip over 4 GB, more than a zip made here can hold", "Make the game smaller (docs/ASSETS.md, \"Import settings\").");
+    const std::uint32_t flags = style_ == ZipStyle::opc ? 0 : kUtf8Names;
     ZipEntry e;
     e.name = name;
     e.size = static_cast<std::uint32_t>(data.size());
@@ -77,7 +83,7 @@ Result<void> ZipWriter::add(const std::string& name, std::string_view data, bool
     std::string header;
     put32(header, 0x04034b50);
     put16(header, 20);
-    put16(header, kUtf8Names);
+    put16(header, flags);
     put16(header, e.method);
     put16(header, 0);
     put16(header, kDosDate);
@@ -96,9 +102,9 @@ Result<void> ZipWriter::add(const std::string& name, std::string_view data, bool
     written_ += header.size() + body.size();
 
     put32(central_, 0x02014b50);
-    put16(central_, 20);
-    put16(central_, 20);
-    put16(central_, kUtf8Names);
+    put16(central_, style_ == ZipStyle::opc ? 45 : 20);  // made by
+    put16(central_, 20);                                // needed to extract
+    put16(central_, flags);
     put16(central_, e.method);
     put16(central_, 0);
     put16(central_, kDosDate);
@@ -119,16 +125,34 @@ Result<void> ZipWriter::add(const std::string& name, std::string_view data, bool
 
 Result<void> ZipWriter::finish() {
     if (failed_) return err("export: cannot write " + generic(file_));
-    if (written_ + central_.size() + 22 >= kClassicLimit)
+    if (written_ + central_.size() + 22 + 76 >= kClassicLimit)
         return err("export: the zip would be over 4 GB, more than a zip made here can hold", "Make the game smaller (docs/ASSETS.md, \"Import settings\").");
     std::string tail = central_;
+    const bool zip64 = style_ == ZipStyle::opc;
+    if (zip64) {
+        const std::uint64_t record = written_ + central_.size();
+        put32(tail, 0x06064b50);  // ZIP64 end of central directory record
+        put64(tail, 56 - 12);     // its size after this field
+        put16(tail, 45);
+        put16(tail, 45);
+        put32(tail, 0);
+        put32(tail, 0);
+        put64(tail, entries_.size());
+        put64(tail, entries_.size());
+        put64(tail, central_.size());
+        put64(tail, written_);
+        put32(tail, 0x07064b50);  // ZIP64 end of central directory locator
+        put32(tail, 0);
+        put64(tail, record);
+        put32(tail, 1);
+    }
     put32(tail, 0x06054b50);
     put16(tail, 0);
     put16(tail, 0);
-    put16(tail, static_cast<std::uint32_t>(entries_.size()));
-    put16(tail, static_cast<std::uint32_t>(entries_.size()));
-    put32(tail, static_cast<std::uint32_t>(central_.size()));
-    put32(tail, static_cast<std::uint32_t>(written_));
+    put16(tail, zip64 ? 0xFFFF : static_cast<std::uint32_t>(entries_.size()));
+    put16(tail, zip64 ? 0xFFFF : static_cast<std::uint32_t>(entries_.size()));
+    put32(tail, zip64 ? 0xFFFFFFFF : static_cast<std::uint32_t>(central_.size()));
+    put32(tail, zip64 ? 0xFFFFFFFF : static_cast<std::uint32_t>(written_));
     put16(tail, 0);
     out_.write(tail.data(), static_cast<std::streamsize>(tail.size()));
     out_.close();
@@ -147,6 +171,8 @@ std::uint32_t get16(const std::string& s, std::size_t at) {
 }
 
 std::uint32_t get32(const std::string& s, std::size_t at) { return get16(s, at) | (get16(s, at + 2) << 16); }
+
+std::uint64_t get64(const std::string& s, std::size_t at) { return get32(s, at) | (static_cast<std::uint64_t>(get32(s, at + 4)) << 32); }
 
 struct CentralEntry {
     std::string name;
@@ -170,14 +196,26 @@ Result<std::vector<CentralEntry>> read_central_directory(const stdfs::path& file
             break;
         }
     if (eocd == std::string::npos) return err(generic(file) + " is not a zip (no end of central directory record)");
-    const std::uint32_t count = get16(tail, eocd + 10), size = get32(tail, eocd + 12), offset = get32(tail, eocd + 16);
-    if (static_cast<std::uint64_t>(offset) + size > total) return err(generic(file) + ": the central directory lies outside the file");
-    std::string central(size, '\0');
-    in.seekg(offset);
+    std::uint64_t count = get16(tail, eocd + 10), size = get32(tail, eocd + 12), offset = get32(tail, eocd + 16);
+    if (count == 0xFFFF || size == 0xFFFFFFFF || offset == 0xFFFFFFFF) {
+        // ZIP64: the locator just before the end record points at the ZIP64 end record, which holds the real numbers.
+        if (eocd < 20 || get32(tail, eocd - 20) != 0x07064b50) return err(generic(file) + ": the ZIP64 end of central directory locator is missing");
+        const std::uint64_t record = get64(tail, eocd - 20 + 8);
+        std::string z(56, '\0');
+        in.seekg(static_cast<std::streamoff>(record));
+        in.read(z.data(), 56);
+        if (!in || get32(z, 0) != 0x06064b50) return err(generic(file) + ": the ZIP64 end of central directory record is damaged");
+        count = get64(z, 32);
+        size = get64(z, 40);
+        offset = get64(z, 48);
+    }
+    if (offset + size > total) return err(generic(file) + ": the central directory lies outside the file");
+    std::string central(static_cast<std::size_t>(size), '\0');
+    in.seekg(static_cast<std::streamoff>(offset));
     in.read(central.data(), static_cast<std::streamsize>(size));
     std::vector<CentralEntry> out;
     std::size_t at = 0;
-    for (std::uint32_t i = 0; i < count; ++i) {
+    for (std::uint64_t i = 0; i < count; ++i) {
         if (at + 46 > central.size() || get32(central, at) != 0x02014b50) return err(generic(file) + ": the central directory is damaged");
         CentralEntry e;
         e.method = get16(central, at + 10);

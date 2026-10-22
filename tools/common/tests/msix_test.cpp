@@ -39,15 +39,26 @@ struct PackedEntry {
     std::uint16_t method = 99;
 };
 
-// Reads a zip of stored entries through its central directory; the local headers are checked against it.
+std::uint64_t rd64(const std::string& s, std::size_t at) { return rd32(s, at) | (static_cast<std::uint64_t>(rd32(s, at + 4)) << 32); }
+
+// Reads a zip of stored entries through its ZIP64 end of central directory (an MSIX package always has one) and its central
+// directory; the local headers are checked against it.
 std::vector<PackedEntry> read_zip(const std::string& bytes) {
     std::vector<PackedEntry> out;
-    REQUIRE(bytes.size() > 22);
-    std::size_t eocd = bytes.size() - 22;
+    REQUIRE(bytes.size() > 22 + 20 + 56);
+    const std::size_t eocd = bytes.size() - 22;
     REQUIRE(rd32(bytes, eocd) == 0x06054b50);
-    const std::uint32_t count = rd16(bytes, eocd + 10);
-    std::size_t at = rd32(bytes, eocd + 16);
-    for (std::uint32_t i = 0; i < count; ++i) {
+    CHECK(rd16(bytes, eocd + 10) == 0xFFFF);
+    CHECK(rd32(bytes, eocd + 16) == 0xFFFFFFFF);
+    const std::size_t locator = eocd - 20;
+    REQUIRE(rd32(bytes, locator) == 0x07064b50);
+    const std::size_t record = static_cast<std::size_t>(rd64(bytes, locator + 8));
+    REQUIRE(record == locator - 56);
+    REQUIRE(rd32(bytes, record) == 0x06064b50);
+    const std::uint64_t count = rd64(bytes, record + 32);
+    std::size_t at = static_cast<std::size_t>(rd64(bytes, record + 48));
+    CHECK(at + rd64(bytes, record + 40) == record);
+    for (std::uint64_t i = 0; i < count; ++i) {
         REQUIRE(rd32(bytes, at) == 0x02014b50);
         PackedEntry e;
         e.method = static_cast<std::uint16_t>(rd16(bytes, at + 10));
@@ -533,12 +544,12 @@ TEST_CASE("sign.windows: an old osslsigncode is refused") {
     o.run = [&](const ProcessOptions& po) -> Result<ProcessResult> {
         ProcessResult pr;
         pr.exitCode = 0;
-        if (po.argv.size() > 1 && po.argv[1] == "--version") pr.stdoutText = "osslsigncode 2.1.0\n";
+        if (po.argv.size() > 1 && po.argv[1] == "--version") pr.stdoutText = "osslsigncode 2.8.0\n";
         return pr;
     };
     auto r = sign_windows(o);
     REQUIRE_FALSE(r.ok());
-    CHECK(has_text(r.error().message, "2.1"));
+    CHECK(has_text(r.error().message, "2.8"));
     CHECK(has_text(r.error().hint, "osslsigncode"));
 }
 

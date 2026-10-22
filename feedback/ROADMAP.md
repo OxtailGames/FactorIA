@@ -562,7 +562,7 @@ with an independent reader; sign and publish run against fakes.
 
 Left open (MSIX): the package has not been installed on a real Windows PC with `Add-AppxPackage` (the acceptance
 criterion below), loose qualified logos without a `resources.pri` are unverified, a real upload needs a Partner Center
-account (msstore was never run for real), the osslsigncode minimum (2.2) is from memory, `testCertificate` is Windows-only,
+account (msstore was never run for real), `testCertificate` is Windows-only,
 and PC Game Pass / GDK are untouched.
 
 Acceptance criteria: a sandboxed macOS export passes `codesign --verify --strict` with the App Sandbox entitlement and

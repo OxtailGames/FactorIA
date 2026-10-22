@@ -8,8 +8,9 @@
 //   [Content_Types].xml    the media type of each part; last, as MakeAppx writes it
 //
 // Every entry is stored (not deflated): the block map then needs no compressed sizes, and the Store recompresses what it serves.
-// The zip is deterministic: sorted names, a fixed date. The package is unsigned; the Microsoft Store signs what is uploaded and
-// `sign.windows` signs it for installing on a PC (docs/EXPORTING.md).
+// The zip ends with a ZIP64 end of central directory, as MakeAppx writes it, and is deterministic: sorted names, a fixed date.
+// The package is unsigned; the Microsoft Store signs what is uploaded and `sign.windows` signs it for installing on a PC
+// (docs/EXPORTING.md).
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -37,38 +38,12 @@ constexpr const char* kMaxVersionTested = "10.0.26100.0";  // Windows 11 24H2; n
 
 std::string slug_of(const Project& p) { return slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-'); }
 
-std::string base64(const std::string& bytes) {
-    static const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    std::size_t i = 0;
-    for (; i + 2 < bytes.size(); i += 3) {
-        const std::uint32_t v = (std::uint8_t(bytes[i]) << 16) | (std::uint8_t(bytes[i + 1]) << 8) | std::uint8_t(bytes[i + 2]);
-        out += chars[(v >> 18) & 63];
-        out += chars[(v >> 12) & 63];
-        out += chars[(v >> 6) & 63];
-        out += chars[v & 63];
-    }
-    if (i + 1 == bytes.size()) {
-        const std::uint32_t v = std::uint8_t(bytes[i]) << 16;
-        out += chars[(v >> 18) & 63];
-        out += chars[(v >> 12) & 63];
-        out += "==";
-    } else if (i + 2 == bytes.size()) {
-        const std::uint32_t v = (std::uint8_t(bytes[i]) << 16) | (std::uint8_t(bytes[i + 1]) << 8);
-        out += chars[(v >> 18) & 63];
-        out += chars[(v >> 12) & 63];
-        out += chars[(v >> 6) & 63];
-        out += '=';
-    }
-    return out;
-}
-
 // SHA-256 of the block, as the raw 32 bytes in base64 (what the block map holds).
 std::string block_hash(const char* data, std::size_t size) {
     const std::string hex = sha256_hex(data, size);
     std::string raw;
     for (std::size_t i = 0; i + 1 < hex.size(); i += 2) raw += static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16));
-    return base64(raw);
+    return base64_encode(raw.data(), raw.size());
 }
 
 // The name of a part inside the zip: percent-encoded like Microsoft's packager does (a space is %20), so every byte of it is
@@ -312,7 +287,7 @@ Result<void> build_msix(const ExportOptions& o, const Project& p, const MsixPlan
 
     std::error_code ec;
     stdfs::create_directories(os_path(plan.artifact.parent_path()), ec);
-    ZipWriter zip(plan.artifact);
+    ZipWriter zip(plan.artifact, ZipStyle::opc);
     std::string blockMap = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<BlockMap xmlns=\"" + std::string(kBlockMapNs) +
                            "\" HashMethod=\"http://www.w3.org/2001/04/xmlenc#sha256\">";
     auto add_file = [&](const std::string& name, std::string_view data) -> Result<void> {

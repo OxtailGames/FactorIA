@@ -5,7 +5,7 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 `project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
 
 ```bash
-factoria export [project] --platform <linux|windows|macos|android|ios|web> [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]]
+factoria export [project] --platform <linux|windows|macos|android|ios|web> [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]]
                 [--player PATH] [--engine-root DIR | --mobile-dir DIR]
 ```
 

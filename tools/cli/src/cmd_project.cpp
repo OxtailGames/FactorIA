@@ -161,12 +161,12 @@ Command make_export_command() {
     Command c;
     c.name = "export";
     c.summary = "Package the game for a platform (desktop bundle, Android APK/AAB, iOS project, web page).";
-    c.usage = "[project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]]";
+    c.usage = "[project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]]";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"platform", "P", "linux, windows, macos, android, ios or web (default: this machine). web writes <out>/<slug>-web/ (index.html, the web player, game.pak) and <out>/<slug>-web.zip, the file to upload to itch.io as an HTML5 game."},
                {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/, replaced only when an export wrote it (default out: <project>/build/export)."},
-               {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk. Linux: appimage also builds <slug>-x86_64.AppImage, the game as one file (needs Linux x86_64 or WSL and `factoria setup appimage`)."},
+               {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk. Linux: appimage also builds <slug>-x86_64.AppImage, the game as one file (needs Linux x86_64 or WSL and `factoria setup appimage`). Windows: msix also writes <slug>-windows.msix, the Microsoft Store package (any host; identity in export.windows.msix of factoria.json); folder writes only the export folder. Default: export.windows.format, else folder."},
                {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json); without a keystore it is an error unless --allow-debug-key is given. Linux, Windows, macOS: the whole game in ONE file, game.pak, next to the executable instead of a game/ folder, with the scripts compiled to bytecode (export.scriptBytecode: false in factoria.json keeps them as source)."},
                {"allow-debug-key", "", "Android --release without export.android.signing: sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects it, so never upload that build."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
@@ -174,7 +174,8 @@ Command make_export_command() {
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria). web: the folder with factoria_player.js and factoria_player.wasm (default: web/ next to factoria, else the one `factoria setup players --platforms web` installed, else a web build of the source)."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android",
-                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle", "factoria export --platform linux --format appimage", "factoria export --platform web"};
+                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle", "factoria export --platform linux --format appimage", "factoria export --platform windows --format msix",
+                  "factoria export --platform web"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         std::string platform = ctx.args.str("platform");
@@ -194,7 +195,7 @@ Command make_export_command() {
         if (!eo.format.empty()) {
             std::string f;
             for (char ch : eo.format) f += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-            const std::vector<std::string> formats = {"apk", "aab", "gradle", "appimage"};
+            const std::vector<std::string> formats = {"apk", "aab", "gradle", "appimage", "msix", "folder"};
             if (std::find(formats.begin(), formats.end(), f) == formats.end())
                 throw UsageError("Unknown format '" + eo.format + "'.", fa::did_you_mean(eo.format, formats));
             eo.format = f;
