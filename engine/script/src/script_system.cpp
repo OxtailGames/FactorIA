@@ -12,6 +12,7 @@
 #include "fa/platform/input.h"
 #include "fa/scene/components.h"
 #include "fa/script/bytecode.h"
+#include "debugger_internal.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -158,6 +159,11 @@ void ScriptSystem::Impl::pop_guard() {
 }
 
 bool ScriptSystem::Impl::check_interrupt() {
+    if (debugger && debugger->impl().interrupt_requested()) {  // the debugger is being terminated: stop running scripts
+        timedOut = true;
+        timedOutLabel = "debugger terminate";
+        return true;
+    }
     if (guards.empty()) return false;
     auto now = std::chrono::steady_clock::now();
     for (size_t i = guards.size(); i-- > 0;) {
@@ -175,6 +181,7 @@ void ScriptSystem::Impl::run_jobs() {
     ProfBehaviourScope prof(kProfOtherName, kProfNoPath);  // promise jobs (and flushing their rejections) belong to no behaviour
     for (int guardCount = 0; guardCount < 100000; ++guardCount) {
         JSContext* jctx = nullptr;
+        auto entry = debug_entry(*this);
         int r = JS_ExecutePendingJob(rt, &jctx);
         if (r == 0) break;
         if (r < 0) {
@@ -281,7 +288,9 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
     if (JS_IsObject(exc)) {
         std::string name = get_str_prop(ctx, exc, "name");
         std::string msg = get_str_prop(ctx, exc, "message");
-        e.stack = strip_versions(get_str_prop(ctx, exc, "stack"));
+        std::string rawStack = get_str_prop(ctx, exc, "stack");
+        if (debugger) rawStack = debugger->impl().map_stack(rawStack);  // instrumented columns -> the author's columns
+        e.stack = strip_versions(rawStack);
         e.message = (name.empty() || name == "Error") ? msg : (msg.empty() ? name : name + ": " + msg);
         std::string file;
         int line = 0, col = 0;
@@ -295,6 +304,10 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
             std::string cl = get_str_prop(ctx, exc, "columnNumber");
             if (!ln.empty()) e.line = std::atoi(ln.c_str());
             if (!cl.empty()) e.column = std::atoi(cl.c_str());
+            if (debugger && e.line > 0) {
+                std::string raw = get_str_prop(ctx, exc, "fileName");
+                debugger->impl().map_location(raw, e.line, e.column);
+            }
         }
     } else {
         const char* s = JS_ToCString(ctx, exc);
@@ -317,6 +330,7 @@ void ScriptSystem::Impl::record_error(ScriptError e, const std::string& where) {
     if (!hint.empty()) text += "\n  hint: " + hint;
     if (!e.stack.empty()) text += "\n" + e.stack;
     log(LogLevel::Error, "script", text);
+    if (debugger) debugger->impl().on_error(e);
     if (errors.size() < 500) errors.push_back(std::move(e));
 }
 
@@ -335,6 +349,7 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
                                  double limitSeconds, bool quiet) {
     if (failed) *failed = false;
     double limit = limitSeconds < 0 ? callbackLimit : limitSeconds;
+    auto debugEntry = debug_entry(*this);
     push_guard(label, limit);
     std::vector<JSValueConst> av(args.begin(), args.end());
     timedOut = false;
@@ -348,6 +363,7 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
             lastCallTimedOut = true;
             JSValue exc = JS_GetException(ctx);
             JS_FreeValue(ctx, exc);
+            if (debugger && debugger->impl().interrupt_requested()) return JS_UNDEFINED;  // stopped by terminate, not slow
             ScriptError e;
             e.message = std::format("script took too long (> {:g} s) in {}", limit, label);
             e.file = label;
@@ -555,7 +571,29 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
                         "Export the game again with this FactorIA version.");
         }
     } else {
-        func = JS_Eval(ctx, text->c_str(), text->size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        // Debug mode: the debugger's instrumenter rewrites the module (statement hooks, frames); when it cannot, the original
+        // source runs (and its breakpoints stay unverified).
+        std::string instrumented;
+        int mid = 0;
+        std::shared_ptr<const ScriptDebugInfo> info;
+        if (debugger && fs::extension(file) == ".js") {
+            ScriptDebugger::Impl& D = debugger->impl();
+            std::string project = strip_versions(name);
+            mid = D.register_module(project, name);
+            auto r = D.instrument(project, *text, mid);
+            if (r.ok()) {
+                instrumented = std::move(r.value().code);
+                info = std::make_shared<const ScriptDebugInfo>(std::move(r.value().info));
+            } else {
+                mid = 0;
+                D.client.output("stderr", "debugger: cannot instrument " + project + ": " + r.error().message +
+                                              "; running it without breakpoints",
+                                project, 0);
+            }
+        }
+        const std::string& code = info ? instrumented : *text;
+        func = JS_Eval(ctx, code.c_str(), code.size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        if (info && !JS_IsException(func)) debugger->impl().module_loaded(mid, info);
     }
     if (JS_IsException(func)) return nullptr;
     auto* m = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(func));
@@ -613,6 +651,7 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
 
     Json quoted = name;
     std::string src = "import * as m from " + quoted.dump() + "; globalThis.__fa_import = m;";
+    auto debugEntry = debug_entry(*this);
     push_guard("loading " + path, 10.0);
     timedOut = false;
     JSValue r = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE);
@@ -746,6 +785,8 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     JS_DefinePropertyValueStr(ctx, global, "factoria", JS_DupValue(ctx, factoria.get()), JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
     JS_FreeValue(ctx, global);
 
+    if (debugger) debugger->impl().attach(*this);
+
     observerId = h.world().on_destroy([this](Entity e) { on_entity_destroyed(e); });
     initialized = true;
     reload_tools();
@@ -767,6 +808,7 @@ void ScriptSystem::Impl::shutdown() {
     factoria.reset();
     testApi.reset();
     native.reset();
+    if (debugger) debugger->impl().detach();
     if (ctx) JS_FreeContext(ctx);
     ctx = nullptr;
     if (rt) JS_FreeRuntime(rt);
@@ -777,11 +819,13 @@ void ScriptSystem::Impl::shutdown() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------------------------------------------------
-ScriptSystem::ScriptSystem() : impl_(std::make_unique<Impl>()) {}
+ScriptSystem::ScriptSystem() : impl_(std::make_unique<Impl>()) { impl_->owner = this; }
 ScriptSystem::~ScriptSystem() {
     if (impl_) impl_->shutdown();
 }
 
+void ScriptSystem::set_debugger(std::shared_ptr<ScriptDebugger> debugger) { impl_->debugger = std::move(debugger); }
+void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
 void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }
 void ScriptSystem::shutdown() { impl_->shutdown(); }
@@ -806,6 +850,7 @@ Json platform_answer_json(const PlatformAnswer& a) {
 void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
+    if (I.debugger) I.debugger->impl().frame_start();  // terminate request, then the client's poll
     PlatformServices* services = I.host->platform_services();
     if (!services) return;
     const std::vector<PlatformAnswer> answers = services->take_answers();

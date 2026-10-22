@@ -210,10 +210,19 @@ struct ScriptPlugin {
     std::vector<Function> functions;
 };
 
+class ScriptDebugger;
+
 class ScriptSystem {
 public:
     ScriptSystem();
     ~ScriptSystem();
+
+    // Debug mode (fa/script/debugger.h): call before init(). Every project .js module is then run through the debugger's
+    // instrumenter, `globalThis.__fa_dbg` is installed and the debugger can stop the game. Without it nothing changes.
+    void set_debugger(std::shared_ptr<ScriptDebugger> debugger);
+    // The longest a callback (onUpdate, an event handler, ...) may run before it is stopped as an endless loop: 2 seconds
+    // by default, tests make it small. Time spent paused in the debugger does not count.
+    void set_callback_limit(double seconds);
 
     // The `plugins` object of scripts (call before init; the typings and api_manifest list them too).
     void set_plugins(std::vector<ScriptPlugin> plugins);

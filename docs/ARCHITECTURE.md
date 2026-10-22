@@ -44,7 +44,7 @@ engine/            runtime modules (ship inside every game)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
-  script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h)
+  script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h), the script debugger runtime (debugger.h, docs/design/SCRIPT_DEBUGGER.md)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
