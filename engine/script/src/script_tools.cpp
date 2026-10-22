@@ -156,6 +156,8 @@ void Impl::reload_tools() {
                 throw_js(exc);
             }
             if (failed) {
+                if (debug_session_ended())
+                    throw CommandError("failed", "tool " + cname + " was stopped because the debug session ended", "");
                 throw CommandError("failed", "script took too long (> 10 s) in tool " + cname, "Avoid infinite loops in tools.");
             }
             JsVal result(ctx, r);
@@ -201,7 +203,8 @@ Result<Json> Impl::eval(std::string_view code) {
         JS_FreeValue(ctx, exc);
         if (timedOut) {
             timedOut = false;
-            e.message = "script took too long (> 5 s) in eval";
+            e.message = debug_session_ended() ? "eval was stopped because the debug session ended"
+                                              : "script took too long (> 5 s) in eval";
         }
         std::string msg = e.message;
         if (e.line > 0 && e.file != "<eval>" && !e.file.empty()) msg += " (at " + e.file + ":" + std::to_string(e.line) + ")";
@@ -431,7 +434,9 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             JS_FreeValue(ctx, exc);
             if (timedOut) {
                 timedOut = false;
-                e.message = "script took too long in a test (limit exceeded); the rest of " + path + " was skipped";
+                e.message = debug_session_ended()
+                                ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
+                                : "script took too long in a test (limit exceeded); the rest of " + path + " was skipped";
             }
             JsVal curV(ctx, JS_UNDEFINED);
             {

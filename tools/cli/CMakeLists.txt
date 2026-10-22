@@ -5,7 +5,7 @@ file(GLOB cli_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 list(FILTER cli_srcs EXCLUDE REGEX "/main\\.cpp$")
 add_library(fa_cli STATIC ${cli_srcs})
 target_include_directories(fa_cli PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(fa_cli PUBLIC fa_tooling fa_mcp fa_ai PRIVATE fa_warnings)
+target_link_libraries(fa_cli PUBLIC fa_tooling fa_mcp fa_dap fa_ai PRIVATE fa_warnings)
 if(TARGET fa_editor)
     target_link_libraries(fa_cli PUBLIC fa_editor)
     target_compile_definitions(fa_cli PRIVATE FA_WITH_EDITOR=1)
@@ -63,6 +63,13 @@ if(FA_BUILD_TESTS)
                     $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu")
+
+        # factoria dap: the Debug Adapter Protocol server driven over stdio (breakpoint, stack, locals, evaluate, step, logpoint,
+        # test mode, disconnect). Headless GPU may be created for test mode: label gpu.
+        add_test(NAME cli_dap
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/dap_test.py $<TARGET_FILE:factoria>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_dap PROPERTIES TIMEOUT 600 LABELS "gpu")
     endif()
 endif()
 

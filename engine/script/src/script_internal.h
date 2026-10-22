@@ -181,6 +181,8 @@ struct ScriptSystem::Impl {
     void push_guard(const std::string& label, double seconds);
     void pop_guard();
     bool check_interrupt();
+    // The debugger is being terminated (the user pressed Stop): an interrupted script was stopped, not slow.
+    bool debug_session_ended() const;
     void run_jobs();
 
     // ================= modules

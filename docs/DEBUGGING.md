@@ -50,11 +50,12 @@ by "Add Configuration..." and in the Run and Debug dropdown.
   "mode": "play",                 // "play" | "headless" | "test"
   "project": "${workspaceFolder}",
   "scene": "",                    // play/headless: the scene to start in (default: the project's main scene)
-  "frames": 600,                  // headless: how many frames
+  "frames": 600,                  // headless: how many frames (default 600)
   "input": "",                    // headless: an input replay file
   "tests": [],                    // test: files (default: every tests/*.test.js)
   "filter": "",                   // test: only tests whose name contains this
   "stopOnEntry": false,           // stop at the first statement of the first script that runs
+  "noDebug": false,               // Run Without Debugging (Ctrl+F5): breakpoints are ignored
   "factoriaPath": ""              // the factoria executable to start (default: the one that installed the extension, else PATH)
 }
 ```
@@ -64,16 +65,23 @@ by "Add Configuration..." and in the Run and Debug dropdown.
 | `mode` | all | `play`, `headless` or `test`. Default `play`. |
 | `project` | all | The project folder. Default `${workspaceFolder}`. |
 | `scene` | play, headless | Project-relative scene to start in, e.g. `scenes/level2.scene.json`. Default: the project's main scene. |
-| `frames` | headless | How many fixed frames to run. |
+| `frames` | headless | How many fixed frames to run. Default 600. |
 | `input` | headless | An input replay file (for example the `input.json` that `play.report` points to: the session a person played, replayed under the debugger). |
 | `tests` | test | Test files, e.g. `["tests/player.test.js"]`. Default: every `tests/*.test.js`. |
 | `filter` | test | Only the tests whose name contains this text. |
 | `stopOnEntry` | all | Stop at the first statement that runs. |
+| `noDebug` | all | Run without stopping (VS Code sets it for Run Without Debugging): breakpoints and pauses are ignored. |
 | `factoriaPath` | all | Full path of the `factoria` executable to use as the debug adapter (`factoria dap`). |
 
 An unknown key or a bad value is refused with a message that names it and suggests the closest valid one ("did you mean
 `headless`?"). Paths are absolute in VS Code; the debugger maps them to project-relative modules. A breakpoint in a file
 outside the project stays unverified (grey) and says why.
+
+Keys that apply only in some modes (`scene`, `frames`, `input`, `tests`, `filter`) are refused in the others, naming the
+mode they belong to. VS Code's generic keys (`presentation`, `preLaunchTask`, `postDebugTask`, `console`, `env`, `cwd`,
+...) are accepted and ignored.
+
+Engine warnings and errors (script output already comes through the debugger) also reach the debug console.
 
 ## What you can do while debugging
 
@@ -104,8 +112,8 @@ Pause (the toolbar) stops at the next statement, also inside an endless loop. Th
 Stepping past the end of the last frame stops at the next JavaScript the engine runs (the next behaviour's callback),
 like a browser debugger.
 
-While the game is stopped the simulation is stopped too; when you continue, the next frame's `dt` is limited, so physics
-does not jump.
+While the game is stopped the simulation is stopped too; when you continue, the next frame's `dt` is clamped (at most
+0.25 s, as after any long frame), so physics does not jump.
 
 ### Variables, watch and the debug console
 
