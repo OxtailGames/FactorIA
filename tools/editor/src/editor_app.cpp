@@ -1030,6 +1030,23 @@ void Editor::notify(const std::string& text, int level) {
     else FA_INFO("editor", "{}", text);
 }
 
+void Editor::notify_action(const std::string& text, const std::string& label, std::function<void()> action, const std::string& id) {
+    Toast t{text, 0, time_ + 8.0};
+    t.actionLabel = label;
+    t.action = std::move(action);
+    t.actionId = id;
+    toasts_.push_back(std::move(t));
+    if (toasts_.size() > 6) toasts_.erase(toasts_.begin());
+    FA_INFO("editor", "{}", text);
+}
+
+void Editor::open_screenshots_folder() {
+    const std::string dir = projectDir_ + "/.factoria/screenshots";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (std::string why = open_in_file_manager(dir); !why.empty()) notify(why, 1);
+}
+
 // ------------------------------------------------------------------------------------------
 // Layout and top-level UI
 void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
@@ -1181,6 +1198,7 @@ void Editor::build_ui() {
         if (ImGui::Button("Cancel")) close();
         ImGui::EndPopup();
     }
+    draw_ai_revert_dialog();
     if (showReloadConfirm_) ImGui::OpenPopup("Reload scene##confirm");
     if (ImGui::BeginPopupModal("Reload scene##confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Discard unsaved changes and reload the scene from disk?");
@@ -1215,6 +1233,7 @@ void Editor::draw_main_menu() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Open Screenshots Folder", nullptr, false, have)) open_screenshots_folder();
         if (ImGui::MenuItem("Export Game...", nullptr, false, have)) open_export_window();
         ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS");
         if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
@@ -1230,6 +1249,11 @@ void Editor::draw_main_menu() {
     if (ImGui::BeginMenu("Edit")) {
         if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editing && !undo_.empty())) undo();
         if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !redo_.empty())) redo();
+        ImGui::Separator();
+        const int lastRun = ai_last_revertable_run();
+        if (ImGui::MenuItem("Revert Last AI Run", nullptr, false, editing && !ai_busy() && lastRun >= 0)) ai_revert_request(chat_.current().id, lastRun);
+        at_track("menu:revert-ai");
+        ImGui::SetItemTooltip("Puts the project's files and the open scene back as they were before the last run of the AI Assistant in this chat.");
         ImGui::EndMenu();
     }
     const bool viewOpen = ImGui::BeginMenu("View");
@@ -1338,11 +1362,16 @@ void Editor::draw_toolbar() {
     if (ImGui::Button("Screenshot")) {
         std::string path = ".factoria/screenshots/editor_" + std::to_string(engine_->frame_index()) + ".png";
         std::string err;
-        if (engine_->screenshot(path, &err)) notify("Screenshot saved: " + path);
+        if (engine_->screenshot(path, &err)) {
+            const std::string full = projectDir_ + "/" + path;
+            notify_action("Screenshot saved: " + path, std::string("Show in ") + file_manager_name(),
+                          [this, full] { if (std::string why = reveal_in_file_manager(full); !why.empty()) notify(why, 1); },
+                          "toast:screenshot-reveal");
+        }
         else notify("Screenshot failed: " + err, 2);
     }
     at_track("toolbar:screenshot");
-    ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots");
+    ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots (a hidden folder:\nthe toast has a Show in %s button, and File > Open Screenshots Folder opens it)", file_manager_name());
     ImGui::SameLine();
     if (ImGui::Button("Export")) open_export_window();
     at_track("toolbar:export");

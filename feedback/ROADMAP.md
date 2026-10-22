@@ -5,9 +5,9 @@ reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one w
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
 (M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two and M20 one; the one still open is ranked
 below, in M23. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
-backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M21 (docs and material for
-shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M20 (editor and tooling) has everything but
-three small items; M19 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
+backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
+M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21) and M24 are done; M19 and M23 are
+not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
@@ -482,28 +482,22 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
 
 Acceptance criteria: each item ships with its doctest or JS test and its docs, like any command or component.
 
-## M20. Editor and tooling (L, medium-high)
+## M20. Editor and tooling (L, medium-high) — DONE (PRs #134-#142, the `m20/debugger` and `m20/finish` PRs)
 
 Closes H-01, H-02, H-03, H-05, H-09 and the editor part of H-06.
 
-Done so far ([ROADMAP_DONE.md](ROADMAP_DONE.md), M20): ASCII map edits for AIs (LK/FB-0009, #134), the profiler (#135),
-editor autotests on Windows (#136), the Hierarchy and the Inspector with the material fields (#137), transform gizmos
-(#139), the Project panel (#142) and the script debugger for VS Code (the `m20/debugger` PR). The three acceptance
-criteria hold: the editor autotest edits a field in the Inspector and the scene file changes, `cli_dap` drives the DAP
-server over stdio and stops at a breakpoint in a template behaviour, and `play.report` and `perf.profile` list each
-behaviour class with its milliseconds per frame.
-
-Left in M20, found writing the M21 tutorials:
-- The editor's Undo covers scene edits only, so the scripts and tests an AI writes can only be undone with git (a
-  "checkpoint" or "revert the last AI run" button would fit an AI-first editor).
-- The Screenshot button saves into the hidden `.factoria/screenshots/` with no "open folder" button.
-- `factoria validate` warns "not in the canonical layout" on any hand-written scene, so docs/MAKE_BY_HAND.md sends
-  people to `scene.format`.
-- Not taken: an example script and test in the empty templates (they stay minimal).
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M20. The three acceptance criteria hold: the editor autotest edits a field in
+the Inspector and the scene file changes, `cli_dap` drives the DAP server over stdio and stops at a breakpoint in a
+template behaviour, and `play.report` and `perf.profile` list each behaviour class with its milliseconds per frame.
 
 Left open:
 - Later, each its own item when users ask: tile painting and object placement in the viewport, an animation timeline,
   particle and material editors.
+- Revert an AI run: the first checkpoint of a project copies every file into `.factoria/checkpoints/` (big assets take
+  their size again on disk) on the editor's thread, before the run starts; it was not timed on a big project. Files
+  outside the project and in folders starting with `.` are not covered. Tried with the autotest's scripted provider
+  only, not with a real AI run (every provider goes through the same start and finish).
+- Not taken: an example script and test in the empty templates (they stay minimal).
 - The script debugger (docs/design/SCRIPT_DEBUGGER.md, "Left open"): attaching to the editor's running game (needs the
   game off the editor's UI thread, or a pause that keeps the editor drawing); restart frame, step back, data and column
   breakpoints; publishing the VS Code extension to the Marketplace and Open VSX. Not yet tried by hand: F5 in VS Code
@@ -583,7 +577,7 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: the three small items left in M20.
+Next: no milestone is in progress. M19 and M23 wait for a game that needs them (the one ranked entry, MSIX, is M23's).
 
 ## Out of scope: Roblox
 

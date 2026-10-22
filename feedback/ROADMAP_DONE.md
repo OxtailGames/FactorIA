@@ -938,7 +938,7 @@ LK/FB-0037 and LK/FB-0038 have a `Fixed in <commit>` note; Lantern Keep does not
 - Bookkeeping (the `m22/bookkeeping` PR): docs/FINISHING.md section 5 lists the four features, CHANGELOG.md, this
   section, and LK/FB-0037 and LK/FB-0038 marked fixed.
 
-## M20. Editor and tooling — PRs #134-#142 and the `m20/debugger` PR (three small items left, see ROADMAP.md)
+## M20. Editor and tooling — DONE (PRs #134-#142, the `m20/debugger` and `m20/finish` PRs)
 
 Closes H-01, H-02, H-03, H-05, H-09, the editor part of H-06 and LK/FB-0009. Every hand edit in the editor goes through
 the commands the AI uses, so Undo and the scene file work as they do for any command.
@@ -975,6 +975,19 @@ the commands the AI uses, so Undo and the scene file work as they do for any com
   modes play, headless and test); the setup component `vscode` installs the extension (`tools/vscode`) into VS Code,
   Insiders, VSCodium and Cursor, and new projects get `.vscode/launch.json`. `script.trace` gives an AI the same
   breakpoints on a headless run as JSON. Design: docs/design/SCRIPT_DEBUGGER.md; docs/DEBUGGING.md.
+- Revert an AI run (the `m20/finish` PR): `fa/tooling/checkpoint.h` saves the project's files content-addressed in
+  `.factoria/checkpoints/` (sha256 objects, one manifest per checkpoint, a stat cache that trusts size and mtime only
+  for files older than 2 s, the newest 30 kept and unused objects deleted, every write through a temp file and a rename).
+  Commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff` and `checkpoint.restore`; a restore checks that every
+  object is there before it changes anything and first saves a "Before restoring" safety checkpoint. The editor takes
+  one, plus the open scene in memory, before every AI run; the transcript's "This run changed N files" has Revert (files
+  back, the scene as one Undo step, scripts reloaded), the "Reverted" item has Undo revert, Edit > Revert Last AI Run
+  does the newest, and the next prompt tells the AI. Editor autotest section P. docs/EDITOR.md, "Revert an AI run".
+- Screenshots folder (the `m20/finish` PR): the Screenshot toast has "Show in Finder / Explorer" (a toast can carry one
+  button; it stays while hovered), and File > Open Screenshots Folder.
+- Hand-written scenes in `factoria validate` (the `m20/finish` PR): no warning any more; the report has informational
+  `notes` (text, `--json`, `project.validate`, the editor's Validation window) with one note naming the files whose
+  layout differs from `scene.save`'s and the optional `scene.format`.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

@@ -353,7 +353,7 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "[{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, "
          "notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint "
          "says to run scene.format without `check`) when any file is not canonical: `factoria call` exits non-zero, so a CI "
-         "step can gate on it. project.validate also warns once per non-canonical scene or prefab. Example: "
+         "step can gate on it. project.validate lists the non-canonical ones in one informational note (not a warning). Example: "
          "scene.format {\"paths\":[\"prefabs\"],\"check\":true}",
          parse_schema(R"({"type":"object","properties":{
                "paths":{"type":"array","minItems":1,"items":{"type":"string"},

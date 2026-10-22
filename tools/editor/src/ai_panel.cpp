@@ -455,6 +455,7 @@ void Editor::ai_start(const std::string& task) {
         imageFiles.push_back(utf8_string(utf8_path(projectDir_) / utf8_path(a.path)));
     }
     chat.pending.clear();
+    const std::string revertNote = revert_line(chat.items);  // before this message: what the user reverted since the last one
     chat.items.push_back(std::move(user));
     if (chat.title.empty()) chat.title = chat_title_from(task);
     chat.updated = now_epoch();
@@ -467,6 +468,8 @@ void Editor::ai_start(const std::string& task) {
     if (const Entity sel = selected(); !sel.is_null()) {
         prompt = selection_line(world().info(sel).name, world().id_of(sel)) + "\n" + task;
     }
+    if (!revertNote.empty()) prompt = revertNote + "\n" + prompt;
+    ai_run_checkpoint_begin(task);  // before the agent thread exists: it cannot touch a file first
 
     aiRunChat_ = chat.id;
     aiCancel_ = false;
@@ -616,6 +619,8 @@ void Editor::ai_drain_events() {
         if (!result->conversation.empty()) c.conversation = result->conversation;  // a failed first run keeps the old one
         c.updated = now_epoch();
         c.scrollDown = true;
+        if (found) ai_run_checkpoint_finish(c);
+        else aiRunCheckpoint_.clear();
         if (found) {  // saved after every run (no timer): the chat survives a crash or a closed editor
             chat_.save(c);
             chat_.save_open_list();
@@ -1011,6 +1016,10 @@ void Editor::draw_ai_panel() {
                 message_text("##text", c.text, &red);
                 break;
             }
+            case ChatItem::Kind::Run:
+            case ChatItem::Kind::Revert:
+                draw_ai_run_item(c, chat, idx - 1);
+                break;
         }
         if (c.depth > 0) ImGui::Unindent(12.0f * float(c.depth));
         ImGui::Spacing();

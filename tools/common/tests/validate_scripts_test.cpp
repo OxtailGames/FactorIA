@@ -82,27 +82,26 @@ TEST_CASE("validate: a broken .json imported by two scripts is reported once, as
     CHECK(fixed.ok);
 }
 
-TEST_CASE("validate: a scene or prefab that is not in the canonical layout is one warning per file, with the fix") {
+TEST_CASE("validate: scenes and prefabs not in the canonical layout are valid: one note for all, with the optional fix") {
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
-    CHECK(count_mentioning(validate_project(dir).warnings, "canonical") == 0);  // what the templates write is canonical
+    CHECK(validate_project(dir).notes.empty());  // what the templates write is canonical
 
     testing::write_all(stdfs::path(dir) / "prefabs/messy.prefab.json",
                        "{\"format\":\"factoria.prefab/1\",\"entity\":{\"name\":\"Messy\",\n\"components\":{\"Shape2D\":{\"size\":[10,10]}}}}");
     testing::write_all(stdfs::path(dir) / "scenes/second.scene.json",
                        "{\"format\":\"factoria.scene/1\",\"entities\":[{\"id\":\"a\",\"components\":{\"Transform\":{\"position\":[1,2,0]}}}]}");
     ValidationReport r = validate_project(dir);
-    CHECK(r.ok);  // a layout is a warning, never an error
-    std::vector<std::string> files;
-    for (const ValidationIssue& w : r.warnings)
-        if (w.message.find("canonical layout") != std::string::npos) {
-            files.push_back(w.file);
-            CHECK(w.hint.find("scene.format") != std::string::npos);
-        }
-    CHECK(files == std::vector<std::string>{"scenes/second.scene.json", "prefabs/messy.prefab.json"});
+    CHECK(r.ok);
+    CHECK(count_mentioning(r.warnings, "canonical") == 0);
+    REQUIRE(r.notes.size() == 1);
+    CHECK(r.notes[0].message.find("2 scene/prefab files are formatted by hand") != std::string::npos);
+    CHECK(r.notes[0].message.find("scenes/second.scene.json") != std::string::npos);
+    CHECK(r.notes[0].message.find("prefabs/messy.prefab.json") != std::string::npos);
+    CHECK(r.notes[0].hint.find("scene.format") != std::string::npos);
 
-    // Writing them the way scene.format does (the shared canonical_scene_layout) clears the warnings.
+    // Writing them the way scene.format does (the shared canonical_scene_layout) clears the note.
     for (const char* rel : {"prefabs/messy.prefab.json", "scenes/second.scene.json"}) {
         const stdfs::path file = stdfs::path(dir) / rel;
         auto layout = canonical_scene_layout(file.generic_string());
@@ -110,7 +109,7 @@ TEST_CASE("validate: a scene or prefab that is not in the canonical layout is on
         CHECK_FALSE(layout->same);
         testing::write_all(file, layout->text);
     }
-    CHECK(count_mentioning(validate_project(dir).warnings, "canonical layout") == 0);
+    CHECK(validate_project(dir).notes.empty());
 }
 
 TEST_CASE("validate: a behaviour method that looks like a misspelled hook is a warning with a hint; helpers are not") {

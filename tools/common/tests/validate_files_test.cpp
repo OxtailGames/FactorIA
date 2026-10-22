@@ -55,10 +55,15 @@ TEST_CASE("validate: scenes and prefabs outside scenes/ and prefabs/ are checked
     const ValidationReport r = validate_project(dir);
     CHECK(r.scenesChecked == before.scenesChecked + 2);  // levels/base and maps/ok
     CHECK_FALSE(r.ok);
-    const ValidationIssue* layout = find_issue(r.warnings, "levels/base.scene.json", "");
-    REQUIRE(layout != nullptr);
-    CHECK(layout->message.find("canonical layout") != std::string::npos);
-    CHECK(layout->hint.find("scene.format") != std::string::npos);
+    // A hand-formatted file is valid: one note (not a warning) lists it.
+    CHECK(find_issue(r.warnings, "levels/base.scene.json", "") == nullptr);
+    REQUIRE(r.notes.size() == 1);
+    CHECK(r.notes[0].message.find("formatted by hand") != std::string::npos);
+    CHECK(r.notes[0].message.find("levels/base.scene.json") != std::string::npos);
+    CHECK(r.notes[0].message.find("maps/ok.scene.json") == std::string::npos);
+    CHECK(r.notes[0].hint.find("scene.format") != std::string::npos);
+    CHECK(r.to_text().find("note: ") != std::string::npos);
+    CHECK(r.to_json()["notes"].size() == 1);
     const ValidationIssue* field = find_issue(r.errors, "levels/base.scene.json", "/entities/0/components/Camera/fvo");
     REQUIRE(field != nullptr);
     CHECK(field->message.find("Unknown field 'fvo'") != std::string::npos);
@@ -71,9 +76,30 @@ TEST_CASE("validate: scenes and prefabs outside scenes/ and prefabs/ are checked
     // A non-canonical prefab outside prefabs/ is reported like one inside it.
     testing::write_all(stdfs::path(dir) / "levels/loose.prefab.json", "{\"format\":\"factoria.prefab/1\",\"entity\":{\"id\":\"x\"}}");
     const ValidationReport r2 = validate_project(dir);
-    const ValidationIssue* loose = find_issue(r2.warnings, "levels/loose.prefab.json");
-    REQUIRE(loose != nullptr);
-    CHECK(loose->message.find("canonical layout") != std::string::npos);
+    REQUIRE(r2.notes.size() == 1);  // still ONE note, now naming both files
+    CHECK(r2.notes[0].message.find("2 scene/prefab files are formatted by hand") != std::string::npos);
+    CHECK(r2.notes[0].message.find("levels/loose.prefab.json") != std::string::npos);
+    CHECK(find_issue(r2.warnings, "levels/loose.prefab.json") == nullptr);
+}
+
+TEST_CASE("validate: a canonical project has no note") {
+    testing::TempDir tmp;
+    const std::string dir = new_project(tmp);
+    write_canonical(dir + "/maps/ok.scene.json", R"({"format": "factoria.scene/1", "entities": []})");
+    const ValidationReport r = validate_project(dir);
+    CHECK(r.notes.empty());
+    CHECK(r.to_json()["notes"].empty());
+}
+
+TEST_CASE("validate: a valid hand-formatted scene gives 0 warnings and 1 note") {
+    testing::TempDir tmp;
+    const std::string dir = new_project(tmp);
+    testing::write_all(stdfs::path(dir) / "maps/hand.scene.json", "{\"format\":\"factoria.scene/1\",\"entities\":[]}");
+    const ValidationReport r = validate_project(dir);
+    CHECK(r.ok);
+    CHECK(r.warnings.empty());
+    REQUIRE(r.notes.size() == 1);
+    CHECK(r.notes[0].message.find("maps/hand.scene.json") != std::string::npos);
 }
 
 TEST_CASE("validate: hidden folders, node_modules and the top-level build/ are not scanned, like scene.format") {

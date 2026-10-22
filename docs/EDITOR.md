@@ -37,7 +37,7 @@ dragging files from the Project panel ([Project panel](#project-panel)). Use Und
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
 | Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
 | Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
@@ -52,7 +52,8 @@ Play snapshots the scene and runs the game; Stop restores the snapshot, so edits
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it
 to send"), and while it is working Play and Step are disabled until it finishes or you press Stop in the AI panel. The Console
 still runs commands during play, to inspect or poke the running game. Ctrl+Z / Ctrl+Y
-(toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. View >
+(toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. Undo does
+not touch files; to take back a whole AI run, scripts included, use Revert ([Revert an AI run](#revert-an-ai-run)). View >
 Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
 
 **Materials and textures reload live.** The editor watches `materials/`, `shaders/` and `assets/` for the files the renderer
@@ -158,6 +159,25 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   and Play waits for it. Codex still uses a `factoria mcp` process of its own (see `docs/AI_PROVIDERS.md`, CLI agents in
   the editor).
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
+
+### Revert an AI run
+
+Before every run the editor takes a **checkpoint**: a copy of every file of the project (scripts, tests, scenes, assets;
+not folders starting with `.`, `node_modules` or a top-level `build/`) plus the open scene as it is in memory. When the
+run ends and it changed something, the transcript shows **"This run changed N files"** with a **Revert** button (and the
+list of files, and whether the open scene changed). Revert asks for confirmation, then puts every file back, deletes the
+files the run created, and puts the scene back as ONE Undo step (Ctrl+Z brings the run's scene back). Scripts are
+reloaded. The item then reads "Reverted ..." with an **Undo revert** button, which restores the state the project had just
+before the Revert (nothing is lost: Revert makes its own safety checkpoint first). **Edit > Revert Last AI Run** does the
+same for the newest run. The button works after a restart too (the item is saved with the chat), and it is available only
+in edit mode with no AI run in progress. The next message you send tells the AI that you reverted, so it reads the files
+again instead of assuming its changes are still there. Revert covers files, not what lives outside the project folder.
+It does not replace git: use git for long-term history.
+
+Checkpoints live in `.factoria/checkpoints/` (each distinct file content is stored once; the newest 30 checkpoints are kept)
+and use disk space, mostly for big assets. To clear them, delete that folder; the editor never needs it back. They are
+never exported or bundled (folders starting with `.` are skipped), and the template `.gitignore` lists `.factoria/`. The same
+engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff` and `checkpoint.restore`.
 
 ## Exporting the game
 
@@ -386,7 +406,7 @@ The AI's commands run on the editor's main thread, but never for long at a time:
 ### Run only some sections
 
 The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
-play, AI marshaling, viewport click and keys), T (toolbar Screenshot), A (Audio panel), A2 (Profiler panel), B (commands that
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel) and O (the CLI
