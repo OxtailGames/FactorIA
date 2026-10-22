@@ -130,7 +130,26 @@ void measure(const stdfs::path& dir, PublishUpload& up) {
 
 // The .ipa (App Store Connect) or .aab (Google Play) to upload: the `artifact` option, else the file the export workflow
 // leaves under `outParent` (docs/EXPORTING.md, "Uploading to stores"). Both are zip files.
+Result<stdfs::path> find_msix_artifact(const Store& store, const Game& g, const PublishOptions& o, const stdfs::path& outParent) {
+    const std::string who = "publish." + store.name + ": ";
+    std::error_code ec;
+    stdfs::path file = o.artifact.empty() ? outParent / (g.slug + "-windows.msix") : stdfs::absolute(stdfs::path(o.artifact), ec).lexically_normal();
+    if (!is_file(file))
+        return err(who + (o.artifact.empty() ? "there is no package to upload: " + generic(file) + " does not exist" : "the artifact " + generic(file) + " does not exist"),
+                   "Export the package first: factoria export --platform windows --format msix (project.export {\"platform\":\"windows\",\"format\":\"msix\"}), which writes build/export/<game-slug>-windows.msix. "
+                   "Or pass `artifact` with the path of another .msix.");
+    if (file.extension() != ".msix")
+        return err(who + generic(file) + " is not an .msix", "Pass the .msix that the Windows export writes. (An .msixbundle or .appx is not uploaded by this command.)");
+    std::ifstream in(os_path(file), std::ios::binary);
+    char magic[2] = {};
+    in.read(magic, 2);
+    if (magic[0] != 'P' || magic[1] != 'K')
+        return err(who + generic(file) + " is not a valid .msix (it is not a zip file)", "Export it again; an .msix is a zip with AppxManifest.xml inside.");
+    return file;
+}
+
 Result<stdfs::path> find_mobile_artifact(const Store& store, const Game& g, const PublishOptions& o, const stdfs::path& outParent) {
+    if (store.mobile == "windows") return find_msix_artifact(store, g, o, outParent);
     const std::string who = "publish." + store.name + ": ";
     const bool ios = store.mobile == "ios";
     const std::string ext = ios ? ".ipa" : ".aab";
@@ -274,7 +293,7 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
     // ---- the built file of a mobile store (App Store Connect, Google Play): one file, not export folders ----
     if (!store->mobile.empty()) {
         if (!options.platforms.empty() || !options.folders.empty())
-            return err(who + "`platforms` and `folders` do not apply: " + store->name + " uploads one " + (store->mobile == "ios" ? ".ipa" : ".aab") + " file",
+            return err(who + "`platforms` and `folders` do not apply: " + store->name + " uploads one " + (store->mobile == "ios" ? ".ipa" : store->mobile == "windows" ? ".msix" : ".aab") + " file",
                        "Leave them out; pass `artifact` (relative to the project) to upload a file other than the default.");
         const std::string host = options.host.empty() ? host_platform() : options.host;
         if (store->macOnly && host != "macos" && !options.dryRun)
@@ -490,13 +509,18 @@ CommandInfo store_command(const std::string& store) {
     if (store == "gog")
         props += R"(,
         "branch":{"type":"string","description":"GOG branch to put the build on (Pipeline Builder --branch). Default: none, the build is only uploaded. 'master' is refused: Pipeline Builder cannot publish to it."})";
+    if (store == "microsoft")
+        props += R"(,
+        "releaseStatus":{"type":"string","enum":["draft","completed"],"description":"draft: msstore publish --noCommit, the submission is prepared in Partner Center and waits for you to submit it; completed: it is also submitted for certification. Default: draft."})";
     if (store == "googleplay")
         props += R"(,
         "track":{"type":"string","description":"Release track: internal, alpha, beta, production or the name of a closed testing track. Default: publish.googleplay.track, else internal."},
         "releaseStatus":{"type":"string","enum":["draft","completed"],"description":"draft: the release waits in the Play Console until you roll it out; completed: it rolls out at once. Default: publish.googleplay.releaseStatus, else draft. A new app that was never published accepts only draft."})";
     if (mobile) {
-        const std::string doc = store == "appstore"
-            ? "The .ipa to upload, relative to the project. Default: build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes it (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project."
+        const std::string doc = store == "microsoft"
+            ? "The .msix to upload, relative to the project. Default: build/export/<game-slug>-windows.msix, which `factoria export --platform windows --format msix` writes. Upload it unsigned: the Store signs it."
+            : store == "appstore"
+            ?"The .ipa to upload, relative to the project. Default: build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes it (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project."
             : "The .aab to upload, relative to the project. Default: build/export/<game-slug>-android/<game-slug>.aab, which `factoria export --platform android --format aab --release` writes.";
         props = replace_all(props, "@ARTIFACT@", doc);
     }
@@ -540,6 +564,19 @@ CommandInfo store_command(const std::string& store) {
             "The key stays a file outside the project: nothing of it is written, shown or logged. After the upload App Store Connect processes the build, then it shows in TestFlight. Returns {store, dryRun, uploaded, "
             "version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed altool is an "
             "error whose data is that report. Examples: {\"dryRun\":true}, {\"artifact\":\"build/export/space-dodge.ipa\"}. Details: docs_read {\"name\":\"exporting\"}.";
+    } else if (store == "microsoft") {
+        info.summary = "Upload the Windows MSIX package to the Microsoft Store (msstore publish).";
+        info.description =
+            "Runs `msstore reconfigure --tenantId ... --sellerId ... --clientId ... --clientSecret ...` and then `msstore publish <folder of the msix> --inputFile <msix> --appId <product id> [--noCommit]` "
+            "(the Microsoft Store Developer CLI) on the package `factoria export --platform windows --format msix` writes (build/export/<game-slug>-windows.msix), or on `artifact`. Upload it UNSIGNED: "
+            "the Store signs it. Needs: the app reserved in Partner Center with its first submission made by hand, factoria.json publish.microsoft {productId} (Partner Center > your app > Product identity > "
+            "Store ID, 12 characters) and export.windows.msix {identityName, publisher, publisherDisplayName} copied from the same page (a package with another identity is refused), msstore (PATH, FACTORIA_MSSTORE, "
+            "or publish.msstore of ~/.factoria/export.json; it needs the .NET runtime) and the Partner Center credentials of an Azure AD application with the Manager role in the environment variables "
+            "FACTORIA_MSSTORE_TENANT_ID, FACTORIA_MSSTORE_SELLER_ID, FACTORIA_MSSTORE_CLIENT_ID and FACTORIA_MSSTORE_CLIENT_SECRET (never factoria.json; the secret is redacted in every result and log; msstore keeps "
+            "the credentials in its own settings after reconfigure). `releaseStatus` draft (the default) adds --noCommit, so the submission waits in Partner Center; completed submits it for certification. Every "
+            "submission needs a higher \"version\" in factoria.json. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, "
+            "commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed msstore is an error whose data is that report. Examples: {\"dryRun\":true}, {\"releaseStatus\":\"completed\"}. "
+            "Details: docs_read {\"name\":\"exporting\"}.";
     } else if (store == "googleplay") {
         info.summary = "Upload the release Android App Bundle (.aab) to Google Play (fastlane supply).";
         info.description =

@@ -28,3 +28,21 @@ Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<
 | `zip` | string | no | Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip. |
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign and send nothing. Works on any computer. Default false. |
 
+## `sign.windows` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside the Microsoft Store.
+
+Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows","format":"msix"}` writes) in place, and with `exe` the game's .exe of the export folder. A package for the Microsoft Store is uploaded UNSIGNED (Microsoft signs it), so this is for installing the package on a PC outside the Store (yours, a tester's) or for a game sold elsewhere. The certificate is a code-signing .pfx: `pfx`, else FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json; its password ONLY in FACTORIA_WINDOWS_PFX_PASSWORD (never an argument, a file of the game, a result or a log). The subject of the certificate must equal the Publisher of the package (checked with openssl when it is installed). `testCertificate: true` (Windows) instead creates a self-signed certificate for the package's Publisher in your user certificate store, signs with it and saves the public part as <slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation Cert:\LocalMachine\TrustedPeople as Administrator) and `Add-AppxPackage -Path <the .msix>` installs the game (docs/EXPORTING.md, "Trying the package on your PC"). The tool: signtool.exe on Windows (FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode on macOS and Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.2 or newer). Digest SHA-256 and an RFC 3161 time stamp (`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, certificate, certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, testCertificateFile, steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. Signing again after every export is needed: the next project.export replaces the package. Examples: {"dryRun":true}, {"pfx":"C:/keys/code-signing.pfx"}, {"testCertificate":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `msix` | string | no | The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix. |
+| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. |
+| `exe` | boolean | no | Also sign the game's .exe in build/export/<game-slug>-windows/ (for a game shared as a folder or a zip). The package is not changed by it. Default false. |
+| `pfx` | string | no | The code-signing certificate (.pfx), absolute or relative to the project. Default: FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json. The password is read from FACTORIA_WINDOWS_PFX_PASSWORD only. |
+| `testCertificate` | boolean | no | Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC. Default false. |
+| `timestampUrl` | string | no | RFC 3161 time-stamp server. Default: http://timestamp.digicert.com. |
+| `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign nothing. Works on any computer. Default false. |
+

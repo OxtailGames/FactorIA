@@ -24,7 +24,7 @@ account and no tool and prints the plan and what is missing. Run it first.
 | Google Play | 25 USD once | automated and manual checks, from hours to a few days; new personal accounts also need a 14-day closed test | Android | upload from the second bundle (`publish.googleplay`); the first one by hand |
 | App Store (iOS) | 99 USD a year (Apple Developer Program) | App Review, usually 1 to 2 days | iOS | upload of an `.ipa` you archive in Xcode (`publish.appstore`, macOS only) |
 | Steam | 100 USD per game, recouped after 1,000 USD of sales | store page and build reviews, about 1 to 5 days each; a "coming soon" page and a waiting period come first | Windows, macOS, Linux | full upload (`publish.steam`) |
-| Microsoft Store | free for individuals, 99 USD once for a company account | certification, a few days | Windows | build only: the Windows folder; no MSIX yet |
+| Microsoft Store | free for individuals, 99 USD once for a company account | certification, a few days | Windows | the MSIX package (`--format msix`, `sign.windows` to try it); upload from the second submission (`publish.microsoft`) |
 | Epic Games Store | check the Developer Portal (a per-product fee has been reported); 0% of your first 1 million USD a year, 12% after | Epic approves the game and its page | Windows, macOS | full upload (`publish.epic`) |
 | GOG | none; GOG keeps 30% | GOG accepts games itself, by application | Windows, macOS, Linux | full upload (`publish.gog`) |
 
@@ -129,17 +129,20 @@ Do these once, in this order. Each is a full section elsewhere.
 ## Microsoft Store
 
 **What FactorIA does**
-- Export `windows` with the game's icon and version information in the exe
-  ([Microsoft Store](EXPORTING.md#microsoft-store), [Desktop](EXPORTING.md#desktop-linux-windows-macos)).
-- Nothing else: no MSIX package, no exe signing, no `publish.*` command. An `export.windows.msix` option is planned;
-  until then the packaging steps are by hand and are listed in [Microsoft Store](EXPORTING.md#microsoft-store).
+- Exports `windows` with the game's icon and version information in the exe, and with `--format msix` the MSIX package
+  (`<slug>-windows.msix`, unsigned, on any computer): manifest, logos from the icon, block map
+  ([Microsoft Store](EXPORTING.md#microsoft-store)).
+- `sign.windows` signs the package with your `.pfx` (or, on Windows, a self-signed test certificate) to install it on a PC.
+- `publish.microsoft` (MCP `publish_microsoft`) uploads the package with `msstore` once the app and its first
+  submission exist.
 
 **What you still do by hand**
 - Partner Center account (free for individual developers, about 99 USD once for a company, as of 2026-10), identity
   verification (days for a company).
 - Reserve the app name; copy the package identity and publisher from the product identity page.
-- Make the MSIX with the Windows SDK (`makeappx`), with the tile and store logos, as in
-  [Microsoft Store](EXPORTING.md#microsoft-store). Upload it unsigned: Microsoft signs it after certification.
+- Fill `export.windows.msix` with the identity of Partner Center and export with `--format msix`
+  ([Microsoft Store](EXPORTING.md#microsoft-store)). Upload the package unsigned: Microsoft signs it after certification.
+- For `publish.microsoft`: an Azure AD application associated with Partner Center, and its ids and secret in the environment.
 - Store listing: texts, screenshots, optional trailer, store logos (see
   [Store page material](EXPORTING.md#store-page-material)). Privacy policy URL ([LEGAL.md](LEGAL.md)), age rating
   (IARC questionnaire in Partner Center), pricing, markets and availability.

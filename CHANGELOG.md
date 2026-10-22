@@ -2,6 +2,19 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Microsoft Store
+
+- `factoria export --platform windows --format msix` (or `export.windows.format: "msix"`) writes
+  `<slug>-windows.msix` next to the Windows folder, from any computer: the unsigned package the Microsoft Store takes, with
+  the manifest, the logos cut from your icon and the block map. The identity comes from the new `export.windows.msix`
+  settings (the editor's Windows tab and Export window have them).
+- New `sign.windows` signs the package with your `.pfx` (`signtool`, or `osslsigncode` on macOS and Linux) to install it on
+  a PC; on Windows `testCertificate` makes a self-signed one. The password is only read from the environment.
+- New `publish.microsoft` uploads the package with the Microsoft Store Developer CLI.
+- The web export and the AppImage use a shared zip writer; their bytes did not change in meaning.
+
 ## 0.2.0
 
 FactorIA 0.2.0 is about finishing and shipping a game: edit scenes by hand next to your AI, translate the game, add

@@ -8,15 +8,11 @@
 #include <map>
 
 #include "export_internal.h"
+#include "export_zip.h"
 #include "fa/core/pack.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/setup.h"
-
-// miniz, as vendored by the Basis Universal encoder this library already links: raw deflate and CRC-32 for the zip.
-#define MINIZ_HEADER_FILE_ONLY
-#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
-#include <encoder/basisu_miniz.h>
 
 namespace fa::export_detail {
 
@@ -140,30 +136,7 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
     return {};
 }
 
-// ---- the zip -------------------------------------------------------------------------------------------
-
-namespace {
-
-void put16(std::string& o, std::uint32_t v) {
-    o += static_cast<char>(v & 0xFF);
-    o += static_cast<char>((v >> 8) & 0xFF);
-}
-
-void put32(std::string& o, std::uint32_t v) {
-    put16(o, v & 0xFFFF);
-    put16(o, v >> 16);
-}
-
-struct ZipEntry {
-    std::string name;
-    std::uint32_t crc = 0, compressedSize = 0, size = 0, offset = 0;
-    std::uint16_t method = 0;  // 0 stored, 8 deflate
-};
-
-constexpr std::uint32_t kDosDate = (0 << 9) | (1 << 5) | 1;  // 1980-01-01: the same bytes for the same game, whenever it is zipped
-constexpr std::uint32_t kUtf8Names = 0x0800;
-
-}  // namespace
+// ---- the zip (export_zip.cpp) ------------------------------------------------------------------------
 
 Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, ExportReport& report) {
     // index.html first; the files that are for the developer (not for players) stay out.
@@ -183,86 +156,19 @@ Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, Exp
     if (names.empty() || names.front() != "index.html")
         return err("export: the web export has no index.html to zip", "this is a bug in factoria; report it");
 
-    std::string zip, central;
-    std::vector<ZipEntry> entries;
+    ZipWriter zip(zipFile);
     std::uint64_t total = 0;
     for (const std::string& name : names) {
         const stdfs::path file = outRoot / name;
         auto data = read_file(file);
         if (!data) return err("export: cannot read " + generic(file) + " to zip it");
-        if (data->size() >= 0xFFFFFFFFull || zip.size() >= 0x7FFFFFFFull)
+        if (data->size() >= 0xFFFFFFFFull)
             return err("export: the web export is over 2 GB, more than a zip made here can hold", "itch.io does not take such a game either: make the game smaller");
-        ZipEntry e;
-        e.name = name;
-        e.size = static_cast<std::uint32_t>(data->size());
         total += data->size();
-        e.crc = static_cast<std::uint32_t>(buminiz::mz_crc32(buminiz::mz_crc32(0, nullptr, 0), reinterpret_cast<const unsigned char*>(data->data()), data->size()));
-        std::string_view body = *data;
-        std::string deflated;
-        if (!data->empty()) {
-            std::size_t n = 0;
-            void* heap = buminiz::tdefl_compress_mem_to_heap(data->data(), data->size(), &n, 1024);  // raw deflate, 1024 probes
-            if (heap) {
-                if (n < data->size()) deflated.assign(static_cast<const char*>(heap), n);
-                std::free(heap);
-            }
-        }
-        if (!deflated.empty()) {
-            e.method = 8;
-            body = deflated;
-        }
-        e.compressedSize = static_cast<std::uint32_t>(body.size());
-        e.offset = static_cast<std::uint32_t>(zip.size());
-        put32(zip, 0x04034b50);
-        put16(zip, 20);
-        put16(zip, kUtf8Names);
-        put16(zip, e.method);
-        put16(zip, 0);
-        put16(zip, kDosDate);
-        put32(zip, e.crc);
-        put32(zip, e.compressedSize);
-        put32(zip, e.size);
-        put16(zip, static_cast<std::uint32_t>(e.name.size()));
-        put16(zip, 0);
-        zip += e.name;
-        zip.append(body.data(), body.size());
-        entries.push_back(std::move(e));
+        if (auto r = zip.add(name, *data, true); !r.ok()) return r;
     }
-    for (const ZipEntry& e : entries) {
-        put32(central, 0x02014b50);
-        put16(central, 20);
-        put16(central, 20);
-        put16(central, kUtf8Names);
-        put16(central, e.method);
-        put16(central, 0);
-        put16(central, kDosDate);
-        put32(central, e.crc);
-        put32(central, e.compressedSize);
-        put32(central, e.size);
-        put16(central, static_cast<std::uint32_t>(e.name.size()));
-        put16(central, 0);  // extra
-        put16(central, 0);  // comment
-        put16(central, 0);  // disk
-        put16(central, 0);  // internal attributes
-        put32(central, 0);  // external attributes
-        put32(central, e.offset);
-        central += e.name;
-    }
-    const std::uint32_t centralOffset = static_cast<std::uint32_t>(zip.size());
-    zip += central;
-    put32(zip, 0x06054b50);
-    put16(zip, 0);
-    put16(zip, 0);
-    put16(zip, static_cast<std::uint32_t>(entries.size()));
-    put16(zip, static_cast<std::uint32_t>(entries.size()));
-    put32(zip, static_cast<std::uint32_t>(central.size()));
-    put32(zip, centralOffset);
-    put16(zip, 0);
-
-    std::string why;
-    std::error_code ec;
-    stdfs::remove(os_path(zipFile), ec);
-    if (!write_file(zipFile, zip, &why)) return err("export: " + why);
+    if (auto r = zip.finish(); !r.ok()) return r;
+    const std::vector<ZipEntry>& entries = zip.entries();
 
     // What itch.io documents for an HTML5 game (https://itch.io/docs/creators/html5).
     constexpr std::uint64_t kMiB = 1024 * 1024;

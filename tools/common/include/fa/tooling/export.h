@@ -88,6 +88,8 @@ struct ExportOptions {
                                 // Play bundle, built with Gradle) or "gradle" (only the Gradle project; nothing is built
                                 // and no JDK or SDK is needed). linux: "appimage" also writes the game as one AppImage file
                                 // (needs Linux x86_64 and `factoria setup appimage`); without it the folder is all there is.
+                                // windows: "msix" also writes <out>/<slug>-windows.msix, the Microsoft Store package, next to
+                                // the folder (any host; export.windows.format in factoria.json); "folder" is the default.
                                 // The other platforms have one format and ignore it
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
                                 // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
@@ -107,7 +109,8 @@ struct ExportReport {
     std::string format;                    // the format that was exported (see ExportOptions::format); empty when none
     std::string artifact;                  // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
                                            // .aab of an Android export (release builds have no "-debug"), or the
-                                           // <outputDir>/<slug>-x86_64.AppImage of a linux one; empty otherwise
+                                           // <outputDir>/<slug>-x86_64.AppImage of a linux one, or the <out>/<slug>-windows.msix
+                                           // of a windows one (next to outputDir); empty otherwise
     std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
     std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted): what is on disk, so a release
                                            // export of a desktop game lists game.pak, not the files in it
@@ -133,7 +136,7 @@ struct ExportPlan {
     std::string mode;                   // android/ios: "prebuilt" or "source"; web: where the player comes from ("explicit",
                                         // "package", "installed" or "build"); empty for desktop exports
     std::string format;                 // the format the export would produce (see ExportOptions::format); empty when none
-    std::string artifact;               // absolute path of the file the export would build (.apk / .aab / .AppImage / the web export's .zip); else empty
+    std::string artifact;               // absolute path of the file the export would build (.apk / .aab / .AppImage / .msix / the web export's .zip); else empty
     AndroidToolchain toolchain;         // android apk/aab: the JDK and SDK the build would use, and where each was found
                                         // (problems stays empty: a missing one is the plan's error); else empty
     std::string player;                 // desktop: the factoria_player that is copied into the export; web: its factoria_player.js

@@ -553,6 +553,18 @@ Closes E-08 and S-09, plus the Mac App Store and Microsoft Store rows of the rep
   repository can do is the seam: a platform layer and render-backend interface (D3D12/GDKX, NVN, AGC) that a private M11
   plugin implements, and certification checklists (TRC, Lotcheck, XR) once a licensed developer contributes them.
 
+Done so far (MSIX and Microsoft Store): `export.windows.format` / `--format msix` writes a deterministic, unsigned
+`<slug>-windows.msix` from any host (shared zip writer, block map, manifest, logos from the icon, no `resources.pri`),
+`export.windows.msix` holds the Partner Center identity (editor Windows tab, Export window menu, validate warning),
+`sign.windows` signs it with a `.pfx` (signtool or osslsigncode; Windows-only self-signed test certificate) and
+`publish.microsoft` uploads it with `msstore`. Doctests unzip the package and check the hashes, manifest and content types
+with an independent reader; sign and publish run against fakes.
+
+Left open (MSIX): the package has not been installed on a real Windows PC with `Add-AppxPackage` (the acceptance
+criterion below), loose qualified logos without a `resources.pri` are unverified, a real upload needs a Partner Center
+account (msstore was never run for real), the osslsigncode minimum (2.2) is from memory, `testCertificate` is Windows-only,
+and PC Game Pass / GDK are untouched.
+
 Acceptance criteria: a sandboxed macOS export passes `codesign --verify --strict` with the App Sandbox entitlement and
 runs; an MSIX of an exported game installs with `Add-AppxPackage`.
 

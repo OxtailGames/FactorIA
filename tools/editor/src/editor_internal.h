@@ -279,6 +279,7 @@ public:
     void poll_platform_settings();          // every frame: factoria.json changed on disk, icon pictures, a keystore being created
     void reset_platform_settings_state();   // project switch: forgets the working copy
     void request_close_platform_settings(); // closes now, or asks first when there are unsaved changes
+    void set_windows_format(const std::string& format);  // the Export window's Windows format combo: saves export.windows.format
     void set_android_format(const std::string& format);  // the Export window's format combo: saves export.android.format
     // A project picture scaled down for a preview (<project>/<relPath>, at most 256 px a side), loaded again when the file
     // changes; nullptr when it cannot be read.
