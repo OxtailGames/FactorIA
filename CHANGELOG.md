@@ -24,6 +24,14 @@ Animation
   second skin's mesh out of shape). `Animator::skinPalettes` holds one palette per skin. Clockwork Courier imports the
   original robot and dog again and drops `tools/skinify.py` (FB-0001, FB-0002).
 
+Scripts
+
+- `scene.preload(path)` and `assets.preload(paths)` read a scene's files (or a list of assets) ahead of time, a few per
+  frame, and return a handle with `progress` (0..1), `done` and a `promise`: a loading screen keeps animating while the
+  next level is read, and the `scene.load` that follows reads nothing from the disk. Tests do a fixed amount of work per
+  frame, so they give the same result on every machine; `game.fileReads()` counts disk reads. Clockwork Courier's
+  loading bar now shows real progress and its intro reads the title screen while it plays (FB-0012).
+
 Platform services
 
 - Ads: the new `platform.ads` service (`available(placement)`, `showRewarded(placement)` resolving `{rewarded, reason?}`

@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <thread>
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -304,4 +305,56 @@ TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
 // The web build copies the save folder to the browser's storage here; everywhere else the folder is on disk and this does nothing.
 TEST_CASE("fs: user_dir_changed is a no-op outside the web build") {
     CHECK_NOTHROW(fs::user_dir_changed());
+}
+
+TEST_CASE("fs: warm reads a file ahead, later reads take it from memory until unwarm") {
+    TempProject p;
+    REQUIRE(fs::write_text("assets/a.bin", "hello"));
+    const std::uint64_t base = fs::disk_reads();
+    std::string text;
+    std::uint64_t size = 0;
+    REQUIRE(fs::warm("assets/a.bin", &text, &size));
+    CHECK(text == "hello");
+    CHECK(size == 5);
+    CHECK(fs::is_warm("assets/a.bin"));
+    CHECK(fs::warm_bytes() == 5);
+    CHECK(fs::disk_reads() == base + 1);
+    REQUIRE(fs::warm("assets/./a.bin"));  // already warm: no second read
+    CHECK(fs::disk_reads() == base + 1);
+
+    for (int i = 0; i < 3; ++i) {  // as often as asked, no disk read
+        auto r = fs::read_text("assets/a.bin");
+        REQUIRE(r);
+        CHECK(r.value() == "hello");
+    }
+    CHECK(fs::disk_reads() == base + 1);
+    CHECK(fs::is_warm("assets/a.bin"));
+
+    fs::unwarm("assets/a.bin");
+    CHECK(fs::warm_bytes() == 0);
+    REQUIRE(fs::read_text("assets/a.bin"));  // now it reads the disk
+    CHECK(fs::disk_reads() == base + 2);
+}
+
+TEST_CASE("fs: a warm file that changed on disk is read again; unwarm drops it; a missing file teaches") {
+    TempProject p;
+    REQUIRE(fs::write_text("assets/b.txt", "one"));
+    REQUIRE(fs::warm("assets/b.txt"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    REQUIRE(fs::write_text("assets/b.txt", "two!"));
+    stdfs::last_write_time(fs::resolve("assets/b.txt"), stdfs::file_time_type::clock::now() + std::chrono::seconds(5));
+    auto r = fs::read_text("assets/b.txt");
+    REQUIRE(r);
+    CHECK(r.value() == "two!");
+
+    REQUIRE(fs::warm("assets/b.txt"));
+    fs::unwarm("assets/b.txt");
+    CHECK_FALSE(fs::is_warm("assets/b.txt"));
+    REQUIRE(fs::warm("assets/b.txt"));
+    fs::unwarm_all();
+    CHECK(fs::warm_bytes() == 0);
+
+    auto missing = fs::warm("assets/nope.png");
+    REQUIRE_FALSE(missing);
+    CHECK(missing.error().message.find("nope.png") != std::string::npos);
 }
