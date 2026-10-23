@@ -285,13 +285,14 @@ describe("restore and refund", () => {
     game.step(10);
     store.equip("copper");
     expect(store.equippedPaint()).toBe("copper");
-    game.platform.reset(); // the fake store cannot refund: a reset is a store that lists nothing
+    game.platform.revoke("paint_copper"); // a refund: the store stops listing it and sends the "revoked" event
     game.step(2);
-    // the check runs in a promise: step until it is done
+    expect(store.owns("paint_copper")).toBe(false); // the listener took it away at once
+    // a start-up check agrees with the store (it runs in a promise: step until it is done)
     let result = null;
     store.reconcile({ authoritative: true }).then((r) => (result = r));
     game.step(5);
-    expect(result.revoked).toEqual(["paint_copper"]);
+    expect(result.revoked).toEqual([]);
     expect(store.owns("paint_copper")).toBe(false);
     expect(store.equippedPaint()).toBe("factory");
   });

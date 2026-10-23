@@ -1271,9 +1271,9 @@ declare module "factoria" {
    */
   export interface PlatformPurchase {
     /**
-     * purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
+     * revoked (only in a "purchase" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
      */
-    readonly status: "purchased" | "pending" | "cancelled";
+    readonly status: "purchased" | "pending" | "cancelled" | "revoked";
     /**
      * The catalog id of the product (as in factoria.json platform.products).
      */
@@ -1437,7 +1437,7 @@ declare module "factoria" {
      */
     buy(id: string): Promise<PlatformPurchase>;
     /**
-     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore().
+     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore(). A transaction the game was not told about (or finished already) rejects with code "unknownId".
      */
     finish(transactionId: string): Promise<void>;
     /**
@@ -4673,6 +4673,10 @@ declare module "factoria:test" {
      * Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased "purchase" also records an unfinished transaction.
      */
     emit(event: "purchase" | "overlay" | "player", data?: Json): void;
+    /**
+     * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
+     */
+    revoke(productId: string): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */

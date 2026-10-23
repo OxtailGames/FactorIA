@@ -73,6 +73,7 @@ std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& imag
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
+void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
 
 // Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
 // layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
@@ -83,6 +84,8 @@ Image draw_title_logo(const std::string& text, const std::string& font, const Co
 
 // Texture sizes, file weights and the store limits, over the files an export ships. Adds warnings.
 void check_shipped_assets(const std::string& projectDir, std::vector<ValidationIssue>& warnings);
+// Every glTF/glb under assets/ must find the textures and buffers its uris name: adds errors.
+void check_model_files(const std::string& projectDir, std::vector<ValidationIssue>& errors);
 // The textures Sprites draw (project-relative): fully transparent images, and backgrounds that should be transparent.
 void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures, std::vector<ValidationIssue>& warnings);
 

@@ -24,6 +24,16 @@ Animation
   second skin's mesh out of shape). `Animator::skinPalettes` holds one palette per skin. Clockwork Courier imports the
   original robot and dog again and drops `tools/skinify.py` (FB-0001, FB-0002).
 
+Platform services
+
+- The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
+  `platform.revoke`) removes it from `restore()` and sends the `purchase` event with `status: "revoked"`.
+- `platform.purchases.finish()` of a transaction the game was not told about now rejects its Promise with code
+  `unknownId` (it used to throw at the call), so `.catch()` handles it like any store failure.
+- Leaderboards in factoria.json take a `nameKey` (a locale key) instead of `name`, like achievements; the request
+  the backend gets carries the name in the current language. PLATFORM.md documents `game.project.platform`, the
+  catalog scripts can read.
+
 Tools
 
 - `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many
@@ -34,6 +44,19 @@ Tools
 - They patch `factoria.json` instead of rewriting it: only `plugins.<name>` is added, and the other keys, their order
   and the layout stay as they were. `export` and `icon` saves (the editor, `assets.draw_icon`) use the same patcher.
 - The plugin templates come with a `.gitignore` for their build output.
+
+Assets
+
+- `assets.import` of a `.glb` or `.gltf` copies the textures and buffers its `uri`s point at next to the model (with
+  provenance), shares an identical file already there, warns when the destination holds a different image of the same
+  name (kits that ship different `colormap.png` files) and stops on a different buffer; `factoria validate` reports a
+  model whose texture or buffer file is missing.
+- `assets.set_provenance` (and every command that edits `assets.json`) keeps the order of a hand-ordered file instead of
+  sorting all of it; a sorted file stays sorted.
+- `factoria validate`'s loudness warnings use the sound as it plays: a project with `defaults.audio.normalize` has no
+  peak or loudness warning left for it.
+- New `assets.synth_sound {path, preset, seed}` makes barks, growls, meows and the usual effects (coin, jump, hit,
+  explosion, laser...) offline as a deterministic WAV, with its provenance; no provider and no key.
 
 Physics
 
