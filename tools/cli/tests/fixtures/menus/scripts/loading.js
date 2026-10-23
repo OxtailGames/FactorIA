@@ -8,8 +8,17 @@ export default class Loading extends Behaviour {
   onStart() {
     this.job = scene.preload(session.nextScene);
     // A scene that could not be read ahead still loads: scene.load reports what is wrong with it.
-    const go = () => scene.load(session.nextScene);
+    const go = () => {
+      if (this.gone) return; // this scene was left first (a test that moved on): the Promise must not load a scene now
+      this.loading = true;
+      scene.load(session.nextScene);
+    };
     this.job.promise.then(go, go);
+  }
+
+  onDestroy() {
+    this.gone = true;
+    if (!this.loading) this.job.release(); // left before the files were in: give them back
   }
 
   onUpdate() {
