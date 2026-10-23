@@ -136,7 +136,7 @@ are not affected.
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
 | `destroy()` | deferred to end of frame (children too); leaves physics at once (see below) |
-| `parent`, `children`, `setParent(e, keepWorld?)` | hierarchy |
+| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, or an index without a parent, throws. Layout containers follow this order |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |
@@ -228,10 +228,13 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
 
 ### world
 - `find(idOrName)` → Entity | null · `findAll(name)` · `findByTag(tag)` · `entities()`
-- `spawn(entityJson, { position, rotation, scale, parent, props })` → Entity (same format as scene files; `{ name, tags, components: {...} }`)
-- `spawnPrefab(path, { position, rotation, scale, parent, props, overrides })` → Entity.
+- `spawn(entityJson, { position, rotation, scale, parent, index, props })` → Entity (same format as scene files; `{ name, tags, components: {...} }`)
+- `spawnPrefab(path, { position, rotation, scale, parent, index, props, overrides, childOverrides })` → Entity.
   `props` is merged into the entity's `Script.props` (on top of the prefab's own); `overrides` is entity JSON
-  merged over the prefab (`{ components: { Sprite: { color: ... } } }`).
+  merged over the prefab (`{ components: { Sprite: { color: ... } } }`). `childOverrides` changes the prefab's
+  descendants: `{ Title: { components: { Text: { text: "You won" } } } }`; a key is a child's id, name or a path such
+  as `"Panel/Title"`, a value holds `name`, `tags`, `active` and `components`. A child or field that does not exist
+  throws with a "did you mean" (docs/MENUS.md, "A panel shared between scenes").
 - Destroyed entities (`entity.destroy()`, deferred to frame end) stop being returned by `find`/`findAll`/`findByTag`
   immediately and their id can be reused right away (`world.spawn({ id: "gem_1" })` right after destroying `gem_1`).
   They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no

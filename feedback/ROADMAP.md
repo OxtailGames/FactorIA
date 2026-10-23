@@ -1470,6 +1470,11 @@ ffmpeg component is listed by `setup.status`.
 
 ### M26.20 Scene tree: sibling order and shared panels (S-M) — CC/FB-0032, CC/FB-0023
 
+Done (branch `m26/scene-order`): `World::set_parent(..., index)`, `scene.set_parent {index}`, `scene.spawn {index, overrides}`,
+`entity.setParent(parent, keepWorld, index)`, `world.spawn(json, {parent, index})` (an index outside 0..number of the
+parent's other children is an error; a root takes no index); prefab references take `overrides` for the prefab's
+descendants (by id, name or path) and `world.spawnPrefab(path, {childOverrides})` the same; docs/MENUS.md.
+
 - A child can be put at a place among its siblings: `World::set_parent` with an index, `scene.set_parent {index}`,
   `entity.setParent(parent, keepWorld, index)` and `spawn({parent, index})`.
 - MENUS.md shows a panel shared between scenes as a prefab; a prefab instance can override its children's fields

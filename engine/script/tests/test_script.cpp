@@ -1486,3 +1486,30 @@ TEST_CASE("tests: toMatchObject, and a TypeError 'not a function' shows the sour
     CHECK(rep.cases[2].message.find("o.missing(3);\n") != std::string::npos);  // the source line
     CHECK(rep.cases[2].message.find("^") != std::string::npos);                 // and the caret under it
 }
+
+TEST_CASE("scripts place a child among its siblings and override a prefab's children") {
+    TestHost h("sibling_order");
+    h.file("prefabs/panel.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"panel","children":[
+        {"id":"title","name":"Title","components":{"Sprite":{"layer":2}}}]}})");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"p"})")})).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    auto order = [&] { return ev_ok(h, "world.find('p').children.map(c => c.id).join(',')").get<std::string>(); };
+    ev_ok(h, "world.spawn({id:'a'}, {parent: world.find('p')}); world.spawn({id:'b'}, {parent: world.find('p')})");
+    CHECK(order() == "a,b");
+    ev_ok(h, "world.spawn({id:'c'}, {parent: world.find('p'), index: 0})");
+    CHECK(order() == "c,a,b");
+    ev_ok(h, "world.find('b').setParent('p', false, 0)");  // within the same parent
+    CHECK(order() == "b,c,a");
+    ev_ok(h, "world.find('b').setParent('p', false, 2)");
+    CHECK(order() == "c,a,b");
+    CHECK(ev_err(h, "world.find('b').setParent('p', false, 3)").find("0 to 2") != std::string::npos);
+    CHECK(ev_err(h, "world.spawn({id:'z'}, {parent: world.find('p'), index: 9})").find("past the end") != std::string::npos);
+    CHECK(ev_err(h, "world.spawn({id:'z'}, {index: 0})").find("needs a parent") != std::string::npos);
+    CHECK(order() == "c,a,b");
+    ev_ok(h, "world.spawnPrefab('prefabs/panel.prefab.json', {parent: world.find('p'), index: 1, childOverrides: {title: {components: {Sprite: {layer: 8}}}}})");
+    CHECK(order() == "c,panel,a,b");
+    CHECK(ev_ok(h, "world.find('title').get('Sprite').layer") == 8);
+    std::string m = ev_err(h, "world.spawnPrefab('prefabs/panel.prefab.json', {childOverrides: {titel: {}}})");
+    CHECK(m.find("Did you mean 'title'?") != std::string::npos);
+}

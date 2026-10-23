@@ -549,7 +549,13 @@ NATIVE(setParent) {
     Entity p = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     if (!p.is_null() && !W.alive(p)) return throw_err(ctx, "setParent: the new parent entity was destroyed");
     if (p == e || (!p.is_null() && W.is_ancestor(e, p))) return throw_err(ctx, "setParent: an entity cannot be parented under itself or its own descendant");
-    W.set_parent(e, p, arg_bool(ctx, argc, argv, 2, false));
+    int index = -1;
+    if (argc > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
+        std::string bad = W.check_child_index(p, e, arg_num(ctx, argc, argv, 3, -1.0));
+        if (!bad.empty()) return throw_err(ctx, "setParent: " + bad);
+        index = static_cast<int>(arg_num(ctx, argc, argv, 3, -1.0));
+    }
+    W.set_parent(e, p, arg_bool(ctx, argc, argv, 2, false), index);
     return JS_UNDEFINED;
 }
 
@@ -596,8 +602,14 @@ NATIVE(spawn) {
     Json j = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
     if (!j.is_object()) return throw_err(ctx, "world.spawn expects an entity object like { name, tags, components: {...} }");
     Entity parent = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
+    int index = -1;
+    if (argc > 2 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
+        std::string bad = W.check_child_index(parent, kNullEntity, arg_num(ctx, argc, argv, 2, -1.0));
+        if (!bad.empty()) return throw_err(ctx, "world.spawn: " + bad);
+        index = static_cast<int>(arg_num(ctx, argc, argv, 2, -1.0));
+    }
     LoadReport report;
-    Entity e = entity_from_json(W, j, parent, report, "world.spawn");
+    Entity e = entity_from_json(W, j, parent, report, "world.spawn", "", index);
     if (!report.ok() || e.is_null()) {
         return throw_err(ctx, "world.spawn failed:\n" + report.summary());
     }
@@ -614,8 +626,14 @@ NATIVE(spawnPrefab) {
     Entity parent = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     Json overrides = argc > 2 ? I->to_json(argv[2]) : Json::object();
     if (overrides.is_null()) overrides = Json::object();
+    int index = -1;
+    if (argc > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
+        std::string bad = W.check_child_index(parent, kNullEntity, arg_num(ctx, argc, argv, 3, -1.0));
+        if (!bad.empty()) return throw_err(ctx, "world.spawnPrefab: " + bad);
+        index = static_cast<int>(arg_num(ctx, argc, argv, 3, -1.0));
+    }
     LoadReport report;
-    Entity e = instantiate_prefab(W, path, parent, report, overrides);
+    Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
     I->construct_for(report.created);
     localize_created(I, report.created);
@@ -2344,8 +2362,8 @@ const Reg kRegs[] = {
     R(setTimeScale, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
-    R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 3), R(worldPos, 1), R(setWorldPos, 2),
-    R(entityJson, 3), R(spawn, 2), R(spawnPrefab, 3), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
+    R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
+    R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
     R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),

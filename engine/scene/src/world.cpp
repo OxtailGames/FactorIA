@@ -1,6 +1,7 @@
 #include "fa/scene/world.h"
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 
 #include "component_pool.h"
@@ -343,7 +344,7 @@ std::vector<Entity> World::entities_with(const TypeInfo* type) const {
 }
 
 // ------------------------------------------------------------- hierarchy --
-void World::set_parent(Entity child, Entity parent, bool keepWorldTransform) {
+void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int index) {
     Impl& d = *impl_;
     if (!alive(child)) return;
     if (!parent.is_null() && !alive(parent)) {
@@ -363,7 +364,11 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform) {
         sib.erase(std::remove(sib.begin(), sib.end(), child), sib.end());
     }
     d.slots[child.index].parent = parent;
-    if (!parent.is_null()) d.slots[parent.index].children.push_back(child);
+    if (!parent.is_null()) {
+        auto& sib = d.slots[parent.index].children;
+        if (index < 0 || static_cast<std::size_t>(index) >= sib.size()) sib.push_back(child);
+        else sib.insert(sib.begin() + index, child);
+    }
 
     if (keepWorldTransform) {
         Mat4 parentWorld = parent.is_null() ? Mat4::identity() : world_matrix(parent);
@@ -371,6 +376,21 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform) {
         auto* t = static_cast<Transform*>(d.transformPool->get(child));
         decompose(local, t->position, t->rotation, t->scale);
     }
+}
+
+std::string World::check_child_index(Entity parent, Entity moving, double index) const {
+    if (parent.is_null() || !alive(parent))
+        return "An index needs a parent: top-level entities stay in creation order. Pass a parent, or leave the index out.";
+    if (index != std::floor(index) || index < 0)
+        return "The index must be a whole number from 0, got " + std::to_string(index) + ".";
+    const auto& sib = impl_->slots[parent.index].children;
+    long long n = static_cast<long long>(sib.size());
+    if (!moving.is_null() && std::find(sib.begin(), sib.end(), moving) != sib.end()) --n;
+    if (index > static_cast<double>(n))
+        return "The index " + std::to_string(static_cast<long long>(index)) + " is past the end: '" + id_of(parent) + "' has " +
+               std::to_string(n) + " other child" + (n == 1 ? "" : "ren") + ", so the index goes from 0 to " + std::to_string(n) +
+               " (" + std::to_string(n) + " = last). Leave the index out to append.";
+    return {};
 }
 
 Entity World::parent(Entity e) const { return alive(e) ? impl_->slots[e.index].parent : kNullEntity; }
