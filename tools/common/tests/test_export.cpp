@@ -1259,6 +1259,21 @@ TEST_CASE("export desktop: a player from another build stops the export unless a
         CHECK(r.error().hint.find("factoria setup players") != std::string::npos);
         CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-windows")));  // nothing written
     }
+    SUBCASE("a player built outside git (unknown) is not compared") {
+        o.playerBinary = fingerprinted_player(tmp, "unknown");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    }
+    SUBCASE("the same commit with uncommitted changes on one side only is a warning") {
+        const std::string mine = build_fingerprint();
+        const auto dirty = mine.find("-dirty");
+        o.playerBinary = fingerprinted_player(tmp, dirty == std::string::npos ? mine + "-dirty" : mine.substr(0, dirty));
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool said = false;
+        for (const std::string& w : r->warnings) said = said || w.find("the same commit") != std::string::npos;
+        CHECK(said);
+    }
     SUBCASE("a player without a fingerprint is told apart") {
         o.playerBinary = fingerprinted_player(tmp, "");
         auto r = export_project(o);
