@@ -345,6 +345,11 @@ void Impl::after_test_load() {
     run_jobs();
 }
 
+void Impl::request_quit() {
+    if (inTestRun) testQuitRequested = true;  // a test observes the request (game.quitRequested); the run goes on
+    else host->request_quit();
+}
+
 void Impl::reset_for_test_file() {
     Json proj = host->project_settings();
     std::string scene = "scenes/main.scene.json";
@@ -355,6 +360,8 @@ void Impl::reset_for_test_file() {
     storageLoaded = true;
     storageCorrupt = false;
     storageTextHook.reset();
+    testQuitRequested = false;
+    testSystemLanguages.clear();
     owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)
     if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
     // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).

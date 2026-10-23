@@ -886,7 +886,7 @@ void ScriptSystem::dispatch_back() {
         JS_FreeValue(I.ctx, fn);
         I.run_jobs();
     }
-    if (!consumed) I.host->request_quit();
+    if (!consumed) I.request_quit();
 }
 
 void ScriptSystem::update(float dt) {

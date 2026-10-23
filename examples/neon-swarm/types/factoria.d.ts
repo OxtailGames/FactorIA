@@ -5016,6 +5016,30 @@ declare module "factoria:test" {
      * Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad.
      */
     gamepad(index?: number): TestGamepad;
+    /**
+     * Holds a mouse button (default left) until mouseUp(): input.mouse.down(button) follows. With mouseMove() it tests a drag.
+     */
+    mouseDown(button?: "left" | "right" | "middle"): void;
+    /**
+     * Releases a mouse button held with mouseDown().
+     */
+    mouseUp(button?: "left" | "right" | "middle"): void;
+    /**
+     * Turns the mouse wheel by dy notches for the next frame (input.mouse.wheel); a non-number throws.
+     */
+    wheel(dy: number): void;
+    /**
+     * True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test run never stops because of it. Cleared before each test.
+     */
+    readonly quitRequested: boolean;
+    /**
+     * Pretends the device has these languages (BCP 47 tags, best first): i18n.systemLanguages answers them so a first-run language choice can be tested. An empty list means no system language. Reset (empty) before each test. Example: game.setSystemLanguages(["es-ES", "en"]).
+     */
+    setSystemLanguages(languages: string[]): void;
+    /**
+     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers. Both default to true; an unknown key throws with a suggestion.
+     */
+    resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
      * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).

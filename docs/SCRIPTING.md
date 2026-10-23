@@ -110,7 +110,8 @@ suggestion; `factoria validate` reports the same through
 
 The engine calls these by their exact names. A method that looks like a hook but
 is not one (`start()`, `update()`, `fixedUpdate()` without the `on`, or a
-near-miss such as `onupdate()` or `onStrat()`) is never called: the first
+near-miss such as `onupdate()` or `onStrat()`; a method that takes arguments, like `start(seconds)`, is a normal
+method of the class and is not reported) is never called: the first
 behaviour of the class created logs ONE warning per such method with a "did you
 mean", and `factoria validate` reports the same for every behaviour script (under
 `scripts/` or named by a `Script.path`). Helpers with other names (`loadLevel()`)
@@ -790,6 +791,20 @@ test("player jumps", () => {
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
   `focus()`, `blur()` (what the OS does to the app, so lifecycle code can be tested),
   `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
+
+More `game` calls for tests: `mouseDown(button = "left")` and `mouseUp(button)` hold and release a mouse button (`input.mouse.down(button)`
+follows; with `mouseMove` they test a drag), `wheel(dy)` turns the wheel for the next frame
+(`input.mouse.wheel`), `quitRequested` (true once the game asked to quit with `game.quit()` or an unconsumed Back; a test
+run never stops because of it, and it is cleared before each test), `setSystemLanguages(["es-ES", "en"])` (what
+`i18n.systemLanguages` answers, so a first-run language choice can be tested; empty again before each test) and
+`resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
+unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
+one file share storage and the fake store unless you call `resetState`.
+
+**`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
+of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next
+`game.step()`. `game.load(path)` is immediate: the scene is loaded and its behaviours constructed before it returns. After
+`scene.load` step one or two frames before reading the new scene's state.
 
 `game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like
 `game.tap`), `axis(name, value)`, `connect()` and `disconnect()`. Like `keyDown`, `press`, `release` and `axis` act at once and

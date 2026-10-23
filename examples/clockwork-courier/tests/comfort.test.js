@@ -3,7 +3,7 @@
 // the assist-mode numbers and the safe area. Options are set the way the options menu saves them (storage "settings") and
 // then the scene is loaded, or by clicking the options menu itself.
 import { test, describe, expect, game, afterEach } from "factoria:test";
-import { scene, storage, ui, screen, session, i18n, game as engine } from "factoria";
+import { scene, storage, ui, screen, session, i18n } from "factoria";
 import { Autoplay, YARD_ROUTE } from "./helpers/autoplay.js";
 import * as settings from "../scripts/settings.js";
 import * as accessibility from "../scripts/accessibility.js";
@@ -467,16 +467,10 @@ describe("Android Back on every screen", () => {
     expect(game.find("quit_confirm").active).toBe(false);
     game.pressBack();
     game.step(2);
-    let quits = 0;
-    const real = engine.quit;
-    engine.quit = () => quits++; // a real quit would end the test run (FB-0038)
-    try {
-      game.click("quit_yes");
-      game.step(2);
-    } finally {
-      engine.quit = real;
-    }
-    expect(quits).toBe(1);
+    expect(game.quitRequested).toBe(false);
+    game.click("quit_yes");
+    game.step(2);
+    expect(game.quitRequested).toBe(true); // a test records the request instead of stopping the run (FB-0038)
   });
 
   test("title: options and credits close with Back without asking to quit", () => {

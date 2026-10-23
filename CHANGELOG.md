@@ -15,6 +15,15 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Tests
+
+- `factoria:test` can hold a mouse button and turn the wheel (`game.mouseDown`, `mouseUp`, `wheel`), so a drag orbit and a
+  wheel zoom are tested through the input path. `game.resetState({ storage, platform })` clears the save data and the fake
+  store between tests of one file, `game.setSystemLanguages([...])` sets what `i18n.systemLanguages` answers, and a quit
+  request in a test (`game.quit()`, Back nobody consumes) sets `game.quitRequested` instead of stopping the run.
+  SCRIPTING.md says `scene.load` from a test takes effect next frame while `game.load` is immediate. The hook warning
+  skips a method that takes arguments, like `start(seconds)`.
+
 Animation
 
 - Models animated by node transforms play with no change to the file: a body part that is a child of an animated bone
