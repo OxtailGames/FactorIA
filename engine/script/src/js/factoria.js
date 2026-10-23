@@ -1402,7 +1402,7 @@
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"];
   const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
@@ -1476,8 +1476,10 @@
   const platform = {
     // "fake" (development, tests), "none" (no store), or the backend plugin's name ("steam", "apple").
     get backend() { return N.platformInfo().backend; },
+    // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
+    get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-    // "presence", "integrity".
+    // "presence", "integrity", "ads".
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1546,6 +1548,15 @@
     presence: {
       // text: what friends see ("" clears it); data: an object of string values.
       set(text, data) { return platformCall("presence.set", platformLabel("presence.set", [text, data]), { text, data }, noResult); },
+    },
+    ads: {
+      // Is a rewarded ad ready at this placement of factoria.json platform.ads.placements? Resolves true or false.
+      available(placement) { return platformCall("ads.available", platformLabel("ads.available", [placement]), { placement }, (r) => r.available === true); },
+      // Shows a rewarded ad. Resolves { rewarded, reason? }: rewarded true when the player watched it to the end (give the
+      // reward only then); otherwise reason is "closedEarly", "noFill" or "consentRefused". It rejects when the network fails.
+      showRewarded(placement) { return platformCall("ads.showRewarded", platformLabel("ads.showRewarded", [placement]), { placement }); },
+      // What the consent sheets answered: { gdpr, tracking, canShowAds }.
+      consent() { return platformCall("ads.consent", "platform.ads.consent()", {}); },
     },
     integrity: {
       // challenge: a nonce the game's server made (16 to 500 characters of URL-safe Base64). Resolves { token }: a signed
@@ -1981,6 +1992,9 @@
       // revoke(productId): takes a purchase back like a refund: restore() no longer lists it and platform.on("purchase")
       // listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step().
       revoke(productId) { fa.call("platform.revoke", { productId }); },
+      // ad(outcome, options): how the fake's test ad ends from now on: "watched" (default), "closedEarly", "noFill" or
+      // "consentRefused"; options { gdpr, tracking } are what platform.ads.consent() answers. reset() restores the defaults.
+      ad(outcome, options = {}) { fa.call("platform.set_ad", { outcome, ...plain(options) }); },
       reset() { fa.call("platform.reset"); },
       // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
       // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().
@@ -2017,6 +2031,8 @@
       N.testAccessibility();
       N.setTimeScale(1); pausedScale = null;
       N.testAppReset();
+      // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
+      try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
       const start = N.nowMs();
       const seq0 = N.logSeq();
       let passed = true, message = "";
