@@ -37,6 +37,9 @@ export default class Intro extends Behaviour {
       return;
     }
     storage.set(SEEN_KEY, true);
+    // The title screen is read while the intro plays, so the cut to it takes no time (a mistake here would only mean a
+    // normal load at the end).
+    this.titleJob = scene.preload(NEXT);
     ui.on("click", "intro_skip", () => this.leave("input"));
     // Android Back skips the intro (and so does not quit the game in the middle of it).
     this.offBack = input.onBack(() => {
