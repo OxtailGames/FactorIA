@@ -13,7 +13,36 @@
 
 namespace fa::editor::ui {
 
-void metal_make_window_readable() {
+namespace {
+
+// The app of the frontmost ordinary window that is not an autotest's: the one the person at the computer is using.
+NSRunningApplication* app_in_front() {
+    NSString* me = NSProcessInfo.processInfo.processName;
+    const CGWindowListOption onScreen = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    CFArrayRef windows = CGWindowListCopyWindowInfo(onScreen, kCGNullWindowID);
+    if (!windows) return nil;
+    NSRunningApplication* app = nil;
+    for (NSDictionary* w in (__bridge NSArray*)windows) {  // front to back
+        // Not the menu bar, the Dock or a floating window (the autotests'), nor a window of this or another autotest
+        // (ctest runs several at once).
+        if ([w[(__bridge id)kCGWindowLayer] intValue] != 0) continue;
+        if ([w[(__bridge id)kCGWindowOwnerName] isEqualToString:me]) continue;
+        const pid_t pid = [w[(__bridge id)kCGWindowOwnerPID] intValue];
+        if ((app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid])) break;
+    }
+    CFRelease(windows);
+    return app;
+}
+
+void give_keyboard_back() {
+    if (!NSApp.active) return;
+    if (NSRunningApplication* app = app_in_front()) [app activateWithOptions:0];
+    else [NSApp deactivate];
+}
+
+}  // namespace
+
+void metal_make_window_readable(bool show) {
     // sokol_app creates the layer framebuffer-only (drawables can only be render targets); a blit needs them readable.
     // Drawables created from now on are; the current one may not be yet.
     NSWindow* window = (__bridge NSWindow*)sapp_macos_get_window();
@@ -21,6 +50,20 @@ void metal_make_window_readable() {
     if ([layer isKindOfClass:[CAMetalLayer class]]) ((CAMetalLayer*)layer).framebufferOnly = NO;
     // macOS gives a window that other windows cover completely no drawable, so nothing to read: above them, it gets one.
     window.level = NSFloatingWindowLevel;
+    if (show) return;
+    // Above the others, so out of the way of whoever uses the computer meanwhile: see-through (the drawables keep
+    // their pixels, only the compositing skips them), clicks reach the windows below, no Dock icon, and the keyboard
+    // goes back to the app in front. sokol_app activates the app when it opens the window, maybe after this: so on
+    // every activation.
+    window.alphaValue = 0;
+    window.hasShadow = NO;
+    window.ignoresMouseEvents = YES;
+    NSApp.activationPolicy = NSApplicationActivationPolicyAccessory;
+    [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification
+                                                    object:nil
+                                                     queue:nil
+                                                usingBlock:^(NSNotification*) { give_keyboard_back(); }];
+    give_keyboard_back();
 }
 
 bool metal_read_drawable(const void* drawablePtr, int w, int h, std::uint8_t* out) {
