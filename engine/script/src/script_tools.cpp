@@ -362,6 +362,7 @@ void Impl::reset_for_test_file() {
     storageTextHook.reset();
     testQuitRequested = false;
     testSystemLanguages.clear();
+    preload.reset();  // no job and no warm file of the earlier test file
     owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)
     if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
     // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).
@@ -432,10 +433,10 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         JsVal filterV(ctx, JS_NewStringLen(ctx, nameFilter.data(), nameFilter.size()));
         JsVal fn(ctx, JS_GetPropertyStr(ctx, hooks.get(), "testRun"));
         JSValue farg = filterV.get();
-        push_guard("test file " + path, 600.0);
+        // No guard for the whole file: testRun gives each test its own (60 s), so a long file of quick tests (a Debug
+        // build on a busy machine) is not cut short. A test over its limit ends the call and skips the rest of the file.
         timedOut = false;
         JSValue r = JS_Call(ctx, fn.get(), hooks.get(), 1, &farg);
-        pop_guard();
         if (JS_IsException(r)) {
             JSValue exc = JS_GetException(ctx);
             ScriptError e = error_from_exception(exc, "", path);
@@ -444,7 +445,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
                 timedOut = false;
                 e.message = debug_session_ended()
                                 ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
-                                : "script took too long in a test (limit exceeded); the rest of " + path + " was skipped";
+                                : "a test ran longer than 60 s and was stopped; the rest of " + path + " was skipped";
             }
             JsVal curV(ctx, JS_UNDEFINED);
             {

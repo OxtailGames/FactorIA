@@ -2293,6 +2293,36 @@ NATIVE(testAppEvent) {  // (0 suspend, 1 resume, 2 focus, 3 blur)
     return JS_UNDEFINED;
 }
 
+NATIVE(preloadStart) {  // (kind 0 scene | 1 assets, path | [paths]) -> {id} | {mistake: {message, hint}}
+    SETUP;
+    const bool scene = arg_num(ctx, argc, argv, 0, 0) == 0;
+    Result<int> r = scene ? I->preload.start_scene(arg_str(ctx, argc, argv, 1)) : [&] {
+        std::vector<std::string> paths;
+        Json list = argc > 1 ? I->to_json(argv[1]) : Json::array();
+        if (list.is_array())
+            for (const Json& p : list) paths.push_back(p.is_string() ? p.get<std::string>() : std::string());
+        return I->preload.start_assets(paths);
+    }();
+    JSValue o = JS_NewObject(ctx);
+    if (!r.ok()) {
+        JS_SetPropertyStr(ctx, o, "mistake", I->from_json(Json::object({{"message", r.error().message}, {"hint", r.error().hint}})));
+        return o;
+    }
+    JS_SetPropertyStr(ctx, o, "id", JS_NewInt32(ctx, r.value()));
+    return o;
+}
+
+NATIVE(preloadRelease) {  // (id)
+    SETUP;
+    I->preload.release(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    return JS_UNDEFINED;
+}
+
+NATIVE(testDiskReads) {  // () -> files read from disk so far
+    SETUP;
+    return JS_NewFloat64(ctx, static_cast<double>(fs::disk_reads()));
+}
+
 NATIVE(testAppReset) {
     SETUP;
     I->owner->reset_app_state();
@@ -2379,7 +2409,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R
