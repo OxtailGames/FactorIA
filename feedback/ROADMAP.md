@@ -1041,7 +1041,7 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
   M12's `platform`.
 - Pathfinding: grid A* on a Tilemap, a navmesh for 3D, a behaviour-tree helper module.
 - Video: a video player component for logos and cut-scenes (e.g. pl_mpeg, MIT).
-- `scene.loadAsync` with progress, for loading screens and larger worlds.
+- ~~`scene.loadAsync` with progress~~ (done as `scene.preload`, M26.7).
 - Split screen: a viewport rectangle on Camera (four gamepads already work).
 - Audio: effects on the buses (low-pass, reverb), ducking and snapshots.
 
@@ -1296,6 +1296,8 @@ Acceptance: `fa_test_ui` cases for a German label in a fixed button at 200 % tex
 show no overlap.
 
 ### M26.7 Scene and asset preload with progress (M) — CC/FB-0012
+
+Done (branch `m26/scene-preload`): `scene.preload` / `assets.preload` read ahead, 4 files per test frame, CC loading.js.
 
 M19's `scene.loadAsync`, which a game now needs. `scene.preload(path)` and `assets.preload([paths])` return a handle
 with `progress` (0..1), `done` and a Promise; they load within a time budget per frame (a worker thread later, L), so a

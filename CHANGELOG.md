@@ -15,6 +15,14 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Scripts
+
+- `scene.preload(path)` and `assets.preload(paths)` read a scene's files (or a list of assets) ahead of time, a few per
+  frame, and return a handle with `progress` (0..1), `done` and a `promise`: a loading screen keeps animating while the
+  next level is read, and the `scene.load` that follows reads nothing from the disk. Tests do a fixed amount of work per
+  frame, so they give the same result on every machine; `game.fileReads()` counts disk reads. Clockwork Courier's
+  loading bar now shows real progress and its intro reads the title screen while it plays (FB-0012).
+
 Tools
 
 - `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many
