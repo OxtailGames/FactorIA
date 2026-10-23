@@ -603,7 +603,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `max` | float | `1.0` | Largest value. |
 | `step` | float | `0.1` | Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press and dragging is not snapped. Range 0.0..1000000.0. |
 | `showValue` | bool | `true` | Draw the value at the right. Without `format`: "60%" when min is 0 and max is 1, else the number with up to 2 decimals. |
-| `format` | string | `""` | Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). a doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language. (not released yet, on main after 0.2.0) |
+| `format` | string | `""` | Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language. (not released yet, on main after 0.2.0) |
 | `formatKey` | string | `""` | Localization key whose translation is the pattern, written into `format` like `key` writes the label ("slider.percent": "{v} %" in French). "" = none. A key no table has is reported once and `format` stays as it is. (not released yet, on main after 0.2.0) |
 
 ### TextField
@@ -6508,7 +6508,7 @@ declare module "factoria" {
      */
     showValue: boolean;
     /**
-     * Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). a doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language.
+     * Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language.
      * @since unreleased
      */
     format: string;
