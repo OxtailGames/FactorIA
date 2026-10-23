@@ -582,10 +582,12 @@
       "suggestion": "game.platform.revoke(productId) (and an equivalent dev command) that removes the product from restore() and emits no event, like the Apple 'refunded transaction is never delivered' rule.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: the fake answers purchases as scripted, but nothing takes a finished purchase back: work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: the fake answers purchases as scripted, but nothing takes a finished purchase back: work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/store-fake (M26.8): game.platform.revoke(id) (command platform.revoke) takes a purchase back and sends the \"purchase\" event with status \"revoked\"; restore() no longer lists it. shop.test.js drives a real refund and store.listen() takes the product away."
+      ],
+      "engineIssue": "m26/store-fake"
     },
     {
       "id": "FB-0025",
@@ -606,10 +608,12 @@
       "suggestion": "Return a rejected Promise with the same message and hint, like the rest of the platform API.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/store-fake (M26.8): purchases.finish() of an unknown transaction rejects with code unknownId, so store.grant uses .catch() instead of try/await."
+      ],
+      "engineIssue": "m26/store-fake"
     },
     {
       "id": "FB-0026",
@@ -711,11 +715,13 @@
       "suggestion": "platform.catalog (read only: ids, types, titles) and nameKey on leaderboards.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-22: Board titles are built from the level-name keys of the locale files (board.time, board.daily, board.stars), as in P4.",
-        "2026-10-22 triage: holds in part: the catalog is already readable as game.project.platform, but undocumented, and leaderboards have no localizable name: work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: the catalog is already readable as game.project.platform, but undocumented, and leaderboards have no localizable name: work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/store-fake (M26.8): game.project.platform is documented and store.js reads product types from it (no TYPES table); leaderboards take a nameKey, resolved in the current language in the request the backend gets. The board screen keeps its parameterized titles (board.time with the level name), which one key cannot express."
+      ],
+      "engineIssue": "m26/store-fake"
     },
     {
       "id": "FB-0030",

@@ -102,6 +102,23 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
         });
 
     commands.add(
+        {"platform.revoke",
+         "Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.",
+         "The product leaves purchases.restore() and its unfinished transaction is dropped; the game gets a \"purchase\" event "
+         "{status: \"revoked\", productId, transactionId, receipt} at the start of the next frame (game.step), which "
+         "platform.on(\"purchase\", fn) listeners receive. Fails when the player owns no such product (the message lists the owned "
+         "ones) or when the game runs a real store backend. Example: platform.revoke {\"productId\":\"remove_ads\"}",
+         schema(R"({"type":"object","required":["productId"],"properties":{
+             "productId":{"type":"string","description":"The catalog id of the product to take back, e.g. \"remove_ads\"."}}})"),
+         false, "platform"},
+        [&platform](const Json& a) {
+            const std::string id = a.at("productId").get<std::string>();
+            auto r = need_fake(platform, "platform.revoke").revoke(id);
+            if (!r.ok()) rethrow(r.error());
+            return Json::object({{"productId", id}});
+        });
+
+    commands.add(
         {"platform.set_fake",
          "Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers.",
          "`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` "

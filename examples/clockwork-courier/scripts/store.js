@@ -15,7 +15,7 @@
 //
 // Grant first, finish after (docs: platform): the purchase is written to the save before the store is told it is done, and
 // `seen` keeps the transaction ids so a purchase the store hands over twice never pays twice.
-import { platform, storage } from "factoria";
+import { game, platform, storage } from "factoria";
 import * as progress from "./progress.js";
 import { DEFAULT_PAINT, byId } from "./paints.js";
 
@@ -47,12 +47,9 @@ export function reset() {
   storage.remove(KEY);
 }
 
-/** The kind of every product of factoria.json platform.products (the script API does not expose the catalog: FB-0029). */
-const TYPES = { remove_ads: "nonConsumable", paint_copper: "nonConsumable", paint_neon: "nonConsumable", tip_jar: "consumable" };
-
-/** The catalog entry of a product, or null. */
+/** The catalog entry of a product of factoria.json platform.products ({ id, type, ... }), or null. */
 function catalogProduct(id) {
-  return TYPES[id] ? { id, type: TYPES[id] } : null;
+  return (game.project.platform?.products ?? []).find((p) => p.id === id) ?? null;
 }
 
 /** True when the player owns this non-consumable product. */
@@ -116,12 +113,8 @@ function grantLocal(purchase) {
 export async function grant(purchase) {
   const first = grantLocal(purchase);
   if (purchase.transactionId) {
-    try {
-      // try/await, not .catch(): finish() throws at the call for an unknown id (FB-0025)
-      await platform.purchases.finish(purchase.transactionId);
-    } catch (e) {
-      /* the store hands it over again at the next start */
-    }
+    // An unknown transaction rejects like any store failure; the store hands it over again at the next start
+    await platform.purchases.finish(purchase.transactionId).catch(() => {});
   }
   return first;
 }
@@ -153,7 +146,8 @@ export async function buy(productId) {
 /**
  * Adds what the store lists (non-consumables) to the save. With `authoritative` it also removes the products the store no
  * longer lists: a refund or a revoked purchase. The fake store keeps nothing between runs while the save does, so
- * revoking is off for it by default (a development run would lose every purchase at each start; the fake cannot refund, FB-0024).
+ * revoking is off for it by default (a development run would lose every purchase at each start). A refund in a test is
+ * game.platform.revoke(id); listen() takes the product away when the "revoked" event arrives.
  * @param {{ authoritative?: boolean }} [options]
  * @returns {Promise<{ ok: boolean, added: string[], revoked: string[], error?: any }>}
  */
@@ -205,6 +199,15 @@ export async function restore() {
  */
 export function listen(onChange) {
   return platform.on("purchase", (p) => {
+    if (p.status === "revoked") {
+      const w = load();
+      const at = w.owned.indexOf(p.productId);
+      if (at >= 0) {
+        w.owned.splice(at, 1);
+        save(w);
+      }
+      return;
+    }
     if (p.status !== "purchased") return;
     grant(p).then((first) => first && onChange?.(p));
   });
