@@ -145,6 +145,9 @@ TEST_CASE("plugins: a plugin's functions and commands reach scripts and the comm
     CHECK(dts.find("export interface PluginsAPI") != std::string::npos);
     CHECK(dts.find("readonly probe: {") != std::string::npos);
     CHECK(dts.find("add(a, b): the sum of two numbers.") != std::string::npos);
+    // A plugin that did not load is listed without its load error, which names this machine's folders.
+    CHECK(dts.find("Native plugin 'missing' (not loaded when these typings were generated") != std::string::npos);
+    CHECK(dts.find("not found in") == std::string::npos);
     CHECK(engine.scripts().api_manifest()["plugins"].size() == 3);  // probe, broken, missing
 
     // A second engine in the same process reuses the loaded plugin: its entry point ran once.
