@@ -83,6 +83,7 @@ struct RenderStats {
     int meshesCulled = 0;    // MeshRenderer entities outside the camera frustum: not drawn in the main pass
     int meshBatches = 0;     // instanced batches drawn (meshes with the same mesh, textures and material values share one)
     int triangles = 0;
+    int shadowCasters = 0;   // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
     int lights = 0;          // lights sent to the shader (at most 32)
     int lightsDropped = 0;   // lights over the limit that were left out (the least relevant ones)
     int materials = 0;       // distinct custom materials (MeshRenderer.material) drawn with their own shaders
@@ -132,6 +133,8 @@ public:
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
     void set_render_scale(float scale);
+    // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan" or "dummy" (what game.device.gpuBackend reports).
+    static const char* backend_name();
     int target_width() const;
     int target_height() const;
 

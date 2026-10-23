@@ -31,6 +31,17 @@ Animation
   second skin's mesh out of shape). `Animator::skinPalettes` holds one palette per skin. Clockwork Courier imports the
   original robot and dog again and drops `tools/skinify.py` (FB-0001, FB-0002).
 
+Graphics quality
+
+- `window.renderScale` (0.5 to 1) draws the picture at a share of the window's size, in games and in tests;
+  `window.supports("frameCap" | "renderScale" | "fullscreen" | "resize")` says what this run can do (the frame cap still
+  throws on a phone: read it first); `game.device` gives `formFactor`, `gpuBackend`, `memoryGB` and a `tier` (`"low"`,
+  `"medium"`, `"high"`) to pick a preset, with fixed values headless; tests pretend with `game.setDevice(...)`.
+- `game.renderStats()` in tests (and the `game.render_stats` command) draws a frame when none was drawn yet and adds
+  `shadowCasters` and `textureMB`. `perf.measure` records `triangles`, `lights` and `textureMB`; `perf.check` fails when
+  they pass the baseline (only for baselines that have them) or the new `budgets` (`maxTriangles`, `maxLights`,
+  `maxTextureMB`, `maxDrawCalls`, `maxEntities`).
+
 Scripts
 
 - `scene.preload(path)` and `assets.preload(paths)` read a scene's files (or a list of assets) ahead of time, a few per

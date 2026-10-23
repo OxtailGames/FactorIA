@@ -14,6 +14,7 @@ commands.
 | `cpuClock` | `process`, or `wall` on the web, where the browser gives no CPU time (the web numbers are wall-clock and noisier). |
 | `peakMemoryMB` | Peak resident memory of the process. Windows: peak working set. Linux, Android, macOS: `ru_maxrss`. Web: the size of the wasm heap (it never shrinks). |
 | `drawCalls`, `entities` | Maximum over the run. |
+| `triangles`, `lights`, `textureMB` | What the renderer drew: triangles and lights of the main pass, and GPU texture memory in MB. Maximum over the run; 0 without a renderer. The same numbers as `game.renderStats()` in a test. |
 | `graphics` | The GPU used, `none` when there is no renderer (then `drawCalls` is 0). |
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
@@ -57,7 +58,8 @@ job cannot pass without checking anything; the engine's own CI does this.
   "tolerance": { "cpuAvg": 1.0, "memory": 0.1 },
   "runners": {
     "linux-gcc-llvmpipe": { "frames": 300, "cpuMsAvg": 4.1, "cpuMsP95": 6.6, "cpuMsMax": 34.3,
-                            "peakMemoryMB": 76.8, "drawCalls": 2, "entities": 45, "graphics": "..." }
+                            "peakMemoryMB": 76.8, "drawCalls": 2, "entities": 45, "triangles": 1200, "lights": 2,
+                            "textureMB": 3.5, "graphics": "..." }
   }
 }
 ```
@@ -72,7 +74,8 @@ A limit is `max(baseline * (1 + ratio), baseline + slack)`; the slack keeps a ti
 | `cpuAvg`, `cpuP95` (ratio) | 1.0, 1.5 | CPU time per frame, average and 95th percentile | Measured: the same run varies by about 5% on one machine, but CI runners are shared and differ by up to 2x between jobs. The budget catches a game that becomes 2-3x slower, not 20%. |
 | `memory` (ratio) | 0.10 | Peak memory | Repeated runs differ by about 1-2%. |
 | `drawCalls`, `entities` (ratio) | 0.10 | Max draw calls / entities | Deterministic for a fixed scene and input. |
-| `cpuSlackMs`, `memorySlackMB`, `countSlack` | 1, 8, 2 | The slack of each kind of limit | |
+| `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
+| `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `countSlack` | 1, 8, 1, 2 | The slack of each kind of limit | |
 
 `cpuMsMax` is recorded but not checked: one slow frame is mostly the machine.
 
@@ -90,6 +93,11 @@ All three work on the project they run in (`--project DIR`) and are also MCP too
   `{"strictTime":true}` makes it fail anywhere. A time over its limit is measured a second time before it counts. A
   failure is the error `perf_budget_exceeded`, with every metric's measured value, limit and baseline.
 - `factoria call perf.measure` just measures.
+- **Budgets for what a scene draws.** Besides the baseline, `perf.json` may hold absolute caps that fail whatever the
+  baseline says, on any runner and also where there is no baseline yet:
+  `"budgets": { "maxTriangles": 200000, "maxLights": 8, "maxTextureMB": 120, "maxDrawCalls": 300, "maxEntities": 600 }`.
+  `perf.check` takes the same object as its `budgets` argument (its keys win over the file's). A typo in a key is an
+  error with a "did you mean". The failure names the cap: `maxTriangles 26 > budget 25`.
 
 Peak memory is the whole process's, so run the check the same way each time; the engine's own tests use
 `factoria call --project <game> perf.check @args.json` (`factoria call` gives `perf.*` no GPU of its own; the engine the command starts inside has it).
