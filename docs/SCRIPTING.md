@@ -583,6 +583,9 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
   the machine and the game must not depend on it. A worker thread may do the reading later without changing the handle.
 - A path that does not exist throws at once with a "did you mean" list; a read error (or a scene that is not JSON) sets
   `error` and rejects the Promise. The loading scene should still call `scene.load` in that case, which reports it.
+- The Promise outlives the scene that asked: a loading scene that is left before it resolves (a test that moves on)
+  sets a flag in `onDestroy` that its callback checks, and calls `release()` there unless its own `scene.load` already ran
+  (releasing then would drop the files the load is about to read). docs/MENUS.md has the recipe.
 - Memory: the files stay for the first scene load after the job finished and are dropped at the second (or by
   `release()`), so a preload costs about one scene's files beyond the one in use. A file changed on disk since it was read
   is read again.
