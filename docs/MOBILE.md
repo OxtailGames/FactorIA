@@ -133,7 +133,9 @@ Prerequisites (the export checks them first and says what is missing and how to 
   mode: no NDK, no CMake.
 - Only in **source** mode (engine developers): an NDK r27+ (r26's libc++ has no std::format, `ndk;27.2.12479018`) and
   CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older), so
-  `sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
+  `sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`. Any CMake 3.24+ works: the export
+  reads the version of the SDK's newest one, or of one on your computer (offline, without `sdkmanager`) and gives it to Gradle
+  through `cmake.dir` ([EXPORTING.md](EXPORTING.md#android)).
 - No Gradle install: the export writes the project's own Gradle wrapper, and the first build downloads Gradle, the Android
   Gradle plugin and the SDK platform (internet needed once; everything is cached after it).
 
@@ -413,9 +415,8 @@ without one needs nothing):
 
 A manifest with a mistake (an unknown key, a wrong type) fails the export with the file, the JSON pointer and a "did you
 mean". The Apple plugin ([PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)) is the example of all
-three keys: Swift code built with `xcrun swiftc`, StoreKit and GameKit, Game Center and iCloud entitlements. When a linked
-plugin brings StoreKit and the catalog has `platform.products`, the export also writes `Products.storekit` (a StoreKit
-configuration made from the catalog) and `build_ios.sh` references it from the Xcode scheme (`storekit_scheme.cmake`, run
+three keys: Swift code built with `xcrun swiftc`, StoreKit and GameKit, Game Center and iCloud entitlements. When the catalog has `platform.products`, the export also writes `Products.storekit` (a StoreKit
+configuration made from the catalog, one localization per language of the game, with or without the plugin) and `build_ios.sh` references it from the Xcode scheme (`storekit_scheme.cmake`, run
 after CMake generates the project): running the project from Xcode sells the products without App Store Connect.
 `./build_ios.sh --run` launches with `simctl`, which does not use it.
 
@@ -679,6 +680,14 @@ do nothing. A headless run records the calls: `game.vibrations()` in a test retu
 A `TextField` with focus raises the keyboard by itself and hides it when it loses the focus; `input.showKeyboard(on)` does
 it from a script. What is typed arrives in `input.text` (and Enter, Backspace as `keyPressed`).
 
+The UI does this in its focus step, for every game: when a `TextField` gains the focus it asks for the keyboard
+(`input.keyboardShown` becomes true and the window passes it on to the platform: iOS, Android, the web), and when the
+focus goes to anything else, or nowhere, it asks to hide it. Only those changes count, so a script that hides the keyboard
+with `input.showKeyboard(false)` while the field keeps the focus is not overruled. Desktop ignores the request. When the
+last input was a **gamepad** (`input.lastDevice`) the phone keyboard stays down: that player gets the game's on-screen
+keyboard instead ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)"). A test sees the request in
+`input.keyboardShown`.
+
 - iOS: sokol_app's hidden text field. Composed text (accents, dictation, swipe typing) arrives; a character outside the
   Basic Multilingual Plane (emoji) is dropped by sokol_app. Verified in the source only: the iOS keyboard was not run on a
   device for this change.
@@ -726,8 +735,10 @@ player uses **no threads**, so the page needs no `SharedArrayBuffer` and no COOP
   up to four; the family on the button prompts comes from the pad's name. A pad without that mapping is tried with the same
   numbering and logged. Run in Chrome with a pad's id and values faked; not yet with a physical pad.
 - **Touch**: touch screens give touches as on a phone (`TouchStick`, `TouchButton` and the other touch features work);
-  the mouse and the keyboard work as on desktop. `input.onBack` and the on-screen keyboard are not used (the browser has
-  its own). `input.vibrate` calls `navigator.vibrate`, which Android browsers honour and iOS Safari ignores.
+  the mouse and the keyboard work as on desktop. `input.onBack` is not used (the browser has its own). On a touch
+  device the on-screen keyboard is raised by a hidden `<input>` that takes the focus while a `TextField` has it (see
+  "Typing text" in [TEXT.md](TEXT.md#typing-text)); iOS Safari only shows a keyboard for a focus made inside a tap, so
+  the player may need a second tap on the field. Not run on a phone or tablet browser yet. `input.vibrate` calls `navigator.vibrate`, which Android browsers honour and iOS Safari ignores.
 - **Language**: the game starts in the first of `navigator.languages` it has, like the system language elsewhere.
 - **Not available**: native plugins (a browser cannot `dlopen`; the engine says so in a warning, and platform services use no
   backend), starting other programs, crash reports, `factoria run --headless` style runs (use the desktop `factoria`), and

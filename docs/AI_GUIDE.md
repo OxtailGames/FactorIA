@@ -322,7 +322,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `Collider2D` | `shape` (box, circle, capsule), `size`, `radius`, `offset`, `isTrigger`, `oneWay`, `friction`, `restitution`, `density`, `layer` (0..31), `mask` (-1 = all layers) | Collision shape. With `isTrigger: true` it reports overlaps and does not block. With `oneWay: true` it is a one-way platform (section 9.5). |
 | `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `lockRotation`, `angularDamping`, `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. A dynamic **box** is a rigid body: collisions and friction turn it (it tips over a ledge, tumbles, settles on a face), so put `"lockRotation": true` on a character or a crate that must stay upright. A sphere is an arcade rolling ball by default (`rollWithMotion`, contacts never turn it); with `"rollWithMotion": false` it is a rigid body too and real friction rolls and spins it. Box colliders follow `Transform.rotation`. Fast bodies are swept against every solid collider, so they do not tunnel. |
 | `Collider3D` | `shape` (box, sphere, capsule, convex, mesh), `size`, `radius`, `height`, `mesh`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. `capsule` is `radius` + `height` (tip to tip) along the entity's local Y. `convex` is the hull of `mesh`'s vertices; `mesh` uses its triangles and is for STATIC level geometry only (section 9.18). `mesh` is a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a .gltf/.glb path, usually the same as `MeshRenderer.mesh`. |
-| `Joint3D` | `type` (hinge, ball, fixed), `connected` (entity id, empty = the world), `anchor`, `connectedAnchor`, `autoAnchor`, `axis`, `useLimits`, `lowerLimit`, `upperLimit` (degrees), `useMotor`, `motorSpeed` (degrees/s), `maxMotorTorque`, `collideConnected`, `angle` (read-only) | Joins this entity's `RigidBody3D` to another body: doors, pendulums, wheels, ragdoll limbs, chains (section 9.18). Needs a `Collider3D` on the same entity. |
+| `Joint3D` | `type` (hinge, ball, fixed), `connected` (entity id, empty = the world), `anchor`, `connectedAnchor`, `autoAnchor`, `axis`, `useLimits`, `lowerLimit`, `upperLimit` (degrees), `useMotor`, `motorSpeed` (degrees/s), `maxMotorTorque`, `collideConnected`, `damping`, `angle` and `stalled` (read-only) | Joins this entity's `RigidBody3D` to another body: doors, pendulums, wheels, ragdoll limbs, chains (section 9.18). Needs a `Collider3D` on the same entity. |
 | `CharacterController3D` | `radius`, `height`, `center`, `stepOffset`, `slopeLimit` (degrees), `skin`, `layer`, `mask`, `velocity`, `carriedByPlatforms`, `applyWeight`, `mass`, `pushStrength`, `isGrounded` and `groundNormal` (read-only) | A walking capsule moved by `physics.moveCharacter` (section 9.18): slides along walls, climbs steps, refuses steep slopes, sticks to the ground going down, pushes crates. No `RigidBody3D` or `Collider3D` on the same entity. |
 
 **UI (menus and settings screens; screen space only, section 9.22)**
@@ -379,7 +379,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 
 | Import | Members |
 |---|---|
-| `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, props})`, `spawnPrefab(path, {position, rotation, scale, parent, props, overrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
+| `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, index, props})`, `spawnPrefab(path, {position, rotation, scale, parent, index, props, overrides, childOverrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
 | `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
 | `screen` | `safeArea` (a `Rect` in design pixels: what a phone's notch, rounded corners and system bars leave free; the whole screen on desktop and headless), `insets` (`{left, top, right, bottom}`), `size`. Put `safeArea: true` beside `anchor` on a Sprite, Shape2D, Text, ParticleEmitter or UI widget to anchor it to the safe area. Test with `game.setSafeArea("phone-portrait")` / `screen_set_safe_area` (`docs_read {"name":"mobile"}`) |
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
@@ -1021,7 +1021,7 @@ To make something spin without rolling, set `RigidBody3D.angularVelocity` (degre
 - **Shape casts.** The 3D shape cast sweeps a sphere or an axis-aligned box from one point to another and returns the first collider it touches (oriented boxes and spheres included), with the distance the centre travelled, the contact point and the surface normal. Colliders that already overlap the shape at the start are skipped, like a raycast that starts inside a collider; `mask`, `ignore` and `ignoreTriggers` work as for raycasts.
 
 - **Collider shapes: capsule, convex, mesh.** `Collider3D.shape` also takes `capsule` (`radius`, `height` tip to tip, along the entity's local Y: the shape for a character or a rod), `convex` (the convex hull of the vertices of `mesh`, for a rock, a crate with chamfers or any dynamic prop) and `mesh` (the triangles of `mesh`, for terrain, ramps and level geometry). `mesh` is a primitive name or a project-relative .gltf/.glb path, usually the same as the entity's `MeshRenderer.mesh`; `Transform.scale` scales it. **A `mesh` collider must be static**: with a dynamic or kinematic `RigidBody3D` it is ignored and the engine logs one error saying so (use `convex`, or several boxes and capsules, for a moving body). Every shape collides with every other one, and works with raycasts, shape casts, `overlapSphere`, `isTouching`, fast-body sweeps, sleeping, events and the physics debug draw. Limits: a convex hull from a model with over 256 vertices is reduced to 256 extreme points, a dynamic capsule or convex body has the inertia of its bounding box and rotates about its collider centre, a box lying on a mesh rests on its low corners, and a raycast that grazes a capsule or hull at under about 3 degrees can miss.
-- **Joints.** Add `Joint3D` to an entity that has a `RigidBody3D` and a `Collider3D`: `"Joint3D": {"type": "hinge", "anchor": [0, 0.5, 0], "axis": [0, 0, 1]}` hangs it from a pivot at that point (in the entity's own axes) of the world; `connected` names another entity (it needs a body too) to hinge the two together, and `autoAnchor: true` then pins them where the anchor is now. `hinge` turns about `axis`, with `useLimits` (`lowerLimit`/`upperLimit` in degrees, measured from the pose the joint started in) and an optional motor (`useMotor`, `motorSpeed` degrees/s, `maxMotorTorque`); `ball` pins a point and leaves the rotation free (chains, ragdoll shoulders); `fixed` welds. The pair does not collide unless `collideConnected` is true. `Joint3D.angle` (read-only, degrees) is the hinge angle. A swinging body keeps its real pendulum period. Jointed bodies never fall asleep. A joint that cannot be built (no body, `connected` is itself or has no body) is reported once with how to fix it, and the body is not held. A scene simulates the same whatever ran in the process before it (earlier scenes, destroyed entities, reused entity slots): 3D bodies and joints are solved in the scene's entity order.
+- **Joints.** Add `Joint3D` to an entity that has a `RigidBody3D` and a `Collider3D`: `"Joint3D": {"type": "hinge", "anchor": [0, 0.5, 0], "axis": [0, 0, 1]}` hangs it from a pivot at that point (in the entity's own axes) of the world; `connected` names another entity (it needs a body too) to hinge the two together (leave it out or write `""` for the world; both mean the same in scene files, scripts and `scene.set_component`), and `autoAnchor: true` then pins them where the anchor is now. `hinge` turns about `axis`, with `useLimits` (`lowerLimit`/`upperLimit` in degrees, measured from the pose the joint started in) and an optional motor (`useMotor`, `motorSpeed` degrees/s, `maxMotorTorque`); `ball` pins a point and leaves the rotation free (chains, ragdoll shoulders); `fixed` welds. The pair does not collide unless `collideConnected` is true. `Joint3D.angle` (read-only, degrees) is the hinge angle. A swinging body keeps its real pendulum period. `Joint3D.damping` (1/s, default 0) takes the swing out of the relative turning of the two bodies (a door that closes softly, a floppy limb). Bodies joined by joints sleep together once all of them are calm (a settled chain or bridge costs nothing and wakes when something touches it, a motor or a joint to a moving kinematic body keeps them awake), and groups of joined bodies are solved apart from each other, so one chain never disturbs another. `Joint3D.stalled` (read-only) turns true when a motor has been pushing for a quarter of a second without the joint turning (a gate against a wall, too little `maxMotorTorque`), so a script can react; a hinge that reached its limit is not stalled. A joint that cannot be built (no body, `connected` is itself or has no body) is reported once with how to fix it, and the body is not held. A scene simulates the same whatever ran in the process before it (earlier scenes, destroyed entities, reused entity slots): 3D bodies and joints are solved in the scene's entity order.
 - **Character controller.** Put `CharacterController3D` on an entity (no `RigidBody3D`, no `Collider3D`: the controller is its own capsule) and move it from `onFixedUpdate`:
 
 ```js
@@ -1053,6 +1053,44 @@ export default class Walker extends Behaviour {
   ```
 
   (`connected` left out = the world.) The plank turns about the z axis, stays on its pivot however the character pushes, and a character standing on its +x half takes the +x end down.
+
+  **A rope bridge** is a row of dynamic planks hinged to each other, the first and the last hinged to the world. Nothing needs tuning: a chain of three or more jointed dynamic bodies gets extra solver iterations and a little drag by itself, so it hangs still and falls asleep within a few seconds (a body in a chain is about 1 m long and 5 to 10 kg; planks 1 m wide or more are the easy case). Build the planks in a script when the scene starts, so a level only says where the bridge goes:
+
+  ```js
+  import { Behaviour, world } from "factoria";
+
+  export default class RopeBridge extends Behaviour {
+    from = [0, 2, 0]; to = [12, 2, 0]; planks = 12; sag = 0.4;
+    onStart() {
+      const n = this.planks, [fx, fy, fz] = this.from, [tx, ty, tz] = this.to;
+      // A parabola from one end to the other; plank i spans the points i/n and (i+1)/n of the curve.
+      const at = (t) => [fx + (tx - fx) * t, fy + (ty - fy) * t - this.sag * 4 * t * (1 - t), fz + (tz - fz) * t];
+      const planks = [];
+      for (let i = 0; i < n; i++) {
+        const a = at(i / n), b = at((i + 1) / n);
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        const tilt = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 0.07, (a[2] + b[2]) / 2];
+        planks.push(world.spawn({ id: `${this.entity.id}_plank_${i}`, components: {
+          Transform: { position: mid, rotation: [0, 0, tilt] },
+          Collider3D: { shape: "box", size: [len * 0.94, 0.14, 1.5], friction: 0.8 },
+          RigidBody3D: { type: "dynamic", mass: 6 },
+        } }, { position: mid }));
+      }
+      // The hinge of plank i sits at its far end and joins it to plank i + 1; the last one joins the world ("").
+      planks.forEach((p, i) => p.add("Joint3D", { type: "hinge", axis: [0, 0, 1],
+        anchor: [0.47 * Math.hypot(...at((i + 1) / n).map((v, k) => v - at(i / n)[k])), 0, 0],
+        connected: i + 1 < n ? planks[i + 1].id : "" }));
+      // The first plank hangs from a static post at the start.
+      const post = world.spawn({ id: `${this.entity.id}_start`, components: {
+        Transform: { position: at(0) }, RigidBody3D: { type: "static" },
+        Collider3D: { shape: "box", size: [0.05, 0.05, 0.05], isTrigger: true } } }, { position: at(0) });
+      post.add("Joint3D", { type: "hinge", axis: [0, 0, 1], connected: planks[0].id });
+    }
+  }
+  ```
+
+  Rules: put both ends just past the edges of the slabs (0.05 m or more): a plank that starts inside a static collider is reported (a warning in the log on the first step, naming both entities, the depth and the fix, and by `factoria validate` for scenes) and the chain buckles. The courier walking on it weighs on the planks (`CharacterController3D.applyWeight`) and never shoves them. For a limp rope or a heavier bridge add `damping` (try 2 to 10) to the planks' joints; do not raise the bodies' `linearDamping`, which also slows the fall. There is no `physics.make_chain3d` command: the recipe is about 25 lines and the engine settles the chain itself, so a command would only hide this code.
 
 ### 9.19 3D ground checks and raycasts
 

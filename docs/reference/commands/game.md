@@ -38,6 +38,14 @@ Pause the simulation (frame() stops simulating; game.step still works).
 
 Example: game.pause {}
 
+## `game.render_stats`
+
+Not released yet (on main after 0.2.0).
+
+What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
+
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+
 ## `game.resume` (modifies state)
 
 Resume the simulation after game.pause.

@@ -18,7 +18,7 @@ export default class MainMenu extends Behaviour {
     if (platform.has("purchases")) this.world.find("shop_button").active = true;
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
-      session.nextScene = this.firstScene; // scenes/loading.scene.json shows "Loading" for a frame, then loads it
+      session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));

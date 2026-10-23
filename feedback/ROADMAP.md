@@ -1041,7 +1041,7 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
   M12's `platform`.
 - Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, a behaviour-tree helper module.
 - Video: a video player component for logos and cut-scenes (e.g. pl_mpeg, MIT).
-- `scene.loadAsync` with progress, for loading screens and larger worlds.
+- ~~`scene.loadAsync` with progress~~ (done as `scene.preload`, M26.7).
 - Split screen: a viewport rectangle on Camera (four gamepads already work).
 - Audio: effects on the buses (low-pass, reverb), ducking and snapshots.
 
@@ -1306,6 +1306,8 @@ Done (branch `m26/text-fits`): `autoShrink`/`minFontSize`/`maxTextScale`, Toggle
 
 ### M26.7 Scene and asset preload with progress (M) — CC/FB-0012
 
+Done (branch `m26/scene-preload`): `scene.preload` / `assets.preload` read ahead, 4 files per test frame, CC loading.js.
+
 M19's `scene.loadAsync`, which a game now needs. `scene.preload(path)` and `assets.preload([paths])` return a handle
 with `progress` (0..1), `done` and a Promise; they load within a time budget per frame (a worker thread later, L), so a
 loading screen animates while a scene loads, and `scene.load` of a preloaded scene is immediate. MENUS.md gets a
@@ -1411,6 +1413,8 @@ Acceptance: `fa_test_physics` cases: a body started in a wall is reported once; 
 `stalled`; a 12-plank bridge sleeps within 5 s; two bridges side by side give the same poses as each one alone; a joint
 with `connected: ""` loads, validates and runs.
 
+Done (branch `m26/joints`): start-overlap warning and validate, `Joint3D.stalled`, `damping`, joint islands, chains.
+
 ### M26.15 Graphics quality and render stats (M) — CC/FB-0036, CC/FB-0050
 
 - `window.renderScale` (0.5..1, wired to the renderer's render scale), `window.supports(feature)` and `game.device`
@@ -1423,6 +1427,10 @@ with `connected: ""` loads, validates and runs.
 Acceptance: script tests for the render scale (the drawn size changes), the device fields headless, and render stats
 of a fixture scene; a `perf.check` with a triangle budget fails when the scene goes over it.
 
+Done (branch `m26/render-quality`): `window.renderScale`, `window.supports`, `game.device` (fixed headless,
+`setDevice` in tests), `game.renderStats()` drawing on demand with `shadowCasters`/`textureMB`, `game.render_stats`;
+`perf.measure` records triangles/lights/textureMB and `perf.check` takes `budgets`; Clockwork Courier uses them.
+
 ### M26.16 Per-material colours (M) — CC/FB-0031
 
 After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF
@@ -1433,6 +1441,9 @@ Acceptance: a render test where one material of a two-material model changes col
 suggests the right name for a typo.
 
 ### M26.17 Text entry on every device (M) — CC/FB-0020, CC/FB-0052
+
+Done (branch `m26/text-entry`): the UI raises the phone's keyboard on focus, the MENUS.md kit has an on-screen keyboard
+for pad players, the web player has a hidden `<input>` and the web smoke types into a field (CI runs it).
 
 - A focused `TextField` raises the phone's keyboard and hides it on blur. MOBILE.md says it does; today only
   `input.showKeyboard` does it (found while verifying CC/FB-0020).
@@ -1458,6 +1469,9 @@ Acceptance: `fa_test_ui` cases for each.
 
 ### M26.19 Export and store material checks (S-M) — CC/FB-0034, CC/FB-0048, CC/FB-0049, CC/FB-0051 (ffmpeg)
 
+Done (branch `m26/export-checks`): Products.storekit per language without the plugin; Android CMake from the SDK
+or the system (`cmake.dir`); build fingerprint check (`--allow-player-mismatch`); `setup ffmpeg`.
+
 - iOS: `Products.storekit` is written whenever the catalog has products, whether or not the Apple plugin is built
   (export_ios.cpp), with one localization per language of the game (storekit_config.cpp).
 - Android: a CMake from the system (3.24 or newer) works through `cmake.dir`, the SDK's version is read instead of
@@ -1471,6 +1485,11 @@ Acceptance: tooling tests for each export check and for the storekit file with t
 ffmpeg component is listed by `setup.status`.
 
 ### M26.20 Scene tree: sibling order and shared panels (S-M) — CC/FB-0032, CC/FB-0023
+
+Done (branch `m26/scene-order`): `World::set_parent(..., index)`, `scene.set_parent {index}`, `scene.spawn {index, overrides}`,
+`entity.setParent(parent, keepWorld, index)`, `world.spawn(json, {parent, index})` (an index outside 0..number of the
+parent's other children is an error; a root takes no index); prefab references take `overrides` for the prefab's
+descendants (by id, name or path) and `world.spawnPrefab(path, {childOverrides})` the same; docs/MENUS.md.
 
 - A child can be put at a place among its siblings: `World::set_parent` with an index, `scene.set_parent {index}`,
   `entity.setParent(parent, keepWorld, index)` and `spawn({parent, index})`.

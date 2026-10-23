@@ -18,6 +18,7 @@
 #include "fa/platform/accessibility.h"
 #include "fa/script/script.h"
 #include "fa/services/platform.h"
+#include "preload.h"
 
 namespace fa {
 
@@ -85,6 +86,7 @@ struct ScriptSystem::Impl {
     JsVal testApi;   // namespace object of module "factoria:test"
     JsVal hooks;     // H: hooks the prelude gives to C++
 
+    Preloader preload;  // scene.preload / assets.preload jobs (preload.h); ticked by dispatch_platform
     std::vector<ScriptPlugin> plugins;  // set_plugins: the `plugins` object of scripts
     Json plugins_json() const;          // [{name, error?, functions: [{name, doc}]}] (script_api.cpp)
 
@@ -157,6 +159,9 @@ struct ScriptSystem::Impl {
 
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;
+
+    // ---- game.device: game.setDevice() in tests overrides some of the host's values
+    Json testDevice = Json::object();
 
     // ---- the calendar date and the app's life (script_system.cpp: ScriptSystem::today / app_event)
     CalendarDate startDate;  // what the host set: EngineConfig::date

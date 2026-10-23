@@ -626,7 +626,7 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK_FALSE(cache.refreshing());
     const SetupStatus& st = cache.status();
     CHECK(st.home == w.home.string());
-    REQUIRE(st.components.size() == 7);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc (no editor button for those two yet) and the VS Code extension
+    REQUIRE(st.components.size() == 8);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc (no editor button for those two yet) the VS Code extension and ffmpeg
     REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");

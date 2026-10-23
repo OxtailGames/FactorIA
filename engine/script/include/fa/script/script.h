@@ -103,6 +103,10 @@ public:
         (void)language;
         return "this host has no localization (set_language is not implemented)";
     }
+    // How many milliseconds a frame may spend on scene.preload / assets.preload work. 0 (the default: tests, headless runs,
+    // replays) means a FIXED amount, four files per frame, so a run does not depend on how fast the machine is; a game with a
+    // window returns a few milliseconds.
+    virtual double preload_time_budget_ms() const { return 0.0; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     virtual void request_quit() = 0;
@@ -135,6 +139,24 @@ public:
         }
         return screenshot_scaled(path, scale, error);
     }
+    // The player's render scale option (`window.renderScale`, 0.5 .. 1): the game target is drawn at design size * scale.
+    // set_render_scale returns "" when done, else a sentence saying why not. The default only remembers the value, for
+    // hosts without a renderer; Engine hands it to the renderer too.
+    virtual double render_scale() const { return renderScale_; }
+    virtual std::string set_render_scale(double scale) {
+        renderScale_ = scale;
+        return {};
+    }
+    // The device the game runs on (`game.device`): {formFactor: "desktop"|"phone"|"tablet", gpuBackend, memoryGB, tier:
+    // "low"|"medium"|"high"}. The default is what headless runs and tests report (fixed, so output never depends on the
+    // machine): desktop, "headless", 8 GB, "high".
+    virtual Json device_info() const {
+        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"}});
+    }
+    // The renderer's stats of the picture now (RenderStats::to_json plus the target size), drawing a frame first when none
+    // has been drawn since the last change (`game.renderStats()` in tests, the `game.render_stats` command). Null without
+    // a renderer.
+    virtual Json render_stats_now() { return Json(); }
     // The player's "text size" option (`ui.textScale`, the `ui.set_text_scale` command): screen-space Text and UI labels
     // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
     // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:
@@ -152,6 +174,7 @@ public:
 
 private:
     float textScale_ = 1.0f;
+    double renderScale_ = 1.0;
     Speech speech_;
     CaptionList captions_;
 };
