@@ -622,6 +622,7 @@
     "sign.macos": "0.2.0",
     "sign.windows": "unreleased",
     "ui.caption": "0.2.0",
+    "ui.check_layout": "0.2.0",
     "ui.clear_captions": "0.2.0",
     "ui.set_text_scale": "0.2.0",
     "ui.speak": "0.2.0",

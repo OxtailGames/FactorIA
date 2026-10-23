@@ -181,6 +181,8 @@ the renderers all use the same size, so what a test measures is what is drawn:
 - **`ui.overflowed(entityOrId)`** is `true` when a text still does not fit its box at the size it is drawn at (after
   the scale, the cap and the shrink did what they could). `ui.state` has `"overflowed": true` on those widgets and Texts.
   A test: `ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);`
+- **`ui.check_layout`** runs that test for you on every scene, language and text scale (and a pseudo-localized pass), and
+  also lists overlapping and off-screen texts: see [LOCALIZATION.md](LOCALIZATION.md), section 7.
 
 ## Captions
 

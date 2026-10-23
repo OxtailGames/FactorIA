@@ -118,6 +118,13 @@ public:
     std::string name(std::string_view language) const;
 
     const StringTable* table(std::string_view language) const;  // nullptr when not loaded
+
+    // Pseudo-localization (ui.check_layout): while on, every translation comes back lengthened, "[" + the text with each ASCII
+    // vowel doubled + "]" (about 40 % longer in English), so a layout shows where a long language would break it. Off by default;
+    // a tool turns it on for a check and off again.
+    void set_pseudo(bool on) { pseudo_ = on; }
+    bool pseudo() const { return pseudo_; }
+    static std::string pseudo_localize(std::string_view text);
     // Keys of the default language's table that `language`'s own table lacks (the fallback chain does not count).
     std::vector<std::string> missing_keys(std::string_view language) const;
 
@@ -130,6 +137,7 @@ private:
     std::string default_, current_;
     std::vector<std::string> languages_;
     std::map<std::string, StringTable> tables_;
+    bool pseudo_ = false;
     std::vector<const StringTable*> chain_;  // the tables to look in for the current language, best first
     mutable std::set<std::string> warned_;
 };

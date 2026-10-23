@@ -1501,6 +1501,9 @@ twice changes nothing.
 
 ### M26.23 UI layout check (M) — CC/FB-0043
 
+Done (branch `m26/layout-check`): `ui.check_layout` (engine/runtime/src/ui_check.cpp), `I18n::set_pseudo`; Courier's
+intro and profile keys shrink; its remaining findings are in its ENGINE_FEEDBACK.json notes.
+
 After M26.6. `ui.check_layout {scenes, languages, textScales, pseudo}` loads each screen in each language and text scale
 (and a pseudo-localized one that lengthens every string), and lists every text that overflows or overlaps, with the
 entity and the key.
