@@ -407,7 +407,7 @@ private:
         std::uint64_t seen = 0;
     };
     std::map<std::uint64_t, JointState> joints_;  // by owner entity bits (lookup only: never iterate it to solve)
-    // Joints seen from the bodies: body indices (kNoBody = the world), rebuilt at the start of each step.
+    // "No body" in the body-index links of a step's joints and islands: the joint holds to the world.
     static constexpr std::size_t kNoBody = static_cast<std::size_t>(-1);
     std::vector<JointState*> jointOrder_;         // solve order: by owner body seq, rebuilt by sync_joints
     void sync_joints(World& world, std::uint64_t stamp);
