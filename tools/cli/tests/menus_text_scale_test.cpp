@@ -6,6 +6,9 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common.h"  // tools/cli/src: Session
 #include "fa/core/fs.h"
@@ -44,6 +47,23 @@ TEST_CASE("menus fixture at 200 % text: widgets grow to their labels, the menu s
         CHECK(r[3].get<float>() >= 56.0f);  // 200 % text is taller than the design height of a 24 px label
     }
     CHECK(buttons >= 4);
+
+    // Text that fits (docs/TEXT.md): no label overflows its widget, and no two visible widgets overlap.
+    std::vector<std::pair<std::string, fa::Rect>> boxes;
+    for (const fa::Json& w : state["result"]["widgets"]) {
+        CAPTURE(w["id"].dump());
+        CHECK_FALSE(w.value("overflowed", false));
+        const std::string kind = w["kind"].get<std::string>();
+        if (!w["visible"].get<bool>() || (kind != "Button" && kind != "Toggle" && kind != "Slider")) continue;
+        const fa::Json& r = w["rect"];
+        boxes.push_back({w["id"].get<std::string>(), fa::Rect{r[0].get<float>(), r[1].get<float>(), r[2].get<float>(), r[3].get<float>()}});
+    }
+    for (std::size_t i = 0; i < boxes.size(); ++i)
+        for (std::size_t j = i + 1; j < boxes.size(); ++j) {
+            const fa::Rect a = boxes[i].second, b = boxes[j].second;
+            const bool overlap = a.x < b.x + b.w - 0.5f && b.x < a.x + a.w - 0.5f && a.y < b.y + b.h - 0.5f && b.y < a.y + a.h - 0.5f;
+            CHECK_MESSAGE(!overlap, boxes[i].first << " overlaps " << boxes[j].first);
+        }
 
     if (!session->has_graphics()) {
         MESSAGE("no GPU on this machine: the golden part of the test is skipped");

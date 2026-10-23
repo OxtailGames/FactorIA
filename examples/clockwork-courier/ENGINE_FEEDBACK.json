@@ -1006,10 +1006,12 @@
       "suggestion": "maxWidth on Toggle and Slider (wrap the label, grow the height), and a Slider label placed above the track.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.6 (Text that fits) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.6 (Text that fits) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/text-fits (M26.6): Toggle.maxWidth and Slider.maxWidth wrap the label, Slider.labelAbove puts it above the track; options.prefab.json uses them (no name Texts, no fitWidth in options.js)."
+      ],
+      "engineIssue": "m26/text-fits"
     },
     {
       "id": "FB-0042",
@@ -1030,10 +1032,12 @@
       "suggestion": "Text.autoShrink (minFontSize) and Button.autoShrink, plus Widget.maxTextScale so a heading or a disc label can stop growing.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.6 (Text that fits) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.6 (Text that fits) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/text-fits (M26.6): Text, Button, Toggle, Slider and TouchButton have autoShrink (minFontSize) and maxTextScale, and ui.overflowed(id) reports a label that still does not fit; level_select.js, hud.js and the touch labels use them instead of rewriting font sizes (toast.js keeps its fit Panel and gets maxTextScale)."
+      ],
+      "engineIssue": "m26/text-fits"
     },
     {
       "id": "FB-0043",

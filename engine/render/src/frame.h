@@ -1,6 +1,7 @@
 // Per-frame CPU state shared by the gather passes (2D, particles, debug, 3D).
 #pragma once
 
+#include "fa/scene/text_fit.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -50,6 +51,10 @@ void gather_ui(World& world, Frame& f);
 // The scissor rectangle of a screen-space item of entity `e`: the ScrollLists around it (`clip` stays empty, w = 0,
 // when there are none). False when they clip it away entirely, so there is nothing to draw.
 bool screen_clip(const World& world, Entity e, const Frame& f, Rect& clip);
+
+// The renderer's text layout as a TextExtent for fit_text (text_fit.h): size of text at a final font size `px`, so a fit
+// decided here is the one `Renderer::measure_text(Text)` and `ui.overflowed` decide.
+TextExtent frame_text_extent(Frame& f);
 // Particle simulation (no drawing): spawns the initial burst, continuous emission, queued emit_burst()
 // requests, integrates, kills, and destroys finished autoDestroy emitters. `assets` is unused by the sim.
 void update_particles(World& world, float dt);
