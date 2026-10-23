@@ -1255,6 +1255,9 @@ pause menu opened by `game.suspend()`; a headless run with `--date 2026-02-29` f
 
 ### M26.4 Rigid glTF animation and several skins (M) — CC/FB-0001, CC/FB-0002
 
+Done (branch `m26/rigid-animation`): rigid skins for meshes on animated nodes, one palette per skin, Clockwork Courier
+imports the original robot and dog (no `skinify.py`).
+
 - Meshes that are children of animated nodes (a body part under a bone, or an animated mesh node with no skin at all,
   as in RobotExpressive and Kenney's cube pets) follow their node: the importer gives them a rigid skin of one joint
   (`parse_skeleton`, skeleton.cpp), so the Animator plays them with no change to the file. A model with clips that

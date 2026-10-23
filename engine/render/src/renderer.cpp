@@ -156,6 +156,11 @@ void apply_uniforms(int slot, const T& u) {
 
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
 
+// The palette of glTF skin `skin` (a part is drawn with its own skin's); skin 0 when the animator has none for it.
+const std::vector<Mat4>& palette_of(const Animator& a, int skin) {
+    return skin > 0 && std::size_t(skin) < a.skinPalettes.size() ? a.skinPalettes[std::size_t(skin)] : a.palette;
+}
+
 // The joint palette as the shaders read it: kMaxSkinJoints skinning matrices of 3 rows (a vec4 each); unused joints are the
 // identity (fa_skin of mesh_common.glsl, shared by the mesh and shadow programs).
 mesh_fa_skin_t pack_palette(const std::vector<Mat4>& palette) {
@@ -700,7 +705,16 @@ void Renderer::Impl::render(World& world, float dt) {
         if (anim && !anim->palette.empty()) {
             for (auto& p : mi.mesh->parts)
                 if (p.skinVb.id) mi.anim = anim;
-            if (mi.anim) skinned_bounds(anim->palette, mi.mesh->bmin, mi.mesh->bmax, mi.bmin, mi.bmax);
+            if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
+                bool first = true;
+                for (auto& p : mi.mesh->parts) {
+                    Vec3 lo = p.bmin, hi = p.bmax;
+                    if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
+                    mi.bmin = first ? lo : min(mi.bmin, lo);
+                    mi.bmax = first ? hi : max(mi.bmax, hi);
+                    first = false;
+                }
+            }
         }
         mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
         // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
@@ -977,7 +991,7 @@ void Renderer::Impl::render(World& world, float dt) {
                     if (prog) bind_textures(b, pd, prog, inputs, true);
                     sg_apply_bindings(&b);
                     apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
-                    if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(rep.anim->palette));
+                    if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                     if (prog) {
                         if (prog->has_ub(UB_mesh_fa_mesh_fs_params)) apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(rep, p, pd));
                         if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
@@ -1059,7 +1073,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 bind_textures(b, pd, prog, inputs, false);
                 sg_apply_bindings(&b);
                 apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-                if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(mi.anim->palette));
+                if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
                 apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(mi, part, pd));
                 apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                 if (prog) apply_material_params(*prog, inputs);
