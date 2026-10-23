@@ -131,7 +131,8 @@ Result<std::string> select_sections(const std::string& text, bool source, const 
 Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platform);
 // The player must come from the same build as this factoria (fa/core/build_info.h): its fingerprint is read from the file's
 // bytes. A different one stops the export unless ExportOptions::allowPlayerMismatch (then `warnings` says so). Files that
-// are no executable (a test's stand-in) and a factoria built outside git ("unknown") are not compared.
+// are no executable (a test's stand-in) and a factoria or player built outside git ("unknown") are not compared; the same
+// commit with "-dirty" on one side only is a warning.
 Result<void> check_player_build(const ExportOptions& o, const stdfs::path& player, const std::string& platform,
                                 std::vector<std::string>& warnings);
 // The game name with the characters a file name cannot hold replaced (the .app folder of macOS).

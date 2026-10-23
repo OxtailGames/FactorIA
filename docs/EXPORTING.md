@@ -516,8 +516,9 @@ bytes, so it checks the player of another OS too. A player from another build, o
 the export with an error that names both builds: it may lack the components or the script API the game uses, or fail to
 start. Fix it by building both from one checkout, or `factoria setup players` for the release's players. To bundle that
 player anyway, pass `--allow-player-mismatch` (the `export` command's `allowPlayerMismatch` argument): the export goes on
-and `warnings` says which builds differ. A `factoria` built outside a git checkout has no fingerprint and compares nothing;
-the fingerprint does not see uncommitted edits beyond the `-dirty` mark, so rebuild both after editing the engine.
+and `warnings` says which builds differ. A `factoria` or a player built outside a git checkout carries `unknown` and is not
+compared. The same commit with `-dirty` on one side only is a warning, not an error; the fingerprint does not see which
+edits a `-dirty` build had, so rebuild both after editing the engine.
 
 ```
 linux/windows:  my-game-linux/

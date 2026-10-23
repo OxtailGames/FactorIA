@@ -64,7 +64,14 @@ Result<void> check_player_build(const ExportOptions& o, const stdfs::path& playe
     auto data = read_file(player);
     if (!data || !looks_like_executable(std::string(data->substr(0, 4)))) return {};
     const std::string theirs = find_build_fingerprint(*data);
-    if (theirs == mine) return {};
+    if (theirs == mine || theirs == "unknown") return {};
+    // The same commit, with uncommitted edits on one side only: the player may be stale, so this warns but does not stop.
+    const auto commit = [](const std::string& f) { return f.substr(0, f.find("-dirty")); };
+    if (!theirs.empty() && commit(theirs) == commit(mine)) {
+        warnings.push_back("export: the " + platform + " player '" + generic(player) + "' was built from " + theirs + " and this factoria from " +
+                           mine + ": the same commit, but one of them had uncommitted changes; rebuild both if you edited the engine");
+        return {};
+    }
     const std::string what = theirs.empty() ? "has no build fingerprint (it is older than this check)" : "was built from " + theirs;
     const std::string message = "export: the " + platform + " player '" + generic(player) + "' " + what + ", but this factoria was built from " + mine +
                                 ": a player of another build may lack what the game uses (components, script API) or fail to start";
