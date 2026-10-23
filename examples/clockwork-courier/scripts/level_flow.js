@@ -156,11 +156,17 @@ export default class LevelFlow extends Behaviour {
     if (p.panel === this.resultsId && world.find("results_next")?.active === false) ui.focus(world.find("results_retry"));
   }
 
-  setText(id, text) {
+  /** @param {string} id @param {string | { key: string, args: object }} line a string, or a key with the values of its placeholders */
+  setText(id, line) {
     const e = world.find(id);
     if (!e) return;
     const t = e.get("Text");
-    t.key = ""; // a Text with a localization key is rewritten every frame; the results lines carry values (name, time), so they are written here in the current language
-    t.text = text;
+    if (typeof line === "string") {
+      t.key = ""; // a plain string is not localized by the engine
+      t.text = line;
+    } else {
+      t.key = line.key; // the engine formats it with keyArgs now and after every language switch
+      t.keyArgs = line.args;
+    }
   }
 }

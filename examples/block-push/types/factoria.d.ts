@@ -2324,6 +2324,11 @@ declare module "factoria" {
      */
     key: string;
     /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
+    /**
      * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). (asset path: font)
      */
     font: string;
@@ -3424,6 +3429,11 @@ declare module "factoria" {
      */
     key: string;
     /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
+    /**
      * Label glyph height in design pixels.
      * @since 0.1.6
      */
@@ -3560,6 +3570,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Label glyph height in design pixels.
      * @since 0.1.6
@@ -3700,6 +3715,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Label glyph height in design pixels.
      * @since 0.1.6
@@ -3865,6 +3885,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Label glyph height in design pixels.
      * @since 0.1.6
@@ -4159,6 +4184,16 @@ declare module "factoria" {
      */
     text: string;
     /**
+     * Localization key, e.g. "touch.jump" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key that no string table has keeps `text` and logs one warning.
+     * @since unreleased
+     */
+    key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font. (asset path: font)
      * @since 0.2.0
      */
@@ -4421,7 +4456,7 @@ declare module "factoria" {
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
-    Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any };
@@ -4437,13 +4472,13 @@ declare module "factoria" {
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
-    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };

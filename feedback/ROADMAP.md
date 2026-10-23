@@ -1366,6 +1366,8 @@ Acceptance: a JS test for each item, in `engine/script/tests`.
 
 ### M26.12 Localized text with parameters (M) — CC/FB-0021 (and its duplicate CC/FB-0027), CC/FB-0040
 
+Done (branch `m26/i18n-args`): `keyArgs`, `TouchButton.key`, validate checks args; Courier uses them.
+
 - `keyArgs` on `Text`, `Button` (`UiControl`) and `TouchButton`: the values of a key's `{placeholders}`, passed to
   `i18n.t` when the text is localized (localize.cpp), so a script sets `keyArgs` once instead of rewriting `text` every
   frame, and a language switch keeps them.
