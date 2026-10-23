@@ -158,6 +158,11 @@ struct ScriptSystem::Impl {
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;
 
+    // ---- tests: a quit request sets a flag instead of stopping the run; game.setSystemLanguages() fakes the device languages
+    bool testQuitRequested = false;
+    std::vector<std::string> testSystemLanguages;
+    void request_quit();  // the host's quit, except in a test run, where it only sets testQuitRequested
+
     // ---- the calendar date and the app's life (script_system.cpp: ScriptSystem::today / app_event)
     CalendarDate startDate;  // what the host set: EngineConfig::date
     CalendarDate date;       // game.today(): startDate, or what game.setDate set in a test
