@@ -144,6 +144,10 @@ struct Text {
     Align align = Align::Left;
     Vec2 pivot{0.0f, 1.0f};           // anchor within the text box: 0,1 = top-left
     float maxWidth = 0.0f;            // > 0 wraps lines at this width
+    float maxHeight = 0.0f;           // > 0: the box height autoShrink fits the text into (0 = only the width counts)
+    bool autoShrink = false;          // shrink the font (down to minFontSize) until the text fits maxWidth x maxHeight
+    float minFontSize = 10.0f;        // autoShrink never goes under this font size (before ui.textScale)
+    float maxTextScale = 0.0f;        // > 0: ui.textScale stops growing this text at this scale (screen space); 0 = no cap
     std::int32_t layer = 100;
     RenderSpace space = RenderSpace::World;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
@@ -246,6 +250,7 @@ struct UiBox {
 struct UiControl : UiBox {
     std::string font;                         // asset path to .ttf; "" = built-in font
     float fontSize = 24.0f;
+    float maxTextScale = 0.0f;                // > 0: ui.textScale stops growing the label at this scale; 0 = no cap
     Color textColor{1, 1, 1, 1};
     Color accentColor{1.0f, 0.76f, 0.2f, 1.0f};  // focus ring, slider fill and knob, toggle check, caret
     std::string key;                          // localization key; "" = none. Replaces Button.text, Toggle.label, Slider.label or TextField.placeholder
@@ -275,13 +280,18 @@ struct Button : UiControl {
     std::string text = "Button";
     float maxWidth = 0.0f;                    // > 0 wraps the label at this width (design pixels); 0 = no wrap
     bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
+    bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button
+    float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
     Button() { size = {240, 56}; }
 };
 
 struct Toggle : UiControl {
     std::string label = "Toggle";
     bool value = false;
+    float maxWidth = 0.0f;                    // > 0 wraps the label at this width (design pixels); 0 = no wrap
     bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
+    bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits beside the box
+    float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
     Toggle() { size = {240, 40}; }
 };
 
@@ -292,7 +302,11 @@ struct Slider : UiControl {
     float max = 1.0f;
     float step = 0.1f;                        // keyboard / gamepad increment and snapping; 0 = continuous
     bool showValue = true;
+    float maxWidth = 0.0f;                    // > 0 wraps the label at this width (design pixels); 0 = no wrap
+    bool labelAbove = false;                  // the label sits above the track, on the full width, instead of at its left
     bool autoSize = false;                    // grow to fit the label and value text (at least `size`), at the current ui.textScale
+    bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits its zone
+    float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
     Slider() { size = {320, 40}; }
 };
 
@@ -342,6 +356,9 @@ struct TouchButton : UiBox {
     std::string text;                         // label; "" = none
     std::string font;
     float fontSize = 32.0f;
+    bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button
+    float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    float maxTextScale = 0.0f;                // > 0: ui.textScale stops growing the label at this scale; 0 = no cap
     Color textColor{1, 1, 1, 0.9f};
     bool touchOnly = true;
     bool pressed = false;                     // runtime: a finger holds it
