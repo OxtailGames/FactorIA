@@ -1511,6 +1511,10 @@ Acceptance: the replay hash matches across CI's Linux, Windows and macOS jobs, o
 
 ### M26.22 Menu kit command (M) — CC/FB-0003
 
+Done (branch `m26/menu-kit`): `project.add_menu_kit` (tools/common/src/menu_kit.cpp), the kit in `templates/menus/` with
+`kit.json` listing its parts; the menus fixture keeps a copy of every kit file that the `cli` test "the menus fixture holds
+exactly the kit's files" keeps identical.
+
 After M26.1 (the kit is formatted on write). The menus recipe moves to `templates/menus/` (scenes, prefabs, scripts and
 locale keys), MENUS.md shows it from there, and `project.add_menu_kit {parts, overwrite}` copies the parts asked for
 into a game and merges their keys into its locale files.

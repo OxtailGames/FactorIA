@@ -586,6 +586,7 @@
     "play.report": "0.1.0",
     "play.sessions": "0.1.0",
     "prefab.save": "0.1.0",
+    "project.add_menu_kit": "unreleased",
     "project.create": "0.1.0",
     "project.export": "0.1.2",
     "project.info": "0.1.0",
