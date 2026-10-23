@@ -39,7 +39,7 @@ export default class Profile extends Behaviour {
   buildKeys() {
     for (const ch of KEY_CHARS) {
       world.spawn(
-        { id: "key_" + ch, components: { Button: { size: [56, 56], text: ch, layer: 210, fontSize: 26, color: [0.24, 0.27, 0.36, 0.95] } } },
+        { id: "key_" + ch, components: { Button: { size: [56, 56], text: ch, layer: 210, fontSize: 26, autoShrink: true, color: [0.24, 0.27, 0.36, 0.95] } } },
         { parent: "profile_keys" },
       );
     }

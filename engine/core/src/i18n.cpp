@@ -482,9 +482,26 @@ std::optional<std::string> I18n::translate(std::string_view key, const Json& arg
         for (const std::string& name : missing)
             warn_once("arg|" + k + "|" + name, "'" + k + "' (" + table->file + ") uses {" + name + "} but no argument '" + name +
                                                     "' was given: the placeholder stays in the text (hint: i18n.t(\"" + k + "\", {" + name + ": ...}))");
-        return out;
+        return pseudo_ ? pseudo_localize(out) : out;
     }
     return std::nullopt;
+}
+
+std::string I18n::pseudo_localize(std::string_view text) {
+    const auto letters = [](std::string_view s) {  // UTF-8 characters
+        std::size_t n = 0;
+        for (const char c : s) n += (static_cast<unsigned char>(c) & 0xC0) != 0x80;
+        return n;
+    };
+    std::string body;
+    for (const char c : text) {
+        body += c;
+        if (std::string_view("aeiouAEIOU").find(c) != std::string_view::npos) body += c;
+    }
+    // Text with few ASCII vowels (Japanese, Arabic) is padded so it is at least 40 % longer all the same.
+    const std::size_t want = letters(text) * 7 / 5;
+    for (std::size_t n = letters(body); n < want; ++n) body += '~';
+    return "[" + body + "]";
 }
 
 std::string I18n::t(std::string_view key, const Json& args) const {
