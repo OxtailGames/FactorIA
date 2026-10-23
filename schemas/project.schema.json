@@ -402,6 +402,15 @@
                 "default": "descending",
                 "description": "\"descending\": a higher score is better (points); \"ascending\": a lower one is (times)."
               },
+              "period": {
+                "enum": [
+                  "allTime",
+                  "daily",
+                  "weekly"
+                ],
+                "default": "allTime",
+                "description": "How often the board starts over: \"allTime\" (never), \"daily\" (a new board every calendar day of game.today()) or \"weekly\" (every Monday). Scores are kept per period; the fake backend implements it, real stores' recurring boards come with M12 (docs/PLATFORM.md, \"Leaderboard periods\")."
+              },
               "ids": {
                 "type": "object",
                 "description": "The id each store uses for this entry, keyed by backend name: {\"steam\": \"ACH_WIN_ONE_GAME\", \"apple\": \"com.studio.game.first_win\"}. Without an entry for a backend, the id is used as it is.",
@@ -489,6 +498,51 @@
                 "additionalProperties": {
                   "type": "string",
                   "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "ads": {
+          "type": "object",
+          "description": "Advertising: the placements the game shows ads at (platform.ads.showRewarded(\"<id>\")). Development runs and tests show a scripted test ad; real ad networks (AdMob) come with M12 (docs/PLATFORM.md, \"Ads\").",
+          "properties": {
+            "placements": {
+              "type": "array",
+              "description": "Where the game offers an ad: platform.ads.available(\"<id>\") and platform.ads.showRewarded(\"<id>\").",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                    "description": "The id scripts use (platform.ads.showRewarded(\"<id>\")): 1-64 letters, digits, '_', '.' or '-', unique within its section."
+                  },
+                  "type": {
+                    "enum": [
+                      "rewarded"
+                    ],
+                    "default": "rewarded",
+                    "description": "The kind of ad: \"rewarded\" (the player watches it to the end for a reward). The only kind so far."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "What the player gets for watching (for you and for the store consoles; not shown by the engine)."
+                  },
+                  "ids": {
+                    "type": "object",
+                    "description": "The ad unit id each ad network uses for this placement, keyed by backend name: {\"admob\": \"ca-app-pub-1234/5678\"}. Without an entry for a backend, the id is used as it is.",
+                    "propertyNames": {
+                      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             }

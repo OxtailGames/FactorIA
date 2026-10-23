@@ -1756,6 +1756,20 @@ The product leaves purchases.restore() and its unfinished transaction is dropped
 |---|---|---|---|
 | `productId` | string | yes | The catalog id of the product to take back, e.g. "remove_ads". |
 
+### `platform.set_ad` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.
+
+`outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): "watched" (the default: {rewarded: true}), "closedEarly" ({rewarded: false, reason: "closedEarly"}), "noFill" (no ad: ads.available() is false and showRewarded gives reason "noFill") or "consentRefused" (also sets gdpr and tracking to "denied"; reason "consentRefused"). `gdpr` ("granted", "denied", "notRequired", "unknown") and `tracking` ("authorized", "denied", "notDetermined", "restricted", "notRequired") are what ads.consent() answers; a denied gdpr stops every ad. Give any of them. platform.state's fake.ads counts the ads shown and rewarded. Fails when the game runs a real store backend. Example: platform.set_ad {"outcome":"closedEarly"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `outcome` | string ["watched","closedEarly","noFill","consentRefused"] | no | How the next ads end. |
+| `gdpr` | string ["granted","denied","notRequired","unknown"] | no | What the GDPR (UMP) sheet answered. |
+| `tracking` | string ["authorized","denied","notDetermined","restricted","notRequired"] | no | What the tracking (ATT) sheet answered. |
+
 ### `platform.set_fake` (modifies state)
 
 Since 0.2.0.
@@ -1776,7 +1790,7 @@ Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 
-Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best}, cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
+Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
 
 ## play
 
@@ -3750,7 +3764,7 @@ declare module "factoria" {
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads";
 
   /**
    * Who is signed in to the store.
@@ -3893,7 +3907,7 @@ declare module "factoria" {
   }
 
   /**
-   * Leaderboards of factoria.json platform.leaderboards.
+   * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake backend keeps one per period; real stores reject with "unavailable" until M12 maps them to their recurring boards).
    */
   export interface PlatformLeaderboardsAPI {
     /**
@@ -3971,6 +3985,42 @@ declare module "factoria" {
   }
 
   /**
+   * What the player answered to the consent sheets, from ads.consent().
+   */
+  export interface PlatformConsent {
+    /**
+     * The GDPR (Google UMP) sheet: granted, denied, notRequired (the player is outside the regions that need it) or unknown (not asked yet).
+     */
+    readonly gdpr: "granted" | "denied" | "notRequired" | "unknown";
+    /**
+     * The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet.
+     */
+    readonly tracking: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired";
+    /**
+     * False when the player refused the GDPR consent: no ad may be requested then.
+     */
+    readonly canShowAds: boolean;
+  }
+
+  /**
+   * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped game gets a real network once a backend offers one (check platform.has("ads")): until then every call rejects with code "unavailable". Use platform.release to keep a development-only ad stub out of a shipped game.
+   */
+  export interface PlatformAdsAPI {
+    /**
+     * True when a rewarded ad is ready to show at the placement (false: no fill, or the player refused the consent). Use it to show or hide the "watch an ad" button. A placement the catalog does not declare throws at once with a suggestion.
+     */
+    available(placement: string): Promise<boolean>;
+    /**
+     * Shows a rewarded ad and resolves when it ends. rewarded is true only when the player watched it to the end: give the reward then and only then. Otherwise reason says why: closedEarly (the player closed it), noFill (no ad to show), consentRefused (the player refused the consent). Rejects with code "network" or "unavailable" when the platform failed.
+     */
+    showRewarded(placement: string): Promise<{ rewarded: boolean; reason?: "closedEarly" | "noFill" | "consentRefused" }>;
+    /**
+     * What the GDPR and tracking sheets answered, for the game's privacy screen.
+     */
+    consent(): Promise<PlatformConsent>;
+  }
+
+  /**
    * Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.
    */
   export interface PlatformIntegrityAPI {
@@ -3981,7 +4031,7 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -4020,6 +4070,11 @@ declare module "factoria" {
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
     readonly integrity: PlatformIntegrityAPI;
+    readonly ads: PlatformAdsAPI;
+    /**
+     * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
+     */
+    readonly release: boolean;
   }
 
   /**
@@ -4188,7 +4243,7 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
 
@@ -7292,6 +7347,10 @@ declare module "factoria:test" {
      * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
      */
     revoke(productId: string): void;
+    /**
+     * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr and options.tracking set what ads.consent() answers; a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
+     */
+    ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired" }): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */
