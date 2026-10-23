@@ -476,6 +476,39 @@ TEST_CASE("text: the text scale resizes screen-space Text and UI labels, never w
     CHECK(s2.w() == s1.w());  // back to normal
 }
 
+TEST_CASE("text: maxTextScale caps a heading, autoShrink fits a label inside its button, and measure_text(Text) agrees") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    World w; add_black_camera(w);
+    Entity head = put_text(w, "HHHH", {10, 10, 0}, 20, "", Align::Left, 0, RenderSpace::Screen);
+    Entity e = make(w, "btn", {150, 10, 0});
+    Button& b = w.add<Button>(e);
+    b.size = {120, 60};
+    b.pivot = {0, 1};
+    b.color = Color{0, 0, 0, 0};
+    b.text = "HHHHHHHH";
+    b.fontSize = 20;
+    b.autoShrink = true;
+    b.minFontSize = 6;
+    auto heading_ink = [&] { return ink(g.render(w), 0, 0, 140, 100); };
+    auto button_ink = [&] { return ink(g.render(w), 150, 0, 320, 100); };
+    g.renderer.set_text_scale(2.0f);
+    const Ink big = heading_ink();
+    w.get<Text>(head)->maxTextScale = 1.3f;
+    const Ink capped = heading_ink();
+    REQUIRE((big.any() && capped.any()));
+    CHECK(std::abs(capped.w() - 0.65f * big.w()) <= 4);  // 1.3 / 2
+    Text t = *w.get<Text>(head);
+    CHECK(g.renderer.measure_text(t).x == doctest::Approx(g.renderer.measure_text("HHHH", 20 * 1.3f, "", 0, RenderSpace::World).x).epsilon(0.01));
+    const Ink shrunk = button_ink();
+    REQUIRE(shrunk.any());
+    CHECK(shrunk.x1 - 150 <= 120 - 8 + 2);  // inside the 120 px button (8 px margins), at 200 % text
+    b.autoShrink = false;
+    const Ink cut = button_ink();
+    CHECK(cut.w() > shrunk.w());            // without it the label is bigger (and cut at the edge)
+}
+
 TEST_CASE("text: the text scale is clamped to 0.5 .. 3 and ignores NaN") {
     Renderer r;  // the option is kept before init, so no GPU is needed
     CHECK(r.text_scale() == 1.0f);
