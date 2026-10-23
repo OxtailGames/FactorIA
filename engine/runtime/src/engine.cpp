@@ -811,6 +811,12 @@ Json Engine::render_stats_now() {
     return j;
 }
 
+double Engine::preload_time_budget_ms() const {
+    // A game with a window reads ahead until a few ms of the frame are gone (at least one file); everything else reads one
+    // file per frame, so tests, replays and headless runs give the same result on any machine.
+    return impl_->windowed && !impl_->cfg.editorMode ? 4.0 : 0.0;
+}
+
 void Engine::request_scene_change(std::string_view scenePath) {
     impl_->pendingScene = std::string(scenePath);
     impl_->hasPendingScene = true;
