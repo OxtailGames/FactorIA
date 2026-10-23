@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Text entry on every device
+
+- A focused `TextField` raises the phone's keyboard and hides it on blur (not for gamepad players). The menu kit in
+  `docs/MENUS.md` has an on-screen keyboard for gamepad players (Latin, Cyrillic and Greek layouts; other scripts fall
+  back to Latin). The web player takes typed text on mobile browsers through a hidden input, and the web smoke types
+  into a field.
+
 A 3D example game for phones
 
 - Clockwork Courier (`examples/clockwork-courier`) is a complete 3D game made for phones first, the way your AI makes a
