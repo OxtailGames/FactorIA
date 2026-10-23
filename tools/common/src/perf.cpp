@@ -30,9 +30,14 @@ double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 
 // ------------------------------------------------------------------------------------------------ samples and tolerances
 Json perf_sample_json(const PerfSample& s) {
-    return Json::object({{"frames", s.frames}, {"cpuMsAvg", round3(s.cpuMsAvg)}, {"cpuMsP95", round3(s.cpuMsP95)},
+    Json j = Json::object({{"frames", s.frames}, {"cpuMsAvg", round3(s.cpuMsAvg)}, {"cpuMsP95", round3(s.cpuMsP95)},
                          {"cpuMsMax", round3(s.cpuMsMax)}, {"peakMemoryMB", std::round(s.peakMemoryMB * 10.0) / 10.0},
                          {"drawCalls", s.drawCalls}, {"entities", s.entities}, {"graphics", s.graphics}});
+    // Written only when recorded, so a sample read from an old baseline file is written back without invented fields.
+    if (s.triangles >= 0) j["triangles"] = std::llround(s.triangles);
+    if (s.lights >= 0) j["lights"] = std::llround(s.lights);
+    if (s.textureMB >= 0) j["textureMB"] = round3(s.textureMB);
+    return j;
 }
 
 PerfSample perf_sample_from_json(const Json& j) {
@@ -45,6 +50,8 @@ PerfSample perf_sample_from_json(const Json& j) {
     s.peakMemoryMB = num(j, "peakMemoryMB");
     s.drawCalls = int(num(j, "drawCalls"));
     s.entities = int(num(j, "entities"));
+    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles}, {"lights", &s.lights}, {"textureMB", &s.textureMB}})
+        if (auto it = j.find(f.first); it != j.end() && it->is_number()) *f.second = it->get<double>();
     if (auto it = j.find("graphics"); it != j.end() && it->is_string()) s.graphics = it->get<std::string>();
     return s;
 }
@@ -55,7 +62,9 @@ PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* 
     const std::pair<const char*, double*> fields[] = {{"cpuAvg", &t.cpuAvg},       {"cpuP95", &t.cpuP95},
                                                       {"memory", &t.memory},       {"drawCalls", &t.drawCalls},
                                                       {"entities", &t.entities},   {"cpuSlackMs", &t.cpuSlackMs},
-                                                      {"memorySlackMB", &t.memorySlackMB}, {"countSlack", &t.countSlack}};
+                                                      {"memorySlackMB", &t.memorySlackMB}, {"countSlack", &t.countSlack},
+                                                      {"triangles", &t.triangles}, {"lights", &t.lights},
+                                                      {"textureMB", &t.textureMB}, {"textureSlackMB", &t.textureSlackMB}};
     std::vector<std::string> names;
     for (const auto& f : fields) names.push_back(f.first);
     for (auto it = j.begin(); it != j.end(); ++it) {
@@ -88,6 +97,10 @@ PerfVerdict perf_compare(const PerfSample& m, const PerfSample& b, const PerfTol
     add("peakMemoryMB", m.peakMemoryMB, b.peakMemoryMB, tol.memory, tol.memorySlackMB, false);
     add("drawCalls", m.drawCalls, b.drawCalls, tol.drawCalls, tol.countSlack, false);
     add("entities", m.entities, b.entities, tol.entities, tol.countSlack, false);
+    // Render numbers: only when the baseline recorded them (a baseline from before has no budget for them).
+    if (b.triangles >= 0) add("triangles", m.triangles, b.triangles, tol.triangles, tol.countSlack, false);
+    if (b.lights >= 0) add("lights", m.lights, b.lights, tol.lights, tol.countSlack, false);
+    if (b.textureMB >= 0) add("textureMB", m.textureMB, b.textureMB, tol.textureMB, tol.textureSlackMB, false);
     v.status = "pass";
     for (const PerfCheckRow& r : v.rows) {
         if (!r.exceeded) continue;
@@ -98,6 +111,46 @@ PerfVerdict perf_compare(const PerfSample& m, const PerfSample& b, const PerfTol
         v.status = "warn";
     }
     return v;
+}
+
+PerfBudgets perf_budgets_from_json(const Json& j, std::vector<std::string>* problems) {
+    PerfBudgets b;
+    if (!j.is_object()) return b;
+    const std::pair<const char*, double*> fields[] = {{"maxTriangles", &b.maxTriangles}, {"maxLights", &b.maxLights},
+                                                      {"maxTextureMB", &b.maxTextureMB}, {"maxDrawCalls", &b.maxDrawCalls},
+                                                      {"maxEntities", &b.maxEntities}};
+    std::vector<std::string> names;
+    for (const auto& f : fields) names.push_back(f.first);
+    for (auto it = j.begin(); it != j.end(); ++it) {
+        bool known = false;
+        for (const auto& f : fields) {
+            if (it.key() != f.first) continue;
+            known = true;
+            if (it->is_number() && it->get<double>() >= 0) *f.second = it->get<double>();
+            else if (problems) problems->push_back("budgets." + it.key() + " must be a number >= 0 (the most the game may reach).");
+        }
+        if (!known && problems) problems->push_back("Unknown budget '" + it.key() + "'. " + did_you_mean(it.key(), names));
+    }
+    return b;
+}
+
+std::vector<PerfCheckRow> perf_budget_rows(const PerfSample& m, const PerfBudgets& b) {
+    std::vector<PerfCheckRow> rows;
+    auto add = [&](const char* metric, double measured, double cap) {
+        if (cap < 0) return;
+        PerfCheckRow r;
+        r.metric = metric;
+        r.measured = measured;
+        r.baseline = r.limit = cap;
+        r.exceeded = measured > cap;
+        rows.push_back(r);
+    };
+    add("maxTriangles", m.triangles, b.maxTriangles);
+    add("maxLights", m.lights, b.maxLights);
+    add("maxTextureMB", m.textureMB, b.maxTextureMB);
+    add("maxDrawCalls", m.drawCalls, b.maxDrawCalls);
+    add("maxEntities", m.entities, b.maxEntities);
+    return rows;
 }
 
 // ------------------------------------------------------------------------------------------------ runner id
@@ -219,6 +272,9 @@ PerfSample measure(const std::string& projectDir, const RunSpec& spec, int repea
         out.peakMemoryMB = i == 0 ? s.peakMemoryMB : std::min(out.peakMemoryMB, s.peakMemoryMB);
         out.drawCalls = std::max(out.drawCalls, s.drawCalls);
         out.entities = std::max(out.entities, s.entities);
+        out.triangles = std::max(out.triangles, s.triangles);
+        out.lights = std::max(out.lights, s.lights);
+        out.textureMB = std::max(out.textureMB, s.textureMB);
     }
     out.cpuMsAvg = median(avg);
     out.cpuMsP95 = median(p95);
@@ -260,11 +316,11 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     m.name = "perf.measure";
     m.category = "project";
     m.readOnly = true;
-    m.summary = "Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities.";
+    m.summary = "Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.";
     m.description =
         "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
         "{runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory "
-        "of the process), drawCalls and entities (max over the run), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
+        "of the process), drawCalls, entities, triangles, lights (of the main pass) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
         "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time "
         "(`factoria call --no-graphics perf.measure`). Example: {\"frames\":300}.";
     m.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -324,7 +380,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again "
         "when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in "
         "CI it fails past the tolerance) checks it. File: {format:\"factoria.perf/1\", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, "
-        "drawCalls:0.1, entities:0.1, cpuSlackMs:1, memorySlackMB:8, countSlack:2}, runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the "
+        "drawCalls:0.1, entities:0.1, triangles:0.1, lights:0.1, textureMB:0.1, cpuSlackMs:1, memorySlackMB:8, textureSlackMB:1, countSlack:2}, budgets?: {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities} (absolute caps, see perf.check), runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the "
         "file's tolerances. Returns {file, runner, sample, created}. Example: {\"frames\":300,\"input\":\"replays/play.json\"}.";
     b.inputSchema = Json::parse(R"({"type":"object","properties":{
         "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
@@ -332,7 +388,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "scene":{"type":"string","description":"Start scene; stored in the file."},
         "input":{"type":"string","description":"Project-relative input replay; stored in the file."},
         "repeats":{"type":"integer","default":3,"minimum":1,"description":"Runs to take the median of."},
-        "tolerance":{"type":"object","description":"Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities (ratios), cpuSlackMs, memorySlackMB, countSlack."}}})");
+        "tolerance":{"type":"object","description":"Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities, triangles, lights, textureMB (ratios), cpuSlackMs, memorySlackMB, textureSlackMB, countSlack."}}})");
     registry.add(b, [projectDir](const Json& a) {
         require_project(projectDir);
         const std::string file = abs_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
@@ -348,7 +404,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
             perf_tolerance_from_json(a["tolerance"], &problems);
             if (!problems.empty())
                 throw CommandError("invalid_argument", problems[0],
-                                   "Tolerance keys: cpuAvg, cpuP95, memory, drawCalls, entities, cpuSlackMs, memorySlackMB, countSlack.");
+                                   "Tolerance keys: cpuAvg, cpuP95, memory, drawCalls, entities, triangles, lights, textureMB, cpuSlackMs, memorySlackMB, textureSlackMB, countSlack.");
             budget["tolerance"] = a["tolerance"];
         }
         const PerfSample s = measure(projectDir, spec, int(tooling_detail::arg_int(a, "repeats", 3)));
@@ -370,14 +426,15 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     c.summary = "Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.";
     c.description =
         "Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, "
-        "draw calls and entities past their limit FAIL always. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status \"warn\"), "
+        "draw calls, entities, triangles, lights and texture memory (the last three only when the baseline has them) past their limit FAIL always. The file's \"budgets\" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status \"warn\"), "
         "because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status \"no_baseline\" and returns "
         "`baselineEntry`: the exact JSON to add under \"runners\" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, "
         "exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {\"file\":\"perf.json\"}.";
     c.inputSchema = Json::parse(R"({"type":"object","properties":{
         "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
         "strictTime":{"type":"boolean","description":"Make a time over its limit fail even outside CI (default: only in CI)."},
-        "requireBaseline":{"type":"boolean","default":false,"description":"Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything."}}})");
+        "requireBaseline":{"type":"boolean","default":false,"description":"Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything."},
+        "budgets":{"type":"object","description":"Absolute caps that fail whatever the baseline says (they replace the same keys of the file's \"budgets\"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities."}}})");
     registry.add(c, [projectDir](const Json& a) {
         require_project(projectDir);
         const std::string file = abs_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
@@ -389,8 +446,22 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         std::vector<std::string> problems;
         const PerfTolerance tol = perf_tolerance_from_json(budget.value("tolerance", Json::object()), &problems);
         if (!problems.empty()) throw CommandError("failed", file + ": " + problems[0], "Fix the \"tolerance\" object of the budget file.");
+        // Absolute caps: the file's "budgets" object, with the keys of the `budgets` argument on top.
+        Json budgetJson = budget.value("budgets", Json::object());
+        if (!budgetJson.is_object()) throw CommandError("failed", file + ": \"budgets\" must be an object such as {\"maxTriangles\": 200000}.", "Fix the \"budgets\" object of the budget file.");
+        if (a.contains("budgets") && a["budgets"].is_object())
+            for (auto it = a["budgets"].begin(); it != a["budgets"].end(); ++it) budgetJson[it.key()] = it.value();
+        const PerfBudgets caps = perf_budgets_from_json(budgetJson, &problems);
+        if (!problems.empty()) throw CommandError("invalid_argument", file + ": " + problems[0], "Budgets: maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities.");
         const bool strictTime = tooling_detail::arg_bool(a, "strictTime", perf_in_ci());
         PerfSample s = measure(projectDir, spec, 1);
+        const std::vector<PerfCheckRow> capRows = perf_budget_rows(s, caps);
+        auto cap_over = [&] {
+            std::string over;
+            for (const PerfCheckRow& r : capRows)
+                if (r.exceeded) over += std::format(" {} {} > budget {};", r.metric, fmt(r.measured), fmt(r.limit));
+            return over;
+        };
         const std::string runner = perf_runner_id(s.graphics);
         Json result = Json::object({{"runner", runner}, {"file", file}});
         const Json* entry = nullptr;
@@ -400,8 +471,15 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
             result["status"] = "no_baseline";
             result["sample"] = perf_sample_json(s);
             result["baselineEntry"] = Json::object({{runner, perf_sample_json(s)}});
-            result["message"] = "No baseline for runner '" + runner + "' in " + file + ": nothing was checked. Commit this entry under \"runners\": " +
+            result["message"] = "No baseline for runner '" + runner + "' in " + file + ": nothing was checked against a baseline. Commit this entry under \"runners\": " +
                                 dump_json(result["baselineEntry"]) + " (or run: factoria call perf.baseline).";
+            Json capJson = Json::array();
+            for (const PerfCheckRow& r : capRows)
+                capJson.push_back(Json::object({{"metric", r.metric}, {"measured", round3(r.measured)}, {"baseline", round3(r.baseline)}, {"limit", round3(r.limit)}, {"exceeded", r.exceeded}}));
+            if (!capRows.empty()) result["rows"] = capJson;
+            if (const std::string over = cap_over(); !over.empty())
+                throw CommandError("perf_budget_exceeded", "Over the budgets of " + file + " (no baseline for runner '" + runner + "'):" + over,
+                                   "Reduce what the scene draws (fewer or simpler meshes, fewer lights), or raise the budget on purpose.", result);
             if (tooling_detail::arg_bool(a, "requireBaseline", false))
                 throw CommandError("perf_no_baseline", result["message"].get<std::string>(),
                                    "Add baselineEntry under \"runners\" of " + file + ", or run factoria call perf.baseline on this runner.", result);
@@ -420,12 +498,18 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
                 v = perf_compare(s, base, tol, strictTime);
             }
         }
+        // The caps make the verdict fail whatever the baseline allows.
+        for (const PerfCheckRow& r : capRows) {
+            v.rows.push_back(r);
+            if (r.exceeded) v.status = "fail";
+        }
         Json rows = Json::array();
         std::string over;
         for (const PerfCheckRow& r : v.rows) {
             rows.push_back(Json::object({{"metric", r.metric}, {"measured", round3(r.measured)}, {"baseline", round3(r.baseline)},
                                          {"limit", round3(r.limit)}, {"exceeded", r.exceeded}}));
-            if (r.exceeded) over += std::format(" {} {} > limit {} (baseline {});", r.metric, fmt(r.measured), fmt(r.limit), fmt(r.baseline));
+            if (r.exceeded && r.metric.rfind("max", 0) == 0) over += std::format(" {} {} > budget {};", r.metric, fmt(r.measured), fmt(r.limit));
+            else if (r.exceeded) over += std::format(" {} {} > limit {} (baseline {});", r.metric, fmt(r.measured), fmt(r.limit), fmt(r.baseline));
         }
         result["status"] = v.status;
         result["sample"] = perf_sample_json(s);
