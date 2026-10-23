@@ -1498,7 +1498,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep.
+- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`).
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more

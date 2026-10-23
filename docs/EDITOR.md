@@ -54,7 +54,7 @@ to send"), and while it is working Play and Step are disabled until it finishes 
 still runs commands during play, to inspect or poke the running game. Ctrl+Z / Ctrl+Y
 (toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. Undo does
 not touch files; to take back a whole AI run, scripts included, use Revert ([Revert an AI run](#revert-an-ai-run)). View >
-Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
+Show navmesh draws the walkable cells of every NavMesh3D (docs/NAVIGATION.md). Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
 
 **Materials and textures reload live.** The editor watches `materials/`, `shaders/` and `assets/` for the files the renderer
 rebuilds in place: a `*.material.json`, a shader snippet (`*.surface.glsl`, which reloads every material that uses it), a
