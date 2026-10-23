@@ -55,7 +55,8 @@ Changing the section needs a restart; editing `locales/*.json` does not (hot rel
   form). A number with decimals counts as having them. Without a numeric `count` the `other` form is used and a
   warning says so. An ordinary group whose keys happen to be category names needs a different key name.
 - `{name}` is replaced by `args.name` (strings as they are, numbers without a trailing `.0`, `null` as empty). `{{` and
-  `}}` are literal braces. A placeholder without an argument stays as written and the log says which.
+  `}}` are literal braces. A placeholder without an argument stays as written and the log says which. `{v:number:1}` and `{t:duration}` write
+  numbers and times for the language (section 5b).
 
 **Lookup.** The current language's table, then its base language's (`pt` for `pt-BR`, when the game has it), then
 `defaultLanguage`'s. A key that no table has makes `t()` return the key itself and warn once in the log (category
@@ -115,8 +116,9 @@ world.find("score").get("Text").keyArgs = { score: 12 };   // "Score: 12" / "Pun
 
 - Change `keyArgs` as a whole (assign a new object, or `entity.set("Text", { keyArgs: { score } })`); the text is
   formatted again at the end of that frame. Nothing is written when the result is the same as the text.
-- The values are shown as `i18n.t` shows them (numbers without a trailing `.0`). A number that must follow the player's
-  language (decimal separator) is formatted by the script first and passed as a string.
+- The values are shown as `i18n.t` shows them (numbers without a trailing `.0`). A number or a time that must follow the
+  player's language is written with a format in the key (`{score:number}`, `{time:duration}`, section 5b) and passed as
+  a number.
 - `factoria validate` checks the placeholders of a key against the entity's `keyArgs` (every language's text counts): a
   warning names the placeholder that has no arg, and another an arg that no translation uses ("did you mean" when it is
   close to a placeholder). A script that sets `keyArgs` later should still write starting values in the scene.
@@ -152,6 +154,57 @@ const off = i18n.on("change", ({ language, previous }) => { /* write your own te
 - Save the player's choice: `storage.set("language", i18n.language)` when it changes, and at start
   `i18n.setLanguage(storage.get("language", i18n.language))`.
 - A script that starts when a panel first opens (an inactive entity's script) reads the language of that moment.
+
+## 5b. Numbers and times
+
+A number that goes into a text must follow the player's language: `1,234.5` in English, `1234,5` in Spanish. Put the
+format after the name in the placeholder, or call the functions from a script:
+
+```json
+"hud": { "distance": "{d:number:1} m", "best": "Best: {t:duration}" }
+```
+```js
+i18n.t("hud.distance", { d: 1234.5 });   // "1,234.5 m" (en)   "1234,5 m" (es)   "1.234,5 m" (de)
+i18n.t("hud.best", { t: 83.4 });         // "Best: 1:23.4"     "Mejor: 1:23,4"
+i18n.number(1234.5);                     // the same without a key
+i18n.number(2, { decimals: 2 });         // "2.00" / "2,00"
+i18n.duration(83.4, { decimals: 0 });    // "1:23"
+```
+
+- `{name:number}` keeps the digits the number has, `{name:number:N}` writes exactly N decimals (0 to 9, rounded like
+  JavaScript's `toFixed`: 0.25 with one decimal is 0.3). `{name:duration}` writes seconds as a time with one decimal, `{name:duration:N}` with N (0 to 3). The
+  argument must be a number; a string, an unknown format (`{v:money}`) or a bad count shows the value as it is and logs
+  one warning that says what to write. `keyArgs` take numbers for these.
+- **Time format.** Minutes and seconds, `m:ss.d`: `83.4` is `1:23.4`, `5` is `0:05.0`; from one hour `h:mm:ss.d`
+  (`1:02:03.4`). The value is rounded as a whole (59.96 is `1:00.0`, never `0:60.0`), a negative time has a `-`. The
+  colon is the same in every language; the decimal separator and the digits are the language's. It is a stopwatch
+  format, for results and leaderboards; a sentence like "1 minute 23 seconds" is a string in your table.
+- **Which language.** The text of a key uses the language of the table it came from, so a text translated into Spanish
+  shows `1234,5` and one that fell back to English shows `1,234.5`; `i18n.number` and `i18n.duration` use the current
+  language. A game without localization is English.
+
+The table is in the engine (`fa/core/number_format.h`, no ICU):
+
+| Language | Group | Decimal | Digits | Example for 12345.5 |
+|---|---|---|---|---|
+| en, ja, zh, ko, he | `,` | `.` | 0-9 | 12,345.5 |
+| es (Spain, South America) | `.` from 5 digits | `,` | 0-9 | 12.345,5 (1234,5) |
+| es-MX, es-US, es-419 and other Central American regions | `,` | `.` | 0-9 | 12,345.5 |
+| pt (pt-BR) | `.` | `,` | 0-9 | 12.345,5 |
+| pt-PT | no-break space, from 5 digits | `,` | 0-9 | 12 345,5 (1234,5) |
+| de, nl, tr, id, da, el | `.` | `,` | 0-9 | 12.345,5 |
+| de-CH | `’` | `.` | 0-9 | 12’345.5 |
+| it | `.` from 5 digits | `,` | 0-9 | 12.345,5 (1234,5) |
+| fr | narrow no-break space (U+202F) | `,` | 0-9 | 12 345,5 |
+| ru, uk, cs, sk, sv, nb/no, fi | no-break space (U+00A0) | `,` | 0-9 | 12 345,5 |
+| pl, bg | no-break space from 5 digits | `,` | 0-9 | 12 345,5 (1234,5) |
+| ar | `٬` | `٫` | Arabic-Indic ٠-٩ | ١٢٬٣٤٥٫٥ |
+| fa | `٬` | `٫` | Persian ۰-۹ | ۱۲٬۳۴۵٫۵ |
+
+**Any other language** (hi, th, vi, ...) is written like English (`1,234.5`, ASCII digits), the log says nothing: add
+a language to `style_for` in `engine/core/src/number_format.cpp` (and a test) when a game needs one. Regions
+only matter where the table lists them. Check the font of a language with its own digits (DejaVu Sans, the built-in
+font, has the Arabic-Indic and Persian ones).
 
 ## 6. Fonts, right-to-left languages and text size
 

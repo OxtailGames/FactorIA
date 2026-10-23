@@ -13,6 +13,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/number_format.h"
 #include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
@@ -2156,6 +2157,24 @@ NATIVE(i18nT) {  // (key, args) -> the string; the key itself when no table has 
     return JS_NewStringLen(ctx, text.data(), text.size());
 }
 
+NATIVE(i18nNumber) {  // (value, decimals) -> the number in the current language; decimals < 0: as many as it has
+    SETUP;
+    const I18n* L = I->host->i18n();
+    const double v = arg_num(ctx, argc, argv, 0);
+    const int decimals = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    const std::string text = L ? L->number(v, decimals) : format_number(v, decimals, "");
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
+NATIVE(i18nDuration) {  // (seconds, decimals) -> "1:23.4" in the current language
+    SETUP;
+    const I18n* L = I->host->i18n();
+    const double v = arg_num(ctx, argc, argv, 0);
+    const int decimals = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    const std::string text = L ? L->duration(v, decimals) : format_duration(v, decimals, "");
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
 NATIVE(i18nHas) {
     SETUP;
     const I18n* L = I->host->i18n();
@@ -2359,7 +2378,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

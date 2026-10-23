@@ -1568,6 +1568,29 @@
         throw new Error(`i18n.t("${key}", args): args must be an object like { count: 3, name: "Ana" }, but got ${platformArg(args)}`);
       return N.i18nT(key, args === undefined ? {} : plain(args));
     },
+    // number(value, { decimals? }): the number written the way the current language writes it ("1,234.5", "1.234,5", "١٬٢٣٤٫٥"):
+    // `decimals` digits after the separator (0-9; default: as many as the number has).
+    number(value, options) {
+      if (typeof value !== "number")
+        throw new Error(`i18n.number(value, { decimals }): value must be a number like 1234.5, but got ${platformArg(value)}`);
+      if (options !== undefined && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`i18n.number(${value}, options): options must be an object like { decimals: 1 }, but got ${platformArg(options)}`);
+      const decimals = options && options.decimals !== undefined ? options.decimals : -1;
+      if (decimals !== -1 && (!Number.isInteger(decimals) || decimals < 0 || decimals > 9))
+        throw new Error(`i18n.number(${value}, { decimals }): decimals must be a whole number from 0 to 9, but got ${platformArg(decimals)}`);
+      return N.i18nNumber(value, decimals);
+    },
+    // duration(seconds, { decimals? }): seconds as a time, "1:23.4" ("h:mm:ss.d" from an hour), `decimals` 0-3 (default 1).
+    duration(seconds, options) {
+      if (typeof seconds !== "number")
+        throw new Error(`i18n.duration(seconds, { decimals }): seconds must be a number like 83.4, but got ${platformArg(seconds)}`);
+      if (options !== undefined && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`i18n.duration(${seconds}, options): options must be an object like { decimals: 0 }, but got ${platformArg(options)}`);
+      const decimals = options && options.decimals !== undefined ? options.decimals : 1;
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 3)
+        throw new Error(`i18n.duration(${seconds}, { decimals }): decimals must be a whole number from 0 to 3, but got ${platformArg(decimals)}`);
+      return N.i18nDuration(seconds, decimals);
+    },
     // Is `key` in some table of the current language's fallback chain? (t never throws; has tells a real string from the key.)
     has(key) { return N.i18nHas(String(key)); },
     // The current language: one of `languages` ("" when the game has no localization).

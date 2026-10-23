@@ -336,9 +336,6 @@
     "stay": "Stay",
     "yes": "Quit"
   },
-  "format": {
-    "decimal": "."
-  },
   "touch": {
     "jump": "Jump",
     "action": "Act"
