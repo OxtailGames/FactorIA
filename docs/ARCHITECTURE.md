@@ -255,7 +255,7 @@ Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`
   batches only merge with an equal clip.
 
 ### Platform services
-Achievements, stats, leaderboards, cloud saves, purchases, the store overlay, rich presence and integrity tokens are
+Achievements, stats, leaderboards, cloud saves, purchases, the store overlay, rich presence, integrity tokens and ads are
 ONE request interface, `fa_services` (`fa/services/platform.h`), so a game is written once and a backend decides what answers. A
 request is `(method, args)` and gets one answer, a result or `{code, message, hint}`:
 - **The catalog** is the `"platform"` section of factoria.json. `PlatformServices::start` checks every id against it

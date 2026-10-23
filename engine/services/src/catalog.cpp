@@ -184,10 +184,11 @@ struct Parser {
     }
 
     template <class T, class F>
-    void read_section(const Json& root, const char* key, const std::string& noun, F&& readEntry, std::vector<T>& dst) {
+    void read_section(const Json& root, const char* key, const std::string& noun, F&& readEntry, std::vector<T>& dst,
+                      const std::string& base = "/platform/") {
         auto it = root.find(key);
         if (it == root.end() || it->is_null()) return;
-        const std::string pointer = std::string("/platform/") + key;
+        const std::string pointer = base + key;
         if (!it->is_array()) {
             issue(pointer, "expected an array of " + noun + "s, got " + describe_json_value(*it),
                   "Write a list: \"" + std::string(key) + "\": [{\"id\": \"...\"}].");
@@ -276,10 +277,11 @@ const PlatformAchievement* PlatformCatalog::find_achievement(const std::string& 
 const PlatformStat* PlatformCatalog::find_stat(const std::string& id) const { return find_by_id(stats, id); }
 const PlatformLeaderboard* PlatformCatalog::find_leaderboard(const std::string& id) const { return find_by_id(leaderboards, id); }
 const PlatformProduct* PlatformCatalog::find_product(const std::string& id) const { return find_by_id(products, id); }
+const PlatformPlacement* PlatformCatalog::find_placement(const std::string& id) const { return find_by_id(placements, id); }
 
 Json PlatformCatalog::ids_json() const {
     return Json::object({{"achievements", ids_of(achievements)}, {"stats", ids_of(stats)}, {"leaderboards", ids_of(leaderboards)},
-                         {"products", ids_of(products)}});
+                         {"products", ids_of(products)}, {"placements", ids_of(placements)}});
 }
 
 Error PlatformIssue::to_error() const {
@@ -298,7 +300,7 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
                 "The section holds optional lists: achievements, stats, leaderboards, products, and \"backend\" (docs/PLATFORM.md).");
         return std::move(p.out);
     }
-    p.unknown_keys(section, "/platform", {"backend", "achievements", "stats", "leaderboards", "products"});
+    p.unknown_keys(section, "/platform", {"backend", "achievements", "stats", "leaderboards", "products", "ads"});
     p.read_backend(section);
 
     p.read_section<PlatformAchievement>(
@@ -324,9 +326,10 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
     p.read_section<PlatformLeaderboard>(
         section, "leaderboards", "leaderboard",
         [&](const Json& e, const std::string& ptr, PlatformLeaderboard& l) {
-            p.unknown_keys(e, ptr, {"id", "name", "nameKey", "order", "ids"});
+            p.unknown_keys(e, ptr, {"id", "name", "nameKey", "order", "period", "ids"});
             p.text_or_key(e, ptr, "name", "nameKey", l.name, l.nameKey, true, "\"High score\" (or \"nameKey\": a locale key)");
             p.read_enum(e, ptr, "order", {"descending", "ascending"}, "a leaderboard order", l.order, false);
+            p.read_enum(e, ptr, "period", {"allTime", "daily", "weekly"}, "a leaderboard period", l.period, false);
             p.read_ids(e, ptr, l);
         },
         p.out.catalog.leaderboards);
@@ -355,6 +358,25 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
             p.read_ids(e, ptr, pr);
         },
         p.out.catalog.products);
+
+    // "ads": {"placements": [...]}
+    if (auto it = section.find("ads"); it != section.end() && !it->is_null()) {
+        if (!it->is_object()) {
+            p.issue("/platform/ads", "expected an object like {\"placements\": [...]}, got " + describe_json_value(*it),
+                    "Example: \"ads\": {\"placements\": [{\"id\": \"more_time\"}]} (docs/PLATFORM.md, \"Ads\").");
+        } else {
+            p.unknown_keys(*it, "/platform/ads", {"placements"});
+            p.read_section<PlatformPlacement>(
+                *it, "placements", "ad placement",
+                [&](const Json& e, const std::string& ptr, PlatformPlacement& pl) {
+                    p.unknown_keys(e, ptr, {"id", "type", "description", "ids"});
+                    p.read_enum(e, ptr, "type", {"rewarded"}, "an ad type", pl.type, false);
+                    p.opt_string(e, ptr, "description", pl.description);
+                    p.read_ids(e, ptr, pl);
+                },
+                p.out.catalog.placements, "/platform/ads/");
+        }
+    }
 
     return std::move(p.out);
 }

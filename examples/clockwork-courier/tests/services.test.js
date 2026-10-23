@@ -1,7 +1,7 @@
 // Achievements, stats and leaderboard submissions (scripts/services.js): every achievement trigger, the stats, what happens
 // when the store is away (signed out, no store, network down), the shortcut zones played by the bot, and a real delivery.
 import { test, describe, expect, game, beforeEach, afterEach } from "factoria:test";
-import { storage } from "factoria";
+import { storage, platform } from "factoria";
 import { Autoplay, YARD_ROUTE } from "./helpers/autoplay.js";
 import { ROUTES } from "./helpers/routes.js";
 import { fresh, cleanup, send, services, calls, fake, record, loadYard } from "./helpers/store.js";
@@ -214,6 +214,14 @@ describe("leaderboard submissions", () => {
   test("the daily route sends its time", () => {
     send("daily_route_finished", { date: "2026-10-22", level: "rooftops_2", time: 61.25 });
     expect(calls("leaderboards.submit").filter((c) => c.args.id === "daily_route").map((c) => c.args.score)).toEqual([61250]);
+  });
+
+  test("the daily board is the engine's daily period: today's score is there, the next day's board is empty", async () => {
+    game.setDate("2026-10-22");
+    send("daily_route_finished", { date: "2026-10-22", level: "rooftops_2", time: 61.25 });
+    expect((await platform.leaderboards.entries("daily_route")).length).toBe(1);
+    game.setDate("2026-10-23");
+    expect((await platform.leaderboards.entries("daily_route")).length).toBe(0);
   });
 });
 
