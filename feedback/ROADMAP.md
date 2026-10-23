@@ -1313,6 +1313,10 @@ loads it with no new file read; a loading-screen fixture keeps drawing frames wh
 
 ### M26.8 Store fake and catalog in scripts (S) — CC/FB-0024, CC/FB-0025, CC/FB-0029
 
+Done (branch `m26/store-fake`): `platform.revoke` and `game.platform.revoke(id)` (a refund and its `revoked` purchase
+event); `purchases.finish` of an unknown transaction rejects `unknownId`; leaderboard `nameKey`; the catalog is
+documented; Clockwork Courier uses them.
+
 - The fake store can take a purchase back: `platform.revoke` and `game.platform.revoke(id)` in tests (a refund), with
   the `purchase` event a real backend would send.
 - `purchases.finish()` of an unknown transaction rejects its Promise with `unknownId` instead of throwing

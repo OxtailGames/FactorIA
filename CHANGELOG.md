@@ -15,6 +15,16 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Platform services
+
+- The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
+  `platform.revoke`) removes it from `restore()` and sends the `purchase` event with `status: "revoked"`.
+- `platform.purchases.finish()` of a transaction the game was not told about now rejects its Promise with code
+  `unknownId` (it used to throw at the call), so `.catch()` handles it like any store failure.
+- Leaderboards in factoria.json take a `nameKey` (a locale key) instead of `name`, like achievements; the request
+  the backend gets carries the name in the current language. PLATFORM.md documents `game.project.platform`, the
+  catalog scripts can read.
+
 Tools
 
 - `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many
