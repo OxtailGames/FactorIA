@@ -176,6 +176,7 @@ public:
     PlatformServices* platform_services() override;
     const I18n* i18n() override;
     std::string set_language(std::string_view language) override;
+    double preload_time_budget_ms() const override;
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;
