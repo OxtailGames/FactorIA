@@ -1107,7 +1107,73 @@
     sphere(center, r, c) { const p = vecArr(center, 3, "debug.sphere(center, r) `center`"); N.debugDraw(5, p[0], p[1], p[2], r, colorArg(c)); },
   };
 
+  // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp
+  // dispatch_platform -> preloadDeliver). The numbers only change between frames, so a script sees the same values in a test
+  // on any machine.
+  const preloadJobs = new Map();  // job id -> handle state
+  class Preload {
+    constructor(id, label) {
+      this.$id = id;
+      this.$label = label;
+      this.$progress = 0; this.$done = false; this.$files = 0; this.$bytes = 0; this.$error = "";
+      this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
+      this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
+    }
+    /** How much of the work is done, 0..1. Grows by whole files; 1 when `done`. */
+    get progress() { return this.$progress; }
+    /** True once everything is read (or the job failed: see `error`). */
+    get done() { return this.$done; }
+    /** Files read so far (the scene counts as one). */
+    get files() { return this.$files; }
+    /** Bytes read so far. */
+    get bytes() { return this.$bytes; }
+    /** Why the job failed, or "". */
+    get error() { return this.$error; }
+    /** Gives the files that nobody has read yet back (and stops a job that is still running; its Promise rejects). */
+    release() {
+      N.preloadRelease(this.$id);
+      preloadJobs.delete(this.$id);
+      if (!this.$done) { this.$done = true; this.$error = "released before it finished"; this.$reject(new Error(`${this.$label}: ${this.$error}`)); }
+    }
+  }
+  function preloadStart(kind, arg, label) {
+    const r = N.preloadStart(kind, arg);
+    if (r.mistake) {
+      const e = new Error(r.mistake.message);
+      e.hint = r.mistake.hint || "";
+      throw e;
+    }
+    const h = new Preload(r.id, label);
+    preloadJobs.set(r.id, h);
+    return h;
+  }
+  function preloadDeliver(updates) {
+    for (const u of updates) {
+      const h = preloadJobs.get(u.id);
+      if (!h) continue;
+      h.$progress = u.total > 0 ? Math.min(1, u.done / u.total) : 1;
+      h.$files = u.done; h.$bytes = u.bytes;
+      if (!u.finished) continue;
+      preloadJobs.delete(u.id);
+      h.$done = true;
+      if (u.error) {
+        h.$error = u.error;
+        const e = new Error(`${h.$label} failed: ${u.error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
+        e.hint = u.hint || "";
+        h.$reject(e);
+      } else {
+        h.$progress = 1;
+        h.$resolve({ files: h.$files, bytes: h.$bytes });
+      }
+    }
+  }
+  function preloadReset() { preloadJobs.clear(); }
+
   const scene = {
+    preload(path) {
+      if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
+      return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
+    },
     load(path) { N.requestScene(path); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
@@ -1228,7 +1294,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1333,6 +1399,12 @@
   };
 
   const assets = {
+    // Reads the files ahead of time, a few per frame: returns a handle { progress, done, promise, ... } like scene.preload.
+    preload(paths) {
+      if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || p === ""))
+        throw new Error(`assets.preload(paths) expects a non-empty array of project paths such as ["assets/hero.glb", "assets/theme.ogg"], got ${inspect(paths)}`);
+      return preloadStart(1, paths, `assets.preload([${paths.length} files])`);
+    },
     // Pixel size { width, height } of the texture file at `path` (project-relative), as the renderer and entity.bounds() see it.
     // 32 x 32 (the missing-texture checker) when the file is missing or unreadable.
     textureSize(path) {
@@ -1950,6 +2022,9 @@
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
     },
+    // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
+    // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
+    fileReads() { return N.testDiskReads(); },
     loadJson(scene) {
       const err = N.testLoadJson(plain(scene));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
@@ -2077,7 +2152,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); },
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

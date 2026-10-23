@@ -119,8 +119,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   `scene.set_parent {id, parent, index}` put a child at a place (0 = first); a button added at run time can go on top
   without touching the others. The order is saved with the scene. An index counts the parent's other children and must
   be between 0 and their number, otherwise it is an error that says the range.
-- **Loading screen.** Scene loads are synchronous: the loading scene is drawn once, then loads `session.nextScene`
-  (`session` outlives scene loads).
+- **Loading screen.** `scene.load` blocks the frame it runs in, so the loading scene first reads the next scene's files
+  ahead with `scene.preload(session.nextScene)`, a few files per frame, and shows `job.progress` (0..1) while it runs; when
+  the Promise resolves the `scene.load` that follows reads nothing from the disk (`session` outlives scene loads).
 - **Quit** has no place on phones and tablets, where the system closes apps: `main_menu.js` hides it when
   `game.platform` is `"ios"` or `"android"`.
 - **Credits.** `game.notices()` lists the software inside the runtime with its license; the full texts ship next to the
@@ -453,7 +454,7 @@ export default class MainMenu extends Behaviour {
     if (platform.has("purchases")) this.world.find("shop_button").active = true;
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
-      session.nextScene = this.firstScene; // scenes/loading.scene.json shows "Loading" for a frame, then loads it
+      session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
@@ -985,15 +986,30 @@ export default class Options extends Behaviour {
 
 ```js scripts/loading.js
 // @ts-check
-// scenes/loading.scene.json: scene loads are synchronous, so "Loading..." only has to be drawn once before
-// scene.load. It waits two frames, then loads the scene the main menu put in session.nextScene.
+// scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
+// frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
+// A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
 import { Behaviour, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
-  frames = 0;
+  onStart() {
+    this.job = scene.preload(session.nextScene);
+    // A scene that could not be read ahead still loads: scene.load reports what is wrong with it.
+    const go = () => {
+      if (this.gone) return; // this scene was left first (a test that moved on): the Promise must not load a scene now
+      this.loading = true;
+      scene.load(session.nextScene);
+    };
+    this.job.promise.then(go, go);
+  }
+
+  onDestroy() {
+    this.gone = true;
+    if (!this.loading) this.job.release(); // left before the files were in: give them back
+  }
 
   onUpdate() {
-    if (++this.frames === 2) scene.load(session.nextScene);
+    this.entity.get("Text").text = `Loading... ${Math.round(this.job.progress * 100)}%`;
   }
 }
 ```
