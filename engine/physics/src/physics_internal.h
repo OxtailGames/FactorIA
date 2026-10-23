@@ -180,6 +180,8 @@ public:
     std::optional<CharacterMoveResult> move_character(World& world, Entity e, Vec3 delta);
     // Why the entity's Collider3D / Joint3D / CharacterController3D cannot be used ("" = fine); see Physics::problems3d.
     std::vector<std::string> problems() const;
+    // Dynamic bodies that overlap a static collider now (syncs first). With `onlyNew` the bodies not checked before.
+    std::vector<StartOverlap> start_overlaps(World& world, bool onlyNew);
     // ---- navigation (nav3d.cpp): NavMesh3D components <-> baked grids
     void nav_update(World& world, bool allowBake);
     Result<std::vector<NavBakeStats>> nav_bake(World& world, const std::string& mesh);
@@ -217,7 +219,11 @@ private:
         Vec3 rot[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // the entity's world rotation (any shape; joints use it)
         Vec3 localScale{1, 1, 1};     // the entity's world scale (joint anchors are scaled with it)
         std::vector<std::uint64_t> noCollide;  // seq of bodies joined to this one by a joint that forbids their collision
-        bool jointed = false;         // has a Joint3D: always a rotating rigid body, never sleeps
+        bool jointed = false;         // has a Joint3D: always a rotating rigid body
+        bool startChecked = false;    // the start-overlap check ran for this body
+        float carry = 0.0f;           // fraction of a sub-step's move left undone because of too many impacts
+        float chainDrag = 0.0f;       // extra velocity damping (1/s) of a joint chain's body
+        int iterations = 8;           // solver iterations per sub-step for the constraints of this body
         bool navObstacle = false;     // Collider3D.navObstacle: blocks NavMesh3D cells instead of being baked into them
         bool character = false;       // CharacterController3D: kinematic capsule moved by move_character
         float stepOffset = 0.3f, slopeLimit = 45.0f, skin = 0.02f;  // character controller
@@ -269,7 +275,21 @@ private:
             float segHalf;
             Vec3 gscale;
             const ShapeData* data;
-            bool operator==(const Sig&) const = default;
+            // Sizes come from the world matrix, whose column lengths wobble in the last bits when a body turns a hair:
+            // that is not an edit. Compare them with a tolerance, everything else exactly.
+            bool operator==(const Sig& o) const {
+                auto near = [](Vec3 a, Vec3 b) {
+                    return std::fabs(a.x - b.x) <= 1e-5f * std::max(1.0f, std::fabs(a.x)) &&
+                           std::fabs(a.y - b.y) <= 1e-5f * std::max(1.0f, std::fabs(a.y)) &&
+                           std::fabs(a.z - b.z) <= 1e-5f * std::max(1.0f, std::fabs(a.z));
+                };
+                return type == o.type && enabled == o.enabled && hasShape == o.hasShape && trigger == o.trigger &&
+                       rotDyn == o.rotDyn && mass == o.mass && gravityScale == o.gravityScale &&
+                       std::fabs(radius - o.radius) <= 1e-5f * std::max(1.0f, radius) && near(half, o.half) &&
+                       near(offset, o.offset) && ax[0] == o.ax[0] && ax[1] == o.ax[1] && ax[2] == o.ax[2] &&
+                       layer == o.layer && mask == o.mask && kind == o.kind && segHalf == o.segHalf && near(gscale, o.gscale) &&
+                       data == o.data;
+            }
         };
         Sig sig() const {
             return {type, enabled, hasShape, trigger, rotDyn, mass, gravityScale, radius, half, offset,
@@ -327,6 +347,7 @@ private:
     static float turning_reach(const Body& b, Vec3 spin) { return b.kind != Body::Kind::Sphere ? length(spin) * bound_radius(b) : 0.0f; }
     static bool filters_pass(const Body& a, const Body& b);
     static void refresh_frame(Body& b);
+    static void turn_by(Body& b, Vec3 radians);  // rotate the orientation directly (position-level correction)
     static void integrate_orient(Body& b, float seconds);
     static Vec3 inv_inertia_mul(const Body& b, Vec3 v);
     static Vec3 point_velocity(const Body& b, Vec3 r);
@@ -342,7 +363,6 @@ private:
     std::vector<Body> bodies_;  // sorted by seq (creation order)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
-    float carry_ = 0.0f;  // fraction of a sub-step's move left undone because of too many impacts; done in the next one
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
     std::uint64_t stepCounter_ = 0;
@@ -375,6 +395,9 @@ private:
         // Accumulated impulses (warm start of the next sub-step).
         Vec3 pImp, aImp;
         float lowImp = 0.0f, upImp = 0.0f, motorImp = 0.0f;
+        float damping = 0.0f;              // Joint3D.damping (1/s)
+        float stallTime = 0.0f;            // seconds the motor has been unable to turn the joint
+        bool live = false;                 // solved this step (an awake dynamic body is involved)
         float angle = 0.0f;                // radians, this body relative to the connected one about the axis
         // Per sub-step cache (prepare_joints).
         Vec3 rA, rB, pBias, kinv[3], aw, t1, t2, fixBias;
@@ -384,11 +407,14 @@ private:
         std::uint64_t seen = 0;
     };
     std::map<std::uint64_t, JointState> joints_;  // by owner entity bits (lookup only: never iterate it to solve)
+    // Joints seen from the bodies: body indices (kNoBody = the world), rebuilt at the start of each step.
+    static constexpr std::size_t kNoBody = static_cast<std::size_t>(-1);
     std::vector<JointState*> jointOrder_;         // solve order: by owner body seq, rebuilt by sync_joints
     void sync_joints(World& world, std::uint64_t stamp);
+    void correct_joints(float h);  // position pass: move/turn the bodies so the joint anchors meet (no velocity added)
     bool prepare_joints(float h);  // false when no joint is active
-    void solve_joints(float h);
-    void finish_joints(World& world);
+    void solve_joints(float h, int iteration);
+    void finish_joints(World& world, float dt);
     static void build_joint(JointState& j, const Body& a, const Body* b, const Joint3D& jt);
     static void push_at(Body& b, Vec3 r, Vec3 impulse);  // impulse at offset r from the centre
     static void push_ang(Body& b, Vec3 L);               // pure angular impulse

@@ -328,7 +328,7 @@ describe("rope bridge", () => {
     arena();
     game.step(400);
     const mid = game.find("bridge_1_plank_4");
-    // A chain of hinges rings for a long while with little damping (it swung +-1 m before the damping was raised).
+    // The engine calms a chain of hinges by itself: it hangs still, and falls asleep.
     for (let i = 0; i < 6; i++) {
       game.step(60);
       expect(mid.position.y).toBeLessThan(2.9);

@@ -355,7 +355,6 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - The robot has no bark or animal sounds in the kits: the dog's bark is a pitched impact (ENGINE_FEEDBACK).
 - Characters do not weigh on dynamic bodies and kinematic platforms do not carry a `CharacterController3D`; the
   seesaw, the bridge and the moving platforms emulate both in script (ENGINE_FEEDBACK).
-- The rope bridge needs heavy damping to stop ringing; narrower planks than 2 m are unstable.
 - The loading bar counts steps, not real progress.
 - Quality presets only change what scripts own (shadows, fog, particles, lights): the engine has no render scale or GPU
   info API (FB-0036).

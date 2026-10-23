@@ -629,7 +629,7 @@ void register_builtin_components(TypeRegistry& r) {
                     "(a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative "
                     "to each other. weld: the bodies stay rigidly together (soft with springHertz > 0).")
         .field("connected", &Joint2D::connected,
-               "Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.")
+               "Id of the other entity (it needs a body). Empty (leave it out, null or \"\") = the joint is fixed to the world and connectedAnchor is a world position.")
         .field("anchor", &Joint2D::anchor, "Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin.")
         .field("connectedAnchor", &Joint2D::connectedAnchor,
                "Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge "
@@ -753,16 +753,18 @@ void register_builtin_components(TypeRegistry& r) {
                    "Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a "
                    "ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together "
                    "with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the "
-                   "world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint "
-                   "holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to "
-                   "that pose.",
+                   "world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep "
+                   "together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge "
+                   "costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks "
+                   "of any width hang still without heavy damping. The joint holds the pose the bodies have when it is "
+                   "created (autoAnchor); hinge limits are angles relative to that pose.",
                    "Physics")
         .enum_field("type", &Joint3D::type, {"hinge", "ball", "fixed"},
                     "hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative "
                     "movement at all.")
         .field("connected", &Joint3D::connected,
-               "The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a "
-               "RigidBody3D (any type) or a Collider3D.")
+               "The other body's entity id. Empty (leave it out, null or \"\") = the world: the anchor point stays "
+               "where it is. The entity needs a RigidBody3D (any type) or a Collider3D.")
         .field("anchor", &Joint3D::anchor,
                "Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, "
                "the door's hinge edge.")
@@ -785,7 +787,20 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 1000000)
         .field("collideConnected", &Joint3D::collideConnected,
                "false (default): the two joined bodies do not collide with each other. true: they do.")
+        .field("damping", &Joint3D::damping,
+               "Resistance to the two bodies turning relative to each other, per second: each physics sub-step the "
+               "relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by "
+               "1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a "
+               "rope-bridge plank ringing. A chain of 3+ bodies already settles without it.")
+        .range(0, 1000)
         .field("angle", &Joint3D::angle, "Runtime: the current hinge angle in degrees, relative to the creation pose.")
+        .runtime_only()
+        .read_only()
+        .field("stalled", &Joint3D::stalled,
+               "Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the "
+               "relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against "
+               "a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. "
+               "Scripts read it to open another way or raise the torque.")
         .runtime_only()
         .read_only();
 

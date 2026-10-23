@@ -557,11 +557,12 @@ struct Collider3D {
 };
 
 // Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body
-// is always a rotating rigid body (lockRotation and rollWithMotion are ignored), and never falls asleep.
+// is always a rotating rigid body (lockRotation and rollWithMotion are ignored). Bodies joined together fall asleep
+// together once the whole chain is at rest (never while a motor drives one of the joints).
 enum class JointType3D : std::int32_t { Hinge, Ball, Fixed };
 struct Joint3D {
     JointType3D type = JointType3D::Hinge;
-    Entity connected;                 // the other body; empty = the world (a fixed point)
+    Entity connected;                 // the other body; empty (null or "") = the world (a fixed point)
     Vec3 anchor{0, 0, 0};             // joint point in THIS entity's local space (scaled with it)
     Vec3 connectedAnchor{0, 0, 0};    // joint point in the connected entity's local space (the world, when `connected` is empty)
     bool autoAnchor = true;           // compute connectedAnchor so that the joint holds exactly where the bodies are
@@ -573,7 +574,9 @@ struct Joint3D {
     float motorSpeed = 0.0f;          // degrees/second of this body relative to the connected one, about the axis
     float maxMotorTorque = 10.0f;     // N*m the motor may apply
     bool collideConnected = false;    // false: the two joined bodies do not collide with each other
+    float damping = 0.0f;             // resistance to the relative turning of the two bodies (1/s); 0 = free
     float angle = 0.0f;               // runtime: current hinge angle in degrees (read only)
+    bool stalled = false;             // runtime: the motor cannot turn the joint (something blocks it); read only
 };
 
 // Kinematic capsule that moves and slides: walks along floors, up steps and slopes, stops at walls, pushes dynamic
