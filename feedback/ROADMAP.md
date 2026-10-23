@@ -1425,6 +1425,10 @@ with `connected: ""` loads, validates and runs.
 Acceptance: script tests for the render scale (the drawn size changes), the device fields headless, and render stats
 of a fixture scene; a `perf.check` with a triangle budget fails when the scene goes over it.
 
+Done (branch `m26/render-quality`): `window.renderScale`, `window.supports`, `game.device` (fixed headless,
+`setDevice` in tests), `game.renderStats()` drawing on demand with `shadowCasters`/`textureMB`, `game.render_stats`;
+`perf.measure` records triangles/lights/textureMB and `perf.check` takes `budgets`; Clockwork Courier uses them.
+
 ### M26.16 Per-material colours (M) — CC/FB-0031
 
 After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF

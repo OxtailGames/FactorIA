@@ -8,6 +8,7 @@
 #include "fa/core/perf.h"
 #include "fa/core/profiler.h"
 #include "fa/core/strings.h"
+#include "fa/platform/app.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
 #include "fa/scene/animation.h"
@@ -770,6 +771,45 @@ Json Engine::project_settings() const {
 }
 double Engine::fixed_dt() const { return impl_->fixedDt; }
 WindowControl* Engine::window() { return impl_->appWindow.get(); }
+
+double Engine::render_scale() const { return impl_->renderer ? impl_->heldScale : ScriptHost::render_scale(); }
+
+std::string Engine::set_render_scale(double scale) {
+    Impl& I = *impl_;
+    if (!I.renderer) return ScriptHost::set_render_scale(scale);  // no graphics: remembered, nothing to resize
+    std::string err;
+    return hold_render_scale(scale, &err) ? std::string() : err;
+}
+
+Json Engine::device_info() const {
+    const Impl& I = *impl_;
+    if (!I.appWindow) return ScriptHost::device_info();  // headless runs, tests, the editor: fixed values
+    std::string form = "desktop";
+    if (app_is_mobile()) {
+        int w = 0, h = 0;
+        app_window_size(w, h);  // logical pixels: a tablet is 600 or more on its short side
+        form = std::min(w, h) >= 600 ? "tablet" : "phone";
+    }
+    const double memoryGB = std::round(double(total_memory_bytes()) / (1024.0 * 1024.0 * 1024.0) * 10.0) / 10.0;
+    const std::string backend = Renderer::backend_name();
+    std::string tier = "medium";  // unknown memory (web) stays here
+    if (backend == "dummy") tier = "low";
+    else if (memoryGB > 0) tier = memoryGB < 3.5 ? "low" : (memoryGB < 7.5 || (form != "desktop" && memoryGB < 5.5)) ? "medium" : "high";
+    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier}});
+}
+
+Json Engine::render_stats_now() {
+    Impl& I = *impl_;
+    if (!I.renderer) return Json();
+    render_now();  // a headless test may not have drawn a frame yet (OnDemand, or before the first step)
+    Json j = I.renderer->stats().to_json();
+    j.erase("cpuMs");  // wall-clock: not for scripts that must stay reproducible
+    j["textureMB"] = std::round(double(I.renderer->texture_bytes()) / (1024.0 * 1024.0) * 100.0) / 100.0;
+    j["width"] = int(std::lround(I.renderer->target_width() * I.heldScale));  // the size of the picture drawn
+    j["height"] = int(std::lround(I.renderer->target_height() * I.heldScale));
+    j["renderScale"] = I.heldScale;
+    return j;
+}
 
 double Engine::preload_time_budget_ms() const {
     // A game with a window reads ahead until a few ms of the frame are gone (at least one file); everything else reads one

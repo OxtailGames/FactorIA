@@ -13,6 +13,7 @@
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach/mach.h>
+#include <sys/sysctl.h>
 #endif
 #endif
 
@@ -65,6 +66,19 @@ std::uint64_t current_memory_bytes() {
     const int n = std::fscanf(f, "%llu %llu", &size, &resident);
     std::fclose(f);
     return n == 2 ? std::uint64_t(resident) * std::uint64_t(sysconf(_SC_PAGESIZE)) : 0;
+#endif
+}
+
+std::uint64_t total_memory_bytes() {
+#ifdef __EMSCRIPTEN__
+    return 0;
+#elif defined(__APPLE__)
+    std::uint64_t bytes = 0;
+    std::size_t len = sizeof(bytes);
+    return sysctlbyname("hw.memsize", &bytes, &len, nullptr, 0) == 0 ? bytes : 0;
+#else
+    const long pages = sysconf(_SC_PHYS_PAGES), size = sysconf(_SC_PAGESIZE);
+    return pages > 0 && size > 0 ? std::uint64_t(pages) * std::uint64_t(size) : 0;
 #endif
 }
 

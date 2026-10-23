@@ -1377,3 +1377,96 @@ TEST_CASE("engine: Animator advances in the fixed step, sends clip events to scr
     CHECK(num("world.find('hero').get('Animator').time") == t0);  // frozen with time.scale 0
     e.shutdown();
 }
+
+// M26.15: window.renderScale, window.supports, game.device and game.renderStats() in a script test.
+TEST_CASE("engine: render scale, device fields and render stats of a fixture scene in a script test") {
+    const char* scene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 3, 8], "rotation": [-15, 0, 0] },
+        "Camera": { "projection": "perspective", "fov": 60, "primary": true } } },
+    { "id": "sun", "components": { "Transform": { "position": [0, 10, 0], "rotation": [-50, -30, 0] },
+        "Light": { "type": "directional", "intensity": 1.0, "castShadows": true } } },
+    { "id": "lamp", "components": { "Transform": { "position": [0, 2, 2] }, "Light": { "type": "point", "intensity": 1.0 } } },
+    { "id": "floor", "components": { "Transform": { "scale": [20, 1, 20] }, "MeshRenderer": { "mesh": "plane" } } },
+    { "id": "c1", "components": { "Transform": { "position": [-2, 1, 0] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "c2", "components": { "Transform": { "position": [0, 1, 0] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "c3", "components": { "Transform": { "position": [2, 1, 0] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "c4", "components": { "Transform": { "position": [0, 1, -2] }, "MeshRenderer": { "mesh": "cube", "castShadows": false } } }
+  ]
+})";
+    TempProject p("m26_15", kProject, scene);
+    p.write("tests/quality.test.js", R"JS(
+import { test, expect, game } from 'factoria:test';
+import { game as g } from 'factoria';
+import { window } from 'factoria';
+
+test('render scale changes the drawn size', () => {
+  expect(window.renderScale).toBe(1);
+  expect(game.renderStats().width).toBe(320);
+  window.renderScale = 0.5;
+  expect(window.renderScale).toBe(0.5);
+  const half = game.renderStats();
+  expect(half.width).toBe(160);
+  expect(half.height).toBe(90);
+  expect(half.renderScale).toBe(0.5);
+  game.screenshot('shots/half.png');  // follows the render scale
+  game.screenshot('shots/full.png', { scale: 1 });
+  expect(() => { window.renderScale = 0.25; }).toThrow('0.5 to 1');
+  expect(() => { window.renderScale = 2; }).toThrow('0.5 to 1');
+  expect(() => { window.renderScale = 'big'; }).toThrow('renderScale');
+});
+
+test('the render scale is back at 1 in the next test', () => {
+  expect(window.renderScale).toBe(1);
+});
+
+test('device fields are fixed headless', () => {
+  expect(g.device).toEqual({ formFactor: 'desktop', gpuBackend: 'headless', memoryGB: 8, tier: 'high' });
+  expect(window.supports('renderScale')).toBe(true);
+  expect(window.supports('frameCap')).toBe(false);
+  expect(() => window.supports('frameCapp')).toThrow('did you mean "frameCap"');
+  game.setDevice({ formFactor: 'phone', tier: 'low' });
+  expect(g.device.formFactor).toBe('phone');
+  expect(g.device.tier).toBe('low');
+  expect(g.device.memoryGB).toBe(8);
+  expect(() => game.setDevice({ tire: 'low' })).toThrow("did you mean 'tier'");
+});
+
+test('device is reset for the next test', () => {
+  expect(g.device.tier).toBe('high');
+});
+
+test('render stats of the fixture scene', () => {
+  const s = game.renderStats();  // drawn on demand: no step yet
+  expect(s.meshes).toBe(5);
+  expect(s.triangles).toBe(4 * 12 + 2);
+  expect(s.lights).toBe(2);
+  expect(s.shadowCasters).toBe(4);
+  expect(s.textureMB).toBeGreaterThan(-1);
+  expect(s.drawCalls).toBeGreaterThan(0);
+});
+)JS");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.renderMode = RenderMode::OnDemand;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump());
+    auto half = load_image((p.dir / "shots/half.png").generic_string());
+    auto full = load_image((p.dir / "shots/full.png").generic_string());
+    REQUIRE(half.ok());
+    REQUIRE(full.ok());
+    CHECK(half->width == 160);
+    CHECK(half->height == 90);
+    CHECK(full->width == 320);
+    CHECK(full->height == 180);
+    // The command is the same thing, and the render scale was put back after the test.
+    auto r = e.commands().call("game.render_stats", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["width"] == 320);
+    CHECK(r.result["triangles"] == 50);
+    e.shutdown();
+}

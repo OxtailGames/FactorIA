@@ -439,7 +439,17 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     Json shotPaths = Json::array();
     int ran = 0;
     std::vector<double> cpuMs;  // CPU time of each frame (process CPU, not wall clock): report["perf"]
-    int maxDrawCalls = 0, maxEntities = 0;
+    int maxDrawCalls = 0, maxEntities = 0, maxTriangles = 0, maxLights = 0;
+    std::uint64_t maxTextureBytes = 0;
+    auto sample_render = [&] {  // the numbers perf.measure / perf.check budget: the max over the run
+        Renderer* r = engine.renderer();
+        if (!r) return;
+        const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
+        maxDrawCalls = std::max(maxDrawCalls, rs.drawCalls);
+        maxTriangles = std::max(maxTriangles, rs.triangles);
+        maxLights = std::max(maxLights, rs.lights);
+        maxTextureBytes = std::max(maxTextureBytes, r->texture_bytes());
+    };
     // Profiler (options.profile): measure the frames after the warm-up into report["profile"]; the setting is put back at the end.
     struct ProfilerGuard {
         bool was;
@@ -472,7 +482,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             gpuMs.clear();
         }
         maxEntities = std::max(maxEntities, int(engine.world().entity_count()));
-        if (Renderer* r = engine.renderer()) maxDrawCalls = std::max(maxDrawCalls, r->stats().drawCalls);  // OnDemand: the last drawn frame
+        sample_render();
         ++ran;
         if (wantVideo && !videoFailed) {
             Image frameImg;
@@ -506,7 +516,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     }
     report["frames"] = ran;
     report["screenshots"] = shotPaths;
-    if (Renderer* r = engine.renderer()) maxDrawCalls = std::max(maxDrawCalls, r->stats().drawCalls);
+    sample_render();
     {
         const FrameStats cpu = compute_frame_stats(cpuMs);
         auto r3 = [](double v) { return std::round(v * 1000.0) / 1000.0; };
@@ -519,6 +529,9 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         perf["peakMemoryMB"] = std::round(double(peak_memory_bytes()) / (1024.0 * 1024.0) * 10.0) / 10.0;
         perf["drawCalls"] = maxDrawCalls;
         perf["entities"] = maxEntities;
+        perf["triangles"] = maxTriangles;
+        perf["lights"] = maxLights;
+        perf["textureMB"] = std::round(double(maxTextureBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
         perf["graphics"] = I.renderer ? Json(I.gpu ? I.gpu->description() : "window") : Json("none");
         report["perf"] = perf;
     }
