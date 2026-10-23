@@ -14,7 +14,12 @@ Json settings() {
       "platform": {
         "achievements": [{"id": "first_win", "name": "First win"}, {"id": "veteran", "name": "Veteran"}],
         "stats": [{"id": "wins"}, {"id": "distance", "type": "float"}],
-        "leaderboards": [{"id": "high_score", "name": "High score"}],
+        "leaderboards": [
+          {"id": "high_score", "name": "High score"},
+          {"id": "daily_route", "name": "Daily route", "order": "ascending", "period": "daily"},
+          {"id": "weekly_best", "name": "Weekly best", "period": "weekly"}
+        ],
+        "ads": {"placements": [{"id": "more_time", "type": "rewarded", "description": "20 s more"}, {"id": "double_coins"}]},
         "products": [
           {"id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99},
           {"id": "remove_ads", "type": "nonConsumable", "title": "Remove ads", "price": 2.99, "currency": "EUR"}
@@ -308,4 +313,130 @@ TEST_CASE("platform api: a host without platform services reports the none backe
     REQUIRE_FALSE(call.ok());
     CHECK(call.error().message.find("this run has no platform services") != std::string::npos);
     h.scripts.dispatch_platform();  // harmless
+}
+
+TEST_CASE("platform api: rewarded ads pay only when watched to the end, and the consent is readable") {
+    TestHost h("platform_ads", settings());
+    h.file("tests/ads.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform } from "factoria";
+
+test("a watched ad pays", async () => {
+  expect(platform.release).toBe(false);
+  expect(platform.has("ads")).toBe(true);
+  expect(await platform.ads.available("more_time")).toBe(true);
+  expect(await platform.ads.showRewarded("more_time")).toEqual({ rewarded: true });
+  expect(game.platform.state().fake.ads.rewarded).toBe(1);  // the first test of the file
+  const call = game.platform.calls().filter((c) => c.method === "ads.showRewarded")[0];
+  expect(call.args.placement).toBe("more_time");
+  expect(call.args.adUnitId).toBe("more_time");
+});
+
+test("an ad closed early does not pay, and the default is back in the next test", async () => {
+  const before = game.platform.state().fake.ads;
+  game.platform.ad("closedEarly");
+  expect(await platform.ads.showRewarded("more_time")).toEqual({ rewarded: false, reason: "closedEarly" });
+  const after = game.platform.state().fake.ads;
+  expect(after.rewarded).toBe(before.rewarded);
+  expect(after.shown).toBe(before.shown + 1);
+});
+
+test("fresh fake after a test", async () => {
+  expect((await platform.ads.showRewarded("more_time")).rewarded).toBe(true);
+});
+
+test("a refused consent shows nothing and says so", async () => {
+  game.platform.ad("consentRefused");
+  expect(await platform.ads.available("more_time")).toBe(false);
+  expect(await platform.ads.showRewarded("more_time")).toEqual({ rewarded: false, reason: "consentRefused" });
+  expect(await platform.ads.consent()).toEqual({ gdpr: "denied", tracking: "denied", canShowAds: false });
+  game.platform.ad("watched", { gdpr: "notRequired", tracking: "notDetermined" });
+  expect(await platform.ads.consent()).toEqual({ gdpr: "notRequired", tracking: "notDetermined", canShowAds: true });
+  expect((await platform.ads.showRewarded("more_time")).rewarded).toBe(true);
+});
+
+test("no fill", async () => {
+  game.platform.ad("noFill");
+  expect(await platform.ads.available("double_coins")).toBe(false);
+  expect(await platform.ads.showRewarded("double_coins")).toEqual({ rewarded: false, reason: "noFill" });
+});
+
+test("a scripted network error rejects", async () => {
+  game.platform.respond("ads.showRewarded", { error: "network" });
+  let code = "";
+  await platform.ads.showRewarded("more_time").catch((e) => { code = e.code; });
+  expect(code).toBe("network");
+});
+
+test("mistakes teach", () => {
+  expect(() => platform.ads.showRewarded("more_tiem")).toThrow('did you mean "more_time"');
+  expect(() => game.platform.ad("closedErly")).toThrow("closedEarly");
+  expect(() => game.platform.ad("watched", { gdpr: "maybe" })).toThrow("granted");
+});
+
+test("the none backend answers unavailable", async () => {
+  game.platform.set({ backend: "none" });
+  expect(platform.has("ads")).toBe(false);
+  let code = "";
+  await platform.ads.showRewarded("more_time").catch((e) => { code = e.code; });
+  expect(code).toBe("unavailable");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/ads.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 8);
+}
+
+TEST_CASE("platform api: a daily leaderboard is empty again the next day, a weekly one the next week") {
+    TestHost h("platform_periods", settings());
+    h.file("tests/periods.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform } from "factoria";
+
+test("daily board starts over with game.setDate", async () => {
+  game.setDate("2026-10-23");
+  expect((await platform.leaderboards.submit("daily_route", 90000)).best).toBe(90000);
+  expect((await platform.leaderboards.submit("daily_route", 95000)).best).toBe(90000);  // ascending: lower is better
+  let rows = await platform.leaderboards.entries("daily_route");
+  expect(rows.length).toBe(1);
+  expect(rows[0].score).toBe(90000);
+  game.setDate("2026-10-24");
+  expect(await platform.leaderboards.entries("daily_route")).toEqual([]);
+  expect((await platform.leaderboards.submit("daily_route", 99000)).best).toBe(99000);
+  game.setDate("2026-10-23");
+  rows = await platform.leaderboards.entries("daily_route");
+  expect(rows[0].score).toBe(90000);
+  const call = game.platform.calls().filter((c) => c.method === "leaderboards.submit")[0];
+  expect(call.args.period).toBe("daily");
+  expect(call.args.periodKey).toBe("2026-10-23");
+});
+
+test("weekly board lasts Monday to Sunday", async () => {
+  game.setDate("2026-10-19");  // a Monday
+  await platform.leaderboards.submit("weekly_best", 10);
+  game.setDate("2026-10-25");  // the Sunday of that week
+  expect((await platform.leaderboards.entries("weekly_best")).length).toBe(1);
+  expect(game.platform.calls().filter((c) => c.method === "leaderboards.entries").pop().args.periodKey).toBe("2026-10-19");
+  game.setDate("2026-10-26");  // the next Monday
+  expect(await platform.leaderboards.entries("weekly_best")).toEqual([]);
+});
+
+test("an all-time board does not care about the date", async () => {
+  await platform.leaderboards.submit("high_score", 5);
+  game.setDate("2027-01-01");
+  expect((await platform.leaderboards.entries("high_score")).length).toBe(1);
+  expect(game.platform.calls().pop().args.periodKey).toBe("");
+});
+
+test("the date is the test's again", async () => {
+  expect((await platform.leaderboards.entries("daily_route")).length).toBe(0);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/periods.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 4);
 }
