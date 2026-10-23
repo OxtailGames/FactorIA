@@ -661,10 +661,14 @@ the receipt.
 
 ### Testing purchases without App Store Connect
 
-`factoria export --platform ios` writes **`Products.storekit`** next to the Xcode project when the catalog has products: a
+`factoria export --platform ios` writes **`Products.storekit`** next to the Xcode project whenever the catalog has products (the
+Apple plugin does not have to be declared or built): a
 StoreKit configuration file made from `platform.products` (consumables and non-consumables as such; a subscription as a
 monthly auto-renewable product in one subscription group; the prices and titles of the catalog; ids = `ids.apple`, else
-`id`). `build_ios.sh` wires it into the project's scheme, so **running the project from Xcode** sells exactly those products,
+`id`). Every product gets one localization per language of the game (`localization.languages`): its name and description come
+from the product's `titleKey` / `descriptionKey` in `locales/<language>.json` (a key a language lacks falls back to the default
+language, then to the catalog's plain `title` / `description`; a plural entry gives its `other` form), so the sheet Xcode shows
+follows the simulator's language. `build_ios.sh` wires it into the project's scheme, so **running the project from Xcode** sells exactly those products,
 with no App Store Connect, sandbox account, network or provisioning, and `Debug > StoreKit > Manage Transactions` approves or
 fails purchases and simulates Ask to Buy, refunds and renewals. If the scheme shows "StoreKit Configuration: None", pick the
 file under Product > Scheme > Edit Scheme > Run > Options. The file is rewritten at every export: edit the catalog, not the

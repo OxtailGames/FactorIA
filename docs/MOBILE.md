@@ -133,7 +133,9 @@ Prerequisites (the export checks them first and says what is missing and how to 
   mode: no NDK, no CMake.
 - Only in **source** mode (engine developers): an NDK r27+ (r26's libc++ has no std::format, `ndk;27.2.12479018`) and
   CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older), so
-  `sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
+  `sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`. Any CMake 3.24+ works: the export
+  reads the version of the SDK's newest one, or of one on your computer (offline, without `sdkmanager`) and gives it to Gradle
+  through `cmake.dir` ([EXPORTING.md](EXPORTING.md#android)).
 - No Gradle install: the export writes the project's own Gradle wrapper, and the first build downloads Gradle, the Android
   Gradle plugin and the SDK platform (internet needed once; everything is cached after it).
 
@@ -413,9 +415,8 @@ without one needs nothing):
 
 A manifest with a mistake (an unknown key, a wrong type) fails the export with the file, the JSON pointer and a "did you
 mean". The Apple plugin ([PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)) is the example of all
-three keys: Swift code built with `xcrun swiftc`, StoreKit and GameKit, Game Center and iCloud entitlements. When a linked
-plugin brings StoreKit and the catalog has `platform.products`, the export also writes `Products.storekit` (a StoreKit
-configuration made from the catalog) and `build_ios.sh` references it from the Xcode scheme (`storekit_scheme.cmake`, run
+three keys: Swift code built with `xcrun swiftc`, StoreKit and GameKit, Game Center and iCloud entitlements. When the catalog has `platform.products`, the export also writes `Products.storekit` (a StoreKit
+configuration made from the catalog, one localization per language of the game, with or without the plugin) and `build_ios.sh` references it from the Xcode scheme (`storekit_scheme.cmake`, run
 after CMake generates the project): running the project from Xcode sells the products without App Store Connect.
 `./build_ios.sh --run` launches with `simctl`, which does not use it.
 

@@ -568,6 +568,7 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         auto player = find_player(options, plan.platform);
         if (!player.ok()) return player.error();
         plan.player = std::move(player.value());
+        if (auto r = check_player_build(options, plan.player, plan.platform, plan.warnings); !r.ok()) return r.error();
     }
     // --format wins over export.windows.format of factoria.json.
     const std::string windowsFormat = !options.format.empty() ? to_lower(options.format) : p.settings.windows.format;
@@ -842,6 +843,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "format":{"type":"string","enum":["apk","aab","gradle","appimage","msix","folder"],"description":"Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
+        "allowPlayerMismatch":{"type":"boolean","description":"Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {
@@ -864,6 +866,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
             throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, all_export_formats()));
         o.release = tooling_detail::arg_bool(args, "release", false);
         o.allowDebugKey = tooling_detail::arg_bool(args, "allowDebugKey", false);
+        o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
         if (tooling_detail::arg_bool(args, "dryRun", false)) {
             auto plan = plan_export(o);
             if (!plan.ok()) throw CommandError("failed", plan.error().message, plan.error().hint);

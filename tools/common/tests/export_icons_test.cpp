@@ -66,12 +66,22 @@ ProjectExportSettings with_icon() {
     return s;
 }
 
+// The stand-in players are not built from this checkout: the export says so (allowPlayerMismatch is on), and these tests
+// are about the other warnings.
+std::vector<std::string> warnings_without_mismatch(const std::vector<std::string>& warnings) {
+    std::vector<std::string> out;
+    for (const std::string& w : warnings)
+        if (w.find("allowPlayerMismatch") == std::string::npos) out.push_back(w);
+    return out;
+}
+
 ExportOptions options_for(const std::string& proj, const testing::TempDir& tmp, const std::string& platform, const std::string& player) {
     ExportOptions o;
     o.projectDir = proj;
     o.platform = platform;
     o.outDir = tmp.sub("out");
     o.playerBinary = player;
+    o.allowPlayerMismatch = true;  // the test players are stand-ins, not built from this checkout
     return o;
 }
 
@@ -183,7 +193,7 @@ TEST_CASE("export macos: an app with an icon is signed as a whole and valid, and
     REQUIRE(std::system(("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
     auto r = export_project(options_for(proj, tmp, "macos", player));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(r->warnings.empty());
+    CHECK(warnings_without_mismatch(r->warnings).empty());
     const std::string app = (stdfs::path(r->outputDir) / "Space Dodge.app").string();
     CHECK(std::system(("/usr/bin/codesign --verify --deep --strict '" + app + "' 2>/dev/null").c_str()) == 0);
     CHECK(std::system(("/usr/bin/plutil -lint '" + app + "/Contents/Info.plist' >/dev/null 2>&1").c_str()) == 0);
@@ -224,7 +234,7 @@ TEST_CASE("export windows: the exe gets the game icon, loses its signature, and 
     CHECK(pe::version_string(out, "OriginalFilename") == "space-dodge.exe");
     CHECK(any_contains(r->nextSteps, "signature was removed"));
     CHECK(any_contains(r->nextSteps, "signtool"));
-    CHECK(r->warnings.empty());
+    CHECK(warnings_without_mismatch(r->warnings).empty());
     CHECK(stdfs::exists(stdfs::path(r->outputDir) / "game" / "factoria.json"));
 }
 

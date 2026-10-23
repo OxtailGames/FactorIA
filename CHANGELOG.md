@@ -90,6 +90,20 @@ Tools
 - `factoria api --dts` lists a native plugin that is not built without its load error, so the typings no longer
   carry this machine's folders and come out the same on every machine.
 
+Exports and store files
+
+- `Products.storekit` is written by every iOS export whose catalog has products, with or without the Apple plugin, and
+  holds one localization per language of the game (names and descriptions from the products' `titleKey` /
+  `descriptionKey` in `locales/`).
+- An Android source build reads the CMake version it will use instead of requiring `cmake;3.31.6`: the SDK's, else the
+  newest 3.24+ in the SDK, else a 3.24+ of the computer (passed to Gradle as `cmake.dir`), so it works offline. The error
+  hint says how to get one.
+- `factoria` and `factoria_player` carry a build fingerprint (the commit, `-dirty` when it had uncommitted changes;
+  `factoria version` prints it). A desktop export with a player from another build stops with an error that names both
+  builds; `--allow-player-mismatch` (the `export` command's `allowPlayerMismatch`) bundles it anyway.
+- `setup.install {"component": "ffmpeg"}` (`factoria setup ffmpeg`) downloads a pinned static ffmpeg, so
+  `factoria run --record-video trailer.mp4` works without installing it by hand; `setup.status` lists the component.
+
 Assets
 
 - `assets.import` of a `.glb` or `.gltf` copies the textures and buffers its `uri`s point at next to the model (with

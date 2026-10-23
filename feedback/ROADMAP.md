@@ -1467,6 +1467,9 @@ Acceptance: `fa_test_ui` cases for each.
 
 ### M26.19 Export and store material checks (S-M) — CC/FB-0034, CC/FB-0048, CC/FB-0049, CC/FB-0051 (ffmpeg)
 
+Done (branch `m26/export-checks`): Products.storekit per language without the plugin; Android CMake from the SDK
+or the system (`cmake.dir`); build fingerprint check (`--allow-player-mismatch`); `setup ffmpeg`.
+
 - iOS: `Products.storekit` is written whenever the catalog has products, whether or not the Apple plugin is built
   (export_ios.cpp), with one localization per language of the game (storekit_config.cpp).
 - Android: a CMake from the system (3.24 or newer) works through `cmake.dir`, the SDK's version is read instead of
