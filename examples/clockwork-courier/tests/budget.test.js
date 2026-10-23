@@ -1,7 +1,8 @@
 // P6, release checks: the render budget of every level (what game.renderStats() says the renderer drew, or what the
-// scene asks for on a machine without a GPU) and the exact pixel size of the icon and store files (assets.textureSize answers 32x32 for a missing file). The icons and
-// the key art are in git, so a missing one fails. The screenshots and capsules are not (store/make_store_images.py
-// writes them): they are checked when they are there. The real draw-call budget is perf.json (`factoria call perf.check`).
+// scene asks for on a machine without a GPU) and the exact pixel size of the icon and store files (assets.textureSize
+// answers 32x32 for a missing file). The icons and the key art are in git, so a missing one fails. The screenshots and
+// capsules are not (store/make_store_images.py writes them): they are checked when they are there. The real draw-call
+// budget is perf.json (`factoria call perf.check`).
 import { test, describe, expect, game } from "factoria:test";
 import { assets } from "factoria";
 import { LEVELS } from "../scripts/levels.js";

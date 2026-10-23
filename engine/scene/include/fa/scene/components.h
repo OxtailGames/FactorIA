@@ -460,6 +460,9 @@ struct Animator {
     // Runtime, not reflected. The renderer reads `palette`: one skinning matrix per joint of skin 0 (jointGlobal *
     // inverseBind, in the glTF's model space); empty while there is no skin. Written by update_animators (animation.h).
     std::vector<Mat4> palette;
+    // Runtime, not reflected: the palette of every skin of the model (index = glTF skin; the importer's rigid skins come
+    // after the file's own). A mesh is drawn with the palette of its own skin; `palette` is skinPalettes[0].
+    std::vector<std::vector<Mat4>> skinPalettes;
     AnimatorRuntime rt;
 };
 
