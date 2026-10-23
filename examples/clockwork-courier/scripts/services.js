@@ -13,7 +13,8 @@
 //   courier_caught / level_failed / dog_gave_up  times_caught / springs_run_down / dogs_shaken   dog_whisperer (5 dogs)
 //   spring_wound                                 keys_wound
 //   shortcut_found (zones: scripts/shortcuts.js) shortcuts_found       first_shortcut, all_shortcuts (every zone, any attempt)
-//   daily_route_finished (P3)                    -                     daily_courier; leaderboard daily_route
+//   daily_route_finished (P3)                    -                     daily_courier; leaderboard daily_route (period "daily":
+//                                                                      the engine keeps one board per calendar day)
 //   paint_equipped (the shop)                    -                     fresh_paint (any paint but the factory one)
 //   more_time_granted (scripts/more_time.js)     more_time_used
 //

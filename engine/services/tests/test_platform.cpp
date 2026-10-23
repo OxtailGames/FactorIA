@@ -345,11 +345,11 @@ TEST_CASE("platform: the backend gets the store ids, and answers with a store id
     CHECK(ps.start("achievements.unlock", Json::parse(R"({"id": "first_win"})")).ok());
     CHECK(r->calls.back().args == Json::parse(R"({"id": "first_win", "storeId": "com.studio.game.first_win"})"));
     CHECK(ps.start("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 120})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "high_score", "storeId": "high_score_v2", "name": "High score", "order": "descending", "score": 120})"));
+    CHECK(r->calls.back().args == Json::parse(R"({"id": "high_score", "storeId": "high_score_v2", "name": "High score", "order": "descending", "period": "allTime", "periodKey": "", "date": "2026-01-01", "score": 120})"));
     CHECK(ps.start("stats.set", Json::parse(R"({"id": "wins", "value": 3})")).ok());
     CHECK(r->calls.back().args == Json::parse(R"({"id": "wins", "storeId": "wins", "type": "int", "value": 3})"));
     CHECK(ps.start("leaderboards.entries", Json::parse(R"({"id": "best_time"})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "best_time", "storeId": "best_time", "name": "Best time", "order": "ascending", "range": "top", "count": 10})"));
+    CHECK(r->calls.back().args == Json::parse(R"({"id": "best_time", "storeId": "best_time", "name": "Best time", "order": "ascending", "period": "allTime", "periodKey": "", "date": "2026-01-01", "range": "top", "count": 10})"));
     CHECK(ps.start("achievements.list", Json::object()).ok());
     CHECK(r->calls.back().args["achievements"].size() == 2);
     CHECK(ps.start("purchases.buy", Json::parse(R"({"id": "gems_100"})")).ok());
@@ -994,4 +994,133 @@ TEST_CASE("platform: a leaderboard shows its name in the current language from n
     auto none = parse_platform_catalog(Json::parse(R"({"leaderboards": [{"id": "b"}]})"));
     REQUIRE(none.issues.size() == 1);
     CHECK(none.issues[0].pointer == "/platform/leaderboards/0/name");
+}
+
+TEST_CASE("platform catalog: ads placements and leaderboard periods parse, and mistakes teach") {
+    PlatformCatalog c = catalog(R"({
+      "leaderboards": [{"id": "daily_route", "name": "Daily route", "period": "daily"}, {"id": "all", "name": "All"}],
+      "ads": {"placements": [{"id": "more_time", "type": "rewarded", "description": "20 s", "ids": {"admob": "ca-app-pub-1/2"}}, {"id": "x"}]}
+    })");
+    CHECK(c.leaderboards[0].period == "daily");
+    CHECK(c.leaderboards[1].period == "allTime");
+    REQUIRE(c.placements.size() == 2);
+    CHECK(c.placements[0].store_id("admob") == "ca-app-pub-1/2");
+    CHECK(c.placements[0].store_id("fake") == "more_time");
+    CHECK(c.placements[1].type == "rewarded");
+    CHECK(c.find_placement("x") != nullptr);
+    CHECK(c.ids_json()["placements"] == Json::parse(R"(["more_time","x"])"));
+    CHECK_FALSE(c.empty());
+
+    auto first = [](const char* text) {
+        auto r = load_platform_catalog(Json::parse(text));
+        REQUIRE_FALSE(r.ok());
+        return r.error().to_string();
+    };
+    CHECK(has(first(R"({"leaderboards": [{"id": "a", "name": "A", "period": "dayly"}]})"), "#/platform/leaderboards/0/period: \"dayly\" is not a leaderboard period; use one of"));
+    CHECK(has(first(R"({"leaderboards": [{"id": "a", "name": "A", "period": "dayly"}]})"), "did you mean \"daily\"?"));
+    CHECK(has(first(R"({"ads": {"placements": [{"id": "a", "type": "banner"}]}})"), "#/platform/ads/placements/0/type: \"banner\" is not an ad type"));
+    CHECK(has(first(R"({"ads": {"placements": [{"type": "rewarded"}]}})"), "#/platform/ads/placements/0/id: missing \"id\""));
+    CHECK(has(first(R"({"ads": {"placements": [{"id": "a"}, {"id": "a"}]}})"), "the id \"a\" is used twice (first at /platform/ads/placements/0/id)"));
+    CHECK(has(first(R"({"ads": [1]})"), "#/platform/ads: expected an object"));
+    CHECK(has(first(R"({"ads": {"placements": {"id": "a"}}})"), "#/platform/ads/placements: expected an array of ad placements"));
+    auto warned = parse_platform_catalog(Json::parse(R"({"ads": {"placement": []}})"));
+    REQUIRE(warned.issues.size() == 1);
+    CHECK(has(warned.issues[0].message, "did you mean \"placements\"?"));
+}
+
+TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the catalog") {
+    Game g(R"({"ads": {"placements": [{"id": "more_time", "ids": {"fake": "unit-1"}}]}})");
+    CHECK(g.ps.info()["release"] == false);
+    CHECK(g.ps.has_service("ads"));
+    PlatformAnswer a = g.ask("ads.available", Json::parse(R"({"placement": "more_time"})"));
+    CHECK(a.result == Json::parse(R"({"available": true})"));
+    a = g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})"));
+    CHECK(a.result == Json::parse(R"({"rewarded": true})"));
+    CHECK(g.fake().state()["calls"][1]["args"] == Json::parse(R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded"})"));
+
+    REQUIRE(g.fake().set_ad("closedEarly").ok());
+    CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result == Json::parse(R"({"rewarded": false, "reason": "closedEarly"})"));
+    REQUIRE(g.fake().set_ad("noFill").ok());
+    CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == false);
+    CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result["reason"] == "noFill");
+    REQUIRE(g.fake().set_ad("consentRefused").ok());
+    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "denied", "tracking": "denied", "canShowAds": false})"));
+    REQUIRE(g.fake().set_ad("watched", "granted", "notRequired").ok());
+    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "granted", "tracking": "notRequired", "canShowAds": true})"));
+    CHECK(g.fake().state()["ads"]["shown"] == 2);
+    CHECK(g.fake().state()["ads"]["rewarded"] == 1);
+
+    auto bad = g.ps.start("ads.showRewarded", Json::parse(R"({"placement": "more_tiem"})"));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(has(bad.error().message, "did you mean \"more_time\"?"));
+    CHECK(has(bad.error().message, "platform.ads.placements"));
+    auto none = Game();
+    auto undeclared = none.ps.start("ads.available", Json::parse(R"({"placement": "x"})"));
+    REQUIRE_FALSE(undeclared.ok());
+    CHECK(has(undeclared.error().hint, "\"ads\": {\"placements\""));
+
+    auto r = g.fake().set_ad("closedErly");
+    REQUIRE_FALSE(r.ok());
+    CHECK(has(r.error().hint, "closedEarly"));
+    g.fake().reset();
+    CHECK(g.fake().state()["ads"]["outcome"] == "watched");
+}
+
+TEST_CASE("fake: leaderboards keep one board per day or week of the date source; stores reject periods for now") {
+    Game g(R"({"leaderboards": [{"id": "d", "name": "D", "order": "ascending", "period": "daily"},
+                                {"id": "w", "name": "W", "period": "weekly"}, {"id": "a", "name": "A"}]})");
+    std::string day = "2026-10-23";  // a Friday
+    g.ps.set_date_source([&] { return parse_calendar_date(day).value(); });
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "d", "score": 5})"));
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "w", "score": 7})"));
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "a", "score": 9})"));
+    CHECK(g.fake().state()["calls"][0]["args"]["periodKey"] == "2026-10-23");
+    CHECK(g.fake().state()["calls"][1]["args"]["periodKey"] == "2026-10-19");  // that week's Monday
+    CHECK(g.fake().state()["calls"][2]["args"]["periodKey"] == "");
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d"})")).result.size() == 1);
+    day = "2026-10-25";  // Sunday: same week
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "w"})")).result.size() == 1);
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d"})")).result.empty());
+    day = "2026-10-26";
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "w"})")).result.empty());
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "a"})")).result.size() == 1);
+    day = "2027-01-03";  // across the year: the Monday is 2026-12-28
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "w", "score": 1})"));
+    CHECK(g.fake().state()["calls"].back()["args"]["periodKey"] == "2026-12-28");
+
+    // A backend that is not the fake gets a clean "unavailable" for a period it cannot keep, and still serves allTime.
+    struct Real : PlatformBackend {
+        int calls = 0;
+        std::string name() const override { return "steam"; }
+        std::vector<std::string> services() const override { return {"leaderboards"}; }
+        void request(std::uint64_t id, const std::string&, const Json&, const PlatformSink& sink) override {
+            ++calls;
+            sink.complete(id, Json::object());
+        }
+    };
+    auto real = std::make_unique<Real>();
+    Real* rp = real.get();
+    g.ps.set_backend(std::move(real));
+    auto daily = g.ps.start("leaderboards.submit", Json::parse(R"({"id": "d", "score": 5})"));
+    REQUIRE(daily.ok());
+    REQUIRE(daily->answer.has_value());
+    CHECK(daily->answer->error.code == "unavailable");
+    CHECK(has(daily->answer->error.message, "has no daily leaderboards yet"));
+    CHECK(rp->calls == 0);
+    CHECK(g.ps.start("leaderboards.submit", Json::parse(R"({"id": "a", "score": 5})")).ok());
+    CHECK(rp->calls == 1);
+}
+
+TEST_CASE("platform: release is a flag of the run, and a backend without the ads service answers unavailable") {
+    PlatformServices ps;
+    ps.set_catalog(catalog(R"({"ads": {"placements": [{"id": "p"}]}})"));
+    CHECK_FALSE(ps.release());
+    ps.set_release(true);
+    CHECK(ps.release());
+    CHECK(ps.info()["release"] == true);
+    auto r = ps.start("ads.showRewarded", Json::parse(R"({"placement": "p"})"));
+    REQUIRE(r.ok());
+    REQUIRE(r->answer.has_value());
+    CHECK(r->answer->error.code == "unavailable");
+    CHECK(has(r->answer->error.message, "does not offer the \"ads\" service"));
 }
