@@ -55,7 +55,7 @@ public:
     Entity hovered() const { return hover_; }
 
     // The ui.state command: {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed,
-    // interactable, visible, value?, text?}]} in reading order (top, then left). `visible` is false when a ScrollList
+    // interactable, visible, value?, text?, overflowed?}]} in reading order (top, then left). `visible` is false when a ScrollList
     // clips the widget away entirely, or for a TouchStick / TouchButton that is not shown.
     // Screen-space Text entities follow the widgets, as {id, kind: "Text", rect, text, ...}; `measure` sizes their rect.
     Json state(const World& world, Vec2 designSize, const VisualMeasure& measure = {}) const;

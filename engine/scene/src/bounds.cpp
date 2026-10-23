@@ -120,7 +120,7 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
 
     if (const Text* t = W.get<Text>(e);
         t && (includeScreenSpace || t->space == RenderSpace::World) && !t->text.empty() && t->fontSize > 0.0f) {
-        const Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(t->text, t->fontSize, t->maxWidth);
+        const Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(*t, measure.textScale);
         out.push_back(make("Text", t->space, t->layer, t->anchor, t->safeArea,
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
                                      (1.0f - t->pivot.y) * size.y)));

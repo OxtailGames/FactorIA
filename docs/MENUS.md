@@ -46,6 +46,11 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   line. A column that holds a `ScrollList` (a list of saves, achievements) gives it `"fill": true`: the list takes the
   height the other children leave and the column stays inside the screen. A `fit` panel that is still bigger than the
   screen logs a warning, and `factoria validate` reports it for the design size.
+- **Fixed places.** A widget that must keep its size (a card, a round touch button) uses `"autoShrink": true` (with
+  `minFontSize`) instead: its label shrinks until it fits, at any text size and in any language. `maxTextScale` stops a
+  heading or a label from growing past a scale, a long `Toggle` or `Slider` label wraps with `maxWidth` (a `Slider` can
+  put it above the track with `labelAbove`), and `ui.overflowed(id)` tells a test that a label still does not fit
+  (details: [TEXT.md](TEXT.md), "Text that fits").
 - **Siblings of one size.** `"uniformSize": true` on a `Panel` makes every `autoSize` button, toggle and slider inside it
   (also in the panels and lists it holds) as big as the largest of them, width and height separately, and it follows
   the labels: when the longest one gets shorter they all shrink. Widgets without `autoSize` keep their size. A grid of

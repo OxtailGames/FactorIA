@@ -20,6 +20,16 @@ bool screen_clip(const World& world, Entity e, const Frame& f, Rect& clip) {
     return !c->empty();
 }
 
+TextExtent frame_text_extent(Frame& f) {
+    return [&f](const std::string& s, const std::string& font, float px, float wrap) {
+        Text probe;
+        probe.text = s;
+        probe.font = font;
+        probe.maxWidth = wrap;
+        return f.fonts->layout(probe, px, 1.0f).size;
+    };
+}
+
 namespace {
 
 // What one widget draws into: the screen list, the clip of its ScrollList ancestors and the fade of a widget that is not
@@ -28,6 +38,7 @@ struct Ctx {
     Frame& f;
     Rect clip;
     float fade = 1.0f;
+    float capScale = 0.0f;  // the widget's maxTextScale (0 = none): line() draws its labels at most at this text scale
     QuadList& list() const { return f.screen; }
 };
 
@@ -84,9 +95,10 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     c.list().end_item();
 }
 
-// A single line of text laid out with the widget's font; `top-left` is placed by text().
+// A single line of text laid out with the widget's font; `top-left` is placed by text(). `size` is the design font size:
+// it is drawn at the player's text size capped by the widget's maxTextScale, or at `px` (> 0) when autoShrink decided one.
 TextLayout line(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth = 0.0f,
-                Align align = Align::Left) {
+                Align align = Align::Left, float px = 0.0f) {
     Text t;
     t.text = s;
     t.font = font;
@@ -95,7 +107,14 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.maxWidth = maxWidth;
     t.align = align;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
-    return c.f.fonts->layout(t, size * c.f.textScale, c.f.renderScale);
+    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale), c.f.renderScale);
+}
+
+// The font size of the label of widget `e` in rectangle `r`: autoShrink decides it from the laid-out size (fit_text, the same
+// code as ui.overflowed), else it is the design size at the capped text scale. 0 = no label.
+float label_px(const Ctx& c, const World& world, Entity e, const Rect& r) {
+    const std::optional<UiLabelFit> l = ui_label_fit(world, e, r, c.f.textScale, frame_text_extent(c.f));
+    return l ? l->fit.px : 0.0f;
 }
 
 void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int layer, const Rect& clip) {
@@ -107,12 +126,13 @@ void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int 
     c.f.stats->textGlyphs += int(lay.quads.size());
 }
 
-// Text of the given height box vertically centred in `r`, its left edge at `x`.
-void text_left(const Ctx& c, const std::string& s, const std::string& font, float size, Color col, int layer, float x, const Rect& r,
-               const Rect& clip) {
+// A label (wrapped at `maxWidth` > 0, left aligned) vertically centred in `zoneY .. zoneY + zoneH`, its left edge at `x`.
+// `px` > 0 is the size autoShrink decided.
+void text_left(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth, float px, Color col, int layer,
+               float x, float zoneY, float zoneH, const Rect& clip) {
     if (s.empty()) return;
-    const TextLayout lay = line(c, s, font, size);
-    text(c, lay, x, r.y + (r.h - lay.size.y) * 0.5f, col, layer, clip);
+    const TextLayout lay = line(c, s, font, size, maxWidth, Align::Left, px);
+    text(c, lay, x, zoneY + (zoneH - lay.size.y) * 0.5f, col, layer, clip);
 }
 
 Color scaled(Color k, float mul, float add) { return {k.r * mul + add, k.g * mul + add, k.b * mul + add, k.a}; }
@@ -131,6 +151,7 @@ void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox&
     const TouchStick* stick = world.get<TouchStick>(e);
     const TouchButton* button = world.get<TouchButton>(e);
     if (stick ? !stick->shown : !button->shown) return;
+
     const Color tint = button && button->pressed ? scaled(b.color, 0.6f, 0.0f) : b.color;
     if (!b.texture.empty()) background(c, b, r, tint);
     else disc(c, b.layer, r, tint);
@@ -139,7 +160,8 @@ void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox&
         const Vec2 at = r.center() + Vec2{stick->value.x, -stick->value.y} * radius;
         disc(c, b.layer + 1, Rect::from_center(at, {knob * 2, knob * 2}), stick->knobColor);
     } else if (!button->text.empty()) {
-        const TextLayout lay = line(c, button->text, button->font, button->fontSize);
+        const TextLayout lay = line(c, button->text, button->font, button->fontSize, 0.0f, Align::Left,
+                                    button->autoShrink ? label_px(c, world, e, r) : 0.0f);
         text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, button->textColor, b.layer + 1, c.clip);
     }
 }
@@ -202,9 +224,11 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
     const Rect r = *ui_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});
+    if (kind == UiKind::TouchButton) c.capScale = world.get<TouchButton>(e)->maxTextScale;
     if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
     if (kind == UiKind::Captions) return draw_captions(c, world, *world.get<Captions>(e), b, r);
     const UiControl* ctl = ui_control(world, e);
+    if (ctl) c.capScale = ctl->maxTextScale;
     Color tint = b.color;
     if (ctl) {
         if (!ctl->interactable) c.fade = 0.5f;
@@ -216,7 +240,8 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     if (kind == UiKind::Button) {
         const Button& btn = *world.get<Button>(e);
         // Every line centred (also inside a wrap box); a label that does not fit is cut at the button's edge.
-        const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center);
+        const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center,
+                                    btn.autoShrink ? label_px(c, world, e, r) : 0.0f);
         const Rect clip = c.clip.empty() ? r : ui_intersect(r, c.clip);
         if (!clip.empty())
             text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, clip);
@@ -227,21 +252,26 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         fill(c, layer, box, with_alpha(t.textColor, 0.25f), c.clip);
         outline(c, layer, box, 2, t.textColor);
         if (t.value) fill(c, layer, Rect{box.x + 5, box.y + 5, std::max(0.0f, side - 10), std::max(0.0f, side - 10)}, t.accentColor, c.clip);
-        text_left(c, t.label, t.font, t.fontSize, t.textColor, layer, box.x + side + 10, r, c.clip);
+        text_left(c, t.label, t.font, t.fontSize, t.maxWidth, t.autoShrink ? label_px(c, world, e, r) : 0.0f, t.textColor, layer,
+                  box.x + side + 10, r.y, r.h, c.clip);
     } else if (kind == UiKind::Slider) {
         const Slider& s = *world.get<Slider>(e);
         const float innerLeft = r.x + 8, innerW = std::max(0.0f, r.w - 16);
         const auto [left, right] = ui_slider_track(s, r);
         const float span = s.max - s.min, t = span > 0 ? std::clamp((s.value - s.min) / span, 0.0f, 1.0f) : 0.0f;
-        const float knobX = left + (right - left) * t, midY = r.y + r.h * 0.5f;
+        const float knobX = left + (right - left) * t, midY = ui_slider_mid_y(s, r);
+        const bool above = ui_slider_label_above(s);
         fill(c, layer, Rect{left, midY - 3, right - left, 6}, with_alpha(s.textColor, 0.25f), c.clip);
         fill(c, layer, Rect{left, midY - 3, knobX - left, 6}, s.accentColor, c.clip);
         fill(c, layer, Rect{knobX - 5, midY - std::min(12.0f, (r.h - 8) * 0.5f), 10, std::min(24.0f, r.h - 8)}, s.accentColor, c.clip);
-        text_left(c, s.label, s.font, s.fontSize, s.textColor, layer, innerLeft, r, c.clip);
+        const float labelPx = s.autoShrink ? label_px(c, world, e, r) : 0.0f;
+        if (above) text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, r.y + 2,
+                             std::max(1.0f, r.h - kUiSliderRowHeight - 2), c.clip);
+        else text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, r.y, r.h, c.clip);
         if (s.showValue) {
             const TextLayout lay = line(c, ui_slider_value_text(s, s.value),s.font, s.fontSize);
             const float zone = innerLeft + innerW * 0.85f;
-            text(c, lay, zone + (innerLeft + innerW - zone - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, s.textColor, layer, c.clip);
+            text(c, lay, zone + (innerLeft + innerW - zone - lay.size.x) * 0.5f, midY - lay.size.y * 0.5f, s.textColor, layer, c.clip);
         }
     } else if (kind == UiKind::TextField) {
         const TextField& tf = *world.get<TextField>(e);

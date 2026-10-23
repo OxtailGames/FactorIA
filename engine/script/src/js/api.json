@@ -1689,8 +1689,12 @@
      "doc": "Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI); TouchStick and TouchButton, the on-screen gamepad, send no events: they press gamepad bindings (docs/MOBILE.md). The UI keeps working while time.scale is 0.",
      "members": [
       {
-       "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: \"screen\" | \"world\" }): { width: number; height: number }",
-       "doc": "Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default \"screen\") says how it will be drawn: a \"screen\" label is measured at fontSize * ui.textScale, a \"world\" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning)."
+       "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: \"screen\" | \"world\"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number }): { width: number; height: number; fontSize: number }",
+       "doc": "Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default \"screen\") says how it will be drawn: a \"screen\" label is measured at fontSize * ui.textScale, a \"world\" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning). maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size)."
+      },
+      {
+       "sig": "overflowed(entityOrId: Entity | string): boolean",
+       "doc": "true when the text of a screen-space or world Text with a box (maxWidth, maxHeight) or the label of a Button, Toggle, Slider or TouchButton still does not fit its box at the size it is drawn at, i.e. after ui.textScale, maxTextScale and autoShrink (down to minFontSize) have done what they can. false for any other entity, an empty text or a Text without a box. Read it after game.step or ui.layout(). Same as `overflowed: true` in `ui.state`. Example: ui.textScale = 2; game.step(1); expect(ui.overflowed(\"play_button\")).toBe(false);"
       },
       {
        "sig": "rectOf(entityOrId: Entity | string): Rect | null",

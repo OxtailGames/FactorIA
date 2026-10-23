@@ -186,7 +186,8 @@
                 "label": "Full screen",
                 "key": "options.fullscreen",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           },
@@ -210,7 +211,8 @@
                 "label": "VSync",
                 "key": "options.vsync",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           },
@@ -245,42 +247,17 @@
         },
         "children": [
           {
-            "id": "master_volume_name",
-            "components": {
-              "Text": {
-                "text": "Master",
-                "key": "options.volume.master",
-                "fontSize": 22,
-                "space": "screen",
-                "layer": 302,
-                "align": "start",
-                "maxWidth": 696
-              }
-            }
-          },
-          {
             "id": "master_volume",
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
-              }
-            }
-          },
-          {
-            "id": "music_volume_name",
-            "components": {
-              "Text": {
-                "text": "Music",
-                "key": "options.volume.music",
-                "fontSize": 22,
-                "space": "screen",
+                "label": "Master",
+                "key": "options.volume.master",
+                "size": [700, 72],
                 "layer": 302,
-                "align": "start",
-                "maxWidth": 696
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -289,24 +266,13 @@
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
-              }
-            }
-          },
-          {
-            "id": "sfx_volume_name",
-            "components": {
-              "Text": {
-                "text": "Effects",
-                "key": "options.volume.effects",
-                "fontSize": 22,
-                "space": "screen",
+                "label": "Music",
+                "key": "options.volume.music",
+                "size": [700, 72],
                 "layer": 302,
-                "align": "start",
-                "maxWidth": 696
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -315,24 +281,13 @@
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
-              }
-            }
-          },
-          {
-            "id": "ui_volume_name",
-            "components": {
-              "Text": {
-                "text": "Interface",
-                "key": "options.volume.interface",
-                "fontSize": 22,
-                "space": "screen",
+                "label": "Effects",
+                "key": "options.volume.effects",
+                "size": [700, 72],
                 "layer": 302,
-                "align": "start",
-                "maxWidth": 696
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -341,10 +296,13 @@
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
+                "label": "Interface",
+                "key": "options.volume.interface",
+                "size": [700, 72],
+                "layer": 302,
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -356,7 +314,8 @@
                 "label": "Read menus aloud",
                 "key": "options.readAloud",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           },
@@ -369,7 +328,8 @@
                 "key": "options.subtitles",
                 "size": [696, 38],
                 "layer": 302,
-                "value": true
+                "value": true,
+                "maxWidth": 620
               }
             }
           }
@@ -396,7 +356,8 @@
                 "label": "Assist mode",
                 "key": "options.assist",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           },
@@ -423,7 +384,8 @@
                 "label": "Reduced motion",
                 "key": "options.reducedMotion",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           },
@@ -436,7 +398,8 @@
                 "key": "options.haptics",
                 "size": [696, 38],
                 "layer": 302,
-                "value": true
+                "value": true,
+                "maxWidth": 620
               }
             }
           },
@@ -448,7 +411,8 @@
                 "label": "Tap to move",
                 "key": "options.tapToMove",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           },
@@ -487,21 +451,8 @@
                 "label": "Left-handed layout",
                 "key": "options.leftHanded",
                 "size": [696, 38],
-                "layer": 302
-              }
-            }
-          },
-          {
-            "id": "control_size_name",
-            "components": {
-              "Text": {
-                "text": "Control size",
-                "key": "options.controlSize",
-                "fontSize": 22,
-                "space": "screen",
                 "layer": 302,
-                "align": "start",
-                "maxWidth": 696
+                "maxWidth": 620
               }
             }
           },
@@ -510,24 +461,13 @@
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
-              }
-            }
-          },
-          {
-            "id": "control_opacity_name",
-            "components": {
-              "Text": {
-                "text": "Control opacity",
-                "key": "options.controlOpacity",
-                "fontSize": 22,
-                "space": "screen",
+                "label": "Control size",
+                "key": "options.controlSize",
+                "size": [700, 72],
                 "layer": 302,
-                "align": "start",
-                "maxWidth": 696
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -536,24 +476,13 @@
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
-              }
-            }
-          },
-          {
-            "id": "camera_sensitivity_name",
-            "components": {
-              "Text": {
-                "text": "Camera speed",
-                "key": "options.cameraSensitivity",
-                "fontSize": 22,
-                "space": "screen",
+                "label": "Control opacity",
+                "key": "options.controlOpacity",
+                "size": [700, 72],
                 "layer": 302,
-                "align": "start",
-                "maxWidth": 696
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -562,10 +491,13 @@
             "components": {
               "Slider": {
                 "autoSize": false,
-                "label": "",
-                "key": "",
-                "size": [700, 44],
-                "layer": 302
+                "label": "Camera speed",
+                "key": "options.cameraSensitivity",
+                "size": [700, 72],
+                "layer": 302,
+                "labelAbove": true,
+                "maxWidth": 680,
+                "fontSize": 22
               }
             }
           },
@@ -577,7 +509,8 @@
                 "label": "Invert camera Y",
                 "key": "options.invertY",
                 "size": [696, 38],
-                "layer": 302
+                "layer": 302,
+                "maxWidth": 620
               }
             }
           }
