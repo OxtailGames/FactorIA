@@ -15,6 +15,15 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Animation
+
+- Models animated by node transforms play with no change to the file: a body part that is a child of an animated bone
+  (RobotExpressive) and an animated mesh node with no skin at all (Kenney's cube pets) follow their node, through a
+  rigid skin the importer makes. A file with clips that nothing can play logs one warning naming the clips.
+- A glTF with several skins is drawn with each mesh's own skin (it used the first skin's palette for all, which bent the
+  second skin's mesh out of shape). `Animator::skinPalettes` holds one palette per skin. Clockwork Courier imports the
+  original robot and dog again and drops `tools/skinify.py` (FB-0001, FB-0002).
+
 Scripts
 
 - `scene.preload(path)` and `assets.preload(paths)` read a scene's files (or a list of assets) ahead of time, a few per
@@ -32,6 +41,14 @@ Platform services
 - Leaderboards in factoria.json take a `nameKey` (a locale key) instead of `name`, like achievements; the request
   the backend gets carries the name in the current language. PLATFORM.md documents `game.project.platform`, the
   catalog scripts can read.
+
+Localization
+
+- `keyArgs` on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: the values of a key's `{placeholders}`
+  (and the `count` of a plural entry), so a script sets them once instead of rewriting `text` every frame, and a language
+  switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
+  placeholders against the entity's `keyArgs`: it warns for a placeholder with no arg and for an arg no translation uses,
+  not for every key with placeholders.
 
 Tools
 

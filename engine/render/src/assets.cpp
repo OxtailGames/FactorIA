@@ -237,6 +237,7 @@ public:
             Mat4 world;
             cgltf_node_transform_world(&node, world.m);
             // glTF: the transform of a skinned mesh node is ignored (the joints place the mesh); it is drawn in bind pose.
+            // A rigid part keeps its node transform: the importer's rigid skin (skeleton.cpp) moves it with its animated node.
             if (node.skin) world = Mat4::identity();
             Mat4 normalMat = world.inverse().transposed();
             for (cgltf_size pi = 0; pi < node.mesh->primitives_count; ++pi) {
@@ -251,7 +252,7 @@ public:
                 if (!read_primitive(prim, world, normalMat, verts, idx)) continue;
                 SubMesh sm = upload_submesh(verts, idx, path.c_str());
                 apply_material(prim.material, dir, data, sm);
-                if (node.skin) attach_skin(path, int(ni), int(pi), verts.size(), sm);
+                attach_skin(path, int(ni), int(pi), verts.size(), sm);
                 out.bmin = min(out.bmin, sm.bmin);
                 out.bmax = max(out.bmax, sm.bmax);
                 out.parts.push_back(sm);
@@ -265,8 +266,8 @@ public:
     }
 
 private:
-    // Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Only skin 0 with at most
-    // kMaxSkinJoints joints is drawn skinned (the Animator's palette is skin 0); otherwise the part stays in bind pose.
+    // Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Each part is drawn with the
+    // palette of its own skin; a skin with more than kMaxSkinJoints joints is not drawn skinned, so the part stays in bind pose.
     void attach_skin(const std::string& path, int node, int primitive, std::size_t vertexCount, SubMesh& sm) {
         if (!skeleton_) {
             auto r = load_skeleton(path);
@@ -276,11 +277,9 @@ private:
         for (const SkinVertices& sv : skeleton_->skinVertices) {
             if (sv.node != node || sv.primitive != primitive || sv.joints.size() != vertexCount) continue;
             const std::size_t joints = skeleton_->skins[std::size_t(sv.skin)].joints.size();
-            if (sv.skin != 0 || joints > std::size_t(kMaxSkinJoints)) {
-                FA_WARN("render", "{}: {} - drawn in bind pose, not animated. Skinning supports the first skin with at most {} joints; "
-                                  "re-export the model with fewer joints.", path,
-                        sv.skin != 0 ? std::string("only the first skin of a file is animated") : std::format("the skin has {} joints", joints),
-                        kMaxSkinJoints);
+            if (joints > std::size_t(kMaxSkinJoints)) {
+                FA_WARN("render", "{}: the skin has {} joints - drawn in bind pose, not animated. Skinning supports skins with at most "
+                                  "{} joints; re-export the model with fewer joints.", path, joints, kMaxSkinJoints);
                 return;
             }
             std::vector<SkinVertex> v(vertexCount);
