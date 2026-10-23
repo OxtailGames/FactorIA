@@ -546,8 +546,8 @@ The player starts the game found in `game/` next to the executable (inside the
 my-game [projectDir | game.pak] [--scene scenes/level2.scene.json] [--fullscreen] [--version]
 ```
 
-`--version` prints the engine version the player belongs to (`factoria_player 0.1.6`, the number `factoria version`
-prints) and exits.
+`--version` prints the engine version and build the player belongs to (`factoria_player 0.2.0 (build 1a2b3c4d5e6f)`,
+what `factoria version` prints after `factoria`) and exits.
 
 **Linux requirements.** The Linux player is built in Valve's Steam Runtime "sniper" container (libstdc++ and libgcc
 linked in), so a Linux game needs glibc 2.31 or newer and the usual desktop libraries (`libX11`, `libXi`, `libXcursor`,

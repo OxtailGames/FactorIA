@@ -956,6 +956,8 @@ TEST_CASE("android export: the wrapper files are part of what factoria embeds, b
     CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradlew.bat").find("\r\n") != std::string::npos);
 }
 
+#if !defined(_WIN32)  // make_fake_engine's gradlew is a shell script
+
 TEST_CASE("android export: source mode uses the SDK's CMake, else a CMake 3.24+ of this computer through cmake.dir") {
     testing::TempDir tmp;
     const std::string game = make_game(tmp);
@@ -966,13 +968,7 @@ TEST_CASE("android export: source mode uses the SDK's CMake, else a CMake 3.24+ 
     o.androidSearch = &tc.search;
     const auto gradle_properties = [](const std::string& dir) { return testing::read_all(stdfs::path(dir) / "gradle.properties"); };
     const auto sdk_cmake = [&](const std::string& version) {
-        testing::write_all(stdfs::path(tc.sdk) / "cmake" / version / "bin" / std::string(
-#ifdef _WIN32
-                                                                                      "cmake.exe"
-#else
-                                                                                      "cmake"
-#endif
-                                                                                      ), "");
+        testing::write_all(stdfs::path(tc.sdk) / "cmake" / version / "bin" / "cmake", "");
     };
 
     SUBCASE("the pinned version in the SDK: no note, no cmake.dir") {
@@ -1026,6 +1022,8 @@ TEST_CASE("android export: source mode uses the SDK's CMake, else a CMake 3.24+ 
         CHECK(testing::read_all(stdfs::path(r->outputDir) / "local.properties").find("cmake.dir") == std::string::npos);
     }
 }
+
+#endif  // !_WIN32
 
 TEST_CASE("android export: prebuilt mode never mentions CMake") {
     testing::TempDir tmp;

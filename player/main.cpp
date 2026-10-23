@@ -248,7 +248,7 @@ int main(int argc, char** argv) {
             print_usage();
             return 0;
         } else if (a == "--version") {
-            std::printf("factoria_player %s\nbuild %s\n", FA_ENGINE_VERSION, fa::build_fingerprint());
+            std::printf("factoria_player %s (build %s)\n", FA_ENGINE_VERSION, fa::build_fingerprint());
             return 0;
         } else if (a == "--fullscreen") {
             fullscreen = true;
