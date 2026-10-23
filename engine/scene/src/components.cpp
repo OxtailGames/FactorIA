@@ -48,6 +48,24 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "left + right (or top + bottom) the borders shrink proportionally.");
 }
 
+// maxTextScale of Text and of the UI widgets.
+constexpr const char* kMaxTextScaleDoc =
+    "> 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label "
+    "does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only "
+    "limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring "
+    "(autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.";
+
+// autoShrink and minFontSize of Text, Button, Toggle, Slider and TouchButton.
+constexpr const char* kAutoShrinkDoc =
+    "true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made "
+    "smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, "
+    "and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no "
+    "script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): "
+    "the size is never reduced.";
+constexpr const char* kMinFontSizeDoc =
+    "autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, "
+    "capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.";
+
 // UiControl fields: the label font, colours and interaction state of Button, Toggle, Slider and TextField.
 template <class T>
 TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
@@ -62,6 +80,7 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
                "language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps "
                "the text written in the field and logs one warning.")
         .field("fontSize", static_cast<float T::*>(&UiControl::fontSize), "Label glyph height in design pixels.").range(1, 4096)
+        .field("maxTextScale", static_cast<float T::*>(&UiControl::maxTextScale), kMaxTextScaleDoc).range(0, 3)
         .field("textColor", static_cast<Color T::*>(&UiControl::textColor), "Label colour.")
         .field("accentColor", static_cast<Color T::*>(&UiControl::accentColor),
                "Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.")
@@ -95,8 +114,9 @@ constexpr const char* kTouchOnlyDoc =
 constexpr const char* kAutoSizeDoc =
     "true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) "
     "and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing "
-    "`size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at "
-    "Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a "
+    "`size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider "
+    "label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize "
+    "makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a "
     "big label sticks out of it (Button labels are clipped).";
 
 }  // namespace
@@ -369,7 +389,15 @@ void register_builtin_components(TypeRegistry& r) {
                     "in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left "
                     "languages (i18n.direction); use them for text that must read from its start side.")
         .field("pivot", &Text::pivot, "Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right.")
-        .field("maxWidth", &Text::maxWidth, "If > 0, lines wrap at this width in world units. 0 = no wrapping.").range(0, 100000)
+        .field("maxWidth", &Text::maxWidth, "If > 0, lines wrap at this width in world units. 0 = no wrapping. With autoShrink "
+               "it is also the width the text must fit (a word longer than the box shrinks the font).").range(0, 100000)
+        .field("maxHeight", &Text::maxHeight,
+               "Box height in the same units as maxWidth that autoShrink fits the text into: a card title with maxWidth 200 and "
+               "maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is "
+               "clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id).").range(0, 100000)
+        .field("autoShrink", &Text::autoShrink, kAutoShrinkDoc)
+        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(1, 4096)
+        .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
         .field("layer", &Text::layer, "Draw order. Higher layers draw on top. Text defaults above sprites.")
         .enum_field("space", &Text::space, {"world", "screen"},
                     "world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.")
@@ -944,11 +972,13 @@ void register_builtin_components(TypeRegistry& r) {
         ui_control_fields(button)
             .field("text", &Button::text,
                    "Label, centred on the button. `\n` starts a new line; every line is centred. Text longer than the button is "
-                   "clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button.")
+                   "clipped to it: use `maxWidth` to wrap it, `autoSize` to grow the button or `autoShrink` to shrink the text.")
             .field("maxWidth", &Button::maxWidth,
                    "> 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = the label wraps only at `\n`. "
                    "With autoSize the button is at most maxWidth plus its margins wide and grows taller instead.").range(0, 100000)
-            .field("autoSize", &Button::autoSize, kAutoSizeDoc);
+            .field("autoSize", &Button::autoSize, kAutoSizeDoc)
+            .field("autoShrink", &Button::autoShrink, kAutoShrinkDoc)
+            .field("minFontSize", &Button::minFontSize, kMinFontSizeDoc).range(1, 4096);
     }
     {
         auto toggle = r.add<Toggle>("Toggle",
@@ -957,19 +987,35 @@ void register_builtin_components(TypeRegistry& r) {
                   "UI");
         ui_control_fields(toggle)
             .field("label", &Toggle::label, "Text to the right of the box.")
+            .field("maxWidth", &Toggle::maxWidth,
+                   "> 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the "
+                   "toggle is at most maxWidth plus the box and margins wide and grows taller instead.").range(0, 100000)
             .field("autoSize", &Toggle::autoSize, kAutoSizeDoc)
+            .field("autoShrink", &Toggle::autoShrink, kAutoShrinkDoc)
+            .field("minFontSize", &Toggle::minFontSize, kMinFontSizeDoc).range(1, 4096)
             .field("value", &Toggle::value, "true = checked. Scripts may write it; no event is sent for a write.");
     }
     {
         auto slider = r.add<Slider>("Slider",
                   "Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a "
-                  "label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, "
+                  "label) with a fill and a knob in accentColor, the value in the last 15% (with labelAbove the label is above the track "
+                  "and the track gets the 85%). Left / right (ui_left / ui_right, "
                   "d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: "
                   "ui.change {id, value: number}.",
                   "UI");
         ui_control_fields(slider)
-            .field("label", &Slider::label, "Text at the left; empty gives the track the extra room.")
+            .field("label", &Slider::label, "Text at the left (or above the track with labelAbove); empty gives the track the extra room.")
+            .field("maxWidth", &Slider::maxWidth,
+                   "> 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the "
+                   "slider grows taller for the extra lines.").range(0, 100000)
+            .field("labelAbove", &Slider::labelAbove,
+                   "true: the label is drawn above the track on the slider's full width (wrapping at maxWidth or the width) and "
+                   "the track, knob and value sit in a row of 28 px at the bottom, so a long label does not squeeze the track. "
+                   "The slider needs a height of the label plus 28 px (autoSize adds it). false (default): the label is in "
+                   "the left 35%.")
             .field("autoSize", &Slider::autoSize, kAutoSizeDoc)
+            .field("autoShrink", &Slider::autoShrink, kAutoShrinkDoc)
+            .field("minFontSize", &Slider::minFontSize, kMinFontSizeDoc).range(1, 4096)
             .field("value", &Slider::value,
                    "Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
                    "sent for a write.")
@@ -1058,6 +1104,9 @@ void register_builtin_components(TypeRegistry& r) {
             .field("text", &TouchButton::text, "Label centred on the button, e.g. \"A\" or \"Jump\". Empty (default) draws none.")
             .asset_field("font", &TouchButton::font, "font", "Font of the label: project path of a .ttf, empty = the built-in font.")
             .field("fontSize", &TouchButton::fontSize, "Label glyph height in design pixels.").range(1, 4096)
+            .field("autoShrink", &TouchButton::autoShrink, kAutoShrinkDoc)
+            .field("minFontSize", &TouchButton::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("maxTextScale", &TouchButton::maxTextScale, kMaxTextScaleDoc).range(0, 3)
             .field("textColor", &TouchButton::textColor, "Label colour.")
             .field("touchOnly", &TouchButton::touchOnly, kTouchOnlyDoc)
             .field("pressed", &TouchButton::pressed, "Runtime: a finger holds the button.").runtime_only().read_only()

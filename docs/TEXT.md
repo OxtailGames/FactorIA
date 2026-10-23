@@ -116,8 +116,8 @@ explicit `\n` or spaces.
 
 ## Measuring
 
-`ui.measureText(text, { fontSize, font, maxWidth, space })` returns `{ width, height }` of exactly the layout that is
-drawn, shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
+`ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight })` returns
+`{ width, height, fontSize }` of exactly the layout that is drawn (`fontSize` is the size it is laid out at, in pixels), shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
 `"world"`; it matters only for the text size option below. It is exact in tests, `factoria call` and headless runs
 (they draw with an offscreen renderer); only when no graphics device can be created does it approximate 0.6 ×
 `fontSize` per character and warn once. A wrapped text is as wide as its `maxWidth` and as tall as its lines.
@@ -158,6 +158,29 @@ storage.set("textScale", ui.textScale);
   Widgets without `autoSize` keep their rectangles and a wrapped Text keeps its `maxWidth`: text at 3× may not fit a
   small button.
 - Fonts are rasterized at the scaled size, so scaled text stays sharp.
+
+### Text that fits: `autoShrink`, `maxTextScale`, `ui.overflowed`
+
+A fixed place for a text (a card, a HUD row, a heading, a round touch button) may not have room for 200 % text or for a
+longer translation. Three fields say what to do, with no script; layout, `autoSize`, `ui.measureText`, `ui.rectOf` and
+the renderers all use the same size, so what a test measures is what is drawn:
+
+- **`autoShrink`** (with `minFontSize`, default 10) on `Text`, `Button`, `Toggle`, `Slider` and `TouchButton`: when the
+  laid-out text is wider or taller than its box at the current text size, the font is made smaller until it fits, never
+  under `minFontSize` times the player's text size (the floor grows with the option, so the accessibility setting still
+  works). The box of a `Text` is `maxWidth` x `maxHeight` (set `maxHeight` to one line to keep a card title on one line;
+  0 = that axis is not checked); of a widget label, the room the widget leaves it (a button's rectangle minus its
+  margins, the right of a toggle's box, the left 35 % of a slider, a touch button's disc). `autoSize` makes room for the
+  full-size label instead, so use `autoShrink` on widgets that keep their size.
+- **`maxTextScale`** on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: `ui.textScale` stops growing
+  that text at this scale (`1.3` = at most 30 % bigger), for a heading or a round button label. It only limits growth:
+  at 0.8 the text is drawn at 0.8. `0` (default) = no cap. `autoSize` and layout measure the capped size.
+- **`Toggle.maxWidth`, `Slider.maxWidth`** wrap the label at that width like `Button.maxWidth` (an `autoSize` widget
+  grows taller instead of wider), and **`Slider.labelAbove`** puts the label above the track on the full width, with the
+  track, knob and value in a 28 px row under it.
+- **`ui.overflowed(entityOrId)`** is `true` when a text still does not fit its box at the size it is drawn at (after
+  the scale, the cap and the shrink did what they could). `ui.state` has `"overflowed": true` on those widgets and Texts.
+  A test: `ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);`
 
 ## Captions
 

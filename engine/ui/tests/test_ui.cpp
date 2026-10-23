@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "fa/core/log.h"
+#include "fa/scene/text_fit.h"
 #include "fa/ui/ui.h"
 
 using namespace fa;
@@ -790,9 +791,8 @@ namespace {
 // Text sizes like the renderer's, at the player's text size: the approximation scaled for screen-space text.
 VisualMeasure measure_at(float textScale) {
     VisualMeasure m;
-    m.textSize = [textScale](const Text& t) {
-        return approx_text_size(t.text, t.fontSize * (t.space == RenderSpace::Screen ? textScale : 1.0f), t.maxWidth);
-    };
+    m.textScale = textScale;
+    m.textSize = [textScale](const Text& t) { return approx_text_size(t, textScale); };
     return m;
 }
 
@@ -1151,4 +1151,166 @@ TEST_CASE("ui fallbackLayout: a fill ScrollList in a column that became a row is
     CHECK(t.rect(list).y == doctest::Approx(t.rect(a).y));
     CHECK(t.rect(list).x > t.rect(a).x);
     CHECK(t.w.get<ScrollList>(list)->size.y == doctest::Approx(64));  // left as the column pass set it, not re-filled
+}
+
+// ---- text that fits (M26.6) ------------------------------------------------------------------------------------------------
+
+TEST_CASE("text fit: a German label in a fixed button shrinks at 200 % text, stays inside and never goes under minFontSize") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity b = t.button("b", {10, 10}, {200, 48});
+    Button& btn = *t.w.get<Button>(b);
+    btn.text = "Einstellungen";
+    btn.minFontSize = 8;
+    const Rect r = t.rect(b);
+    const VisualMeasure m = measure_at(2.0f);
+    // Without autoShrink the label is drawn at 24 * 2 = 48 px and does not fit: 13 characters of 28.8 px.
+    auto fit = ui_label_fit(t.w, b, r, 2.0f, text_extent_of(m));
+    REQUIRE(fit.has_value());
+    CHECK(fit->fit.px == doctest::Approx(48));
+    CHECK(fit->fit.overflow);
+    CHECK(ui_text_overflowed(t.w, b, t.design, m));
+    // With it the text shrinks until it is inside the button, and not further than needed.
+    btn.autoShrink = true;
+    fit = ui_label_fit(t.w, b, r, 2.0f, text_extent_of(m));
+    REQUIRE(fit.has_value());
+    CHECK_FALSE(fit->fit.overflow);
+    CHECK(fit->fit.shrunk);
+    CHECK(fit->fit.px < 48);
+    CHECK(fit->fit.px >= 8 * 2);                       // minFontSize is scaled with the text size
+    CHECK(fit->fit.size.x <= r.w - 16 + 0.5f);          // inside the button's margins
+    CHECK(fit->fit.size.y <= r.h - 8 + 0.5f);
+    CHECK(fit->fit.size.x > r.w - 16 - 8);              // ... and the largest quarter-pixel size that does
+    CHECK_FALSE(ui_text_overflowed(t.w, b, t.design, m));
+    // At 100 % the label fits at its own size: nothing shrinks.
+    btn.size = {220, 48};
+    fit = ui_label_fit(t.w, b, t.rect(b), 1.0f, text_extent_of(measure_at(1.0f)));
+    CHECK(fit->fit.px == doctest::Approx(24));
+    CHECK_FALSE(fit->fit.shrunk);
+    // A label too long even at the floor is drawn AT the floor and reported as overflowed.
+    btn.text = "Einstellungen und Optionen fuer Fortgeschrittene";
+    fit = ui_label_fit(t.w, b, r, 2.0f, text_extent_of(m));
+    CHECK(fit->fit.px == doctest::Approx(16));
+    CHECK(fit->fit.overflow);
+    CHECK(ui_text_overflowed(t.w, b, t.design, m));
+    // ui.state lists it
+    t.frame();
+    Json st = t.ui.state(t.w, t.design, m);
+    CHECK(st["widgets"][0]["overflowed"] == true);
+}
+
+TEST_CASE("text fit: maxTextScale caps the growth of a heading and of a label, and only the growth") {
+    Text heading;
+    heading.text = "Clockwork Courier";
+    heading.fontSize = 40;
+    heading.space = RenderSpace::Screen;
+    const float plain = approx_text_size(heading, 2.0f).y;
+    CHECK(plain == doctest::Approx(40 * 2 * 1.2f));
+    heading.maxTextScale = 1.3f;
+    CHECK(approx_text_size(heading, 2.0f).y == doctest::Approx(40 * 1.3f * 1.2f));
+    CHECK(approx_text_size(heading, 3.0f).y == doctest::Approx(40 * 1.3f * 1.2f));
+    CHECK(approx_text_size(heading, 1.0f).y == doctest::Approx(40 * 1.2f));      // below the cap: the player's size
+    CHECK(approx_text_size(heading, 0.5f).y == doctest::Approx(40 * 0.5f * 1.2f));
+    heading.space = RenderSpace::World;                                         // world space never scales
+    CHECK(approx_text_size(heading, 2.0f).y == doctest::Approx(40 * 1.2f));
+    CHECK(effective_text_scale(2.0f, 0.0f) == 2.0f);
+    CHECK(effective_text_scale(2.0f, 1.3f) == 1.3f);
+    // layout reads the cap of a widget: an autoSize button stops growing with it
+    Ui t;
+    t.design = {1280, 720};
+    Entity b = t.button("b", {10, 10}, {100, 30});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Play now please";
+    t.ui.layout(t.w, t.design, measure_at(2.0f));
+    const float uncapped = btn.size.x;
+    btn.maxTextScale = 1.3f;
+    t.ui.layout(t.w, t.design, measure_at(2.0f));
+    CHECK(btn.size.x < uncapped);
+    CHECK(btn.size.x == doctest::Approx(std::ceil(15 * 0.6f * 24 * 1.3f + 32)));
+}
+
+TEST_CASE("text fit: Text autoShrink fits its maxWidth x maxHeight box") {
+    Text card;
+    card.text = "Deliveries completed today";
+    card.fontSize = 24;
+    card.space = RenderSpace::Screen;
+    card.maxWidth = 200;
+    card.maxHeight = 30;  // one line
+    card.minFontSize = 8;
+    const TextExtent extent = approx_text_extent();
+    TextFit f = fit_text(text_fit_spec(card), card.text, card.font, 1.0f, extent);
+    CHECK(f.overflow);  // two or three wrapped lines of 28.8 px
+    card.autoShrink = true;
+    f = fit_text(text_fit_spec(card), card.text, card.font, 1.0f, extent);
+    CHECK_FALSE(f.overflow);
+    CHECK(f.size.y <= 30.5f);
+    CHECK(f.px < 24);
+    CHECK(f.px >= 8);
+    f = fit_text(text_fit_spec(card), card.text, card.font, 2.0f, extent);  // 200 %: smaller still, floor 16
+    CHECK(f.px >= 16);
+    // an unbounded text never overflows
+    card.maxWidth = card.maxHeight = 0;
+    CHECK_FALSE(fit_text(text_fit_spec(card), card.text, card.font, 3.0f, extent).overflow);
+}
+
+TEST_CASE("text fit: a long Toggle label wraps at maxWidth and the toggle grows taller, not wider") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity tg = t.add<Toggle>("tg", {10, 10}, {240, 40});
+    Toggle& toggle = *t.w.get<Toggle>(tg);
+    toggle.autoSize = true;
+    toggle.label = "Reduce screen shake and flashing lights during combat";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const Vec2 oneLine = toggle.size;
+    CHECK(oneLine.x > 600);
+    toggle.maxWidth = 260;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(toggle.size.y > oneLine.y);
+    CHECK(toggle.size.x < oneLine.x);
+    CHECK(toggle.size.x <= 260 + toggle.size.y + 16 + 1);
+    t.ui.layout(t.w, t.design, measure_at(2.0f));  // 200 %: more lines, still no wider than the wrap width
+    CHECK(toggle.size.x <= 260 + toggle.size.y + 16 + 1);
+    // the label zone the renderer draws into holds the wrapped label
+    const Rect r = t.rect(tg);
+    const auto fit = ui_label_fit(t.w, tg, r, 2.0f, text_extent_of(measure_at(2.0f)));
+    REQUIRE(fit.has_value());
+    CHECK(fit->fit.size.x <= 260 + 0.5f);
+    CHECK_FALSE(fit->fit.overflow);
+}
+
+TEST_CASE("text fit: Slider labelAbove gives the track the whole width and maxWidth wraps the label") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity sl = t.add<Slider>("sl", {10, 10}, {320, 40});
+    Slider& slider = *t.w.get<Slider>(sl);
+    slider.label = "Music volume for the whole game";
+    const Rect r = t.rect(sl);
+    const auto [beside, besideR] = ui_slider_track(slider, r);
+    slider.labelAbove = true;
+    const auto [above, aboveR] = ui_slider_track(slider, r);
+    CHECK(above < beside);
+    CHECK(aboveR - above > besideR - beside);
+    CHECK(ui_slider_mid_y(slider, r) == doctest::Approx(r.y + r.h - kUiSliderRowHeight * 0.5f));
+    slider.autoSize = true;
+    slider.maxWidth = 200;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(slider.size.y > 40 + 20);  // two label lines plus the track row
+    const auto fit = ui_label_fit(t.w, sl, t.rect(sl), 1.0f, text_extent_of(measure_at(1.0f)));
+    REQUIRE(fit.has_value());
+    CHECK_FALSE(fit->fit.overflow);
+    CHECK(fit->fit.size.x <= 200.5f);
+    // a TouchButton label shrinks inside its disc
+    Entity tb = t.w.create("tb", "tb");
+    TouchButton& touch = t.w.add<TouchButton>(tb);
+    touch.text = "Interact";
+    touch.autoShrink = true;
+    touch.minFontSize = 5;
+    touch.maxTextScale = 1.5f;
+    const Rect disc = *ui_rect(t.w, tb, t.design);
+    const auto tf = ui_label_fit(t.w, tb, disc, 2.0f, text_extent_of(measure_at(2.0f)));
+    REQUIRE(tf.has_value());
+    CHECK_FALSE(tf->fit.overflow);
+    CHECK(tf->fit.size.x <= 96 * 0.7f + 0.5f);
+    CHECK(tf->fit.px <= 32 * 1.5f);
 }

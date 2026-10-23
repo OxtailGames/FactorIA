@@ -1268,6 +1268,9 @@ drops `tools/skinify.py` and imports the original models.
 
 ### M26.5 Model import and asset tooling (S-M) — CC/FB-0008, CC/FB-0045, CC/FB-0004, CC/FB-0013
 
+Done (branch `m26/model-import`): `.glb`/`.gltf` import copies its uri files and warns on a name clash; validate
+checks them; `assets.json` edits keep the file's order; loudness warnings use the normalize gain; `assets.synth_sound`.
+
 - `assets.import` of a `.gltf` or `.glb` copies the files its `uri`s point at (textures, `.bin`) next to it, warns when
   the destination already has a different file with the same name, and `factoria validate` checks that every texture a
   model references exists.
@@ -1295,6 +1298,9 @@ Acceptance: `fa_test_ui` cases for a German label in a fixed button at 200 % tex
 `minFontSize`), a heading capped at 1.3, a long Toggle label that wraps; the M10 menus fixture's golden images at 200 %
 show no overlap.
 
+Done (branch `m26/text-fits`): `autoShrink`/`minFontSize`/`maxTextScale`, Toggle/Slider `maxWidth`, `labelAbove`,
+`ui.overflowed`, one shared fit path (text_fit.h); Clockwork Courier uses them.
+
 ### M26.7 Scene and asset preload with progress (M) — CC/FB-0012
 
 M19's `scene.loadAsync`, which a game now needs. `scene.preload(path)` and `assets.preload([paths])` return a handle
@@ -1306,6 +1312,10 @@ Acceptance: a script test preloads a scene with several models and sees `progres
 loads it with no new file read; a loading-screen fixture keeps drawing frames while it loads.
 
 ### M26.8 Store fake and catalog in scripts (S) — CC/FB-0024, CC/FB-0025, CC/FB-0029
+
+Done (branch `m26/store-fake`): `platform.revoke` and `game.platform.revoke(id)` (a refund and its `revoked` purchase
+event); `purchases.finish` of an unknown transaction rejects `unknownId`; leaderboard `nameKey`; the catalog is
+documented; Clockwork Courier uses them.
 
 - The fake store can take a purchase back: `platform.revoke` and `game.platform.revoke(id)` in tests (a refund), with
   the `purchase` event a real backend would send.

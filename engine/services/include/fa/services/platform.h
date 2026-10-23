@@ -50,6 +50,7 @@ struct PlatformStat : PlatformEntry {
 };
 struct PlatformLeaderboard : PlatformEntry {
     std::string name;
+    std::string nameKey;  // locale key; when set it wins over the plain text
     std::string order = "descending";  // "descending": higher is better; "ascending": lower is better (times)
 };
 struct PlatformProduct : PlatformEntry {

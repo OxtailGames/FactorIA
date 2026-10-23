@@ -447,7 +447,11 @@ Both are described with examples in [ANIMATION.md](ANIMATION.md).
 ### particles / ui
 - `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
-- `ui.measureText(text, { fontSize, font, maxWidth, space })` → `{ width, height }` laid out exactly like `Text` rendering
+- `ui.overflowed(entityOrId)` → `true` when the text of a `Text` with a box (`maxWidth` / `maxHeight`) or the label of a
+  Button, Toggle, Slider or TouchButton still does not fit at the size it is drawn at (after `ui.textScale`,
+  `maxTextScale` and `autoShrink`). See [TEXT.md](TEXT.md), "Text that fits".
+- `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight })` →
+  `{ width, height, fontSize }` laid out exactly like `Text` rendering
   (shaped, wrapped, with the fallback fonts). `space` is `"screen"` (default: HUD text and widget labels, measured at the
   size the player's text size option makes it) or `"world"`. Headless runs approximate (0.6 × fontSize per character,
   times `ui.textScale` for `"screen"`) and warn once.

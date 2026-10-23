@@ -204,7 +204,11 @@ TEST_CASE("apple backend: the engine checks ids before the plugin sees them") {
         return run(engine, std::string("(() => { try { ") + call + "; return ''; } catch (e) { return e.message; } })()").get<std::string>();
     };
     CHECK(has(message("platform.achievements.unlock('first_wn')"), "did you mean \"first_win\""));
-    CHECK(has(message("platform.purchases.finish('123')"), "is not one this game was told about"));
+    // An unknown transaction rejects with unknownId (no throw at the call); the plugin never sees it either.
+    Json rejected = run(engine, "(async () => { try { await platform.purchases.finish('123'); } catch (e) { return [e.code, e.message]; } })()");
+    REQUIRE(rejected.is_array());
+    CHECK(rejected[0] == "unknownId");
+    CHECK(has(rejected[1].get<std::string>(), "is not one this game was told about"));
     CHECK(engine.platform_services()->pending() == 0);  // the plugin never saw either call
 }
 

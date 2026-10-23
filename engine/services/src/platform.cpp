@@ -97,6 +97,11 @@ std::string describe_char(const std::string& s, std::size_t i, std::size_t& posi
 struct Bad {
     std::string message, hint;
 };
+// A request that is well formed but names something the platform does not know (an unfinished transaction that is not
+// there): the game gets a rejected Promise with this code, like a store answering unknownId.
+struct Reject {
+    std::string code, message, hint;
+};
 
 const Json& need(const Json& args, const char* key, const char* what) {
     auto it = args.find(key);
@@ -241,6 +246,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         const auto& l = lookup(cat.leaderboards, need_string(in, "id", "the id of a leaderboard"), "a leaderboard", "leaderboards",
                                "{\"id\": \"high_score\", \"name\": \"High score\"}");
         Json out = id_pair(l, be);
+        out["name"] = localized(l.name, l.nameKey, c.translator);  // in the current language, for backends with no name of their own
         out["order"] = l.order;
         if (method == "leaderboards.submit") {
             const double score = need_number(in, "score", "the score to submit");
@@ -309,7 +315,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         const std::string& tx = need_string(in, "transactionId", "the transactionId of a purchase result or event");
         auto it = c.transactions.find(tx);
         if (it == c.transactions.end())
-            throw Bad{"the transaction " + in_quotes(tx) + " is not one this game was told about",
+            throw Reject{"unknownId", "the transaction " + in_quotes(tx) + " is not one this game was told about",
                       "Pass the transactionId of a purchases.buy() result, a platform.on(\"purchase\") event or a restore() entry, and finish "
                       "each transaction once."};
         const PlatformProduct* p = cat.find_product(it->second);
@@ -544,7 +550,9 @@ struct PlatformSink::State {
         }
         if (event == "purchase" && data.is_object()) {
             fix_purchase(data, std::string());
-            if (data.value("status", std::string()) == "purchased") remember(data);
+            const std::string status = data.value("status", std::string());
+            if (status == "purchased") remember(data);
+            else if (status == "revoked") transactions.erase(data.value("transactionId", std::string()));  // refunded: nothing left to finish
         } else if (event == "player" && data.is_object()) {
             merge_player(data);
         }
@@ -666,6 +674,15 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             prepared = prepare(method, args, {s.catalog, s.backendName, s.transactions, s.translator});
         } catch (const Bad& b) {
             return make_error(b.message, b.hint);
+        } catch (const Reject& r) {
+            out.id = s.nextId++;
+            PlatformAnswer a;
+            a.id = out.id;
+            a.method = method;
+            a.ok = false;
+            a.error = {r.code, r.message, r.hint};
+            out.answer = std::move(a);
+            return out;
         }
         out.id = s.nextId++;
         offered = info->service.empty() || contains(s.services, info->service);

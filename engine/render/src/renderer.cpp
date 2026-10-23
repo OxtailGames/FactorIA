@@ -9,6 +9,7 @@
 #include "fa/core/log.h"
 #include "fa/core/profiler.h"
 #include "fa/platform/sokol_logging.h"
+#include "fa/scene/text_fit.h"
 #include "bloom.h"
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
@@ -606,6 +607,14 @@ Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_v
     t.maxWidth = maxWidth;
     // The very layout of Text drawing at entity scale 1 (and of UI labels in screen space).
     return impl_->fonts->layout(t, space == RenderSpace::Screen ? fontSize * impl_->textScale : fontSize, 1.0f).size;
+}
+
+Vec2 Renderer::measure_text(const Text& text) const {
+    if (!initialized() || text.text.empty() || text.fontSize <= 0.0f) return {0, 0};
+    const TextExtent extent = [this](const std::string& s, const std::string& font, float px, float wrap) {
+        return measure_text(s, px, font, wrap, RenderSpace::World);  // px is final: no text scale
+    };
+    return fit_text(text_fit_spec(text), text.text, text.font, textScale_, extent).size;
 }
 
 void Renderer::set_fallback_fonts(std::vector<std::string> fonts) {

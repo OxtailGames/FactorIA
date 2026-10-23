@@ -49,9 +49,17 @@ error with a "did you mean", not a silent failure inside a store SDK. Every sect
 | `ids` | The id each store uses for the same thing: `{"steam": "ACH_WIN_ONE_GAME"}`. The key is the backend's name; without an entry the store id is `id`. |
 | achievements | `name` (required unless `nameKey`), `nameKey`, `description`, `descriptionKey`, `hidden` (default false). |
 | stats | `type`: `"int"` (default) or `"float"`. An int stat takes whole numbers. |
-| leaderboards | `name` (required), `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times). |
+| leaderboards | `name` (required unless `nameKey`), `nameKey`, `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times). |
 | products | `type`: `"consumable"`, `"nonConsumable"` or `"subscription"` (required), `title` (required unless `titleKey`), `titleKey`, `description`, `descriptionKey`, `price` (a number, `currency` default `"USD"`). Only the fake store uses `price`: real stores give their own, localized. |
 | `backend` | Which backend plugin to use: `"auto"` (default), a plugin's name, or one per platform: `{"windows": "steam", "macos": "steam", "linux": "steam", "ios": "apple", "android": "googleplay"}`. See section 5. |
+
+### The catalog from scripts
+
+`game.project.platform` is the section as written in factoria.json, read only: `game.project.platform.products`
+(`{ id, type, title, titleKey, price... }`), `.achievements`, `.stats` and `.leaderboards` (`{ id, name, nameKey, order }`).
+Use it instead of a second table of ids and product types in the code (is `remove_ads` a consumable?), and translate a
+`nameKey` with `i18n.t(entry.nameKey)` for a screen of your own. It is absent when the game declares no `"platform"`.
+`platform.state()` in tests lists only the ids.
 
 `factoria validate` reports every problem of the section (`factoria.json#/platform/products/1/type: "consumable " is
 not a product type; use one of "consumable", "nonConsumable", "subscription" (did you mean "consumable"?)`), and a
@@ -60,7 +68,7 @@ call then says its id is not declared) and the engine logs why.
 
 ### Translated texts
 
-A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place: `nameKey`, `descriptionKey` and
+A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place: `nameKey` (achievements and leaderboards), `descriptionKey` and
 `titleKey` name a key of the string tables instead of writing the text in the catalog.
 
 ```json
@@ -71,6 +79,9 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 - `platform.achievements.list()` returns `name` and `description`, and `platform.purchases.products()` (fake store)
   `title` and `description`, in the current language (`i18n.set_language` changes the next answer). A key that no table
   has falls back to the plain `name` / `title` / `description` if the entry has one, else shows the key.
+- A leaderboard's `nameKey` works the same way: the request the backend gets (`name`, in the fake's request log
+  `game.platform.calls()`) carries the board's name in the current language. The game's own board screen reads the
+  catalog itself, see "The catalog from scripts" below.
 - The plain text may stay next to the key: it is what the store console and `factoria validate` see when a language
   has no table.
 - `factoria validate` reports a key the default language's table lacks, at its JSON pointer
@@ -108,7 +119,7 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.cloud.list()` / `.remove(key)` | `["key", ...]` / nothing. |
 | `platform.purchases.products(ids?)` | `[{ id, title, description, price, priceValue, currency, type }]` as the store shows them. `price` is text for the player's country (`"$0.99"`). A product the store does not know is left out. |
 | `platform.purchases.buy(id)` | `{ status, productId, transactionId, receipt }`. `status` is `"purchased"`, `"pending"` (Ask to Buy: it arrives later as a `purchase` event) or `"cancelled"`. `transactionId` and `receipt` only when purchased. |
-| `platform.purchases.finish(transactionId)` | Nothing. Tells the store the game granted the purchase. |
+| `platform.purchases.finish(transactionId)` | Nothing. Tells the store the game granted the purchase. A `transactionId` the game was not told about (or already finished, or refunded) **rejects** with `unknownId`, like every other store failure: `await platform.purchases.finish(id).catch(...)` catches it. |
 | `platform.purchases.restore()` | `[{ productId, transactionId, receipt }]`: what the player owns that does not get used up (non-consumables, active subscriptions). |
 | `platform.overlay.open(page, id?)` | Opens the store's own screen: `page` is `"achievements"`, `"leaderboards"`, `"friends"` or `"store"`; `id` narrows it to one achievement, leaderboard or product. |
 | `platform.presence.set(text, data?)` | "What the player is doing" for friends. `data`: an object whose values are strings. |
@@ -152,7 +163,7 @@ are cleared when a scene loads (register them in `onStart`).
 
 | Event | Data | When |
 |---|---|---|
-| `"purchase"` | `{ status, productId, transactionId, receipt }` | A transaction that did not come from a `buy()` call: Ask to Buy approved, an unfinished purchase from an earlier run, a purchase made in the store itself. One that arrives before any listener exists is kept and delivered to the first `platform.on("purchase", ...)`: a paid purchase is never lost. |
+| `"purchase"` | `{ status, productId, transactionId, receipt }` | A transaction that did not come from a `buy()` call: Ask to Buy approved, an unfinished purchase from an earlier run, a purchase made in the store itself, or `status: "revoked"`: the store took a purchase back (a refund), so take the goods away. Only the fake store sends `"revoked"` so far: the Apple and Google Play backends drop a refunded purchase from `restore()` instead, so also compare the save with `restore()` when the game starts. One that arrives before any listener exists is kept and delivered to the first `platform.on("purchase", ...)`: a paid purchase is never lost. |
 | `"overlay"` | `{ open }` | The store's overlay opened or closed. Games pause while it is open (`scripts/store_events.js` in [MENUS.md](MENUS.md)). |
 | `"player"` | `{ id, name, signedIn }` | The sign-in state changed. `platform.player` follows it. |
 
@@ -171,7 +182,7 @@ are cleared when a scene loads (register them in `onStart`).
 | `unavailable` | No backend, or it does not offer that service. Check `platform.has("<service>")` first. |
 | `notSignedIn` | The player is not signed in. Every call but `signIn()` needs it. |
 | `notAllowed` | Purchases are disabled or restricted (parental controls). |
-| `unknownId` | The store does not know the id the catalog maps to. |
+| `unknownId` | The store does not know the id the catalog maps to, or `purchases.finish()` got a transaction this game was not told about. |
 | `network` | The store could not be reached. Offer a retry. |
 | `failed` | Anything else; the message says what. |
 
@@ -196,6 +207,7 @@ once, without `game.step()`.
 |---|---|
 | `game.platform.respond(method, answer, times = 1)` | Queues the answer of the next `times` calls of `method` (`"purchases.buy"`; first come, first served). `answer` is `{ error: "network", message?, hint? }` to fail, `{ result: value }` to answer exactly that, or fields merged into the default result: `{ status: "cancelled" }`. A cancelled buy owns nothing. |
 | `game.platform.emit(event, data)` | Sends `"purchase"`, `"overlay"` or `"player"` to the `platform.on` listeners at the next `game.step()`. An emitted purchased `purchase` is also an unfinished transaction. |
+| `game.platform.revoke(productId)` | Takes a purchase back, as a refund does: `restore()` no longer lists it, its unfinished transaction is dropped, and `platform.on("purchase")` listeners get `{ status: "revoked", productId, transactionId, receipt }` at the next `game.step()` (take the goods away). A product the player does not own throws, listing the owned ones. Command: `platform.revoke`. |
 | `game.platform.set({ signedIn, delayFrames, backend })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
@@ -501,8 +513,8 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `achievements.reset` | `{ achievements: [{ id, storeId }] }` | `{}` |
 | `stats.get` | `{ id, storeId, type }` | `{ id, value }` |
 | `stats.set` | `{ id, storeId, type, value }` | `{ id, value }` |
-| `leaderboards.submit` | `{ id, storeId, order, score }` | `{ id, score, best }` |
-| `leaderboards.entries` | `{ id, storeId, order, range, count }` | `[{ rank, name, score, playerId, isPlayer }]` |
+| `leaderboards.submit` | `{ id, storeId, name, order, score }` | `{ id, score, best }` |
+| `leaderboards.entries` | `{ id, storeId, name, order, range, count }` | `[{ rank, name, score, playerId, isPlayer }]` |
 | `cloud.save` | `{ key, data }` (`data` is JSON text) | `{ key, bytes }` |
 | `cloud.load` | `{ key }` | `{ key, data }`, or `null` when there is no such key |
 | `cloud.list` | `{}` | `["key", ...]` |
