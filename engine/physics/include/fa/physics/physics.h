@@ -79,11 +79,11 @@
 //   * 3D JOINTS (Joint3D on an entity with RigidBody3D + Collider3D): Hinge, Ball or Fixed between that body and
 //     Joint3D.connected (empty = the world). Anchors are local points (autoAnchor derives the connected one from the
 //     current pose); a hinge has an axis, optional limits (degrees, relative to the pose the joint was created in) and an
-//     optional motor (degrees/s, torque limit). A point constraint (3x3 effective-mass inverse, Baumgarte feedback) plus
-//     angular rows are solved in the same sequential-impulse loop as the contacts, linearised and warm started each
-//     sub-step, so a pendulum keeps its physical period. Joint3D.angle (degrees) is written back. Bodies that are part of a
-//     joint always turn (rotating rigid bodies) and never sleep; collideConnected=false (default) stops the pair from
-//     colliding. Jointed bodies are processed in creation order => deterministic. A joint that cannot be built (no body,
+//     optional motor (degrees/s, torque limit). A point constraint (3x3 effective-mass inverse, Baumgarte feedback; in a
+//     chain the error is removed by moving the bodies instead) plus angular rows are solved in the same sequential-impulse
+//     loop as the contacts, linearised and warm started each sub-step, so a pendulum keeps its physical period.
+//     Joint3D.angle (degrees) is written back. Bodies that are part of a joint always turn (rotating rigid bodies) and
+//     sleep as a group (JOINT ISLANDS); collideConnected=false (default) stops the pair from colliding. Jointed bodies are processed in creation order => deterministic. A joint that cannot be built (no body,
 //     itself, a connected entity without a body) is a teaching problem like a bad mesh collider.
 //   * NAVIGATION (NavMesh3D, nav.h): the STATIC 3D colliders inside the component's box (no RigidBody3D or a static one,
 //     not triggers, not Collider3D.navObstacle) are rasterised into a 2.5D grid of cellSize cells holding the walkable
@@ -132,11 +132,23 @@
 //     RigidBody3D velocity/angularVelocity, on apply_force/apply_impulse/set_velocity, on a changed scene gravity,
 //     and when a body it touched is destroyed, disabled, resized or moved (its support is gone). A rider on a moving
 //     kinematic platform never sleeps. Like 2D, scripts have no sleep API; debug_state reports `awake` per body.
+//     JOINT ISLANDS: bodies joined by Joint3D are linked like touching bodies, so a settled chain (a rope bridge) falls
+//     asleep as a whole and wakes as a whole; a joint with a motor (useMotor) keeps its bodies awake. A chain of three
+//     or more jointed dynamic bodies is solved with 16 iterations per sub-step instead of 8, its point error is removed by
+//     moving the bodies (never through the velocity: Baumgarte pumped energy into a taut bridge) and the bodies lose 1 /s
+//     of their speed on top of RigidBody3D damping, so a bridge hangs still and sleeps within seconds. Joint3D.damping
+//     (1/s) adds friction to the relative turning of any hinge or ball; Joint3D.stalled reads true when a motor pushes
+//     for 0.25 s without the joint turning.
+//     Continuous collision is solved per island (bodies linked by joints or by shapes close enough to touch within the
+//     sub-step): an impact in one island no longer stops the bodies of the others, so unrelated groups move the same
+//     with or without each other.
 //     lockRotation (and every rollWithMotion sphere, kinematic and static body) keeps the original single-point
 //     torque-free solver: contacts never turn it; angularVelocity written by gameplay still turns it (euler-added to the
 //     Transform each step). An arcade sphere (rollWithMotion, the default) is spun to match its motion instead and
 //     friction only slows it (rollingFriction). A rigid sphere has no rolling resistance: on flat ground it keeps
 //     rolling until angularDamping / linearDamping or an obstacle stops it; lockRotation makes it slide instead.
+//   * START OVERLAPS: a dynamic body that starts inside a static collider (deeper than 1 cm) is reported once, by a
+//     warning in the log on the first step it exists, naming both entities, the depth and the fix.
 //   * 3D SHAPE CAST (shape_cast3d): the swept sphere / axis-aligned box is stepped along the path (at most half its
 //     smallest extent per step), the first step that overlaps a collider is bisected to ~0.1 mm, and normal/point come
 //     from the contact at that time. A collider cannot slip between two steps (the shape is at least two steps long),
@@ -147,10 +159,10 @@
 //     the sub-step exceeds about half the smaller body's smallest extent (sphere: its radius) is swept in relative motion
 //     (the smaller body against the other one standing at its start pose, same stepping + bisection as shape_cast3d):
 //     dynamic vs static, dynamic vs kinematic (the kinematic's own motion within the sub-step counts) and dynamic vs
-//     dynamic (two 60 m/s spheres flying at each other). The earliest time of impact among all pairs stops ALL bodies
-//     there (each moved by its own velocity * that fraction), the contacts are resolved (stop / bounce / slide: the
-//     normal solver, no positional correction since the overlap is ~0.1 mm) and the rest of the sub-step continues
-//     with the new velocities, repeating up to 32 impacts per sub-step (when they run out, the rest of the move waits
+//     dynamic (two 60 m/s spheres flying at each other). The earliest time of impact among the pairs of an island stops
+//     the bodies of THAT island there (each moved by its own velocity * that fraction), the contacts are resolved
+//     (stop / bounce / slide: the normal solver, no positional correction since the overlap is ~0.1 mm) and the rest of
+//     the sub-step continues with the new velocities, repeating up to 32 impacts per sub-step (when they run out, the rest of the move waits
 //     for the next sub-step instead of being applied unswept). So a 60 m/s sphere does not pass a 0.2 m wall
 //     and keeps sliding along a ramp it hits instead of losing the rest of its move. Pairs that already overlap at
 //     the start of the (remaining) move (deeper than 2 mm) are left to the solver; a pair left touching by the last
@@ -233,6 +245,15 @@ struct CharacterMoveResult {
     bool hitCeiling = false;  // bumped its head
 };
 
+// A dynamic 3D body that starts inside a static collider (Physics::start_overlaps3d, the first step's warning and
+// `factoria validate`).
+struct StartOverlap {
+    Entity body;           // the dynamic body
+    Entity collider;       // the static collider it overlaps
+    float depth = 0.0f;    // how far it is inside, meters
+    std::string message;   // one teaching sentence naming both entities, the depth and the fix
+};
+
 class Physics {
 public:
     Physics();
@@ -272,6 +293,10 @@ public:
     // Problems found in the 3D colliders / joints / controllers (one teaching message each), e.g. a Mesh collider on a
     // dynamic body. The bodies concerned are ignored. Messages are also logged once and listed in debug_state.
     std::vector<std::string> problems3d() const;
+    // The dynamic bodies that overlap a static collider (deeper than 1 cm) at their current pose, after syncing the
+    // bodies; nothing is simulated or logged. `factoria validate` calls it for every scene; step() logs the same
+    // warning once for each body on the first step it exists.
+    std::vector<StartOverlap> start_overlaps3d(World& world);
 
     // ----- navigation (NavMesh3D; see fa/physics/nav.h and docs/NAVIGATION.md)
     // Bakes the NavMesh3D of entity `mesh` (an entity id; empty = every enabled NavMesh3D) from the static colliders as

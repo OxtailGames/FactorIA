@@ -351,10 +351,12 @@
       "suggestion": "Accept the empty string as the world (as documented), or change the doc to say 'leave the field out'.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): gates and joints read `stalled` and `connected: \"\"` means the world."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0015",
@@ -376,10 +378,12 @@
       "suggestion": "A validate or debug-draw warning when a Joint3D body overlaps a static collider it is not connected to at the start pose, or a `game_state` field listing joints that are stalled against the motor.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; CC/FB-0053 merged here (the same missing warning, met when a body starts inside a static collider); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; CC/FB-0053 merged here (the same missing warning, met when a body starts inside a static collider); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): a body started inside a static collider is logged once and reported by validate."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0016",
@@ -425,10 +429,12 @@
       "suggestion": "A `Rope`/`Chain` component (or solver iterations per joint chain) that is stable by default, or a documented recipe for bridges in the physics guide.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): jointed chains sleep as islands and CCD is solved per island."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0018",
@@ -1344,10 +1350,12 @@
       ],
       "suggestion": "Warn once (entity id, collider it overlaps, depth) when a dynamic body overlaps a static collider on its first physics step, and let project.validate report it for scenes.",
       "occurrences": 1,
-      "status": "duplicate",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: duplicate of FB-0015 (no warning for a body that starts inside a static collider; its occurrences were merged there); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: duplicate of FB-0015 (no warning for a body that starts inside a static collider; its occurrences were merged there); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): same as FB-0015 (start overlaps are reported)."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0054",
@@ -1367,10 +1375,12 @@
       ],
       "suggestion": "Let jointed bodies sleep as a group once all of them are calm, and solve separate joint islands independently so one island cannot disturb another.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open: jointed bodies never sleep and a CCD event far away holds every body of the world (physics3d.cpp); the dependence on earlier tests was CC/FB-0033, fixed in M25. Work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open: jointed bodies never sleep and a CCD event far away holds every body of the world (physics3d.cpp); the dependence on earlier tests was CC/FB-0033, fixed in M25. Work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): Joint3D.damping, chain iterations and drag: the rope bridge needs no heavy damping or wide planks."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0055",
