@@ -83,12 +83,18 @@ if(FA_BUILD_TESTS)
     if(DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "0" AND NOT "$ENV{CI}" STREQUAL "false")
         set(fa_perf_require true)
     endif()
+    # Scripts run several times slower in a Debug build: Clockwork Courier's tests take about 50 s in Release (CI) and
+    # 250-420 s in Debug on a busy developer machine.
+    set(fa_example_timeout 300)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(fa_example_timeout 900)
+    endif()
     foreach(ex ${FA_EXAMPLE_PROJECTS})
         if(EXISTS ${ex}/factoria.json)
             get_filename_component(ex_name ${ex} NAME)
             add_test(NAME example_${ex_name}_validate COMMAND factoria validate ${ex} WORKING_DIRECTORY ${FA_ROOT})
             add_test(NAME example_${ex_name}_test COMMAND factoria test ${ex} WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+            set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT ${fa_example_timeout})
             # Performance budget (docs/PERFORMANCE.md): a fixed number of frames with the GPU renderer, compared with the
             # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
             # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
