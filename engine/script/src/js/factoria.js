@@ -473,8 +473,8 @@
     destroy() { if (N.alive(this.$h)) N.destroy(this.$h); }
     get parent() { return entityOf(N.parent(this.$h)); }
     get children() { return N.children(this.$h).map(entityOf); }
-    setParent(parent, keepWorld = false) {
-      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld);
+    setParent(parent, keepWorld = false, index = undefined) {
+      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld, index);
     }
     hasTag(t) { return N.hasTag(this.$h, t); }
     addTag(t) { N.addTag(this.$h, t); }
@@ -856,12 +856,13 @@
     spawn(entityJson, opts = {}) {
       const parent = opts && opts.parent ? entityHandle(opts.parent, "world.spawn parent") : null;
       const j = applySpawnOptions(entityPlain(entityJson), opts || {}, "world.spawn");
-      return entityOf(N.spawn(j, parent));
+      return entityOf(N.spawn(j, parent, opts && opts.index));
     },
     spawnPrefab(path, opts = {}) {
       const ov = applySpawnOptions(opts.overrides ? entityPlain(opts.overrides) : {}, opts, "world.spawnPrefab");
+      if (opts.childOverrides !== undefined) ov.overrides = plain(opts.childOverrides);
       const parent = opts.parent ? entityHandle(opts.parent, "world.spawnPrefab parent") : null;
-      return entityOf(N.spawnPrefab(path, parent, ov));
+      return entityOf(N.spawnPrefab(path, parent, ov, opts.index));
     },
     emit(name, data, source) { N.emit(name, data === undefined ? null : plain(data), source instanceof Entity ? source.$h : null); },
     on(name, fn) { return addListener(name, fn, null); },

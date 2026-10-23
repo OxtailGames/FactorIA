@@ -100,6 +100,28 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **One options panel in two places.** The menu scene places the prefab as an inactive entity; the pause menu spawns it,
   and the pause panel, when the level starts. A level needs only the `pause_menu` entity, even a level that
   `scene.import_ascii` rebuilds.
+- **A panel shared between scenes.** Put the panel in a prefab (like `options.prefab.json`) and give each scene a
+  `{ "prefab": ... }` entity. An `overrides` object next to `prefab` changes the prefab's own children for that
+  instance: each key is a child's `id`, its `name` or a path of them like `"Panel/Title"`, each value holds `name`,
+  `tags`, `active` and `components` (components deep-merge, so `{ "Text": { "text": "You won" } }` keeps the font and
+  layer the prefab set). Fields next to `prefab` still change the root, and `children` there are appended after the
+  prefab's. In a script, `world.spawnPrefab(path, { childOverrides: { Title: { components: { Text: { text: "You won" } } } } })`
+  does the same. A `Text` with a `key` shows its key's text, so override `key` (not `text`) to change it. A key that
+  names no child, or a field that does not exist, is an error with a "did you mean". Only the
+  prefab's own descendants can be named; a child that is itself a prefab reference takes the same keys as that reference.
+  Example, two scenes sharing `prefabs/ui/result.prefab.json`:
+
+  ```json
+  { "id": "result", "active": false, "prefab": "prefabs/ui/result.prefab.json",
+    "overrides": { "title": { "components": { "Text": { "text": "Level complete" } } },
+                   "next_button": { "components": { "Button": { "text": "Next level" } } } } }
+  ```
+
+- **Order of a panel's children.** A layout (`column`, `row`) follows the order of the children. `world.spawn(json,
+  { parent, index })`, `world.spawnPrefab(path, { parent, index })`, `entity.setParent(parent, keepWorld, index)` and
+  `scene.set_parent {id, parent, index}` put a child at a place (0 = first); a button added at run time can go on top
+  without touching the others. The order is saved with the scene. An index counts the parent's other children and must
+  be between 0 and their number, otherwise it is an error that says the range.
 - **Loading screen.** `scene.load` blocks the frame it runs in, so the loading scene first reads the next scene's files
   ahead with `scene.preload(session.nextScene)`, a few files per frame, and shows `job.progress` (0..1) while it runs; when
   the Promise resolves the `scene.load` that follows reads nothing from the disk (`session` outlives scene loads).

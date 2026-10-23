@@ -580,10 +580,12 @@
       ],
       "suggestion": "Document or support UI prefabs with child overrides, or a scene include, in the menus guide.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: a prefab already shares a panel between scenes (each scene instances it); what is missing is the recipe in MENUS.md and per-instance overrides of a prefab's children: work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: a prefab already shares a panel between scenes (each scene instances it); what is missing is the recipe in MENUS.md and per-instance overrides of a prefab's children: work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/scene-order (M26.20): a prefab reference takes `overrides` (child id, name or path -> name, tags, active, components) and world.spawnPrefab takes `childOverrides`; docs/MENUS.md has the recipe (\"A panel shared between scenes\"). The game's eight level scenes still hold their own copies of the panels: moving them onto one prefab is a game task."
+      ],
+      "engineIssue": "m26/scene-order"
     },
     {
       "id": "FB-0024",
@@ -820,10 +822,12 @@
       "suggestion": "A `index` (or `before`) option in world.spawn's options and entity.setParent(parent, index).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/scene-order (M26.20): world.spawn(json, {parent, index}), world.spawnPrefab(path, {parent, index}), entity.setParent(parent, keepWorld, index) and scene.set_parent {index}. scripts/more_time.js still re-parents the stock buttons: a game task to drop."
+      ],
+      "engineIssue": "m26/scene-order"
     },
     {
       "id": "FB-0033",

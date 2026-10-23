@@ -301,6 +301,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "position":{"type":"array","description":"[x, y] or [x, y, z] world position (Transform.position)."},
                "entity":{"type":"object","description":"Entity JSON; alternatively put its fields (name, components...) at top level."},
                "parent":{"type":"string","description":"Parent entity id."},
+               "index":{"type":"integer","minimum":0,"description":"Place among the parent's children (0 = first, up to their count). Omitted = last. Needs parent."},
+               "overrides":{"type":"object","description":"With prefab: patches for the prefab's children, keyed by child id, name or path (see docs/MENUS.md)."},
                "name":{"type":"string"},"id":{"type":"string"},
                "tags":{"type":"array","items":{"type":"string"}},
                "components":{"type":"object","description":"Component name -> field object."}}})"),
@@ -308,9 +310,16 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine, &I](const Json& a) {
               Entity parent = kNullEntity;
               if (a.contains("parent")) parent = need_entity(I.world, a, "parent");
+              int index = -1;
+              if (a.contains("index") && !a["index"].is_null()) {
+                  if (!a["index"].is_number()) throw CommandError("invalid_argument", "'index' must be a whole number.", "Example: \"index\": 0 puts the entity first.");
+                  std::string bad = I.world.check_child_index(parent, kNullEntity, a["index"].get<double>());
+                  if (!bad.empty()) throw CommandError("invalid_argument", bad, "scene.get_entity on the parent lists its children in order.");
+                  index = a["index"].get<int>();
+              }
               Json spec = a.contains("entity") && a["entity"].is_object() ? a["entity"] : Json::object();
               if (!a.contains("entity"))
-                  for (const char* k : {"name", "id", "tags", "components", "active", "children"})
+                  for (const char* k : {"name", "id", "tags", "components", "active", "children", "overrides"})
                       if (a.contains(k)) spec[k] = a[k];
               if (a.contains("position")) {
                   Json pos = a["position"];
@@ -320,12 +329,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               LoadReport report;
               Entity e;
               if (a.contains("prefab") && a["prefab"].is_string()) {
-                  e = instantiate_prefab(I.world, a["prefab"].get<std::string>(), parent, report, spec);
+                  e = instantiate_prefab(I.world, a["prefab"].get<std::string>(), parent, report, spec, index);
               } else {
                   if (!spec.contains("components") && !spec.contains("name") && !spec.contains("prefab") && !spec.contains("id"))
                       throw CommandError("invalid_argument", "Nothing to spawn: pass 'prefab' or entity JSON.",
                                          "Example: {\"name\":\"Box\",\"components\":{\"Shape2D\":{\"size\":[50,50]}}}");
-                  e = entity_from_json(I.world, spec, parent, report, "scene.spawn", "");
+                  e = entity_from_json(I.world, spec, parent, report, "scene.spawn", "", index);
               }
               if (!e || !I.world.alive(e))
                   throw CommandError("invalid_argument", "Spawn failed:\n" + report.summary(),
@@ -363,12 +372,16 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"scene.set_parent", "Move an entity under another entity, or to the top level of the scene.",
            "`parent` null or \"\" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on "
            "screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the "
-           "entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the "
+           "entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says "
+           "where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the "
+           "last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a "
+           "parent (top-level order is creation order). Scene files keep the order. A parent that is the "
            "entity itself or one of its children is refused (a cycle). Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
            parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Entity id (or name) to move."},
                "parent":{"type":["string","null"],"description":"New parent's id (or name); null or empty = top level."},
-               "keepWorldTransform":{"type":"boolean","default":true,"description":"true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform."}}})"),
+               "keepWorldTransform":{"type":"boolean","default":true,"description":"true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform."},
+               "index":{"type":"integer","minimum":0,"description":"Place among the new parent's other children (0 = first). Omitted = last. Needs a parent."}}})"),
            false, "scene"},
           [&I](const Json& a) {
               Entity e = need_entity(I.world, a);
@@ -385,9 +398,21 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                          "Cannot make '" + I.world.id_of(e) + "' a child of '" + I.world.id_of(parent) +
                                              "': that would put an entity inside itself (a cycle).",
                                          "Pick a parent that is not the entity or one of its children, or move the other entity first.");
-              I.world.set_parent(e, parent, a.value("keepWorldTransform", true));
+              int index = -1;
+              if (a.contains("index") && !a["index"].is_null()) {
+                  if (!a["index"].is_number()) throw CommandError("invalid_argument", "'index' must be a whole number.", "Example: \"index\": 0 puts the entity first.");
+                  std::string bad = I.world.check_child_index(parent, e, a["index"].get<double>());
+                  if (!bad.empty()) throw CommandError("invalid_argument", bad, "scene.get_entity on the parent lists its children in order.");
+                  index = a["index"].get<int>();
+              }
+              I.world.set_parent(e, parent, a.value("keepWorldTransform", true), index);
               Entity now = I.world.parent(e);
-              return Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+              Json out = Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+              if (now) {
+                  const auto& sib = I.world.children(now);
+                  out["index"] = std::find(sib.begin(), sib.end(), e) - sib.begin();
+              }
+              return out;
           });
 
     I.commands.add({"scene.set_component", "Add a component to an entity (if missing) and set the given fields.",
