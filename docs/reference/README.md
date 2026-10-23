@@ -238,8 +238,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [setup](commands/setup.md)
 
-- [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension (or open Xcode's App Store page). _Since 0.1.4._
-- [`setup.status`](commands/setup.md#setupstatus): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension. _Since 0.1.4._
+- [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg (or open Xcode's App Store page). _Since 0.1.4._
+- [`setup.status`](commands/setup.md#setupstatus): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg. _Since 0.1.4._
 
 ### [shader](commands/shader.md)
 

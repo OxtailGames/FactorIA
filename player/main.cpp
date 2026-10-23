@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <string>
 
+#include "fa/core/build_info.h"
 #include "fa/core/crash.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
@@ -247,7 +248,7 @@ int main(int argc, char** argv) {
             print_usage();
             return 0;
         } else if (a == "--version") {
-            std::printf("factoria_player %s\n", FA_ENGINE_VERSION);
+            std::printf("factoria_player %s\nbuild %s\n", FA_ENGINE_VERSION, fa::build_fingerprint());
             return 0;
         } else if (a == "--fullscreen") {
             fullscreen = true;

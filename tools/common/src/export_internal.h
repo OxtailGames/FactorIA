@@ -129,6 +129,11 @@ Result<std::string> select_sections(const std::string& text, bool source, const 
 // ---- desktop (export_desktop.cpp) ------------------------------------------------------------------
 
 Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platform);
+// The player must come from the same build as this factoria (fa/core/build_info.h): its fingerprint is read from the file's
+// bytes. A different one stops the export unless ExportOptions::allowPlayerMismatch (then `warnings` says so). Files that
+// are no executable (a test's stand-in) and a factoria built outside git ("unknown") are not compared.
+Result<void> check_player_build(const ExportOptions& o, const stdfs::path& player, const std::string& platform,
+                                std::vector<std::string>& warnings);
 // The game name with the characters a file name cannot hold replaced (the .app folder of macOS).
 std::string fs_safe_name(const std::string& s);
 // The game's executable in a desktop export: <slug>.exe on Windows, else <slug>. On Linux the slug `game` gives game-bin:
@@ -225,6 +230,11 @@ struct AndroidPlan {
     std::string format;                  // "apk" | "aab" | "gradle"
     bool release = false;
     AndroidToolchain toolchain;          // JDK + SDK (found for every format: the SDK also goes to local.properties)
+    // The CMake of a source-mode build: the SDK's pinned version when it is installed, else the newest CMake 3.24+ of the SDK,
+    // else a CMake of this computer (cmakeDir -> cmake.dir in local.properties). cmakeVersion goes to factoria.cmakeVersion.
+    std::string cmakeVersion;
+    std::string cmakeDir;                // "" = the one in the SDK
+    std::string cmakeNote;               // "the SDK has no CMake 3.31.6; ..." when it is not the pinned one
     stdfs::path artifact;                // <outRoot>/<slug>[-debug].apk|aab; empty for "gradle"
     // Release signing (apk/aab only): the keystore of export.android.signing resolved against the project folder, its
     // alias, and the passwords (environment variables win over ~/.factoria/export.json). Empty keystore = signed with
