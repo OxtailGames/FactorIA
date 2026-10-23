@@ -163,7 +163,7 @@ are cleared when a scene loads (register them in `onStart`).
 
 | Event | Data | When |
 |---|---|---|
-| `"purchase"` | `{ status, productId, transactionId, receipt }` | A transaction that did not come from a `buy()` call: Ask to Buy approved, an unfinished purchase from an earlier run, a purchase made in the store itself, or `status: "revoked"`: the store took a purchase back (a refund), so take the goods away. One that arrives before any listener exists is kept and delivered to the first `platform.on("purchase", ...)`: a paid purchase is never lost. |
+| `"purchase"` | `{ status, productId, transactionId, receipt }` | A transaction that did not come from a `buy()` call: Ask to Buy approved, an unfinished purchase from an earlier run, a purchase made in the store itself, or `status: "revoked"`: the store took a purchase back (a refund), so take the goods away. Only the fake store sends `"revoked"` so far: the Apple and Google Play backends drop a refunded purchase from `restore()` instead, so also compare the save with `restore()` when the game starts. One that arrives before any listener exists is kept and delivered to the first `platform.on("purchase", ...)`: a paid purchase is never lost. |
 | `"overlay"` | `{ open }` | The store's overlay opened or closed. Games pause while it is open (`scripts/store_events.js` in [MENUS.md](MENUS.md)). |
 | `"player"` | `{ id, name, signedIn }` | The sign-in state changed. `platform.player` follows it. |
 
