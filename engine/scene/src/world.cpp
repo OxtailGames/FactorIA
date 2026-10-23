@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <unordered_map>
 
 #include "component_pool.h"
@@ -382,12 +383,12 @@ std::string World::check_child_index(Entity parent, Entity moving, double index)
     if (parent.is_null() || !alive(parent))
         return "An index needs a parent: top-level entities stay in creation order. Pass a parent, or leave the index out.";
     if (index != std::floor(index) || index < 0)
-        return "The index must be a whole number from 0, got " + std::to_string(index) + ".";
+        return std::format("The index must be a whole number from 0, got {}.", index);
     const auto& sib = impl_->slots[parent.index].children;
     long long n = static_cast<long long>(sib.size());
     if (!moving.is_null() && std::find(sib.begin(), sib.end(), moving) != sib.end()) --n;
     if (index > static_cast<double>(n))
-        return "The index " + std::to_string(static_cast<long long>(index)) + " is past the end: '" + id_of(parent) + "' has " +
+        return std::format("The index {} is past the end: '", index) + id_of(parent) + "' has " +
                std::to_string(n) + " other child" + (n == 1 ? "" : "ren") + ", so the index goes from 0 to " + std::to_string(n) +
                " (" + std::to_string(n) + " = last). Leave the index out to append.";
     return {};

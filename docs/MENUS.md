@@ -103,7 +103,8 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   `tags`, `active` and `components` (components deep-merge, so `{ "Text": { "text": "You won" } }` keeps the font and
   layer the prefab set). Fields next to `prefab` still change the root, and `children` there are appended after the
   prefab's. In a script, `world.spawnPrefab(path, { childOverrides: { Title: { components: { Text: { text: "You won" } } } } })`
-  does the same. A key that names no child, or a field that does not exist, is an error with a "did you mean". Only the
+  does the same. A `Text` with a `key` shows its key's text, so override `key` (not `text`) to change it. A key that
+  names no child, or a field that does not exist, is an error with a "did you mean". Only the
   prefab's own descendants can be named; a child that is itself a prefab reference takes the same keys as that reference.
   Example, two scenes sharing `prefabs/ui/result.prefab.json`:
 
