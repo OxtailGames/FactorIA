@@ -1553,6 +1553,24 @@ NATIVE(testSafeProfile) {  // (name) -> "" or what is wrong
     return JS_NewString(ctx, "");
 }
 
+NATIVE(testQuit) {  // (reset?): whether a quit was requested in this test; true as argument clears it
+    SETUP;
+    const bool was = I->testQuitRequested;
+    if (arg_bool(ctx, argc, argv, 0, false)) I->testQuitRequested = false;
+    return JS_NewBool(ctx, was);
+}
+
+NATIVE(testSystemLanguages) {  // (list): the languages the device pretends to have; no argument clears
+    SETUP;
+    I->testSystemLanguages.clear();
+    if (argc > 0 && JS_IsArray(argv[0])) {
+        Json list = I->to_json(argv[0]);
+        for (const Json& v : list)
+            if (v.is_string()) I->testSystemLanguages.push_back(v.get<std::string>());
+    }
+    return JS_UNDEFINED;
+}
+
 NATIVE(testBack) {
     SETUP;
     I->host->input().on_back();
@@ -1966,7 +1984,7 @@ NATIVE(debugDraw) {  // (kind, ...)
 // ---- game / storage / commands ------------------------------------------------------------------------------------
 NATIVE(quit) {
     SETUP;
-    I->host->request_quit();
+    I->request_quit();
     return JS_UNDEFINED;
 }
 
@@ -2192,6 +2210,8 @@ NATIVE(i18nInfo) {  // {enabled, language, defaultLanguage, languages, names, sy
         // The player's languages only in a game with its own window: headless runs and tests must not depend on the machine.
         if (I->host->window())
             for (const std::string& tag : system_languages()) j["systemLanguages"].push_back(tag);
+        else if (I->inTestRun)  // game.setSystemLanguages in a test
+            for (const std::string& tag : I->testSystemLanguages) j["systemLanguages"].push_back(tag);
     }
     return I->from_json(j);
 }
@@ -2433,7 +2453,7 @@ const Reg kRegs[] = {
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
     R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
-    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
+    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
