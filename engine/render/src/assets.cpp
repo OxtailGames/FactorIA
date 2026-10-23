@@ -366,6 +366,7 @@ private:
 
     void apply_material(const cgltf_material* mat, const std::string& dir, const cgltf_data* data, SubMesh& sm) {
         if (!mat) return;
+        if (mat->name) sm.materialName = mat->name;
         sm.doubleSided = mat->double_sided;
         sm.blended = mat->alpha_mode == cgltf_alpha_mode_blend;
         if (mat->has_pbr_metallic_roughness) {
