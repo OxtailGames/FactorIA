@@ -15,6 +15,14 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Sliders and lists
+
+- `Slider.format` shows the value as a pattern: `"{v:1}x"`, `"{percent}%"` (the value times 100); `Slider.formatKey` takes the
+  pattern from a string table, so it can differ per language. `game.setSlider(id, value)` in a test drags a slider like a
+  player: clamped, snapped to `step`, `ui.change` sent (the `ui.set_slider` command); writing `Slider.value` from a script
+  still sends nothing. `ScrollList.shrink` makes a list as tall as its content up to the room the other children leave, so a
+  short list in a `fit` panel makes a short panel.
+
 Tests
 
 - `factoria:test` can hold a mouse button and turn the wheel (`game.mouseDown`, `mouseUp`, `wheel`), so a drag orbit and a

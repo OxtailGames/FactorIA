@@ -304,6 +304,8 @@ struct Slider : UiControl {
     float max = 1.0f;
     float step = 0.1f;                        // keyboard / gamepad increment and snapping; 0 = continuous
     bool showValue = true;
+    std::string format;                       // pattern of the shown value: {v}, {v:N}, {percent}; "" = the default ("60%" for 0..1)
+    std::string formatKey;                    // localization key whose translation is written into `format`; "" = none
     float maxWidth = 0.0f;                    // > 0 wraps the label at this width (design pixels); 0 = no wrap
     bool labelAbove = false;                  // the label sits above the track, on the full width, instead of at its left
     bool autoSize = false;                    // grow to fit the label and value text (at least `size`), at the current ui.textScale
@@ -327,6 +329,7 @@ struct ScrollList : UiBox {
     float scroll = 0.0f;                      // runtime: pixels scrolled from the top
     float scrollSpeed = 40.0f;                // pixels per mouse-wheel notch
     bool fill = false;                        // inside a column Panel: take the height the other children leave
+    bool shrink = false;                      // inside a column Panel: as tall as the content, up to the room the others leave
     ScrollList() { size = {320, 240}; }
 };
 

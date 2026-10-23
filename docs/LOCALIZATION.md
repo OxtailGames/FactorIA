@@ -102,6 +102,9 @@ translation into `Text.text`, `Button.text`, `Toggle.label`, `Slider.label`, `Te
 
 ### Values in the text: `keyArgs`
 
+A `Slider` also has `formatKey`: the key's translation is the pattern of its value column (`"slider.percent": "{percent} %"`),
+written into `Slider.format`. Keep `{v}`, `{v:N}` and `{percent}` in the translation; the slider fills them in.
+
 `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton` also have `keyArgs`, an object of name -> string or
 number: the values of the key's `{placeholders}` (and `count`, which picks the form of a plural entry). The engine passes
 it to `i18n.t` whenever it localizes the text, so a script sets it once and a language switch keeps it:

@@ -25,6 +25,19 @@ Remove every subtitle from the screen now.
 
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
 
+## `ui.set_slider` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.
+
+For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to [min, max] and snapped to `step` exactly as dragging the track does, and the "ui.change" event {id, value} is sent when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that is the difference. Needs an active, interactable Slider. Returns {id, value, changed}. Example: ui.set_slider {"id":"music_volume","value":0.5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name) of the Slider. |
+| `value` | number | yes | The wanted value; clamped to [min, max] and snapped to step. |
+
 ## `ui.set_text_scale` (modifies state)
 
 Since 0.2.0.
