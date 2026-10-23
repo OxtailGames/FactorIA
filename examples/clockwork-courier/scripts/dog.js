@@ -61,8 +61,8 @@ export default class Dog extends Behaviour {
   /** Tint of the view cone when calm and when alerted. */
   calmColor = [1, 0.95, 0.7, 1];
   alertColor = [1, 0.25, 0.2, 1];
-  /** Sound of a bark (an impact clip, pitched: the kit has no bark, ENGINE_FEEDBACK). */
-  barkSound = "assets/audio/impactPunch_heavy_000.ogg";
+  /** Sound of a bark (made with assets.synth_sound, preset "bark"). */
+  barkSound = "assets/audio/dog_bark.wav";
   /** Id of the courier entity. */
   courierId = "courier";
 
@@ -220,7 +220,7 @@ export default class Dog extends Behaviour {
   }
 
   bark(volume = 0.9) {
-    audio.play(this.barkSound, { bus: "sfx", volume, pitch: 1.7 + (this.time % 0.2), caption: "[Dog barks]", captionKey: "captions.dogBark" });
+    audio.play(this.barkSound, { bus: "sfx", volume, pitch: 0.95 + (this.time % 0.2), caption: "[Dog barks]", captionKey: "captions.dogBark" });
     this.setClip("bark");
   }
 

@@ -15,6 +15,16 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Platform services
+
+- The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
+  `platform.revoke`) removes it from `restore()` and sends the `purchase` event with `status: "revoked"`.
+- `platform.purchases.finish()` of a transaction the game was not told about now rejects its Promise with code
+  `unknownId` (it used to throw at the call), so `.catch()` handles it like any store failure.
+- Leaderboards in factoria.json take a `nameKey` (a locale key) instead of `name`, like achievements; the request
+  the backend gets carries the name in the current language. PLATFORM.md documents `game.project.platform`, the
+  catalog scripts can read.
+
 Tools
 
 - `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many
@@ -25,6 +35,19 @@ Tools
 - They patch `factoria.json` instead of rewriting it: only `plugins.<name>` is added, and the other keys, their order
   and the layout stay as they were. `export` and `icon` saves (the editor, `assets.draw_icon`) use the same patcher.
 - The plugin templates come with a `.gitignore` for their build output.
+
+Assets
+
+- `assets.import` of a `.glb` or `.gltf` copies the textures and buffers its `uri`s point at next to the model (with
+  provenance), shares an identical file already there, warns when the destination holds a different image of the same
+  name (kits that ship different `colormap.png` files) and stops on a different buffer; `factoria validate` reports a
+  model whose texture or buffer file is missing.
+- `assets.set_provenance` (and every command that edits `assets.json`) keeps the order of a hand-ordered file instead of
+  sorting all of it; a sorted file stays sorted.
+- `factoria validate`'s loudness warnings use the sound as it plays: a project with `defaults.audio.normalize` has no
+  peak or loudness warning left for it.
+- New `assets.synth_sound {path, preset, seed}` makes barks, growls, meows and the usual effects (coin, jump, hit,
+  explosion, laser...) offline as a deterministic WAV, with its provenance; no provider and no key.
 
 Physics
 
@@ -87,6 +110,17 @@ Scripting
   pauses the game and the music while the app is in the background; `game.suspend()`, `game.resume()`, `game.focus()`
   and `game.blur()` in `factoria:test` test it. A pause menu opened by a `suspend` handler stays after resume.
 - Clockwork Courier uses the date and the lifecycle API instead of its workarounds (FB-0019, FB-0035).
+
+UI
+
+- Text that fits: `autoShrink` (with `minFontSize`, default 10) on `Text`, `Button`, `Toggle`, `Slider` and `TouchButton`
+  shrinks the font until the text fits its box (`Text.maxWidth` x the new `Text.maxHeight`, or the room the widget leaves
+  its label), never under `minFontSize` times `ui.textScale`. `maxTextScale` on `Text`, every widget and `TouchButton`
+  stops `ui.textScale` from growing that text past a scale (a heading at 1.3). `Toggle.maxWidth` and `Slider.maxWidth`
+  wrap long labels, `Slider.labelAbove` puts the label above the track. Layout, `autoSize`, `ui.measureText` (new
+  options, returns `fontSize` too), `ui.rectOf` and the 2D and 3D renderers use the same size.
+- New `ui.overflowed(idOrEntity)` and `"overflowed": true` in `ui.state` say a text still does not fit its box.
+- Clockwork Courier dropped its text-fit workarounds in the level select, HUD, toasts and options (FB-0041, FB-0042).
 
 ## 0.2.0
 

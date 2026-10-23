@@ -219,7 +219,15 @@ TEST_CASE("platform: a mistake is an error before the backend sees anything") {
     CHECK(has(g.mistake("presence.set", Json::parse(R"({"text": "x", "data": {"level": 3}})")), "must be strings"));
     CHECK(has(g.mistake("overlay.open", Json::parse(R"({"page": "achievments"})")), "did you mean \"achievements\"?"));
     CHECK(has(g.mistake("overlay.open", Json::parse(R"({"page": "friends", "id": "x"})")), "takes no id"));
-    CHECK(has(g.mistake("purchases.finish", Json::parse(R"({"transactionId": "t1"})")), "is not one this game was told about"));
+    {  // an unknown transaction is not a mistake in the call: the Promise rejects with unknownId
+        auto r = g.ps.start("purchases.finish", Json::parse(R"({"transactionId": "t1"})"));
+        REQUIRE(r.ok());
+        REQUIRE(r->answer.has_value());
+        CHECK_FALSE(r->answer->ok);
+        CHECK(r->answer->error.code == "unknownId");
+        CHECK(has(r->answer->error.message, "is not one this game was told about"));
+        CHECK_FALSE(r->answer->error.hint.empty());
+    }
     CHECK(has(g.mistake("purchases.buy", Json()), "arguments must be an object"));
     CHECK(has(g.mistake("achivements.unlock", Json::object()), "unknown platform method"));
     CHECK(has(g.mistake("achivements.unlock", Json::object()), "Did you mean 'achievements.unlock'?"));
@@ -337,11 +345,11 @@ TEST_CASE("platform: the backend gets the store ids, and answers with a store id
     CHECK(ps.start("achievements.unlock", Json::parse(R"({"id": "first_win"})")).ok());
     CHECK(r->calls.back().args == Json::parse(R"({"id": "first_win", "storeId": "com.studio.game.first_win"})"));
     CHECK(ps.start("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 120})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "high_score", "storeId": "high_score_v2", "order": "descending", "score": 120})"));
+    CHECK(r->calls.back().args == Json::parse(R"({"id": "high_score", "storeId": "high_score_v2", "name": "High score", "order": "descending", "score": 120})"));
     CHECK(ps.start("stats.set", Json::parse(R"({"id": "wins", "value": 3})")).ok());
     CHECK(r->calls.back().args == Json::parse(R"({"id": "wins", "storeId": "wins", "type": "int", "value": 3})"));
     CHECK(ps.start("leaderboards.entries", Json::parse(R"({"id": "best_time"})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "best_time", "storeId": "best_time", "order": "ascending", "range": "top", "count": 10})"));
+    CHECK(r->calls.back().args == Json::parse(R"({"id": "best_time", "storeId": "best_time", "name": "Best time", "order": "ascending", "range": "top", "count": 10})"));
     CHECK(ps.start("achievements.list", Json::object()).ok());
     CHECK(r->calls.back().args["achievements"].size() == 2);
     CHECK(ps.start("purchases.buy", Json::parse(R"({"id": "gems_100"})")).ok());
@@ -359,7 +367,12 @@ TEST_CASE("platform: the backend gets the store ids, and answers with a store id
     CHECK(r->calls.back().args == Json::parse(R"({"id": "gems_100", "storeId": "com.studio.game.gems100", "type": "consumable", "transactionId": "T1"})"));
     r->kept.complete(r->calls.back().id, Json::object());
     ps.take_answers();
-    CHECK_FALSE(ps.start("purchases.finish", Json::parse(R"({"transactionId": "T1"})")).ok());  // finished once
+    {  // finished once
+        auto again = ps.start("purchases.finish", Json::parse(R"({"transactionId": "T1"})"));
+        REQUIRE(again.ok());
+        REQUIRE(again->answer.has_value());
+        CHECK(again->answer->error.code == "unknownId");
+    }
 
     // products(): the catalog's own fields go along for backends that cannot ask a store.
     CHECK(ps.start("purchases.products", Json::parse(R"({"ids": ["remove_ads"]})")).ok());
@@ -909,4 +922,76 @@ TEST_CASE("fake: set_none() behaves as the none backend until reset()") {
     CHECK(g.ps.has_service("purchases"));
     CHECK(g.ps.info()["backend"] == "fake");
     CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["unlocked"] == true);
+}
+
+// ------------------------------------------------------------------------------------------------- revoke (M26.8) ----
+TEST_CASE("fake: revoke() takes a purchase back and sends the refund event") {
+    Game g;
+    Json bought = g.ok("purchases.buy", Json::parse(R"({"id": "remove_ads"})"));
+    CHECK(g.ok("purchases.restore").size() == 1);
+    g.ps.take_events();
+
+    REQUIRE(g.fake().revoke("remove_ads").ok());
+    CHECK(g.ok("purchases.restore").empty());
+    CHECK(g.fake().state()["owned"].empty());
+    CHECK(g.fake().state()["unfinished"].empty());
+    auto events = g.ps.take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].name == "purchase");
+    CHECK(events[0].data["status"] == "revoked");
+    CHECK(events[0].data["productId"] == "remove_ads");
+    CHECK(events[0].data["transactionId"] == bought["transactionId"]);
+
+    // The refunded transaction is gone for good: finishing it rejects.
+    CHECK(g.fails("purchases.finish", Json::object({{"transactionId", bought["transactionId"]}})).code == "unknownId");
+
+    // A consumable bought and not finished can be taken back too; the second time there is nothing left.
+    g.ok("purchases.buy", Json::parse(R"({"id": "gems_100"})"));
+    REQUIRE(g.fake().revoke("gems_100").ok());
+    auto none = g.fake().revoke("gems_100");
+    REQUIRE_FALSE(none.ok());
+    CHECK(has(none.error().message, "is not owned"));
+}
+
+TEST_CASE("fake: revoke() of a product that is not owned names what is") {
+    Game g;
+    g.ok("purchases.buy", Json::parse(R"({"id": "remove_ads"})"));
+    auto bad = g.fake().revoke("remove_adz");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(has(bad.error().hint, "remove_ads"));
+    CHECK(g.ok("purchases.restore").size() == 1);  // nothing changed
+}
+
+// --------------------------------------------------------------------------------------- leaderboard names (M26.8) ----
+TEST_CASE("platform: a leaderboard shows its name in the current language from nameKey") {
+    const char* text = R"({
+      "leaderboards": [ { "id": "high_score", "nameKey": "board.high_score" },
+                        { "id": "best_time", "name": "Best time", "nameKey": "board.missing", "order": "ascending" } ]
+    })";
+    Game g(text);
+    std::string language = "en";
+    const std::map<std::string, std::map<std::string, std::string>> tables = {
+        {"en", {{"board.high_score", "High score"}}}, {"es", {{"board.high_score", "Puntuacion maxima"}}}};
+    g.ps.set_translator([&](const std::string& key) -> std::optional<std::string> {
+        const auto& t = tables.at(language);
+        auto it = t.find(key);
+        if (it == t.end()) return std::nullopt;
+        return it->second;
+    });
+    auto name_sent = [&](const char* id) {
+        g.ok("leaderboards.entries", Json::parse(std::string("{\"id\": \"") + id + "\"}"));
+        return g.fake().state()["calls"].back()["args"]["name"];
+    };
+    CHECK(name_sent("high_score") == "High score");
+    CHECK(name_sent("best_time") == "Best time");  // unknown key: the plain text
+    language = "es";
+    CHECK(name_sent("high_score") == "Puntuacion maxima");
+
+    auto ok = parse_platform_catalog(Json::parse(R"({"leaderboards": [{"id": "b", "nameKey": "x.name"}]})"));
+    CHECK(ok.ok());
+    REQUIRE(ok.catalog.textKeyRefs.size() == 1);
+    CHECK(ok.catalog.textKeyRefs[0].pointer == "/platform/leaderboards/0/nameKey");
+    auto none = parse_platform_catalog(Json::parse(R"({"leaderboards": [{"id": "b"}]})"));
+    REQUIRE(none.issues.size() == 1);
+    CHECK(none.issues[0].pointer == "/platform/leaderboards/0/name");
 }
