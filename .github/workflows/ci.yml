@@ -112,7 +112,7 @@ jobs:
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
       - name: Physics replay hash (linux)
-        if: always()
+        if: ${{ !cancelled() }}
         run: ctest --preset linux-release -R physics_determinism -V
 
       - name: Upload test output on failure
@@ -223,7 +223,7 @@ jobs:
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
       - name: Physics replay hash (windows)
-        if: always()
+        if: ${{ !cancelled() }}
         run: ctest --preset windows-release -R physics_determinism -V
 
       - name: Upload test output on failure
@@ -284,7 +284,7 @@ jobs:
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
       - name: Physics replay hash (macos)
-        if: always()
+        if: ${{ !cancelled() }}
         run: ctest --preset macos-release -R physics_determinism -V
 
       - name: Upload test output on failure
