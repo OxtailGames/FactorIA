@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "export_internal.h"
+#include "fa/core/i18n.h"
 #include "fa/core/json.h"
 #include "fa/services/platform.h"
 #include "fa/tooling/bundle.h"
@@ -84,10 +85,11 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     const bool hasEntitlements = !needs.entitlements.empty();
     if (hasEntitlements)
         if (auto r = write_text(outRoot / kIosEntitlementsFile, entitlements_plist(needs.entitlements)); !r.ok()) return r;
-    // A plugin that links StoreKit sells the catalog's products: Products.storekit lets a run from Xcode sell them without
-    // App Store Connect (build_ios.sh wires it into the scheme).
+    // The catalog's products as Products.storekit, whether or not the Apple plugin is declared or built (the plugin only matters
+    // for the scheme): Xcode sells them to a run from Xcode without App Store Connect (build_ios.sh wires it into the scheme).
+    // One localization per language of the game, from the products' titleKey / descriptionKey.
     bool hasStoreKit = false;
-    if (std::find(needs.frameworks.begin(), needs.frameworks.end(), "StoreKit") != needs.frameworks.end()) {
+    {
         auto project = load_json_file(generic(p.dir / "factoria.json"));
         if (project.ok() && project->is_object() && project->contains("platform")) {
             const PlatformCatalog catalog = parse_platform_catalog((*project)["platform"]).catalog;
@@ -95,7 +97,29 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                 auto script = bundled_read("platforms/ios/storekit_scheme.cmake");
                 if (!script)
                     return err("export: this factoria has no built-in platforms/ios/storekit_scheme.cmake", "this is an engine bug; report it");
-                if (auto r = write_text(outRoot / kStoreKitFileName, dump_json(storekit_configuration(catalog, "apple", p.name, p.id))); !r.ok())
+                std::vector<StoreKitLanguage> languages;
+                const LocalizationSettings localization =
+                    project->contains("localization") ? parse_localization((*project)["localization"]).settings : LocalizationSettings{};
+                if (localization.enabled()) {
+                    auto read_strings = [&](const std::string& tag) {
+                        std::map<std::string, std::string> out;
+                        const std::string file = "locales/" + tag + ".json";
+                        auto doc = load_json_file(generic(p.dir / file));
+                        if (!doc.ok()) return out;
+                        auto table = parse_string_table(*doc, tag, file);
+                        if (!table.ok()) return out;
+                        for (const auto& [key, entry] : table->entries)
+                            out[key] = entry.plural() ? entry.forms.at(PluralCategory::Other) : entry.text;
+                        return out;
+                    };
+                    const auto base = read_strings(localization.defaultLanguage);
+                    for (const std::string& tag : localization.languages) {
+                        StoreKitLanguage lang{tag, base};  // a key a language lacks falls back to the default language
+                        for (auto& [key, text] : read_strings(tag)) lang.strings[key] = std::move(text);
+                        languages.push_back(std::move(lang));
+                    }
+                }
+                if (auto r = write_text(outRoot / kStoreKitFileName, dump_json(storekit_configuration(catalog, "apple", p.name, p.id, languages))); !r.ok())
                     return r;
                 if (auto r = write_text(outRoot / "storekit_scheme.cmake", *script); !r.ok()) return r;
                 hasStoreKit = true;

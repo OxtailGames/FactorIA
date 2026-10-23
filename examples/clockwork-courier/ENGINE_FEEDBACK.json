@@ -505,8 +505,9 @@
       ],
       "suggestion": "A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
+        "2026-10-23: Fixed in M26.17: a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12.",
         "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin.",
         "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks."
       ]
@@ -871,10 +872,12 @@
       "suggestion": "Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): every iOS export whose catalog has products writes Products.storekit, with or without the Apple plugin, with one localization per language of the project from titleKey / descriptionKey."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0035",
@@ -923,10 +926,12 @@
       "suggestion": "Add window.renderScale (0.5..1) and a read-only game.deviceTier or gpu info, and make window.frameCap a no-op that returns the real cap on phones instead of throwing.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/render-quality (M26.15): window.renderScale (0.5..1), window.supports(\"frameCap\" | \"renderScale\" | ...) and game.device {formFactor, gpuBackend, memoryGB, tier} (fixed values headless, game.setDevice in tests). The frame cap still throws on a phone, so the options screen reads window.supports(\"frameCap\"); the presets set renderScale and a new player starts at game.device.tier instead of a screen-size guess."
+      ],
+      "engineIssue": "m26/render-quality"
     },
     {
       "id": "FB-0037",
@@ -1212,10 +1217,12 @@
       "suggestion": "Accept any CMake >= the minimum (read from `cmake --version` or `export.android.cmake`), print the cmake.dir / JAVA_HOME / --offline recipe in the error, and let `factoria doctor` list both.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH)."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0049",
@@ -1236,10 +1243,12 @@
       "suggestion": "Print the player path and version in the export report, and warn (or refuse without --allow-player-mismatch) when the player's version or build id differs from the factoria that exports. The Windows export already reads the player's version information; do the same on macOS and Linux (factoria_player --version).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0050",
@@ -1261,10 +1270,12 @@
       "suggestion": "Add triangles, lights, shadowCasters and textureMB to perf.measure and to a `game.renderStats()` in factoria:test (the headless EGL/Metal renderer has them after one frame).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: game.renderStats exists but stays zero until a frame is drawn, which a headless test may never do, and perf.measure records no triangles or lights: work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: game.renderStats exists but stays zero until a frame is drawn, which a headless test may never do, and perf.measure records no triangles or lights: work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/render-quality (M26.15): game.renderStats() in tests draws a frame when none was drawn and adds shadowCasters and textureMB; perf.measure records triangles, lights and textureMB; perf.check takes budgets (maxTriangles...). tests/budget.test.js checks real triangles, lights, shadow casters and draw calls (falling back to scene counts without a GPU) and perf.json holds budgets."
+      ],
+      "engineIssue": "m26/render-quality"
     },
     {
       "id": "FB-0051",
@@ -1289,8 +1300,10 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md)."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0052",
@@ -1311,8 +1324,9 @@
       "suggestion": "Document how the web player receives text (keydown vs the text input event, hidden input element for mobile keyboards) so a game can test it, and add an autotest page to the web player.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
+        "2026-10-23: Fixed in M26.17: the web player has a hidden input for mobile browsers, TEXT.md and EXPORTING.md describe typing, and the web smoke types into a field (run by CI).",
         "2026-10-22 triage: holds in part: the web player takes typed text from the browser's keypress events, which a browser pane's synthetic key events may not send, so this is probably not a player bug; the docs, a web autotest and a hidden input for mobile keyboards are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md."
       ]
     },

@@ -1989,6 +1989,37 @@ NATIVE(accessibility) {
     return a;
 }
 
+// The device the game runs on: the host's values (fixed ones headless) with what game.setDevice set in a test on top.
+NATIVE(deviceInfo) {
+    SETUP;
+    Json d = I->host->device_info();
+    for (auto it = I->testDevice.begin(); it != I->testDevice.end(); ++it) d[it.key()] = it.value();
+    return I->from_json(d);
+}
+
+NATIVE(testDevice) {  // (overrides object); no argument = back to the host's values
+    SETUP;
+    I->testDevice = argc > 0 ? I->to_json(argv[0]) : Json::object();
+    if (!I->testDevice.is_object()) I->testDevice = Json::object();
+    return JS_UNDEFINED;
+}
+
+NATIVE(renderStatsNow) {  // the renderer's stats of the picture now (a frame is drawn first when needed), or null
+    SETUP;
+    return I->from_json(I->host->render_stats_now());
+}
+
+NATIVE(renderScaleGet) {
+    SETUP;
+    return JS_NewFloat64(ctx, I->host->render_scale());
+}
+
+NATIVE(renderScaleSet) {  // "" or the reason it did not happen
+    SETUP;
+    const std::string err = I->host->set_render_scale(arg_num(ctx, argc, argv, 0, 1.0));
+    return JS_NewString(ctx, err.c_str());
+}
+
 NATIVE(testAccessibility) {  // (textScale, reduceMotion, highContrast, screenReader); no arguments = back to the defaults
     SETUP;
     AccessibilitySettings s;
@@ -2389,7 +2420,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };

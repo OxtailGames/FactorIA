@@ -31,7 +31,7 @@ using namespace render;
 Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
                 {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
-                {"triangles", triangles}, {"lights", lights}, {"lightsDropped", lightsDropped},
+                {"triangles", triangles}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
                 {"materials", materials}, {"materialFallbacks", materialFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
@@ -471,6 +471,19 @@ void Renderer::set_render_scale(float scale) {
     impl_->renderScale = scale;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
+const char* Renderer::backend_name() {
+    switch (sg_query_backend()) {
+        case SG_BACKEND_GLCORE: return "glcore";
+        case SG_BACKEND_GLES3: return "gles3";
+        case SG_BACKEND_D3D11: return "d3d11";
+        case SG_BACKEND_METAL_IOS:
+        case SG_BACKEND_METAL_MACOS:
+        case SG_BACKEND_METAL_SIMULATOR: return "metal";
+        case SG_BACKEND_WGPU: return "wgpu";
+        case SG_BACKEND_VULKAN: return "vulkan";
+        default: return "dummy";
+    }
+}
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }
 int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
 
@@ -787,6 +800,7 @@ void Renderer::Impl::render(World& world, float dt) {
             if (!mi.visible) ++stats.meshesCulled;
             mi.casts = doShadows && mi.mr->castShadows &&
                        box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
+            if (mi.casts) ++stats.shadowCasters;
         }
         list->erase(std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
                     list->end());

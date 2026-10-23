@@ -1427,6 +1427,10 @@ Done (branch `m26/joints`): start-overlap warning and validate, `Joint3D.stalled
 Acceptance: script tests for the render scale (the drawn size changes), the device fields headless, and render stats
 of a fixture scene; a `perf.check` with a triangle budget fails when the scene goes over it.
 
+Done (branch `m26/render-quality`): `window.renderScale`, `window.supports`, `game.device` (fixed headless,
+`setDevice` in tests), `game.renderStats()` drawing on demand with `shadowCasters`/`textureMB`, `game.render_stats`;
+`perf.measure` records triangles/lights/textureMB and `perf.check` takes `budgets`; Clockwork Courier uses them.
+
 ### M26.16 Per-material colours (M) — CC/FB-0031
 
 After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF
@@ -1437,6 +1441,9 @@ Acceptance: a render test where one material of a two-material model changes col
 suggests the right name for a typo.
 
 ### M26.17 Text entry on every device (M) — CC/FB-0020, CC/FB-0052
+
+Done (branch `m26/text-entry`): the UI raises the phone's keyboard on focus, the MENUS.md kit has an on-screen keyboard
+for pad players, the web player has a hidden `<input>` and the web smoke types into a field (CI runs it).
 
 - A focused `TextField` raises the phone's keyboard and hides it on blur. MOBILE.md says it does; today only
   `input.showKeyboard` does it (found while verifying CC/FB-0020).
@@ -1461,6 +1468,9 @@ After M26.6 (the same widgets).
 Acceptance: `fa_test_ui` cases for each.
 
 ### M26.19 Export and store material checks (S-M) — CC/FB-0034, CC/FB-0048, CC/FB-0049, CC/FB-0051 (ffmpeg)
+
+Done (branch `m26/export-checks`): Products.storekit per language without the plugin; Android CMake from the SDK
+or the system (`cmake.dir`); build fingerprint check (`--allow-player-mismatch`); `setup ffmpeg`.
 
 - iOS: `Products.storekit` is written whenever the catalog has products, whether or not the Apple plugin is built
   (export_ios.cpp), with one localization per language of the game (storekit_config.cpp).
