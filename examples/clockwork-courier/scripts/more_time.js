@@ -38,6 +38,12 @@ export function onRetryShown(flow) {
   if (!button.active) return;
   flow.moreTimeMode = offer.mode;
   refreshLabel(flow);
+  // An ad offer is hidden again when no ad is ready (no fill, consent refused).
+  if (offer.mode === "ad") {
+    ads.adReady().then((ready) => {
+      if (!ready && flow.finished && !flow.moreTimeUsed && flow.moreTimeMode === "ad") button.active = false;
+    });
+  }
   try {
     ui.focus(button);
   } catch (e) {

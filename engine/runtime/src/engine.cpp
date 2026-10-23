@@ -77,6 +77,7 @@ void Engine::Impl::apply_project_settings() {
     // The platform catalog. A section with errors counts as empty (every platform call then says the id is not declared):
     // the first error is logged here, `factoria validate` lists them all.
     platform.set_translator([this](const std::string& key) { return i18n.translate(key); });
+    platform.set_date_source([this] { return scripts.today(); });  // the simulation's date: leaderboard periods never read the clock
     auto catalog = load_platform_catalog(project.raw.is_object() && project.raw.contains(kPlatformKey) ? project.raw[kPlatformKey] : Json());
     if (catalog.ok()) {
         platform.set_catalog(std::move(catalog.value()));
@@ -477,6 +478,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     }
     if (!choice.reason.empty()) FA_INFO("platform", "{}", choice.reason);
     else FA_DEBUG("platform", "backend '{}'", choice.backend->name());
+    // A shipped game (the player sets platformFallback "none") is a release; development runs, tests and the MCP server are not.
+    I.platform.set_release(config.platformFallback == "none" && config.platformBackend != "fake" && choice.backend->name() != "fake");
     I.platform.set_backend(std::move(choice.backend), choice.why);
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);

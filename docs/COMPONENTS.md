@@ -150,6 +150,7 @@ Draws a string with a TrueType font (or the built-in font). Works in world and s
 |---|---|---|---|
 | `text` | string | `"Text"` | The string to draw. Use \n for line breaks. While `key` is set the engine overwrites it with the translation of the current language every frame: edit the string table (locales/<language>.json), not this field. |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = this Text is not translated. With a key, the runtime writes the string of that key in the current language (locales/<language>.json, falling back to the base language and then to localization.defaultLanguage) into `text` when a scene or prefab loads, every frame and when the language changes, so `text` is overwritten at run time. A key that no string table has keeps the text written here and logs one warning. (since 0.2.0) |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
 | `font` | asset (font) | `""` | Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). |
 | `fontSize` | float | `24.0` | Glyph height in world units (pixels in 2D). Range 1.0..4096.0. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Text color. |
@@ -512,6 +513,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
 | `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
@@ -545,6 +547,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
 | `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
@@ -579,6 +582,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
 | `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
@@ -618,6 +622,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
 | `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
@@ -695,6 +700,8 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `button` | enum: A \\| B \\| X \\| Y \\| Start \\| Back \\| Guide \\| DpadLeft \\| DpadRight \\| DpadUp \\| DpadDown \\| LeftShoulder \\| RightShoulder \\| LeftThumb \\| RightThumb | `"A"` | The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them. |
 | `text` | string | `""` | Label centred on the button, e.g. "A" or "Jump". Empty (default) draws none. |
+| `key` | string | `""` | Localization key, e.g. "touch.jump" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key that no string table has keeps `text` and logs one warning. (not released yet, on main after 0.2.0) |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font. |
 | `fontSize` | float | `32.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
 | `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |
@@ -1758,6 +1765,20 @@ The product leaves purchases.restore() and its unfinished transaction is dropped
 |---|---|---|---|
 | `productId` | string | yes | The catalog id of the product to take back, e.g. "remove_ads". |
 
+### `platform.set_ad` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.
+
+`outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): "watched" (the default: {rewarded: true}), "closedEarly" ({rewarded: false, reason: "closedEarly"}), "noFill" (no ad: ads.available() is false and showRewarded gives reason "noFill") or "consentRefused" (also sets gdpr and tracking to "denied"; reason "consentRefused"). `gdpr` ("granted", "denied", "notRequired", "unknown") and `tracking` ("authorized", "denied", "notDetermined", "restricted", "notRequired") are what ads.consent() answers; a denied gdpr stops every ad. Give any of them. platform.state's fake.ads counts the ads shown and rewarded. Fails when the game runs a real store backend. Example: platform.set_ad {"outcome":"closedEarly"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `outcome` | string ["watched","closedEarly","noFill","consentRefused"] | no | How the next ads end. |
+| `gdpr` | string ["granted","denied","notRequired","unknown"] | no | What the GDPR (UMP) sheet answered. |
+| `tracking` | string ["authorized","denied","notDetermined","restricted","notRequired"] | no | What the tracking (ATT) sheet answered. |
+
 ### `platform.set_fake` (modifies state)
 
 Since 0.2.0.
@@ -1778,7 +1799,7 @@ Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 
-Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best}, cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
+Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
 
 ## play
 
@@ -3758,7 +3779,7 @@ declare module "factoria" {
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads";
 
   /**
    * Who is signed in to the store.
@@ -3901,7 +3922,7 @@ declare module "factoria" {
   }
 
   /**
-   * Leaderboards of factoria.json platform.leaderboards.
+   * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake backend keeps one per period; real stores reject with "unavailable" until M12 maps them to their recurring boards).
    */
   export interface PlatformLeaderboardsAPI {
     /**
@@ -3979,6 +4000,42 @@ declare module "factoria" {
   }
 
   /**
+   * What the player answered to the consent sheets, from ads.consent().
+   */
+  export interface PlatformConsent {
+    /**
+     * The GDPR (Google UMP) sheet: granted, denied, notRequired (the player is outside the regions that need it) or unknown (not asked yet).
+     */
+    readonly gdpr: "granted" | "denied" | "notRequired" | "unknown";
+    /**
+     * The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet.
+     */
+    readonly tracking: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired";
+    /**
+     * False when the player refused the GDPR consent: no ad may be requested then.
+     */
+    readonly canShowAds: boolean;
+  }
+
+  /**
+   * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped game gets a real network once a backend offers one (check platform.has("ads")): until then every call rejects with code "unavailable". Use platform.release to keep a development-only ad stub out of a shipped game.
+   */
+  export interface PlatformAdsAPI {
+    /**
+     * True when a rewarded ad is ready to show at the placement (false: no fill, or the player refused the consent). Use it to show or hide the "watch an ad" button. A placement the catalog does not declare throws at once with a suggestion.
+     */
+    available(placement: string): Promise<boolean>;
+    /**
+     * Shows a rewarded ad and resolves when it ends. rewarded is true only when the player watched it to the end: give the reward then and only then. Otherwise reason says why: closedEarly (the player closed it), noFill (no ad to show), consentRefused (the player refused the consent). Rejects with code "network" or "unavailable" when the platform failed.
+     */
+    showRewarded(placement: string): Promise<{ rewarded: boolean; reason?: "closedEarly" | "noFill" | "consentRefused" }>;
+    /**
+     * What the GDPR and tracking sheets answered, for the game's privacy screen.
+     */
+    consent(): Promise<PlatformConsent>;
+  }
+
+  /**
    * Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.
    */
   export interface PlatformIntegrityAPI {
@@ -3989,7 +4046,7 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -4028,6 +4085,11 @@ declare module "factoria" {
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
     readonly integrity: PlatformIntegrityAPI;
+    readonly ads: PlatformAdsAPI;
+    /**
+     * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
+     */
+    readonly release: boolean;
   }
 
   /**
@@ -4196,7 +4258,7 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
 
@@ -4840,6 +4902,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). (asset path: font)
      */
@@ -6010,6 +6077,11 @@ declare module "factoria" {
      */
     key: string;
     /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
+    /**
      * Label glyph height in design pixels.
      * @since 0.1.6
      */
@@ -6146,6 +6218,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Label glyph height in design pixels.
      * @since 0.1.6
@@ -6286,6 +6363,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Label glyph height in design pixels.
      * @since 0.1.6
@@ -6451,6 +6533,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
     /**
      * Label glyph height in design pixels.
      * @since 0.1.6
@@ -6745,6 +6832,16 @@ declare module "factoria" {
      */
     text: string;
     /**
+     * Localization key, e.g. "touch.jump" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key that no string table has keeps `text` and logs one warning.
+     * @since unreleased
+     */
+    key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font. (asset path: font)
      * @since 0.2.0
      */
@@ -7008,7 +7105,7 @@ declare module "factoria" {
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
-    Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any };
@@ -7025,13 +7122,13 @@ declare module "factoria" {
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
-    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
@@ -7265,6 +7362,10 @@ declare module "factoria:test" {
      * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
      */
     revoke(productId: string): void;
+    /**
+     * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr and options.tracking set what ads.consent() answers; a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
+     */
+    ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired" }): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */

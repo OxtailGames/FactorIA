@@ -1,7 +1,7 @@
 // @ts-check
 // The in-level HUD: the spring bar (draining, amber then red), the seconds left and the parcel counter. The widgets
 // are plain screen-space Shape2D / Text entities of the scene; this script only sets their size, colour and text.
-import { Behaviour, ui, world, i18n } from "factoria";
+import { Behaviour, ui, world } from "factoria";
 import { EVENTS } from "./events.js";
 import * as progress from "./progress.js";
 import { isReduced } from "./accessibility.js";
@@ -36,10 +36,6 @@ export default class Hud extends Behaviour {
         this.carrying = 0;
         this.refreshParcels();
       }),
-      i18n.on("change", () => {
-        this.refreshParcels();
-        this.labelTouchButtons();
-      }),
     ];
     this.refreshParcels();
     this.labelTouchButtons();
@@ -48,16 +44,15 @@ export default class Hud extends Behaviour {
   }
 
   /**
-   * The words on the on-screen buttons. TouchButton has no `key` field (FB-0040: TouchButton label without a localization
-   * key), so the HUD writes them in the current language at start and at every language switch. The pause button keeps its "II".
+   * The words on the on-screen buttons: TouchButton.key makes the engine write them in the current language, at start and at
+   * every language switch (FB-0040). The pause button keeps its "II".
    */
   labelTouchButtons() {
     for (const [id, key] of [["touch_jump", "touch.jump"], ["touch_action", "touch.action"]]) {
       const e = world.find(id);
       if (!e) continue;
       const tb = e.get("TouchButton");
-      const word = i18n.t(key);
-      tb.text = word;
+      tb.key = key;
       tb.autoShrink = true; // the disc is 96 px and does not grow: the word shrinks to fit it at any text size
       tb.fontSize = 32;
       tb.maxTextScale = 1;
@@ -97,8 +92,10 @@ export default class Hud extends Behaviour {
 
   refreshParcels() {
     if (!this.parcels) return;
-    const key = this.carrying > 0 ? "hud.parcelsCarrying" : "hud.parcels";
-    this.parcels.get("Text").text = i18n.t(key, { delivered: this.delivered, total: this.total });
+    // The engine formats the key with keyArgs now and after every language switch (FB-0021): no text is written here.
+    const t = this.parcels.get("Text");
+    t.key = this.carrying > 0 ? "hud.parcelsCarrying" : "hud.parcels";
+    t.keyArgs = { delivered: this.delivered, total: this.total };
   }
 
   /**

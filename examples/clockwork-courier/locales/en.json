@@ -123,9 +123,8 @@
   "results": {
     "title": "Delivered!",
     "titleNamed": "Delivered, {name}!",
-    "time": "Time: {time} s",
-    "best": "Best: {time} s",
-    "newBest": "New best!",
+    "timeBest": "Time: {time} s   Best: {best} s",
+    "timeNewBest": "Time: {time} s   New best!",
     "spring": "Spring left: {seconds} s",
     "goal": {
       "fast": "Fast: under {par} s",
@@ -181,7 +180,7 @@
   "daily": {
     "done": "Daily route done!",
     "doneNamed": "Daily route done, {name}!",
-    "best": "Best today: {time} s"
+    "timeBest": "Time: {time} s   Best today: {best} s"
   },
   "retry": {
     "title": "The spring ran down",
@@ -313,9 +312,6 @@
     "retry": "Try again"
   },
   "ads": {
-    "testAd": "Test ad",
-    "claim": "Claim reward",
-    "skip": "Skip",
     "moreTimeAd": {
       "one": "Watch an ad: {count} more second",
       "other": "Watch an ad: {count} more seconds"

@@ -82,8 +82,9 @@ The language is not saved between runs. A game that lets the player choose keeps
 
 ## 4. Text and widgets: the `key` field
 
-`Text`, `Button`, `Toggle`, `Slider` and `TextField` have `key`. With a key, the engine writes the translation into
-`Text.text`, `Button.text`, `Toggle.label`, `Slider.label` or `TextField.placeholder`:
+`Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton` have `key`. With a key, the engine writes the
+translation into `Text.text`, `Button.text`, `Toggle.label`, `Slider.label`, `TextField.placeholder` or
+`TouchButton.text`:
 
 ```json
 { "id": "play", "components": { "Button": { "text": "Play", "key": "menu.play" } } }
@@ -92,12 +93,33 @@ The language is not saved between runs. A game that lets the player choose keeps
 - It runs when a scene loads, when a script spawns an entity, at the end of every frame, and at once when the
   language changes. It writes only when the string differs.
 - **The field is overwritten while `key` is set**: a script that assigns `text` sees it replaced in the same frame.
-  For text a script builds (`Score: 12`), leave `key` empty and write `i18n.t("hud.score", { score })` yourself, again on
-  `i18n.on("change", ...)`.
+  For text with values (`Score: 12`), keep the key and set `keyArgs` (below); for text a script builds in some other way,
+  leave `key` empty and write `i18n.t(...)` yourself, again on `i18n.on("change", ...)`.
 - A key that no table has keeps the component's own text (write the default language's text there) and warns once. A
   game without a `"localization"` section does the same for every key.
 - Saving a scene of a running game in another language would save the translations: edit and save scenes in the
   default language.
+
+### Values in the text: `keyArgs`
+
+`Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton` also have `keyArgs`, an object of name -> string or
+number: the values of the key's `{placeholders}` (and `count`, which picks the form of a plural entry). The engine passes
+it to `i18n.t` whenever it localizes the text, so a script sets it once and a language switch keeps it:
+
+```json
+{ "id": "score", "components": { "Text": { "text": "Score: 0", "key": "hud.score", "keyArgs": { "score": 0 } } } }
+```
+```js
+world.find("score").get("Text").keyArgs = { score: 12 };   // "Score: 12" / "Puntos: 12" after setLanguage("es")
+```
+
+- Change `keyArgs` as a whole (assign a new object, or `entity.set("Text", { keyArgs: { score } })`); the text is
+  formatted again at the end of that frame. Nothing is written when the result is the same as the text.
+- The values are shown as `i18n.t` shows them (numbers without a trailing `.0`). A number that must follow the player's
+  language (decimal separator) is formatted by the script first and passed as a string.
+- `factoria validate` checks the placeholders of a key against the entity's `keyArgs` (every language's text counts): a
+  warning names the placeholder that has no arg, and another an arg that no translation uses ("did you mean" when it is
+  close to a placeholder). A script that sets `keyArgs` later should still write starting values in the scene.
 
 ### Store catalog texts
 
