@@ -1,6 +1,9 @@
 // Panel and ScrollList layout. See ui.h and the Panel / ScrollList docs in components.cpp.
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <utility>
+#include <vector>
 
 #include "fa/core/log.h"
 #include "ui_internal.h"
@@ -222,18 +225,25 @@ void uniform_size(World& w, Entity root, Memo& memo) {
     }
 }
 
-// ScrollList.fill: the height the parent column leaves, see the field's doc.
+// The height a ScrollList needs to show all its children without scrolling.
+float list_content_height(World& w, Entity e, const ScrollList& s, Vec2 design, const VisualMeasure& m) {
+    return content_size(UiLayout::Column, children_of(w, e, design, m), s.spacing, 1).y + s.padding.y + s.padding.w;
+}
+
+// ScrollList.fill and ScrollList.shrink: the height the parent column leaves, see the fields' docs.
 void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
     ScrollList* s = w.get<ScrollList>(e);
     const Entity parent = w.parent(e);
     const Panel* p = parent ? w.get<Panel>(parent) : nullptr;
-    if (!s->fill || !p || used_layout(*p) != UiLayout::Column) return;
+    if (!(s->fill || s->shrink) || !p || used_layout(*p) != UiLayout::Column) return;
     float others = 0;
-    int kids = 0, fills = 0;
+    int kids = 0;
+    std::vector<std::pair<float, Entity>> lists;  // the lists that share the room: their need (infinite for fill), and who
     for (const Child& c : children_of(w, parent, design, m)) {
         ++kids;
-        const ScrollList* l = w.get<ScrollList>(c.e);
-        if (l && l->fill) ++fills;
+        ScrollList* l = w.get<ScrollList>(c.e);
+        if (l && l->fill) lists.push_back({std::numeric_limits<float>::infinity(), c.e});
+        else if (l && l->shrink) lists.push_back({list_content_height(w, c.e, *l, design, m), c.e});
         else others += c.r.h;
     }
     float room = p->size.y;
@@ -242,7 +252,18 @@ void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
         room = p->safeArea ? design.y - in.top - in.bottom : design.y;
     }
     const float free = room - p->padding.y - p->padding.w - p->spacing * float(std::max(0, kids - 1)) - others;
-    s->size.y = std::max(64.0f, std::floor(free / float(std::max(1, fills))));
+    // Water-filling: the shortest needs are met first, the rest share what is left equally.
+    std::sort(lists.begin(), lists.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    float left = free;
+    for (std::size_t i = 0; i < lists.size(); ++i) {
+        const float share = left / float(lists.size() - i);
+        const float h = std::max(64.0f, std::floor(std::min(lists[i].first, share)));
+        if (lists[i].second == e) {
+            s->size.y = h;
+            return;
+        }
+        left -= h;
+    }
 }
 
 // `focus`: the entity to scroll into view (null when the focus did not just change).
@@ -334,7 +355,7 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
     // A `fill` list comes last among its siblings: the other children (nested panels included) have their final height by then.
     const auto fills = [&](Entity e) {
         const ScrollList* s = w.get<ScrollList>(e);
-        return s && s->fill;
+        return s && (s->fill || s->shrink);
     };
     std::stable_sort(containers.begin(), containers.end(), [&](const auto& a, const auto& b) {
         return a.first != b.first ? a.first > b.first : (!fills(a.second) && fills(b.second));

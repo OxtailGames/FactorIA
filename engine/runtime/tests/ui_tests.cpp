@@ -75,6 +75,31 @@ test("the gamepad alone walks the menu: focus, click, slider, toggle, cancel", (
   r.stop();
 });
 
+test("game.setSlider drags like a player: ui.change once, clamped and snapped; a script write sends nothing", () => {
+  game.loadJson(menu);
+  game.step(1);
+  const seen = [];
+  const stop = ui.on("change", "music", (e) => seen.push(e.value));
+  const slider = game.find("music").get("Slider");
+  slider.value = 0.2;                              // from a script: no event
+  game.step(1);
+  expect(seen).toEqual([]);
+  game.setSlider("music", 0.84);                   // step 0.1
+  game.step(1);
+  expect(seen).toEqual([0.8]);
+  expect(slider.value).toBeCloseTo(0.8, 5);
+  expect(ui.focused.id).toBe("music");
+  game.setSlider("music", 7);
+  game.step(1);
+  expect(seen).toEqual([0.8, 1]);
+  game.setSlider("music", 1);                      // already there
+  game.step(1);
+  expect(seen.length).toBe(2);
+  expect(() => game.setSlider("play", 0.5)).toThrow(/no Slider/);
+  expect(() => game.setSlider("music", "loud")).toThrow(/number/);
+  stop();
+});
+
 test("ui.on can listen to one widget; ui.focus and ui.on explain mistakes", () => {
   game.loadJson(menu);
   game.step(1);
@@ -238,7 +263,7 @@ TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     auto t = e.commands().call("project.test", Json::object());
     REQUIRE_MESSAGE(t.ok, t.error.dump());
     CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
-    CHECK(t.result["passed"].get<int>() == 2);
+    CHECK(t.result["passed"].get<int>() == 3);
     e.shutdown();
 }
 

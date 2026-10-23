@@ -1464,11 +1464,16 @@ the web autotest fills a field.
 
 ### M26.18 Slider and ScrollList (S-M) — CC/FB-0037, CC/FB-0046
 
+Done (branch `m26/slider-scroll`): `ui.set_slider` / `game.setSlider`, `Slider.format` and `formatKey`, `ScrollList.shrink`;
+Courier's slider formats and its comfort test use them (its lists keep `fill`).
+
 After M26.6 (the same widgets).
 - `game.setSlider(id, value)` in tests sends `ui.change` like a drag; a value set from a script does not (as today) and
   this is documented. `Slider.format` shows the value as `"{v}%"` or through a key.
 - `ScrollList.shrink`: inside a `fit` parent a list is as tall as its content up to the space left, instead of the
   whole screen.
+- Details: `format` takes `{v}`, `{v:N}` and `{percent}` (value x 100); `formatKey` is a key whose translation is the
+  pattern. Several `shrink` lists share the room by water-filling; `fill` wins over `shrink`.
 
 Acceptance: `fa_test_ui` cases for each.
 

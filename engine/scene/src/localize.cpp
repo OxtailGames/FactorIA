@@ -29,6 +29,12 @@ int apply(const World& world, Entity e, const I18n& i18n, const std::string& key
     return 1;
 }
 
+// A Slider.format pattern keeps its {v} and {percent} for the slider to fill in.
+const Json& kFormatArgs() {
+    static const Json args = Json::object({{"v", "{v}"}, {"percent", "{percent}"}});
+    return args;
+}
+
 }  // namespace
 
 int localize_entity(World& world, Entity e, const I18n& i18n) {
@@ -37,6 +43,7 @@ int localize_entity(World& world, Entity e, const I18n& i18n) {
     if (Button* b = world.get<Button>(e)) changed += apply(world, e, i18n, b->key, b->keyArgs, b->text, "Button.text");
     if (Toggle* t = world.get<Toggle>(e)) changed += apply(world, e, i18n, t->key, t->keyArgs, t->label, "Toggle.label");
     if (Slider* s = world.get<Slider>(e)) changed += apply(world, e, i18n, s->key, s->keyArgs, s->label, "Slider.label");
+    if (Slider* s = world.get<Slider>(e)) changed += apply(world, e, i18n, s->formatKey, kFormatArgs(), s->format, "Slider.format");
     if (TextField* f = world.get<TextField>(e)) changed += apply(world, e, i18n, f->key, f->keyArgs, f->placeholder, "TextField.placeholder");
     if (TouchButton* b = world.get<TouchButton>(e)) changed += apply(world, e, i18n, b->key, b->keyArgs, b->text, "TouchButton.text");
     return changed;
@@ -48,6 +55,7 @@ int localize_world(World& world, const I18n& i18n) {
     world.each<Button>([&](Entity e, Button& b) { changed += apply(world, e, i18n, b.key, b.keyArgs, b.text, "Button.text"); });
     world.each<Toggle>([&](Entity e, Toggle& t) { changed += apply(world, e, i18n, t.key, t.keyArgs, t.label, "Toggle.label"); });
     world.each<Slider>([&](Entity e, Slider& s) { changed += apply(world, e, i18n, s.key, s.keyArgs, s.label, "Slider.label"); });
+    world.each<Slider>([&](Entity e, Slider& s) { changed += apply(world, e, i18n, s.formatKey, kFormatArgs(), s.format, "Slider.format"); });
     world.each<TextField>([&](Entity e, TextField& f) { changed += apply(world, e, i18n, f.key, f.keyArgs, f.placeholder, "TextField.placeholder"); });
     world.each<TouchButton>([&](Entity e, TouchButton& b) { changed += apply(world, e, i18n, b.key, b.keyArgs, b.text, "TouchButton.text"); });
     return changed;
