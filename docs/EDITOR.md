@@ -389,9 +389,11 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
   shown in its window (a widget scrolled out of view, even half, fails the check instead of hitting what is under it), and a
   watchdog thread ends the process with exit code 86 when the editor draws no frame for 60 seconds, so a stuck GPU or UI call
   can never freeze the window for good. While it runs the editor ignores the real mouse, keyboard and focus changes (using
-  the computer or switching apps does not disturb it), and on macOS its window stays above the others (a covered window
-  draws nothing to take a screenshot of). `FA_EDITOR_AUTOTEST_SIZE=1024x642` runs it in a smaller window, the size of the
-  macOS CI runner's display.
+  the computer or switching apps does not disturb it). On macOS its window stays above the others (a covered window
+  draws nothing to take a screenshot of) but out of your way: see-through, without a Dock icon, clicks reach the windows
+  below and the app you were using keeps the keyboard, so you can go on working while ctest runs it.
+  `FA_EDITOR_AUTOTEST_SHOW=1` shows the window, to watch a run. `FA_EDITOR_AUTOTEST_SIZE=1024x642` runs it in a smaller
+  window, the size of the macOS CI runner's display.
   A manual end-to-end check of the CMake button: `FA_EDITOR_AUTOTEST_REAL_CMAKE=1` makes the autotest run one script only: it
   presses **Install** of the CMake component and lets it download and unpack the real CMake (about 50 MB from Kitware) into
   the autotest's own `factoria_home`; ctest never sets it.
