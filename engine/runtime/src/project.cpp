@@ -195,7 +195,7 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
 const std::vector<std::string>& reserved_plugin_names() {
     static const std::vector<std::string> names = {
         "ai",   "api",     "app",    "assets",  "audio",   "debug",   "docs",    "editor", "engine", "fa",    "factoria",
-        "feedback", "fs",  "game",   "i18n",    "input",   "level",   "math",    "mcp",     "physics", "play",  "plugin", "plugins",
+        "feedback", "fs",  "game",   "i18n",    "input",   "level",   "math",    "mcp",     "nav",     "physics", "play",  "plugin", "plugins",
         "platform", "prefab", "project", "scene", "script", "session", "settings", "setup", "test", "ui", "world"};
     return names;
 }

@@ -720,6 +720,88 @@ declare module "factoria" {
   }
 
   /**
+   * Options of nav.findPath.
+   */
+  export interface NavPathOptions {
+    /**
+     * Agent radius of this query (meters). Default: the NavMesh3D's agentRadius. Larger than that is an error: bake a NavMesh3D for the bigger agent.
+     */
+    radius?: number;
+    /**
+     * How far (meters) a start or goal that is not on walkable ground is moved onto the nearest walkable cell (default agentRadius + 2 cells).
+     */
+    snap?: number;
+    /**
+     * When the goal cannot be reached, return a path to the reachable point nearest to it (complete = false) instead of found = false.
+     */
+    closest?: boolean;
+    /**
+     * Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`.
+     */
+    mesh?: string;
+  }
+
+  /**
+   * Result of nav.findPath.
+   */
+  export interface NavPath {
+    /**
+     * true: `points` holds a path. false: `reason`, `message` and `hint` say why.
+     */
+    found: boolean;
+    /**
+     * Corners of the path from the start to the goal on the walkable surface (meters), few of them: walk straight from one to the next. Empty when not found.
+     */
+    points: Vec3[];
+    /**
+     * Meters along the points.
+     */
+    length: number;
+    /**
+     * false when only a path to the reachable point nearest the goal was returned (opts.closest).
+     */
+    complete: boolean;
+    /**
+     * Id of the NavMesh3D entity that answered.
+     */
+    mesh: string;
+    /**
+     * Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way.
+     */
+    reason?: "start_off_mesh" | "goal_off_mesh" | "disconnected";
+    /**
+     * What is wrong, with numbers (nearest walkable point, areas, limits).
+     */
+    message?: string;
+    /**
+     * How to fix it.
+     */
+    hint?: string;
+    /**
+     * reason start_off_mesh / goal_off_mesh: the nearest walkable point.
+     */
+    nearest?: Vec3;
+    /**
+     * Meters from the point asked for to `nearest`.
+     */
+    nearestDistance?: number;
+  }
+
+  /**
+   * Path finding on the baked NavMesh3D (docs/NAVIGATION.md). The mesh is baked from the static colliders when the scene loads.
+   */
+  export interface NavAPI {
+    /**
+     * Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     */
+    findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
+    /**
+     * Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise.
+     */
+    bake(mesh?: string): { mesh: string; cellsX: number; cellsZ: number; cells: number; spans: number; walkableCells: number; regions: number; obstacles: number }[];
+  }
+
+  /**
    * Options of physics.raycast / raycast3d.
    */
   export interface RaycastOptions {
@@ -1638,6 +1720,11 @@ declare module "factoria" {
    * Physics.
    */
   export const physics: PhysicsAPI;
+
+  /**
+   * Path finding on the baked NavMesh3D.
+   */
+  export const nav: NavAPI;
 
   /**
    * Game clock.
@@ -3075,6 +3162,11 @@ declare module "factoria" {
      * Bitmask of layers this collider collides with. -1 = all layers.
      */
     mask: number;
+    /**
+     * true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing.
+     * @since unreleased
+     */
+    navObstacle: boolean;
   }
   /**
    * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
@@ -3242,6 +3334,70 @@ declare module "factoria" {
      * @since 0.2.0
      */
     readonly groundNormal: Vec3;
+  }
+  /**
+   * A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
+   * 
+   * Category: Physics
+   * @since unreleased
+   */
+  export interface NavMesh3DComponent {
+    /**
+     * Size [x, y, z] in meters of the baked box, centred on the entity's world position; rotation and scale are ignored. Cover the whole level: ground outside is not walkable and the box edge counts as a drop. y must reach from below the lowest floor to above the highest head.
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * Width of one cell on the ground plane, meters. Smaller = finer paths, more memory and a slower bake (cells = x/cellSize * z/cellSize, at most 4 million). Walls thinner than half a cell can be missed.
+     * @since unreleased
+     */
+    cellSize: number;
+    /**
+     * Heights are rounded to a multiple of this, meters; a path is up to half of it above or below the true surface. Keep it at most stepHeight / 4.
+     * @since unreleased
+     */
+    cellHeight: number;
+    /**
+     * Radius in meters of the walker the mesh is made for: walkable cells stay this far from walls and drops, so a body of that radius never touches them. findPath with a bigger radius is an error (bake another NavMesh3D for the bigger agent).
+     * @since unreleased
+     */
+    agentRadius: number;
+    /**
+     * Height in meters of the walker; ground with less free space above it (under a low ceiling or table) is not walkable.
+     * @since unreleased
+     */
+    agentHeight: number;
+    /**
+     * Highest step in meters the walker climbs; a higher ledge is a wall. Match CharacterController3D.stepOffset.
+     * @since unreleased
+     */
+    stepHeight: number;
+    /**
+     * Steepest walkable ground in degrees; steeper ground is a wall. Match CharacterController3D.slopeLimit.
+     * @since unreleased
+     */
+    maxSlope: number;
+    /**
+     * true (default): bake when the scene loads and again when a static collider is added, moved or removed. false: only the nav.bake command bakes (and a scene without a bake has no paths).
+     * @since unreleased
+     */
+    autoBake: boolean;
+    /**
+     * false = nav.findPath ignores this mesh (and it is not baked).
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * Runtime: how many cells can be walked on after the last bake (read only). Read-only.
+     * @since unreleased
+     */
+    readonly walkableCells: number;
+    /**
+     * Runtime: how many separate walkable areas the last bake found; two points in different areas have no path (read only). Read-only.
+     * @since unreleased
+     */
+    readonly regions: number;
   }
   /**
    * Plays a sound clip from the entity. Set playOnStart to start automatically, or set `playing` from a script to trigger it.
@@ -4438,6 +4594,7 @@ declare module "factoria" {
     Collider3D: Collider3DComponent;
     Joint3D: Joint3DComponent;
     CharacterController3D: CharacterController3DComponent;
+    NavMesh3D: NavMesh3DComponent;
     AudioSource: AudioSourceComponent;
     AudioListener: AudioListenerComponent;
     Panel: PanelComponent;
@@ -4472,9 +4629,10 @@ declare module "factoria" {
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean };
     Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
+    NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };

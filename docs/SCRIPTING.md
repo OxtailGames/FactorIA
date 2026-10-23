@@ -396,6 +396,14 @@ if (window.available) {
 -  `overlapCircle(center, r)` · `overlapBox(rect)` · `overlapSphere(center, r)`
 - `applyImpulse(entity, v)` · `applyForce(entity, v)` · `setVelocity(entity, v)`
 
+
+### nav
+- `nav.findPath(from, to, { radius, snap, closest, mesh })` → `{ found, points: Vec3[], length, complete, mesh }` or
+  `{ found: false, reason, message, hint, nearest?, nearestDistance? }`: a walkable path over the baked `NavMesh3D`
+  (around walls, up ramps, never up a step above `stepHeight`). `points[0]` is the start; walk straight to `points[1]`,
+  and so on. "No route" is a result to check, not an exception; a `radius` bigger than the mesh was baked for throws an
+  Error that says how to bake for it. `nav.bake(mesh?)` bakes now and returns the stats. Guide: [NAVIGATION.md](NAVIGATION.md).
+
 ### time
 `dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`.
 

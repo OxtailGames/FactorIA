@@ -1039,7 +1039,7 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
 - Networking: `http.fetch` (a Promise) and WebSocket in JS on every platform; real-time multiplayer later.
 - Saves: slots with their menu (on M10), a version field with a migration hook, optional encryption, cloud through
   M12's `platform`.
-- Pathfinding: grid A* on a Tilemap, a navmesh for 3D, a behaviour-tree helper module.
+- Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, a behaviour-tree helper module.
 - Video: a video player component for logos and cut-scenes (e.g. pl_mpeg, MIT).
 - `scene.loadAsync` with progress, for loading screens and larger worlds.
 - Split screen: a viewport rectangle on Camera (four gamepads already work).
@@ -1343,6 +1343,10 @@ Acceptance: platform tests for a rewarded ad that pays, one the player closes ea
 leaderboard that is empty again the next day under `game.setDate`.
 
 ### M26.10 Navmesh and paths for 3D (L) — CC/FB-0009
+
+Done (branch `m26/navmesh`): `NavMesh3D` baked from the static colliders into a deterministic 2.5D grid
+(`fa/physics/nav.h`), `nav.bake`, `nav.find_path`, `nav.info` and `nav.findPath` in scripts, `Collider3D.navObstacle`
+for moving obstacles, editor "Show navmesh"; docs/NAVIGATION.md. Clockwork Courier keeps its own scripts/nav.js for now.
 
 M19's navmesh, which a game now needs. A `NavMesh3D` component baked from static colliders (`nav.bake`, with the
 agent's radius, height, step and slope), `nav.find_path` and `nav.findPath(from, to, {radius})` in scripts next to

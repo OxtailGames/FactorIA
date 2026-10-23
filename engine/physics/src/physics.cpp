@@ -64,12 +64,14 @@ void Physics::reset() {
 void Physics::sync(World& world) {
     impl_->p2d.sync(world);
     impl_->p3d.sync(world);
+    impl_->p3d.nav_update(world, true);
 }
 
 void Physics::step(World& world, float dt) {
     if (dt <= 0.0f) return;
     impl_->p2d.step(world, dt);
     impl_->p3d.step(world, dt);
+    impl_->p3d.nav_update(world, true);
 }
 
 std::optional<RaycastHit> Physics::raycast2d(World& world, Vec2 from, Vec2 to, std::int32_t mask) {
@@ -111,6 +113,16 @@ std::optional<CharacterMoveResult> Physics::move_character(World& world, Entity 
     return impl_->p3d.move_character(world, e, delta);
 }
 std::vector<std::string> Physics::problems3d() const { return impl_->p3d.problems(); }
+
+Result<std::vector<NavBakeStats>> Physics::nav_bake(World& world, const std::string& mesh) {
+    impl_->p3d.sync(world);
+    return impl_->p3d.nav_bake(world, mesh);
+}
+Result<NavPath> Physics::nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options) {
+    return impl_->p3d.nav_find_path(world, from, to, options);
+}
+std::vector<NavCell> Physics::nav_cells(World& world, std::size_t maxCells) { return impl_->p3d.nav_cells(world, maxCells); }
+Json Physics::nav_info(World& world) { return impl_->p3d.nav_info(world); }
 
 void Physics::apply_impulse(World& world, Entity e, Vec3 impulse) {
     if (impl_->p2d.has_body(e)) impl_->p2d.apply_impulse(world, e, impulse);
