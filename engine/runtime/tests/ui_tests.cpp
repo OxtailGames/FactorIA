@@ -387,3 +387,43 @@ TEST_CASE("game.input back is the Back button: a script handler consumes it") {
     CHECK(e.commands().call("script.eval", Json{{"code", "globalThis.backs"}}).result["value"] == 1);
     e.shutdown();
 }
+
+// Focus path -> Input::keyboard_shown(), which the windowed runner hands to app_show_keyboard (the platform call; the
+// headless engine only records the request, so this is the "faked" platform: what the phone would be told).
+TEST_CASE("ui: a focused TextField raises the on-screen keyboard and blur hides it") {
+    TempProject p("keyboard");
+    p.write("scenes/main.scene.json", R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "cam", "components": { "Camera": {} } },
+        { "id": "name", "components": { "TextField": { "size": [200, 30] } } },
+        { "id": "ok", "components": { "Transform": { "position": [0, 60, 0] }, "Button": { "size": [80, 30] } } }
+      ] })");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto eval = [&](const char* code) {
+        auto r = e.commands().call("script.eval", Json{{"code", code}});
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+    };
+    e.step(2);
+    CHECK_FALSE(e.input().keyboard_shown());  // nothing has the focus
+    eval("ui.focus('name')");
+    e.step(1);
+    CHECK(e.input().keyboard_shown());
+    eval("ui.focus('ok')");
+    e.step(1);
+    CHECK_FALSE(e.input().keyboard_shown());
+    eval("ui.focus('name')");
+    e.step(1);
+    CHECK(e.input().keyboard_shown());
+    eval("ui.focus(null)");
+    e.step(1);
+    CHECK_FALSE(e.input().keyboard_shown());
+    // A gamepad player gets the game's own on-screen keyboard (docs/MENUS.md), not the phone's.
+    e.input().set_last_device(InputDevice::Gamepad);
+    eval("ui.focus('name')");
+    e.step(1);
+    CHECK_FALSE(e.input().keyboard_shown());
+    e.shutdown();
+}

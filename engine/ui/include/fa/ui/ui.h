@@ -84,6 +84,7 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
+    bool keyboardRaised_ = false;  // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then

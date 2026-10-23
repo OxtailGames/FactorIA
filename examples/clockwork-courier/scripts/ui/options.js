@@ -60,8 +60,8 @@ export default class Options extends Behaviour {
     fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
     fullscreen.interactable = vsync.interactable = has;
-    // A phone refuses a frame cap (the platform picks the rate): the button stays, greyed out, showing the value kept.
-    world.find("frame_cap").get("Button").interactable = has && !settings.onPhone();
+    // A phone cannot cap the frame rate (the platform picks it): the button stays, greyed out, showing the value kept.
+    world.find("frame_cap").get("Button").interactable = window.supports("frameCap");
     this.refreshVideo();
 
     ui.on("click", "quality", () => {

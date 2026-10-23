@@ -6,13 +6,16 @@
 // whatever is missing is skipped.
 //
 // Nothing here imports settings.js (settings.js calls this file): the settings arrive as the argument.
-import { world, scene } from "factoria";
+import { world, scene, window } from "factoria";
 
-/** The graphics presets. `particles` multiplies every burst and ambient rate; `lights` is the share of lantern lights kept. */
+/**
+ * The graphics presets. `particles` multiplies every burst and ambient rate; `lights` is the share of lantern lights kept;
+ * `renderScale` is window.renderScale (the picture is drawn at that share of the window's size and scaled up).
+ */
 export const QUALITY = {
-  low: { shadows: false, particles: 0.4, lights: 0.34, farPlane: 0.45, fog: 1.7 },
-  medium: { shadows: true, particles: 0.7, lights: 0.67, farPlane: 0.7, fog: 1.25 },
-  high: { shadows: true, particles: 1, lights: 1, farPlane: 1, fog: 1 },
+  low: { shadows: false, particles: 0.4, lights: 0.34, farPlane: 0.45, fog: 1.7, renderScale: 0.7 },
+  medium: { shadows: true, particles: 0.7, lights: 0.67, farPlane: 0.7, fog: 1.25, renderScale: 0.85 },
+  high: { shadows: true, particles: 1, lights: 1, farPlane: 1, fog: 1, renderScale: 1 },
 };
 
 /** The assist mode, in numbers (tests read them). */
@@ -62,6 +65,7 @@ export function reducedMotion(s) {
 // --------------------------------------------------------------------------------------------------------------- quality
 function applyQuality(s) {
   const q = qualityOf(s);
+  if (window.supports("renderScale")) window.renderScale = q.renderScale;
   const sun = world.find("sun");
   if (sun && sun.has("Light")) sun.get("Light").castShadows = q.shadows;
   const camera = world.find("camera");
