@@ -103,6 +103,10 @@ public:
         (void)language;
         return "this host has no localization (set_language is not implemented)";
     }
+    // How many milliseconds a frame may spend on scene.preload / assets.preload work. 0 (the default: tests, headless runs,
+    // replays) means a FIXED amount, four files per frame, so a run does not depend on how fast the machine is; a game with a
+    // window returns a few milliseconds.
+    virtual double preload_time_budget_ms() const { return 0.0; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     virtual void request_quit() = 0;

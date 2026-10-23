@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cctype>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <system_error>
 
@@ -29,6 +30,12 @@ struct FsState {
     bool rootSet = false;
     bool userDirSet = false;
     std::shared_ptr<const PackReader> pack;  // mount_pack
+    struct Warm {
+        std::vector<std::uint8_t> bytes;
+        std::int64_t modified = 0;
+    };
+    std::map<std::string, Warm> warm;  // warm(): files read ahead of time, keyed by normalized path
+    std::uint64_t diskReads = 0;
 };
 
 FsState& state() {
@@ -258,7 +265,100 @@ Result<void> check_writable(std::string_view path) {
                       "or to a normal project folder such as scenes/ or assets/.");
 }
 
+namespace {
+Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path);
+}
+
 Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return n.error();
+    {
+        std::unique_lock<std::mutex> lock(state().mutex);
+        auto it = state().warm.find(n.value());
+        if (it != state().warm.end()) {
+            const std::int64_t warmModified = it->second.modified;
+            std::vector<std::uint8_t> copy = it->second.bytes;
+            lock.unlock();
+            // A file that changed on disk since it was read ahead is read again (hot reload, a tool that rewrote it).
+            if (modified_time(n.value()) == warmModified) return copy;
+            lock.lock();
+            state().warm.erase(n.value());
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        state().diskReads++;
+    }
+    return read_bytes_source(path);
+}
+
+namespace {
+std::string text_of(const std::vector<std::uint8_t>& b) {
+    std::size_t skip = (b.size() >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) ? 3 : 0;  // UTF-8 BOM
+    return std::string(reinterpret_cast<const char*>(b.data()) + skip, b.size() - skip);
+}
+}  // namespace
+
+Result<void> warm(std::string_view path, std::string* text, std::uint64_t* size) {
+    auto n = normalize_checked(path);
+    if (!n) return n.error();
+    // modified_time takes the fs mutex itself (pack_for): never call it while holding the lock.
+    const std::int64_t modified = modified_time(n.value());
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        auto it = state().warm.find(n.value());
+        if (it != state().warm.end() && it->second.modified == modified) {
+            if (text) *text = text_of(it->second.bytes);
+            if (size) *size = it->second.bytes.size();
+            return {};
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        state().diskReads++;
+    }
+    auto bytes = read_bytes_source(path);
+    if (!bytes) return bytes.error();
+    if (text) *text = text_of(bytes.value());
+    if (size) *size = bytes.value().size();
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().warm[n.value()] = FsState::Warm{std::move(bytes.value()), modified};
+    return {};
+}
+
+bool is_warm(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return false;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().warm.count(n.value()) > 0;
+}
+
+void unwarm(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().warm.erase(n.value());
+}
+
+void unwarm_all() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().warm.clear();
+}
+
+std::uint64_t warm_bytes() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    std::uint64_t total = 0;
+    for (const auto& [path, w] : state().warm) total += w.bytes.size();
+    return total;
+}
+
+std::uint64_t disk_reads() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().diskReads;
+}
+
+namespace {
+Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return n.error();
     if (auto pack = pack_for(n.value())) {
@@ -291,13 +391,12 @@ Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
     if (!in && !data.empty()) return make_error("Failed while reading '" + to_generic(full) + "'");
     return data;
 }
+}  // namespace
 
 Result<std::string> read_text(std::string_view path) {
     auto bytes = read_bytes(path);
     if (!bytes) return bytes.error();
-    const auto& b = bytes.value();
-    std::size_t skip = (b.size() >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) ? 3 : 0;  // UTF-8 BOM
-    return std::string(reinterpret_cast<const char*>(b.data()) + skip, b.size() - skip);
+    return text_of(bytes.value());
 }
 
 Result<void> write_bytes(std::string_view path, const void* data, std::size_t size) {
