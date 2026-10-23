@@ -17,6 +17,10 @@ struct SceneText {
     std::string file;      // "scenes/main.scene.json"
     std::string pointer;   // of the text field: "/entities/2/components/Button/text"
     std::string keyPointer;  // of the `key` field, whether or not it is written
+    std::string argsPointer;  // of the `keyArgs` field, whether or not it is written
+    std::string entity;      // the entity's id (or its pointer when it has none), for messages
+    Json args = Json::object();  // `keyArgs` as written in the file
+    bool argsKnown = true;   // false: an instance of a prefab that does not write keyArgs (they may be in the prefab file)
     std::string component;   // "Button"
     std::string field;       // "text"
     std::string text;        // as written in the file: the text of the default language
