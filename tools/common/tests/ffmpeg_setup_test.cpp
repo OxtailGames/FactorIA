@@ -161,7 +161,7 @@ TEST_CASE("setup ffmpeg: found by FACTORIA_FFMPEG, export.json or the installed 
     CHECK(has_text(ffmpeg_status(c).problems.back(), "factoria setup ffmpeg"));
 
     const std::string installed = ffmpeg_install_path(c);
-    CHECK(has_text(installed, std::string("ffmpeg") + "/" + kSetupFfmpegRelease + "/ffmpeg"));
+    CHECK(has_text(stdfs::path(installed).generic_string(), std::string("ffmpeg") + "/" + kSetupFfmpegRelease + "/ffmpeg"));
     testing::write_all(installed, "installed");
     auto found = find_ffmpeg(c.env, c.config_path(), ffmpeg_install_path(c));
     REQUIRE(found.ok());
