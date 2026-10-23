@@ -422,8 +422,9 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     SetupContext c = w.ctx();
 
     SetupStatus all = setup_status(c, {}, false);
-    REQUIRE(all.components.size() == 7);
+    REQUIRE(all.components.size() == 8);
     CHECK(all.components[6].id == "vscode");
+    CHECK(all.components[7].id == "ffmpeg");
     CHECK(all.components[0].id == "android");
     CHECK(all.components[1].id == "players");
     CHECK(all.components[2].id == "cmake");
@@ -453,7 +454,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
 
     const Json j = all.to_json();
     CHECK(j.at("home").get<std::string>() == w.home);
-    CHECK(j.at("components").size() == 7);
+    CHECK(j.at("components").size() == 8);
     CHECK(j.at("components")[0].at("state").get<std::string>() == "missing");
 }
 

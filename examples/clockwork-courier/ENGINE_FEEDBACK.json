@@ -866,10 +866,12 @@
       "suggestion": "Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): every iOS export whose catalog has products writes Products.storekit, with or without the Apple plugin, with one localization per language of the project from titleKey / descriptionKey."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0035",
@@ -1209,10 +1211,12 @@
       "suggestion": "Accept any CMake >= the minimum (read from `cmake --version` or `export.android.cmake`), print the cmake.dir / JAVA_HOME / --offline recipe in the error, and let `factoria doctor` list both.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH)."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0049",
@@ -1233,10 +1237,12 @@
       "suggestion": "Print the player path and version in the export report, and warn (or refuse without --allow-player-mismatch) when the player's version or build id differs from the factoria that exports. The Windows export already reads the player's version information; do the same on macOS and Linux (factoria_player --version).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0050",
@@ -1288,8 +1294,10 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md)."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0052",

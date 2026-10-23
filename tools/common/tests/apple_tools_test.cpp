@@ -338,3 +338,34 @@ TEST_CASE("platform.add_backend apple: writes the plugin for iOS and macOS and l
         CHECK(load_project(dir)->plugins.size() == 1);
     }
 }
+
+TEST_CASE("storekit configuration: one localization per language of the game, from the products' title and description keys") {
+    const PlatformCatalog catalog = catalog_of(R"({"products": [
+      {"id": "gems", "type": "consumable", "title": "100 gems", "titleKey": "shop.gems", "descriptionKey": "shop.gems.desc",
+       "price": 0.99},
+      {"id": "plain", "type": "nonConsumable", "title": "Plain", "price": 1},
+      {"id": "vip", "type": "subscription", "title": "VIP", "titleKey": "shop.vip", "price": 2.99}]})");
+    const std::vector<StoreKitLanguage> languages = {
+        {"en", {{"shop.gems", "100 gems"}, {"shop.gems.desc", "A pile of gems"}, {"shop.vip", "VIP club"}}},
+        {"es-ES", {{"shop.gems", "100 gemas"}, {"shop.gems.desc", "Un monton de gemas"}}}};  // no shop.vip: the plain title
+    const Json config = storekit_configuration(catalog, "apple", "G", "id", languages);
+
+    const Json& gems = config["products"][0]["localizations"];
+    REQUIRE(gems.size() == 2);
+    CHECK(gems[0]["locale"] == "en");
+    CHECK(gems[0]["displayName"] == "100 gems");
+    CHECK(gems[1]["locale"] == "es_ES");
+    CHECK(gems[1]["displayName"] == "100 gemas");
+    CHECK(gems[1]["description"] == "Un monton de gemas");
+    const Json& plain = config["products"][1]["localizations"];  // no keys: the catalog's text in every language
+    REQUIRE(plain.size() == 2);
+    CHECK(plain[1]["displayName"] == "Plain");
+    CHECK(plain[1]["description"] == "Plain");
+    const Json& vip = config["subscriptionGroups"][0]["subscriptions"][0]["localizations"];
+    REQUIRE(vip.size() == 2);
+    CHECK(vip[0]["displayName"] == "VIP club");
+    CHECK(vip[1]["displayName"] == "VIP");
+
+    // No languages: the old single localization.
+    CHECK(storekit_configuration(catalog, "apple", "G", "id")["products"][0]["localizations"].size() == 1);
+}
