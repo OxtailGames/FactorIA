@@ -1436,6 +1436,9 @@ suggests the right name for a typo.
 
 ### M26.17 Text entry on every device (M) — CC/FB-0020, CC/FB-0052
 
+Done (branch `m26/text-entry`): the UI raises the phone's keyboard on focus, the MENUS.md kit has an on-screen keyboard
+for pad players, the web player has a hidden `<input>` and the web smoke types into a field (CI runs it).
+
 - A focused `TextField` raises the phone's keyboard and hides it on blur. MOBILE.md says it does; today only
   `input.showKeyboard` does it (found while verifying CC/FB-0020).
 - An on-screen keyboard for gamepad players: a prefab the `TextField` opens when focus came from a pad (letters,

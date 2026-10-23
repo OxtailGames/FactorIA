@@ -945,6 +945,11 @@ server sends no `Content-Length`) replaced. A placeholder this factoria does not
   Atlas pages are at most 2048 px, like on phones: browsers run there too.
 - **Audio** is not changed by the web: WAV, OGG and QOA all decode in the player. Prefer OGG or QOA for long sounds, since
   every byte is downloaded before the game starts.
+- **Typing.** Typed text reaches the game from the browser's `keypress` events, so it needs a real keyboard (or events a
+  browser treats as typed; a browser pane's synthetic key events may only send `keydown`, and then letters do not appear).
+  On a phone or tablet, a `TextField` with focus makes the browser show its keyboard through a hidden `<input>`; iOS Safari
+  may need a second tap on the field. Details: [TEXT.md](TEXT.md#typing-text). A gamepad alone types with the on-screen
+  keyboard of [MENUS.md](MENUS.md).
 - **No icon** and no `export.web` settings: the page and the browser tab are the game's face. The `platforms` list of
   `factoria.json` is not checked for `web`.
 - **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria

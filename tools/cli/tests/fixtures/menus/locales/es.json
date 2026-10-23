@@ -55,5 +55,7 @@
     "restored": "Tus compras se han restaurado.",
     "nothingToRestore": "No había nada que restaurar.",
     "unreachable": "No se pudo contactar con la tienda ({code}). {detail}"
-  }
+  },
+  "keyboard": { "space": "Espacio", "delete": "Borrar", "done": "Hecho" },
+  "name": { "title": "Tu nombre", "placeholder": "Nombre", "next": "Continuar" }
 }
