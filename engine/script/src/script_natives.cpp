@@ -1124,6 +1124,7 @@ NATIVE(fset) {
             if (JS_IsNull(v) || JS_IsUndefined(v)) { *static_cast<Entity*>(p) = kNullEntity; break; }
             if (JS_IsString(v)) {
                 std::string id = CStr(ctx, v).str();
+                if (id.empty()) { *static_cast<Entity*>(p) = kNullEntity; break; }  // "" = no entity (the world, for a joint)
                 Entity target = W.find_by_id(id);
                 if (target.is_null()) return throw_err(ctx, what + ": no entity with id '" + id + "'");
                 *static_cast<Entity*>(p) = target;

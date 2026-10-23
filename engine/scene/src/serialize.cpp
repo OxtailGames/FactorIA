@@ -204,7 +204,8 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fields,
             continue;
         }
         if (f->kind == FieldKind::Entity) {
-            if (it.value().is_null()) {
+            // null and "" both mean "no entity" (Joint3D.connected: "" = the world, as the field doc says).
+            if (it.value().is_null() || (it.value().is_string() && it.value().get_ref<const std::string&>().empty())) {
                 *static_cast<Entity*>(f->ptr(obj)) = kNullEntity;
             } else if (deferEntities) {
                 pending_.push_back({e, &type, f, it.value(), fptr});
