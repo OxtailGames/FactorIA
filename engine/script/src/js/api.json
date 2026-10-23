@@ -3253,6 +3253,34 @@
      "doc": "Starts an assertion."
     },
     {
+     "kind": "interface",
+     "name": "RobustRun",
+     "doc": "What robust() hands to the check on each run.",
+     "members": [
+      {
+       "sig": "run: number",
+       "doc": "0 for the unperturbed run, then 1, 2, ..."
+      },
+      {
+       "sig": "runs: number",
+       "doc": "How many runs robust() makes."
+      },
+      {
+       "sig": "nudge(...targets: (Entity | string)[]): void",
+       "doc": "Moves each entity (Entity or id) by a small repeatable offset of up to `nudge` metres on every axis. Does nothing on run 0. An id that is not in the scene throws."
+      },
+      {
+       "sig": "nudgeBodies(): void",
+       "doc": "nudge() for every entity with a RigidBody3D or RigidBody2D. Call it after game.load and before the first game.step."
+      }
+     ]
+    },
+    {
+     "kind": "function",
+     "sig": "robust(check: (p: RobustRun) => void, options?: { runs?: number; nudge?: number }): void",
+     "doc": "Runs `check` `runs` times (default 5) under small perturbations (positions nudged by up to `nudge` metres, default 0.005; run 0 is unperturbed) and fails when any run fails, saying which one. Use it where a level test would otherwise assert something that depends on rounding (a chaotic rope bridge, an exact frame count): physics is exact per build but may differ on another compiler or CPU. The check must load its own scene (game.load) so each run starts fresh. The offsets are a hash of run, entity id and axis, not the RNG, so a test nudges the same way on every platform."
+    },
+    {
      "kind": "function",
      "sig": "beforeEach(fn: () => void): void",
      "doc": "Runs before each test of the enclosing describe()."

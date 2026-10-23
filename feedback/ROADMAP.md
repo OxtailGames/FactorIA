@@ -1492,6 +1492,13 @@ Acceptance: `fa_test_scene` cases for each.
 
 Acceptance: the replay hash matches across CI's Linux, Windows and macOS jobs, or the docs list where it does not.
 
+Done (branch `m26/physics-determinism`): every target builds with `-ffp-contract=off` / `/fp:precise` and `-fmath-errno` (root
+CMakeLists.txt; per-module flags were not enough, see the comment there), the test `physics_determinism`
+(`engine/physics/tests/test_determinism.cpp`) compares a replay hash with a committed value on each CI job and prints
+`FA_PHYSICS_REPLAY_HASH`, `robust()` is in `factoria:test`, Clockwork Courier's shortcut test uses it. Open: the Linux and
+Windows hashes were never measured (only macOS arm64 was); the first CI run settles it and the docs ("Physics and
+platforms" in AI_GUIDE.md) list any platform that differs.
+
 ### M26.22 Menu kit command (M) — CC/FB-0003
 
 After M26.1 (the kit is formatted on write). The menus recipe moves to `templates/menus/` (scenes, prefabs, scripts and

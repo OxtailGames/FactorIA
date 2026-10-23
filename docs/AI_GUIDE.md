@@ -1433,11 +1433,22 @@ Patterns that work:
 - Reach behaviour fields through the entity: `game.find("enemy_1").behaviour.dir`.
 - Test behaviour, not implementation: positions, component values, whether an entity still exists (`game.find(id) === null`).
 - Use `toBeCloseTo(n, digits)` for floats, and `toBeGreaterThan` for "moved far enough".
+- Physics is exact for one build on one platform, not across them (next section). Where a level test depends on a chaotic setup (a rope bridge, a stack, a seesaw), wrap it in `robust(check, { runs, nudge })`: the check runs under small, repeatable nudges of the bodies, so it asserts what survives rounding (reached, delivered, a range) instead of an exact frame count.
 - `game.load` gives a test a known starting state. Within one file, anything else (variables, `session`, behaviour fields) carries over between tests unless the test loads or resets it.
 - Storage is an empty in-memory store for each test file, so tests never read or write the real save. `session` is also reset per file.
 - Keep tests fast: headless steps do not draw, so `game.step(600)` costs little. Take a screenshot only where you need to see something, and avoid `--render-all`, which draws every frame in software and is much slower.
 - `console.log`, `console.warn` and `console.error` in scripts are log lines with category `script`. `factoria test` shows what each test printed, indented under the test (and under `logs` with `--json`). Use `console.log` while you debug, and remove it before you finish.
 - Import JSON data in tests the same way as in scripts (`import levels from "../data/levels.json";`).
+
+### Physics and platforms
+
+What holds: the same build on the same platform, with the same seed and input, gives the same result every time (replays and tests rely on it). Debug and Release builds of the same platform agree too. What is not promised: another compiler or CPU may round differently, and a chaotic setup (a rope bridge, a pile, a seesaw) turns a one-bit difference into another game, so a test that passes on one platform can fail on another (Clockwork Courier's courier fell off a bridge on Linux and not on a Mac).
+
+What the engine does about it: it is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise` on MSVC), so `a * b + c` is not fused into one rounding on arm64 or on CPUs with FMA, and the C library's `sin`, `cos`, `atan2`, `asin` and `acos` stay real calls (`-fmath-errno`). What is left is those library calls themselves: the physics and scene code use them for rotations (Euler angles from a rotation matrix, a quaternion turned by an angular velocity, a hinge angle, the sampling of round colliders), and each platform's C library may round the last bit differently. `sqrt` is exact. CI runs a physics replay on its Linux, Windows and macOS jobs, prints its hash (`FA_PHYSICS_REPLAY_HASH`) and compares it with the value committed in `engine/physics/tests/test_determinism.cpp`.
+
+Platforms that give the reference hash: macOS arm64 (Apple Clang). Linux x86-64 (GCC) and Windows x86-64 (MSVC) are not measured yet; the first CI run of the change that added the check settles it, and a platform that differs is listed here with its own hash.
+
+For your game: do not assert an exact frame count or an exact position after a long physics run. Use `robust()` (SCRIPTING.md, "Tests") and give chaotic setups a margin (bridges that settle before the player arrives, ledges wider than the worst nudge).
 
 ## 11. Debugging, live sessions and replays
 

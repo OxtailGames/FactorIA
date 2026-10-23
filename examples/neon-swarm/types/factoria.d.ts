@@ -5104,6 +5104,33 @@ declare module "factoria:test" {
   export function expect(value: unknown): Expectation;
 
   /**
+   * What robust() hands to the check on each run.
+   */
+  export interface RobustRun {
+    /**
+     * 0 for the unperturbed run, then 1, 2, ...
+     */
+    run: number;
+    /**
+     * How many runs robust() makes.
+     */
+    runs: number;
+    /**
+     * Moves each entity (Entity or id) by a small repeatable offset of up to `nudge` metres on every axis. Does nothing on run 0. An id that is not in the scene throws.
+     */
+    nudge(...targets: (Entity | string)[]): void;
+    /**
+     * nudge() for every entity with a RigidBody3D or RigidBody2D. Call it after game.load and before the first game.step.
+     */
+    nudgeBodies(): void;
+  }
+
+  /**
+   * Runs `check` `runs` times (default 5) under small perturbations (positions nudged by up to `nudge` metres, default 0.005; run 0 is unperturbed) and fails when any run fails, saying which one. Use it where a level test would otherwise assert something that depends on rounding (a chaotic rope bridge, an exact frame count): physics is exact per build but may differ on another compiler or CPU. The check must load its own scene (game.load) so each run starts fresh. The offsets are a hash of run, entity id and axis, not the RNG, so a test nudges the same way on every platform.
+   */
+  export function robust(check: (p: RobustRun) => void, options?: { runs?: number; nudge?: number }): void;
+
+  /**
    * Runs before each test of the enclosing describe().
    */
   export function beforeEach(fn: () => void): void;

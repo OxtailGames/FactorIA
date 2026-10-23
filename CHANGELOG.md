@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Physics across platforms
+
+- The engine is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`) and keeps `sin`/`cos`/`atan2`
+  as C library calls, so the same source gives the same numbers on more CPUs and compilers (Debug and Release agree on a
+  Mac now). CI prints a physics replay hash on the Linux, Windows and macOS jobs and compares it with a committed value
+  (`FA_PHYSICS_REPLAY_HASH`). The docs say what holds: exact per build and platform, not guaranteed across them.
+- `robust(check, { runs, nudge })` in `factoria:test` runs a check under small repeatable nudges of the bodies, so a level
+  test asserts what is robust instead of an exact frame count. Clockwork Courier's "shortcut is not slower" test uses it
+  (FB-0055).
+
 A 3D example game for phones
 
 - Clockwork Courier (`examples/clockwork-courier`) is a complete 3D game made for phones first, the way your AI makes a
