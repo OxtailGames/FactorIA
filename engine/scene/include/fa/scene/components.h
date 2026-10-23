@@ -414,6 +414,7 @@ struct MeshRenderer {
     Vec2 uvScale{1, 1};               // texture tiling
     std::string material;             // "" = the standard material; else a *.material.json (docs/SHADERS.md)
     Json materialParams = Json::object();  // per-entity overrides of the material's params and textures: {"glow": [1,0,0,1]}
+    Json materialColors = Json::object();  // glTF material name -> [r,g,b,a] replacing that material's base color factor
 };
 
 enum class LightType : std::int32_t { Directional, Point, Spot };

@@ -1429,6 +1429,10 @@ Done (branch `m26/render-quality`): `window.renderScale`, `window.supports`, `ga
 
 ### M26.16 Per-material colours (M) — CC/FB-0031
 
+Done (branch `m26/material-colors`): `MeshRenderer.materialColors` (replaces the glTF base colour factor of the named
+material, `color` still tints the whole model, part of the batch key) and the `factoria validate` check with a "did you
+mean"; Courier's `paints.js` can drop its dark-tint-plus-emissive trick (not changed in this package).
+
 After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF
 material name, `{"Body": [0.2, 0.8, 0.7, 1]}`, applied per sub-mesh (the sub-mesh keeps its material name) and part of
 the batch key; `factoria validate` checks the names against the model with a "did you mean".

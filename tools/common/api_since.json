@@ -187,6 +187,7 @@
     "MeshRenderer.color": "0.1.0",
     "MeshRenderer.emissive": "0.1.0",
     "MeshRenderer.material": "0.2.0",
+    "MeshRenderer.materialColors": "unreleased",
     "MeshRenderer.materialParams": "0.2.0",
     "MeshRenderer.mesh": "0.1.0",
     "MeshRenderer.metallic": "0.1.0",

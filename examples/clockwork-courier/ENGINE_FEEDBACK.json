@@ -787,10 +787,12 @@
       "suggestion": "MeshRenderer.materialColors: {materialName: [r,g,b,a]} overrides, or a colour per glTF material slot.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.16 (Per-material colours) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.16 (Per-material colours) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/material-colors (M26.16): MeshRenderer.materialColors {materialName: [r,g,b,a]} replaces the glTF base colour factor of that material (MeshRenderer.color still tints the whole model), and factoria validate checks the names against the model with a did-you-mean. scripts/paints.js can now give the body a real colour and leave the eyes alone; it is not changed yet."
+      ],
+      "engineIssue": "m26/material-colors"
     },
     {
       "id": "FB-0032",

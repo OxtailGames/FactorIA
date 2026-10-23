@@ -137,6 +137,7 @@ struct SubMesh {
     int vertexCount = 0;
     int indexCount = 0;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
+    std::string materialName;         // glTF material name ("" = none): the key of MeshRenderer.materialColors
     Color baseColor{1, 1, 1, 1};
     TextureAsset* texture = nullptr;  // glTF base color texture (owned by Assets)
     TextureAsset* normalTex = nullptr;     // glTF normalTexture
