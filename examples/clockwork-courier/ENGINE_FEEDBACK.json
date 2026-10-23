@@ -1008,18 +1008,19 @@
       "severity": "minor",
       "title": "No locale-aware number formatting",
       "missing": "i18n.t fills {placeholders} with String(value): a decimal always has a point, there are no thousands separators, no ordinals and no locale rule for time or list formatting. Spanish needs 1,5 and 1:15,0.",
-      "workaround": "Each locale file states format.decimal and scripts/fmt.js applies it (decimal, clock) before the value goes into i18n.t.",
+      "workaround": "Each locale file stated format.decimal and scripts/fmt.js applied it (decimal, clock) before the value went into i18n.t; fmt.js now calls i18n.number / i18n.duration.",
       "workaroundFiles": [
-        "scripts/fmt.js",
-        "locales/es.json"
+        "scripts/fmt.js"
       ],
       "suggestion": "Number, percent and duration formatters in i18n (i18n.number(v, {digits}), i18n.duration) following the active language, and {value:number} style placeholders.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.13 (Locale-aware numbers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.13 (Locale-aware numbers) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/numbers (M26.13): i18n.number(v, {decimals}) and i18n.duration(seconds), and {v:number:1} / {t:duration} in keys, write the decimal and group separators and digits of the language from a table in the engine (docs/LOCALIZATION.md, section 5b). scripts/fmt.js now only calls them and the locales no longer carry format.decimal. Ordinals, percent and list formatting are not covered."
+      ],
+      "engineIssue": "m26/numbers"
     },
     {
       "id": "FB-0040",
