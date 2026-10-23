@@ -1770,6 +1770,31 @@ NATIVE(shapeCast3d) {  // (shape, fromX, fromY, fromZ, toX, toY, toZ, mask, igno
     o.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
     return hit_to_js(ctx, I->host->physics().shape_cast3d(W, shape, a, b, o));
 }
+// Navigation (nav.findPath / nav.bake in factoria.js): the same Physics calls as the nav.* commands.
+NATIVE(navFindPath) {  // ({ from: [x,y,z], to: [x,y,z], radius?, snap?, closest?, mesh? })
+    SETUP;
+    const Json a = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
+    auto pt = [&](const char* key) {
+        const Json v = a.value(key, Json());
+        return Vec3{v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+    };
+    NavPathOptions o;
+    o.radius = a.value("radius", -1.0f);
+    o.snap = a.value("snap", -1.0f);
+    o.closest = a.value("closest", false);
+    o.mesh = a.value("mesh", std::string());
+    auto r = I->host->physics().nav_find_path(W, pt("from"), pt("to"), o);
+    if (!r.ok()) return throw_err(ctx, "nav.findPath(from, to): " + r.error().to_string());
+    return I->from_json(r.value().to_json());
+}
+NATIVE(navBake) {  // (mesh)
+    SETUP;
+    auto r = I->host->physics().nav_bake(W, arg_str(ctx, argc, argv, 0));
+    if (!r.ok()) return throw_err(ctx, "nav.bake(mesh): " + r.error().to_string());
+    Json out = Json::array();
+    for (const NavBakeStats& st : r.value()) out.push_back(st.to_json());
+    return I->from_json(out);
+}
 NATIVE(overlapCircle) {
     SETUP;
     return entities_array(ctx, I->host->physics().overlap_circle2d(W, {static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
@@ -2361,7 +2386,7 @@ const Reg kRegs[] = {
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
