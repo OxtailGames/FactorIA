@@ -769,7 +769,10 @@ i18n.setLanguage("es");                                   // everything with a k
 const off = i18n.on("change", (e) => redraw(e.language)); // after every switch; ends with the scene, like ui.on
 ```
 
-Members: `t(key, args?)`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
+`i18n.number(1234.5)` ("1,234.5", "1234,5" in Spanish) and `i18n.duration(83.4)` ("1:23.4") write numbers and times the
+way the current language does.
+
+Members: `t(key, args?)`, `number(v, {decimals?})`, `duration(seconds, {decimals?})`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
 `name(tag)`, `on("change", fn)`. Every test file starts in `defaultLanguage`. All of it, the string tables and how the
 start language is chosen: [LOCALIZATION.md](LOCALIZATION.md).
 
