@@ -796,7 +796,8 @@ More `game` calls for tests: `mouseDown(button = "left")` and `mouseUp(button)` 
 follows; with `mouseMove` they test a drag), `wheel(dy)` turns the wheel for the next frame
 (`input.mouse.wheel`), `quitRequested` (true once the game asked to quit with `game.quit()` or an unconsumed Back; a test
 run never stops because of it, and it is cleared before each test), `setSystemLanguages(["es-ES", "en"])` (what
-`i18n.systemLanguages` answers, so a first-run language choice can be tested; empty again before each test) and
+`i18n.systemLanguages` answers, so a game's own first-run language choice can be tested; the engine's start language is
+not picked again, a test starts in the default language; empty again before each test) and
 `resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
 unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
 one file share storage and the fake store unless you call `resetState`.
