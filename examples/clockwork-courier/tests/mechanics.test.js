@@ -10,7 +10,6 @@ import * as levels from "../scripts/levels.js";
 import * as stars from "../scripts/stars.js";
 import * as progress from "../scripts/progress.js";
 import { NavGrid } from "../scripts/nav.js";
-import { STEPS } from "../scripts/loading.js";
 
 const ARENA = "scenes/test_arena.scene.json";
 
@@ -497,7 +496,7 @@ describe("music", () => {
 });
 
 describe("loading screen", () => {
-  test("Play shows a bar that fills in steps, then loads the level", () => {
+  test("Play shows a bar that follows the level's files being read ahead, then loads it", () => {
     game.load("scenes/main.scene.json");
     game.step(5);
     progress.setName("Ana"); // P3: Play opens the level select, a card starts the level
@@ -513,10 +512,25 @@ describe("loading screen", () => {
       const l = game.find("loading");
       if (l) seen.push(l.behaviour.progress);
     }
-    expect(seen.length).toBe(STEPS - 1);
+    // The level's files are read a few every frame: the scene runs (and draws) on several frames and the bar only grows.
+    expect(seen.length).toBeGreaterThan(2);
     expect(seen).toEqual([...seen].sort((a, b) => a - b));
-    expect(seen[0]).toBeGreaterThan(0);
+    expect(seen.some((p) => p > 0 && p < 1)).toBe(true);
+    expect(seen[seen.length - 1]).toBeGreaterThan(0.5);  // the frame that finishes the job also loads the level
     expect(scene.current).toBe(levels.first().scene);
+  });
+
+  test("the level is read ahead: scene.load reads no file of its own", () => {
+    const job = scene.preload(levels.first().scene);
+    let guard = 0;
+    while (!job.done && guard++ < 40) game.step(1);
+    expect(job.done).toBe(true);
+    expect(job.files).toBeGreaterThan(5);
+    const before = game.fileReads();
+    scene.load(levels.first().scene);
+    game.step(1);
+    expect(scene.current).toBe(levels.first().scene);
+    expect(game.fileReads()).toBe(before);
   });
 
   test("it shows the name of the level it loads", () => {
