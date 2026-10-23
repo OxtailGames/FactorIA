@@ -1387,6 +1387,9 @@ with a key; validate warns only for a placeholder with no arg.
 
 ### M26.13 Locale-aware numbers (M) — CC/FB-0039
 
+Done (branch `m26/numbers`): `fa/core/number_format.h` (table of separators and digits), placeholders `{v:number:N}` and
+`{t:duration:N}`, `i18n.number` / `i18n.duration`, section 5b of LOCALIZATION.md; Courier's `fmt.js` calls them.
+
 After M26.12 (same localize code). `{v:number:1}` and `{t:duration}` in keys, `i18n.number(v, {decimals})` and
 `i18n.duration(seconds)` in scripts: decimal and group separators and digit forms per language from a small table in
 the engine (no ICU). LOCALIZATION.md lists the languages it knows.

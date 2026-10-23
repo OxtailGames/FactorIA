@@ -336,9 +336,6 @@
     "stay": "Quedarme",
     "yes": "Salir"
   },
-  "format": {
-    "decimal": ","
-  },
   "touch": {
     "jump": "Saltar",
     "action": "Acción"

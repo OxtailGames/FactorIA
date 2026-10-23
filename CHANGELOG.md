@@ -36,6 +36,11 @@ Platform services
 
 Localization
 
+- Numbers and times follow the language: `{v:number:1}` and `{t:duration}` in a string table and `i18n.number(v, {decimals})`
+  and `i18n.duration(seconds)` in scripts write 1234.5 as "1,234.5", "1234,5" (Spanish; "12.345,5" from five digits),
+  "1.234,5" (German), "1 234,5" (French, narrow no-break space) or "١٬٢٣٤٫٥" (Arabic digits), and 83.4 seconds as "1:23.4".
+  A small table in the engine, no ICU; a language it does not know is written like English (docs/LOCALIZATION.md).
+  Clockwork Courier uses it instead of its own helper (FB-0039).
 - `keyArgs` on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: the values of a key's `{placeholders}`
   (and the `count` of a plural entry), so a script sets them once instead of rewriting `text` every frame, and a language
   switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
