@@ -188,9 +188,11 @@ void destroy_texture(std::uint32_t imageId, std::uint32_t viewId) {
     if (imageId) sg_destroy_image(sg_image{imageId});
 }
 
-void prepare_backbuffer_readback() {
+void prepare_backbuffer_readback(bool showWindow) {
 #if defined(__APPLE__)
-    metal_make_window_readable();
+    metal_make_window_readable(showWindow);
+#else
+    (void)showWindow;
 #endif
 }
 
