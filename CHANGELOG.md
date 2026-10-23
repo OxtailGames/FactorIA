@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Text entry on every device
+
+- A focused `TextField` raises the phone's keyboard and hides it on blur (not for gamepad players). The menu kit in
+  `docs/MENUS.md` has an on-screen keyboard for gamepad players (Latin, Cyrillic and Greek layouts; other scripts fall
+  back to Latin). The web player takes typed text on mobile browsers through a hidden input, and the web smoke types
+  into a field.
+
 A 3D example game for phones
 
 - Clockwork Courier (`examples/clockwork-courier`) is a complete 3D game made for phones first, the way your AI makes a
@@ -40,6 +47,17 @@ Animation
 - A glTF with several skins is drawn with each mesh's own skin (it used the first skin's palette for all, which bent the
   second skin's mesh out of shape). `Animator::skinPalettes` holds one palette per skin. Clockwork Courier imports the
   original robot and dog again and drops `tools/skinify.py` (FB-0001, FB-0002).
+
+Graphics quality
+
+- `window.renderScale` (0.5 to 1) draws the picture at a share of the window's size, in games and in tests;
+  `window.supports("frameCap" | "renderScale" | "fullscreen" | "resize")` says what this run can do (the frame cap still
+  throws on a phone: read it first); `game.device` gives `formFactor`, `gpuBackend`, `memoryGB` and a `tier` (`"low"`,
+  `"medium"`, `"high"`) to pick a preset, with fixed values headless; tests pretend with `game.setDevice(...)`.
+- `game.renderStats()` in tests (and the `game.render_stats` command) draws a frame when none was drawn yet and adds
+  `shadowCasters` and `textureMB`. `perf.measure` records `triangles`, `lights` and `textureMB`; `perf.check` fails when
+  they pass the baseline (only for baselines that have them) or the new `budgets` (`maxTriangles`, `maxLights`,
+  `maxTextureMB`, `maxDrawCalls`, `maxEntities`).
 
 Scripts
 

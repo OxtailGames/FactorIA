@@ -993,6 +993,30 @@
       }
       winSet("frameCap", 3, fps);
     },
+    // Resolution of the picture as a fraction of the window: 1 (default) draws at full size, 0.5 at half the width and height
+    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. Works in every run with graphics,
+    // headless tests included (game.screenshot then has that size); a run without a renderer only remembers the value.
+    get renderScale() { return N.renderScaleGet(); },
+    set renderScale(v) {
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.5 || v > 1) {
+        throw new Error(`window.renderScale expects a number from 0.5 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
+      }
+      const err = N.renderScaleSet(v);
+      if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
+    },
+    // supports("frameCap" | "renderScale" | "fullscreen" | "resize"): whether this run can do it, so an options menu hides what a
+    // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
+    // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
+    // with a "did you mean".
+    supports(feature) {
+      const names = ["frameCap", "renderScale", "fullscreen", "resize"];
+      if (!names.includes(feature)) {
+        const sug = typeof feature === "string" ? closest(feature, names) : "";
+        throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
+      }
+      if (feature === "renderScale") return true;
+      return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
+    },
   };
 
   const audio = {
@@ -1215,6 +1239,11 @@
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
       return addListener("app." + event, () => fn(), null);
     },
+    // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
+    // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
+    // "low" | "medium" | "high" from the graphics backend and the memory }. Headless runs and tests always read
+    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } (tests change it with game.setDevice).
+    get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     get platform() { return N.platform(); },
@@ -2089,8 +2118,34 @@
     find(idOrName) { return world.find(idOrName); },
     get world() { return world; },
     get time() { return time; },
+    // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
+    // { formFactor, gpuBackend, memoryGB, tier }; one left out keeps the headless value. Reset before every test.
+    setDevice(overrides) {
+      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier"];
+      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
+      for (const k of Object.keys(overrides)) {
+        if (keys.includes(k)) continue;
+        const sug = closest(k, keys);
+        throw new Error(`game.setDevice: unknown field '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+      }
+      const forms = ["desktop", "phone", "tablet"], tiers = ["low", "medium", "high"];
+      if (overrides.formFactor !== undefined && !forms.includes(overrides.formFactor)) throw new Error(`game.setDevice: formFactor must be one of ${forms.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.formFactor)}`);
+      if (overrides.tier !== undefined && !tiers.includes(overrides.tier)) throw new Error(`game.setDevice: tier must be one of ${tiers.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.tier)}`);
+      if (overrides.gpuBackend !== undefined && typeof overrides.gpuBackend !== "string") throw new Error(`game.setDevice: gpuBackend must be a string such as "metal", but got ${inspect(overrides.gpuBackend)}`);
+      if (overrides.memoryGB !== undefined && (typeof overrides.memoryGB !== "number" || !(overrides.memoryGB >= 0))) throw new Error(`game.setDevice: memoryGB must be a number of gigabytes, but got ${inspect(overrides.memoryGB)}`);
+      N.testDevice(plain(overrides));
+    },
+    // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
+    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
+    // shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale }. Throws
+    // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
+    renderStats() {
+      const s = N.renderStatsNow();
+      if (s === null) throw new Error("game.renderStats(): this run has no renderer, so nothing is drawn. Run the tests with graphics (headless needs Mesa/EGL on Linux)");
+      return s;
+    },
     screenshot(path, options) {
-      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : 1,
+      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : N.renderScaleGet(),
         options && options.simulate !== undefined ? String(options.simulate) : "");
       if (err) throw new Error(`game.screenshot('${path}') failed: ${err}`);
     },
@@ -2157,6 +2212,8 @@
       N.testAccessibility();
       N.testQuit(true);
       N.testSystemLanguages();
+      N.testDevice();
+      if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
       N.setTimeScale(1); pausedScale = null;
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).

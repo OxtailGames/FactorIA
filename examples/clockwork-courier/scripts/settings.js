@@ -10,7 +10,7 @@ export const BUSES = ["master", "music", "sfx", "ui"];
 /** Graphics presets the options menu cycles through (scripts/accessibility.js applies them to the level). */
 export const QUALITIES = ["low", "medium", "high"];
 
-/** Frame caps of the options menu (0 = unlimited). Phones refuse a cap (ENGINE_FEEDBACK): the option is greyed out there. */
+/** Frame caps of the options menu (0 = unlimited). A phone cannot cap (window.supports("frameCap")): the option is greyed out there. */
 export const FRAME_CAPS = [30, 60, 0];
 
 /** Text sizes of the options menu (ui.textScale): 85 to 200 percent. */
@@ -19,9 +19,9 @@ export const TEXT_SCALES = [0.85, 1, 1.15, 1.3, 1.5, 2];
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
-/** True on a phone or tablet (a touch screen, an always-full-screen display, no window to resize). */
+/** True on a phone or tablet (a touch screen, an always-full-screen display, no window to resize): game.device.formFactor. */
 export function onPhone() {
-  return game.platform === "ios" || game.platform === "android";
+  return game.device.formFactor !== "desktop";
 }
 
 /**
@@ -35,7 +35,7 @@ function defaults() {
     fullscreen: null, // null: keep factoria.json display.fullscreen
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
-    quality: onPhone() ? "medium" : "high", // graphics preset, one of QUALITIES: the engine tells nothing about the GPU, only the platform
+    quality: game.device.tier, // graphics preset, one of QUALITIES: game.device.tier is "low", "medium" or "high" from the GPU backend and the memory
     frameCap: onPhone() ? 30 : 0, // 0 = no cap; a phone starts at 30 to spare the battery (where the platform lets the game set it)
     haptics: true, // input.vibrate on landing, a catch, a delivery and a low spring (scripts/haptics.js)
     leftHanded: false, // mirrors the on-screen stick and buttons (scripts/accessibility.js)
@@ -143,7 +143,7 @@ export function apply(s = load()) {
   if (s.fullscreen !== null) tryApply("full screen", () => window.setFullscreen(s.fullscreen));
   if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
-  if (!onPhone()) tryApply("frame cap", () => (window.frameCap = s.frameCap)); // a phone throws: ENGINE_FEEDBACK FB-0036
+  if (window.supports("frameCap")) tryApply("frame cap", () => (window.frameCap = s.frameCap)); // a phone cannot cap
 }
 
 /** apply() the first time it is called in a run: session values outlive scene loads (and each test starts afresh). */

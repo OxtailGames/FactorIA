@@ -1415,3 +1415,39 @@ TEST_CASE("text fit: Slider labelAbove gives the track the whole width and maxWi
     CHECK(tf->fit.size.x <= 96 * 0.7f + 0.5f);
     CHECK(tf->fit.px <= 32 * 1.5f);
 }
+
+TEST_CASE("ui textfield: the phone's keyboard goes up with the focus and down with the blur, not for a pad") {
+    Ui t;
+    Entity f = t.add<TextField>("f", {0, 0}, {200, 30});
+    Entity b = t.button("b", {0, 60});
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());  // nothing focused
+    CHECK(t.ui.set_focus(t.w, f));
+    t.frame();
+    CHECK(t.in.keyboard_shown());
+    CHECK(t.ui.set_focus(t.w, b));  // a Button: down
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());
+    // A script that hides it while the field keeps the focus is not overruled: only changes count.
+    t.ui.set_focus(t.w, f);
+    t.frame();
+    CHECK(t.in.keyboard_shown());
+    t.in.set_keyboard_shown(false);
+    t.frame(3);
+    CHECK_FALSE(t.in.keyboard_shown());
+    t.ui.set_focus(t.w, kNullEntity);  // blur
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());
+    // The last input was a pad: the game's on-screen keyboard is for that, the phone's stays down.
+    t.in.set_last_device(InputDevice::Gamepad);
+    t.ui.set_focus(t.w, f);
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());
+    // A finger on the field raises it.
+    t.in.set_last_device(InputDevice::Touch);
+    t.ui.set_focus(t.w, b);
+    t.frame();
+    t.ui.set_focus(t.w, f);
+    t.frame();
+    CHECK(t.in.keyboard_shown());
+}
