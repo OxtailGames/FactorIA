@@ -4,6 +4,7 @@
 
 #include "fa/runtime/engine.h"
 #include "fa/tooling/ci_workflow.h"
+#include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
 #include "fa/tooling/sign.h"
 
@@ -24,6 +25,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_plugin_commands(registry, projectDir);
     register_sign_commands(registry, projectDir);
     register_ci_workflow_commands(registry, projectDir);
+    register_menu_kit_commands(registry, projectDir);
     register_perf_commands(registry, projectDir);
     register_script_trace_commands(registry, projectDir);
     register_checkpoint_commands(registry, projectDir);

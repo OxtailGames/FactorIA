@@ -106,7 +106,8 @@ std::vector<TemplateInfo> list_templates() {
     std::set<std::string> names;
     for (const auto& p : bundled_list("templates/")) {
         auto parts = split(p, '/');
-        if (parts.size() >= 3 && parts[1] != "common") names.insert(parts[1]);
+        // A folder is a project template when it holds a factoria.json (templates/menus/ is the menu kit, templates/common/ is shared).
+        if (parts.size() == 3 && parts[1] != "common" && parts[2] == "factoria.json") names.insert(parts[1]);
     }
     for (const auto& n : names) {
         TemplateInfo t;

@@ -1297,8 +1297,10 @@ never measures), and `project_validate` warns about clipped, very loud, very qui
 
 ### 9.24 Game menus: main menu, options, credits, loading screen, pause
 
-New projects have no menus. `factoria docs read menus` (MCP `docs_read {"name":"menus"}`) has a complete set to copy,
-which FactorIA's own tests drive with a gamepad only: a main menu, options (video, audio per bus, controls, language),
+New projects have no menus. `factoria call project.add_menu_kit` (MCP `project_add_menu_kit {"parts":[...]}`, default all
+parts; it never touches a file you changed unless `overwrite` is true and adds only the texts your locales lack) copies a
+complete set into the game, and `factoria docs read menus` (MCP `docs_read {"name":"menus"}`) explains it. FactorIA's own
+tests drive it with a gamepad only: a main menu, options (video, audio per bus, controls, language),
 credits listing the software in `FACTORIA_NOTICES.txt`, a loading screen and a pause menu, with the settings saved
 between runs. In short:
 

@@ -82,7 +82,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   what the standard material computed, optional `vertex()`, typed params). Write the two files, call `shader.compile`
   (MCP `shader_compile`) until `ok`, then look at a screenshot. Full guide with five worked examples: `factoria docs read shaders`.
 - **Menus and finishing the game:** a main menu, options, pause, saves, languages and accessibility are not in an empty project.
-  When the game needs them, `factoria docs read menus` has the files to copy and `factoria docs read finishing` the ordered
+  When the game needs them, `factoria call project.add_menu_kit` (MCP `project_add_menu_kit`; `parts` picks main-menu, options, pause, loading, ...) copies the kit and merges its texts into the locales (`factoria docs read menus` explains it), and `factoria docs read finishing` the ordered
   path to a game ready for a store, with a checklist.
 - **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
   App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.

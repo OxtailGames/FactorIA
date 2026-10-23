@@ -5,11 +5,55 @@ few steps: a main menu, options (video, a colour filter for colour-blind players
 the runtime, a loading screen and a pause menu. Everything works with only a keyboard, only a mouse or only a gamepad,
 and the player's settings are saved between runs.
 
-FactorIA's own tests run exactly these files, driven with gamepad presses only: copy them as they are, check that they
-work, then change them. The widgets and `ui` events they use are in the AI guide (section 9.22) and in
-`factoria docs read components` (`Panel`, `Button`, `Toggle`, `Slider`, `ScrollList`).
+FactorIA's own tests run exactly these files, driven with gamepad presses only. The kit lives in the FactorIA install
+as `templates/menus/` (it is not a project template: `factoria new` does not list it), and one command copies the parts
+a game wants and merges their texts into its string tables. The widgets and `ui` events the files use are in the AI guide
+(section 9.22) and in `factoria docs read components` (`Panel`, `Button`, `Toggle`, `Slider`, `ScrollList`).
+
+## Add the kit with a command
+
+```bash
+factoria call project.add_menu_kit                              # every part
+factoria call project.add_menu_kit '{"parts":["pause","loading"]}'   # only these (and what they need)
+```
+
+(`project_add_menu_kit` over MCP.) Every file goes to the same path in the game, so the paths in the steps below are the
+paths in your project. The parts, in the order of `templates/menus/kit.json`:
+
+| Part | Files | Strings |
+|---|---|---|
+| `core` | `scripts/settings.js`, `scripts/ui/menu_stack.js`, `scripts/ui/read_aloud.js` | `menu.*` |
+| `options` | `prefabs/ui/options.prefab.json`, `scripts/ui/options.js` | `options.*` |
+| `credits` | `scripts/ui/credits.js` | `credits.*` |
+| `shop` | `scripts/ui/shop.js`, `scripts/store_events.js` | `shop.*` |
+| `main-menu` | `scenes/menu.scene.json`, `scripts/main_menu.js`, `tests/recipe.test.js` | none of its own |
+| `pause` | `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js` | `pause.*` |
+| `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
+| `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
+| `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
+
+A part brings the parts it needs: `pause` adds `core` and `options`, `main-menu` adds `core`, `options`, `credits` and
+`shop` (the title screen's scene holds their panels). The result lists them in `requiredBy`.
+
+- **Files.** A file the game does not have is `added`. One that is already the kit's file is `unchanged`, so running the
+  command twice changes nothing. One the game has edited is left alone and listed in `skipped` with the reason, unless
+  you pass `overwrite: true`, which replaces it (`overwritten`). Scenes and prefabs are written in the canonical layout
+  of `scene.format`.
+- **Texts.** The kit's strings are merged into `locales/<language>.json` for every language in `factoria.json`
+  `"localization"`: keys the game does not have are added (listed per file in `locales[].merged`), a key it has is never
+  replaced, with or without `overwrite`. The kit ships English, Spanish and Arabic; any other language gets the English
+  text, which reads better than a key name until a translator replaces it (`locales[].note` says so; see
+  [LOCALIZATION.md](LOCALIZATION.md)). A game without a `"localization"` section gets one with English.
+- **factoria.json.** Only what the kit needs and the game lacks: the `localization` section above, and the `pause`
+  input action for the `pause` part. `settings[]` in the result says what changed.
+- **What is left to you** (`nextSteps[]`): the start scene and the first level, the entity with `pause_menu.js` in every
+  level, the actions the options let the player rebind. These are the steps below; the command does not guess them.
+- **Check.** `tests/recipe.test.js` ships with the `main-menu` part: it opens the menu itself and drives it with a
+  gamepad, so it passes whatever `mainScene` is. Run `factoria validate` and `factoria test`.
 
 ## Steps
+
+What the command does, file by file; do it by hand when you want to see each file or the command is not at hand.
 
 1. **factoria.json.** Start on the menu, and add a `pause` action:
    `"mainScene": "scenes/menu.scene.json"` and, in `input.actions`, `"pause": ["Escape", "P", "GamepadStart"]`.
@@ -246,6 +290,12 @@ the system has a voice for that language (otherwise the default voice reads it, 
   player has touched the page). The voices are the browser's.
 
 ## The files
+
+Each block is a file of the kit (`templates/menus/`) or, for the demo scene `scenes/name.scene.json`, the locale
+entries of the demo and the tests other than `tests/recipe.test.js`, a file of the tested menus project
+(`tools/cli/tests/fixtures/menus`, which holds a copy of every kit file). A test of FactorIA keeps the blocks, the kit
+and that project the same. Scenes and prefabs are printed in a shorter layout than the canonical one `scene.format`
+writes.
 
 ### `scripts/settings.js`
 
@@ -917,6 +967,7 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
+    this.actions = this.actions.filter((action) => input.actions().includes(action)); // an action the game does not have gets no row
     for (const action of this.actions) {
       const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
@@ -1673,11 +1724,14 @@ third language by editing the values only (keep the keys and the `{placeholders}
 ### `tests/recipe.test.js`
 
 ```js tests/recipe.test.js
+// The test that ships with the menu kit (project.add_menu_kit): it opens the kit's main menu itself, so it passes whatever the
+// game's mainScene is, and drives the menus with a gamepad only.
 import { test, expect, game } from "factoria:test";
-import { ui, storage, audio } from "factoria";
+import { ui, storage, audio, scene } from "factoria";
 
-// Each test file starts on the project's mainScene (the main menu) with empty storage.
+// Each test file starts on the project's mainScene with empty storage.
 test("gamepad only: main menu -> options -> music volume -> back, and the volume is saved", () => {
+  scene.load("scenes/menu.scene.json");
   const pad = game.gamepad(0);
   game.step(2);
   pad.tap("DpadDown"); // Options
