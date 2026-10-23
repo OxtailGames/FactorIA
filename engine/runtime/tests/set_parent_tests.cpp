@@ -93,3 +93,32 @@ TEST_CASE("scene.set_parent: refuses cycles and unknown ids with a hint") {
     r = s.call("scene.get_entity", R"({"id":"kid"})");
     CHECK(r.result["parent"] == "box");  // refused calls changed nothing
 }
+
+TEST_CASE("scene.set_parent: index places the child among its siblings and bad indexes teach") {
+    Session s;
+    REQUIRE(s.call("scene.spawn", R"({"id":"x","parent":"box"})").ok);
+    REQUIRE(s.call("scene.spawn", R"({"id":"y","parent":"box"})").ok);
+    auto order = [&] {
+        std::string out;
+        const auto got = s.call("scene.get_entity", R"({"id":"box"})");
+        for (const auto& c : got.result["children"]) out += (out.empty() ? "" : ",") + c["id"].get<std::string>();
+        return out;
+    };
+    auto r = s.call("scene.spawn", R"({"id":"z","parent":"box","index":0})");
+    REQUIRE(r.ok);
+    CHECK(order() == "z,x,y");
+    r = s.call("scene.set_parent", R"({"id":"kid","parent":"box","index":1})");
+    REQUIRE(r.ok);
+    CHECK(r.result["index"] == 1);
+    CHECK(order() == "z,kid,x,y");
+    r = s.call("scene.set_parent", R"({"id":"z","parent":"box","index":3})");  // within the same parent: 3 others
+    REQUIRE(r.ok);
+    CHECK(order() == "kid,x,y,z");
+    r = s.call("scene.set_parent", R"({"id":"z","parent":"box","index":4})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("0 to 3") != std::string::npos);
+    CHECK_FALSE(s.call("scene.set_parent", R"({"id":"z","parent":"box","index":-1})").ok);
+    CHECK_FALSE(s.call("scene.set_parent", R"({"id":"z","parent":null,"index":0})").ok);
+    CHECK_FALSE(s.call("scene.spawn", R"({"id":"w","parent":"box","index":9})").ok);
+    CHECK(order() == "kid,x,y,z");
+}

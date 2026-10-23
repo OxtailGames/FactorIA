@@ -2188,13 +2188,14 @@ Since 0.2.0.
 
 Move an entity under another entity, or to the top level of the scene.
 
-`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name) to move. |
 | `parent` | any | no | New parent's id (or name); null or empty = top level. |
 | `keepWorldTransform` | boolean | no | true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform. Default true. |
+| `index` | integer | no | Place among the new parent's other children (0 = first). Omitted = last. Needs a parent. |
 
 ### `scene.spawn` (modifies state)
 
@@ -2208,6 +2209,8 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 | `position` | array | no | [x, y] or [x, y, z] world position (Transform.position). |
 | `entity` | object | no | Entity JSON; alternatively put its fields (name, components...) at top level. |
 | `parent` | string | no | Parent entity id. |
+| `index` | integer | no | Place among the parent's children (0 = first, up to their count). Omitted = last. Needs parent. |
+| `overrides` | object | no | With prefab: patches for the prefab's children, keyed by child id, name or path (see docs/MENUS.md). |
 | `name` | string | no |  |
 | `id` | string | no |  |
 | `tags` | array | no |  |
@@ -2508,9 +2511,9 @@ declare module "factoria" {
   export type CastShape3D = { shape: "sphere"; radius: number } | { shape: "box"; size: Vec3Like };
 
   /**
-   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
+   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props. index is the place among the parent's children (0 = first, up to their count; omitted = last) and needs parent; a bad index throws.
    */
-  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> };
+  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; index?: number; props?: Record<string, any> };
 
   /**
    * 2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.
@@ -2800,7 +2803,10 @@ declare module "factoria" {
     destroy(): void;
     readonly parent: Entity | null;
     readonly children: Entity[];
-    setParent(parent: EntityLike, keepWorld?: boolean): void;
+    /**
+     * Moves the entity under another one (null = top level). index is the place among the new parent's OTHER children (0 = first, up to their count; omitted = last), so it also reorders within the same parent. A parent is required for an index; a bad index throws. Layouts follow this order.
+     */
+    setParent(parent: EntityLike, keepWorld?: boolean, index?: number): void;
     hasTag(tag: string): boolean;
     addTag(tag: string): void;
     removeTag(tag: string): void;
@@ -2934,9 +2940,9 @@ declare module "factoria" {
      */
     spawn(entityJson: Json, opts?: SpawnOptions): Entity;
     /**
-     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge).
+     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge). `childOverrides` patches the prefab's descendants: key = a child's id, name or path like "Panel/Title", value = { name?, tags?, active?, components? }; an unknown child or field throws with a suggestion.
      */
-    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity;
+    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json; childOverrides?: Record<string, Json> }): Entity;
     /**
      * Queue a game event; delivered to onEvent and world.on listeners.
      */
