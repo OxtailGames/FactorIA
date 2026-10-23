@@ -58,10 +58,9 @@ export default class Hud extends Behaviour {
       const tb = e.get("TouchButton");
       const word = i18n.t(key);
       tb.text = word;
-      // The disc is 96 px wide and does not grow: size the word to fit it, and cancel ui.textScale (it would push the word out).
-      let em = 0;
-      for (const ch of word) em += ch.charCodeAt(0) > 0x2e80 ? 1 : 0.58;
-      tb.fontSize = Math.min(32, 84 / Math.max(em, 1)) / Math.max(ui.textScale, 0.01);
+      tb.autoShrink = true; // the disc is 96 px and does not grow: the word shrinks to fit it at any text size
+      tb.fontSize = 32;
+      tb.maxTextScale = 1;
     }
   }
 
@@ -103,31 +102,31 @@ export default class Hud extends Behaviour {
   }
 
   /**
-   * The corner texts sit at fixed places, so at a big text size (ui.textScale) they would overlap each other. Their effective size
-   * stops at 1.25 times the design size and the rows below move down by what the one above grew. (FB-0042: no
-   * shrink-to-fit or per-screen text-scale cap)
+   * The corner texts sit at fixed places, so at a big text size (ui.textScale) they would overlap each other. Their effective
+   * size stops at 1.25 times the design size (`maxTextScale`) and the rows below move down by what the one above grew.
+   * (FB-0042)
    */
   layoutHud() {
     const s = Math.max(ui.textScale, 0.01);
     if (s === this.hudScale) return;
     this.hudScale = s;
     const e = Math.min(s, 1.25);
-    const place = (id, x, y, size) => {
+    const place = (id, x, y) => {
       const ent = world.find(id);
       if (!ent) return;
       if (x !== null) ent.get("Transform").position = [x, y, 0];
-      if (size) ent.get("Text").fontSize = (size * e) / s;
+      ent.get("Text").maxTextScale = 1.25;
     };
     const parcelY = 56 + Math.round(28 * e);
-    place("spring_label", 24, 56, 20);
-    place("spring_text", Math.round(342 + (e - 1) * 20), 24, 28);
-    place("parcel_text", 24, parcelY, 24);
-    place("name_text", 24, parcelY + Math.round(30 * e), 20);
+    place("spring_label", 24, 56);
+    place("spring_text", Math.round(342 + (e - 1) * 20), 24);
+    place("parcel_text", 24, parcelY);
+    place("name_text", 24, parcelY + Math.round(30 * e));
     const dx = Math.round((e - 1) * 60);
     const ent = world.find("spring_warning_icon");
     if (ent) ent.get("Transform").position = [404 + dx, 24, 0];
-    place("spring_warning_mark", 411 + dx, 25, 24);
-    place("spring_warning_text", 446 + dx, 24, 24);
+    place("spring_warning_mark", 411 + dx, 25);
+    place("spring_warning_text", 446 + dx, 24);
   }
 
   onUpdate() {

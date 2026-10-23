@@ -102,9 +102,14 @@ std::optional<Rect> ui_clip_rect(const World& w, Entity e, Vec2 designSize) {
 
 std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r) {
     const float inner0 = r.x + 8.0f, innerW = std::max(0.0f, r.w - 16.0f);
-    const float labelW = s.label.empty() ? 0.0f : innerW * 0.35f;
-    const float zone0 = inner0 + labelW, zoneW = innerW * (s.label.empty() ? 0.85f : 0.5f);
+    const bool side = !s.label.empty() && !s.labelAbove;  // a label above the track leaves the whole width to it
+    const float labelW = side ? innerW * 0.35f : 0.0f;
+    const float zone0 = inner0 + labelW, zoneW = innerW * (side ? 0.5f : 0.85f);
     return {zone0 + 8.0f, std::max(zone0 + 8.0f, zone0 + zoneW - 8.0f)};
+}
+
+float ui_slider_mid_y(const Slider& s, const Rect& r) {
+    return ui_slider_label_above(s) ? r.y + std::max(r.h - kUiSliderRowHeight * 0.5f, r.h * 0.5f) : r.y + r.h * 0.5f;
 }
 
 std::string ui_slider_value_text(const Slider& s, float value) {
