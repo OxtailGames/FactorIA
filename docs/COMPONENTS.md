@@ -1436,6 +1436,14 @@ Pause the simulation (frame() stops simulating; game.step still works).
 
 Example: game.pause {}
 
+### `game.render_stats`
+
+Not released yet (on main after 0.2.0).
+
+What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
+
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+
 ### `game.resume` (modifies state)
 
 Resume the simulation after game.pause.
@@ -1591,7 +1599,7 @@ Since 0.2.0.
 
 Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
 
-Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, cpuSlackMs:1, memorySlackMB:8, countSlack:2}, runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
+Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, triangles:0.1, lights:0.1, textureMB:0.1, cpuSlackMs:1, memorySlackMB:8, textureSlackMB:1, countSlack:2}, budgets?: {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities} (absolute caps, see perf.check), runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1600,7 +1608,7 @@ Measures like perf.measure (3 runs, median) and stores the result under runners.
 | `scene` | string | no | Start scene; stored in the file. |
 | `input` | string | no | Project-relative input replay; stored in the file. |
 | `repeats` | integer | no | Runs to take the median of. Default 3. |
-| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities (ratios), cpuSlackMs, memorySlackMB, countSlack. |
+| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities, triangles, lights, textureMB (ratios), cpuSlackMs, memorySlackMB, textureSlackMB, countSlack. |
 
 ### `perf.check`
 
@@ -1608,21 +1616,22 @@ Since 0.2.0.
 
 Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
 
-Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls and entities past their limit FAIL always. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
+Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls, entities, triangles, lights and texture memory (the last three only when the baseline has them) past their limit FAIL always. The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
 | `strictTime` | boolean | no | Make a time over its limit fail even outside CI (default: only in CI). |
 | `requireBaseline` | boolean | no | Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything. Default false. |
+| `budgets` | object | no | Absolute caps that fail whatever the baseline says (they replace the same keys of the file's "budgets"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities. |
 
 ### `perf.measure`
 
 Since 0.2.0.
 
-Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities.
+Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
-Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls and entities (max over the run), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles, lights (of the main pass) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3437,6 +3446,10 @@ declare module "factoria" {
      */
     readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
     /**
+     * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
+     */
+    readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high" }>;
+    /**
      * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
      */
     readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
@@ -3494,6 +3507,14 @@ declare module "factoria" {
      * Frames per second the window may draw at: 0 = unlimited (default), else a whole number from 15 to 1000. The game loop waits so frames do not start faster than that; the simulation still runs at the fixed step, so gameplay results do not change. Useful with vsync off, or to save battery on a laptop. Setting it throws without a window and on phones and tablets (the display sets the pace).
      */
     frameCap: number;
+    /**
+     * Resolution of the picture as a fraction of the window, from 0.5 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. Works in every run with a renderer, headless tests included (game.screenshot then has that size); a run without graphics only remembers the value. A number outside 0.5 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === "low" ? 0.6 : 1.
+     */
+    renderScale: number;
+    /**
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     */
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize"): boolean;
   }
 
   /**
@@ -7329,6 +7350,14 @@ declare module "factoria:test" {
      * Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to "none" before every test.
      */
     setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | "none" | "phone-portrait" | "phone-landscape"): void;
+    /**
+     * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" }. An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
+     */
+    setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high" }): void;
+    /**
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights count the main pass, shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     */
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      */

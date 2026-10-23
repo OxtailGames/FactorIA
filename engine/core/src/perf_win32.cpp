@@ -49,4 +49,10 @@ std::uint64_t current_memory_bytes() {
     return std::uint64_t(pmc.WorkingSetSize);
 }
 
+std::uint64_t total_memory_bytes() {
+    MEMORYSTATUSEX ms{};
+    ms.dwLength = sizeof(ms);
+    return GlobalMemoryStatusEx(&ms) ? std::uint64_t(ms.ullTotalPhys) : 0;
+}
+
 }  // namespace fa

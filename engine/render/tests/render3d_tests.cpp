@@ -212,6 +212,7 @@ TEST_CASE("meshes outside the camera frustum are not submitted") {
     CHECK(s.meshesCulled == 100);
     CHECK(s.triangles == 12);
     CHECK(s.drawCalls == 2);  // sky + the one visible cube: the 100 others cost no draw at all
+    CHECK(s.shadowCasters == 0);
     // With a shadow-casting sun the off-screen cubes still cast: the shadow pass draws them, the main pass does not.
     w.get<Light>(sun)->castShadows = true;
     g.render(w);
@@ -219,6 +220,8 @@ TEST_CASE("meshes outside the camera frustum are not submitted") {
     CHECK(s.meshes == 1);
     CHECK(s.meshesCulled == 100);
     CHECK(s.drawCalls == 3);  // shadow (one instanced draw) + sky + main
+    CHECK(s.shadowCasters == 101);  // the visible cube and the 100 off-screen ones that still cast
+    CHECK(s.to_json()["shadowCasters"] == 101);
 }
 
 TEST_CASE("frustum test of a box, both depth conventions") {
