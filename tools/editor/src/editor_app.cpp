@@ -254,7 +254,9 @@ void Editor::on_init() {
     set_log_level(LogLevel::Debug);
     std::string dir = options_.projectDir;
     if (autotest_) {
-        ui::prepare_backbuffer_readback();  // window screenshots
+        // Window screenshots. FA_EDITOR_AUTOTEST_SHOW=1: a window to watch (macOS hides it from view and the mouse).
+        const char* show = std::getenv("FA_EDITOR_AUTOTEST_SHOW");
+        ui::prepare_backbuffer_readback(show && *show && std::string(show) != "0");
         namespace stdfs = std::filesystem;
         atWatchdog_ = std::thread([this] {
             std::uint64_t last = atHeartbeat_.load();
