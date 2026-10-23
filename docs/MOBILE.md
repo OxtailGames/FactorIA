@@ -679,6 +679,14 @@ do nothing. A headless run records the calls: `game.vibrations()` in a test retu
 A `TextField` with focus raises the keyboard by itself and hides it when it loses the focus; `input.showKeyboard(on)` does
 it from a script. What is typed arrives in `input.text` (and Enter, Backspace as `keyPressed`).
 
+The UI does this in its focus step, for every game: when a `TextField` gains the focus it asks for the keyboard
+(`input.keyboardShown` becomes true and the window passes it on to the platform: iOS, Android, the web), and when the
+focus goes to anything else, or nowhere, it asks to hide it. Only those changes count, so a script that hides the keyboard
+with `input.showKeyboard(false)` while the field keeps the focus is not overruled. Desktop ignores the request. When the
+last input was a **gamepad** (`input.lastDevice`) the phone keyboard stays down: that player gets the game's on-screen
+keyboard instead ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)"). A test sees the request in
+`input.keyboardShown`.
+
 - iOS: sokol_app's hidden text field. Composed text (accents, dictation, swipe typing) arrives; a character outside the
   Basic Multilingual Plane (emoji) is dropped by sokol_app. Verified in the source only: the iOS keyboard was not run on a
   device for this change.
@@ -726,8 +734,10 @@ player uses **no threads**, so the page needs no `SharedArrayBuffer` and no COOP
   up to four; the family on the button prompts comes from the pad's name. A pad without that mapping is tried with the same
   numbering and logged. Run in Chrome with a pad's id and values faked; not yet with a physical pad.
 - **Touch**: touch screens give touches as on a phone (`TouchStick`, `TouchButton` and the other touch features work);
-  the mouse and the keyboard work as on desktop. `input.onBack` and the on-screen keyboard are not used (the browser has
-  its own). `input.vibrate` calls `navigator.vibrate`, which Android browsers honour and iOS Safari ignores.
+  the mouse and the keyboard work as on desktop. `input.onBack` is not used (the browser has its own). On a touch
+  device the on-screen keyboard is raised by a hidden `<input>` that takes the focus while a `TextField` has it (see
+  "Typing text" in [TEXT.md](TEXT.md#typing-text)); iOS Safari only shows a keyboard for a focus made inside a tap, so
+  the player may need a second tap on the field. Not run on a phone or tablet browser yet. `input.vibrate` calls `navigator.vibrate`, which Android browsers honour and iOS Safari ignores.
 - **Language**: the game starts in the first of `navigator.languages` it has, like the system language elsewhere.
 - **Not available**: native plugins (a browser cannot `dlopen`; the engine says so in a warning, and platform services use no
   backend), starting other programs, crash reports, `factoria run --headless` style runs (use the desktop `factoria`), and

@@ -497,8 +497,9 @@
       ],
       "suggestion": "A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
+        "2026-10-23: Fixed in M26.17: a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12.",
         "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin.",
         "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks."
       ]
@@ -1303,8 +1304,9 @@
       "suggestion": "Document how the web player receives text (keydown vs the text input event, hidden input element for mobile keyboards) so a game can test it, and add an autotest page to the web player.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
+        "2026-10-23: Fixed in M26.17: the web player has a hidden input for mobile browsers, TEXT.md and EXPORTING.md describe typing, and the web smoke types into a field (run by CI).",
         "2026-10-22 triage: holds in part: the web player takes typed text from the browser's keypress events, which a browser pane's synthetic key events may not send, so this is probably not a player bug; the docs, a web autotest and a hidden input for mobile keyboards are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md."
       ]
     },
