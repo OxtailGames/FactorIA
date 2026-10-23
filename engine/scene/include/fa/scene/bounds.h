@@ -30,12 +30,20 @@ namespace fa {
 struct VisualMeasure {
     // Pixel size of a texture file as the renderer sees it (32 x 32 for a missing or unreadable file). Empty: 32 x 32 for all.
     std::function<Vec2(const std::string& path)> textureSize;
-    // Size {w, h} of `text` laid out like the renderer does. Empty: approx_text_size().
+    // Size {w, h} of `text` laid out like the renderer does, with the player's text size (ui.textScale), the Text's
+    // maxTextScale cap and its autoShrink already applied (the renderer's Renderer::measure_text(Text), or
+    // approx_text_size(Text, textScale) without a renderer). Empty: approx_text_size().
     std::function<Vec2(const Text& text)> textSize;
+    // The player's text size option (ui.textScale) at the moment of the measurement. UI code that fits labels itself
+    // (text_fit.h) reads it; textSize already includes it for a Text.
+    float textScale = 1.0f;
 };
 
 // Size of a text without a renderer (headless): 0.6 em per character and 1.2 em per line, wrapping at maxWidth (> 0).
 Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth);
+// The same for a Text entity's component: screen-space text at the player's text size `textScale`, the maxTextScale cap and
+// autoShrink applied (text_fit.h), so a headless run measures like a rendered one.
+Vec2 approx_text_size(const Text& text, float textScale);
 
 // One drawn thing of an entity.
 struct VisualFootprint {

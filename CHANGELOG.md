@@ -86,6 +86,17 @@ Scripting
   and `game.blur()` in `factoria:test` test it. A pause menu opened by a `suspend` handler stays after resume.
 - Clockwork Courier uses the date and the lifecycle API instead of its workarounds (FB-0019, FB-0035).
 
+UI
+
+- Text that fits: `autoShrink` (with `minFontSize`, default 10) on `Text`, `Button`, `Toggle`, `Slider` and `TouchButton`
+  shrinks the font until the text fits its box (`Text.maxWidth` x the new `Text.maxHeight`, or the room the widget leaves
+  its label), never under `minFontSize` times `ui.textScale`. `maxTextScale` on `Text`, every widget and `TouchButton`
+  stops `ui.textScale` from growing that text past a scale (a heading at 1.3). `Toggle.maxWidth` and `Slider.maxWidth`
+  wrap long labels, `Slider.labelAbove` puts the label above the track. Layout, `autoSize`, `ui.measureText` (new
+  options, returns `fontSize` too), `ui.rectOf` and the 2D and 3D renderers use the same size.
+- New `ui.overflowed(idOrEntity)` and `"overflowed": true` in `ui.state` say a text still does not fit its box.
+- Clockwork Courier dropped its text-fit workarounds in the level select, HUD, toasts and options (FB-0041, FB-0042).
+
 ## 0.2.0
 
 FactorIA 0.2.0 is about finishing and shipping a game: edit scenes by hand next to your AI, translate the game, add

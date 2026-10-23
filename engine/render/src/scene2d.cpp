@@ -4,6 +4,7 @@
 
 #include "fa/core/log.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
@@ -453,7 +454,11 @@ void gather_2d(World& world, Frame& f) {
             resolved.align = (t.align == Align::Start) != world.rtl() ? Align::Left : Align::Right;
             drawn = &resolved;
         }
-        TextLayout lay = f.fonts->layout(*drawn, screen ? t.fontSize * f.textScale : t.fontSize, eff);
+        // The size comes from fit_text (text_fit.h): the player's text size capped by maxTextScale, shrunk by autoShrink.
+        const TextExtent extent = frame_text_extent(f);
+        const float px = t.autoShrink ? fit_text(text_fit_spec(t), t.text, t.font, f.textScale, extent).px
+                                      : t.fontSize * (screen ? effective_text_scale(f.textScale, t.maxTextScale) : 1.0f);
+        TextLayout lay = f.fonts->layout(*drawn, px, eff);
         if (lay.quads.empty()) return;
         if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
