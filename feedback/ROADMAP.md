@@ -1268,6 +1268,9 @@ drops `tools/skinify.py` and imports the original models.
 
 ### M26.5 Model import and asset tooling (S-M) — CC/FB-0008, CC/FB-0045, CC/FB-0004, CC/FB-0013
 
+Done (branch `m26/model-import`): `.glb`/`.gltf` import copies its uri files and warns on a name clash; validate
+checks them; `assets.json` edits keep the file's order; loudness warnings use the normalize gain; `assets.synth_sound`.
+
 - `assets.import` of a `.gltf` or `.glb` copies the files its `uri`s point at (textures, `.bin`) next to it, warns when
   the destination already has a different file with the same name, and `factoria validate` checks that every texture a
   model references exists.

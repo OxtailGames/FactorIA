@@ -26,6 +26,19 @@ Tools
   and the layout stay as they were. `export` and `icon` saves (the editor, `assets.draw_icon`) use the same patcher.
 - The plugin templates come with a `.gitignore` for their build output.
 
+Assets
+
+- `assets.import` of a `.glb` or `.gltf` copies the textures and buffers its `uri`s point at next to the model (with
+  provenance), shares an identical file already there, warns when the destination holds a different image of the same
+  name (kits that ship different `colormap.png` files) and stops on a different buffer; `factoria validate` reports a
+  model whose texture or buffer file is missing.
+- `assets.set_provenance` (and every command that edits `assets.json`) keeps the order of a hand-ordered file instead of
+  sorting all of it; a sorted file stays sorted.
+- `factoria validate`'s loudness warnings use the sound as it plays: a project with `defaults.audio.normalize` has no
+  peak or loudness warning left for it.
+- New `assets.synth_sound {path, preset, seed}` makes barks, growls, meows and the usual effects (coin, jump, hit,
+  explosion, laser...) offline as a deterministic WAV, with its provenance; no provider and no key.
+
 Physics
 
 - 3D physics no longer depends on what the World held before a scene loaded: `Joint3D` constraints are solved in the

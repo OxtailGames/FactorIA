@@ -2,7 +2,8 @@
   "format": "factoria.assets/1",
   "defaults": {
     "audio": {
-      "normalize": true
+      "normalize": true,
+      "targetLufs": -20
     }
   },
   "assets": {
@@ -201,15 +202,6 @@
       }
     },
     "assets/audio/impactPlank_medium_002.ogg": {
-      "provenance": {
-        "origin": "imported",
-        "date": "2026-10-22",
-        "source": "https://kenney.nl/assets/impact-sounds",
-        "license": "CC0-1.0",
-        "author": "Kenney"
-      }
-    },
-    "assets/audio/impactPunch_heavy_000.ogg": {
       "provenance": {
         "origin": "imported",
         "date": "2026-10-22",
@@ -738,6 +730,19 @@
         "kind": "image",
         "date": "2026-10-22",
         "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/audio/dog_bark.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset bark, 0.45 s, seed 1",
+        "date": "2026-10-23"
       }
     }
   }

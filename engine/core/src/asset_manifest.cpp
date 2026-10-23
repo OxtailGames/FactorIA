@@ -54,6 +54,18 @@ Json sorted_object(const Json& o) {
     return out;
 }
 
+bool keys_sorted(const Json& o) {
+    if (!o.is_object()) return true;
+    std::string prev;
+    bool first = true;
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        if (!first && it.key() < prev) return false;
+        prev = it.key();
+        first = false;
+    }
+    return true;
+}
+
 std::string key_of(std::string_view path) {
     std::string k = fs::normalize(path);
     return k.empty() ? std::string(path) : k;
@@ -87,11 +99,14 @@ Result<void> update_manifest(const std::function<void(Json& doc)>& edit) {
                               "Fix the file (factoria validate shows where) and try again.");
         doc = std::move(*parsed);
     }
+    // A file whose entries are sorted stays sorted (new entries go to their place); one somebody ordered by hand keeps its
+    // order and new entries are appended, so a one-entry change is a one-entry diff.
+    const bool sorted = !doc.contains("assets") || keys_sorted(doc["assets"]);
     edit(doc);
     if (!doc.contains("format")) doc["format"] = kManifestFormat;
     if (doc.contains("assets") && doc["assets"].is_object()) {
         if (doc["assets"].empty()) doc.erase("assets");
-        else doc["assets"] = sorted_object(doc["assets"]);
+        else if (sorted) doc["assets"] = sorted_object(doc["assets"]);
     }
     auto r = save_json_file(kManifestFile, doc);
     invalidate();

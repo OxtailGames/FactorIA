@@ -127,6 +127,24 @@ character can be given the same voice later. `assets.generate_model` makes an un
 
 Play a sound with an `AudioSource` (`clip`) or `audio.play(path)`; use a model as the `mesh` of a `MeshRenderer`.
 
+### Sound effects without a provider or a kit: assets.synth_sound
+
+Free CC0 kits (for example Kenney's audio packs) have impacts, interface sounds and jingles, brought in with
+`assets.import` and the license `CC0`; they have no animals or creatures. For those, and for any placeholder or simple
+effect, `assets.synth_sound` makes the sound offline: no provider, no key, no cost.
+
+```
+assets.synth_sound {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
+```
+
+`preset` is `bark`, `growl`, `meow`, `screech`, `whoosh`, `explosion`, `hit`, `coin`, `pickup`, `jump`, `powerup`, `laser`,
+`blip`, `click`, `error`, `splash` or `footstep` (an unknown name is an error with a "did you mean"). The result is a mono
+16-bit 44.1 kHz WAV that peaks at -3 dBFS, and the same `preset`, `seed` and `seconds` always give the same bytes; change
+`seed` for another take (pitch and timing move a little). `seconds` (0.02 to 10) overrides the preset's length.
+`overwrite` replaces an existing file. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with
+the preset and the seed. These are synthesizer sounds: fine for a game's feedback, not a replacement for recorded or
+composed audio.
+
 ### The game icon without a provider: assets.draw_icon
 
 A game made without an image provider still gets a real icon. `assets.draw_icon` draws one from a short description,
@@ -385,8 +403,7 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.png` `.jpg` `.tga` `.bmp` | Copied as they are (decoded once to check the engine can read it; the size is in `details`). |
 | `.wav` `.ogg` `.mp3` | Copied into `assets/audio/`. |
 | `.ttf` `.otf` | Copied into `assets/fonts/`. A game that shows Chinese, Japanese, Korean or Arabic ships such a font (see [TEXT.md](TEXT.md)). |
-| `.glb` | Copied into `assets/models/`. |
-| `.gltf` | Copied with the `.bin` buffers and images it refers to (relative paths, next to the model or below it). A missing buffer is an error, a missing image a warning. |
+| `.glb` `.gltf` | Copied into `assets/models/`, with the `.bin` buffers and images its `uri`s point at (the `.glb` carries its own data; only external files count), keeping their relative paths next to the model (`Textures/colormap.png` lands in `assets/models/Textures/`). Each copied file gets a provenance record. A missing buffer is an error, a missing image a warning. A file with the same name that is already there and identical is shared; a DIFFERENT image is kept, and the result warns (kits often ship different `colormap.png` files under one name), while a DIFFERENT buffer is an `exists` error (a model cannot load another one's geometry): import each kit into its own folder with `path` (`"assets/models/town/"`) or pass `overwrite`. `factoria validate` reports a model whose texture or buffer is missing. |
 | `.aseprite` `.ase` | A PNG sprite sheet plus its `sheet` entry (see below). |
 | `.psd` | A PNG of the merged image. |
 | `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
@@ -487,10 +504,11 @@ with warnings still runs and exports):
 - **Loudness.** Every sound under `assets/` and every sound a scene or prefab names: a warning when the sample peak
   reaches 0 dBFS (within 0.1 dB: probably clipped), when the integrated loudness is above -9 LUFS (very loud) or below
   -35 LUFS (very quiet, or nothing audible), and when the sound effects (sounds of 10 seconds or less) differ by more than
-  12 LU in how loud they play. The fix for most of them is `"normalize": true` in `defaults.audio`. `factoria validate`
+  12 LU in how loud they play. The levels are those of the sound as it plays: a sound whose effective import has `"normalize": true` (set in `defaults.audio` or on the sound) is judged with its gain applied (peak and LUFS after the gain), so a project that set it has no loudness warning left. The fix for most of them is `"normalize": true` in `defaults.audio`. `factoria validate`
   reuses the `analysis` records of `assets.json` while they are fresh and measures the other sounds on the spot; it
   never writes `assets.json` (run `assets.analyze_audio` to store the measurements, which makes validating fast).
   A sound that cannot be decoded is reported too.
+- **Model files.** An error (not a warning) when a `.gltf` or `.glb` under `assets/` names a texture or a `.bin` buffer by a relative `uri` and the file is not there: the model would draw untextured or fail to load. `assets.import` copies those files.
 - **Atlas groups.** A texture in an `atlas` group used by a component that cannot draw from an atlas (a `Tilemap`
   tileset, a `MeshRenderer` texture): the exported game would show the whole atlas image there. Remove the texture from
   the group, or use a copy of it.
