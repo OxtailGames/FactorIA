@@ -164,6 +164,9 @@ public:
     // are scaled by the text scale, world-space Text is not.
     Vec2 measure_text(std::string_view text, float fontSize, std::string_view font = {}, float maxWidth = 0,
                       RenderSpace space = RenderSpace::World) const;
+    // Size of a Text component as it is drawn: like measure_text above, with the Text's maxTextScale cap and autoShrink
+    // (maxWidth x maxHeight box) applied at the current text scale (text_fit.h). What layout, bounds and ui.rectOf use.
+    Vec2 measure_text(const Text& text) const;
 
     // ---- Text -------------------------------------------------------------------------------------------------
     // Fonts to fall back on, in order, for the characters a Text's own font lacks. The chain of every Text is: its

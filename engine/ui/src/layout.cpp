@@ -124,48 +124,56 @@ void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure
 }
 
 // Size of `s` as the renderer draws a UI label: at the player's text size (the measure does that), wrapped at `maxWidth` if > 0.
-Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::string& font, float fontSize, float maxWidth) {
+Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::string& font, float fontSize, float maxWidth,
+                  float maxTextScale) {
     if (s.empty()) return {0, 0};
     Text t;
     t.text = s;
     t.font = font;
     t.fontSize = fontSize;
     t.maxWidth = maxWidth;
+    t.maxTextScale = maxTextScale;  // autoShrink stays off: autoSize makes room for the label at its full (capped) size
     t.space = RenderSpace::Screen;
-    return m.textSize ? m.textSize(t) : approx_text_size(s, fontSize, maxWidth);
+    return m.textSize ? m.textSize(t) : approx_text_size(t, m.textScale);
 }
 
 // The size a Button / Toggle / Slider with autoSize takes: its `design` size, or what its label needs when that is more.
 // The margins match what fa_render draws (ui2d.cpp): a toggle's box and a slider's label / track / value zones.
 Vec2 fitted_size(const Button& b, Vec2 design, const VisualMeasure& m) {
-    Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f);
-    if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth);
+    Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f, b.maxTextScale);
+    if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth, b.maxTextScale);
     if (label.x <= 0) return design;
     return {std::max(design.x, std::ceil(label.x + 32.0f)), std::max(design.y, std::ceil(label.y + 16.0f))};
 }
 
 Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
-    const Vec2 label = label_extent(m, t.label, t.font, t.fontSize, 0.0f);
+    Vec2 label = label_extent(m, t.label, t.font, t.fontSize, 0.0f, t.maxTextScale);
+    if (t.maxWidth > 0 && label.x > t.maxWidth) label = label_extent(m, t.label, t.font, t.fontSize, t.maxWidth, t.maxTextScale);
     if (label.x <= 0) return design;
     const float h = std::max(design.y, std::ceil(label.y + 16.0f));
     return {std::max(design.x, std::ceil(h + 16.0f + label.x)), h};  // 6 margin + (h - 12) box + 10 gap + label + 12 margin
 }
 
 Vec2 fitted_size(const Slider& s, Vec2 design, const VisualMeasure& m) {
-    const Vec2 label = label_extent(m, s.label, s.font, s.fontSize, 0.0f);
-    float inner = label.x > 0 ? (label.x + 12.0f) / 0.35f : 0.0f;  // the label gets 35% of the width inside the 8 px margins
-    float textH = label.y;
+    Vec2 label = label_extent(m, s.label, s.font, s.fontSize, 0.0f, s.maxTextScale);
+    if (s.maxWidth > 0 && label.x > s.maxWidth) label = label_extent(m, s.label, s.font, s.fontSize, s.maxWidth, s.maxTextScale);
+    const bool above = ui_slider_label_above(s);
+    // Beside the track the label gets 35% of the width inside the 8 px margins; above it, the whole width.
+    float inner = label.x > 0 ? (above ? label.x : (label.x + 12.0f) / 0.35f) : 0.0f;
+    float textH = above ? 0.0f : label.y;
+    float height = 0.0f;
+    if (above) height = std::ceil(label.y + 4.0f + kUiSliderRowHeight);  // label, then the row of the track
     if (s.showValue) {
         Vec2 value{0, 0};
         for (float v : {s.min, s.max}) {  // the ends of the range: the size must not change while the knob moves
-            const Vec2 e = label_extent(m, ui_slider_value_text(s, v), s.font, s.fontSize, 0.0f);
+            const Vec2 e = label_extent(m, ui_slider_value_text(s, v), s.font, s.fontSize, 0.0f, s.maxTextScale);
             value = {std::max(value.x, e.x), std::max(value.y, e.y)};
         }
         inner = std::max(inner, (value.x - 16.0f) / 0.15f);  // the value gets the last 15%; it may spill 8 px each side
         textH = std::max(textH, value.y);
     }
-    if (inner <= 0) return design;
-    return {std::max(design.x, std::ceil(inner + 16.0f)), std::max(design.y, std::ceil(textH + 8.0f))};
+    if (inner <= 0 && height <= 0) return design;
+    return {std::max(design.x, std::ceil(inner + 16.0f)), std::max({design.y, std::ceil(textH + 8.0f), height})};
 }
 
 // Sets the size of every autoSize widget of kind T. The design size is remembered: the UI wrote `applied` last time, so a

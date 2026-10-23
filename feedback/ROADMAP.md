@@ -1298,6 +1298,9 @@ Acceptance: `fa_test_ui` cases for a German label in a fixed button at 200 % tex
 `minFontSize`), a heading capped at 1.3, a long Toggle label that wraps; the M10 menus fixture's golden images at 200 %
 show no overlap.
 
+Done (branch `m26/text-fits`): `autoShrink`/`minFontSize`/`maxTextScale`, Toggle/Slider `maxWidth`, `labelAbove`,
+`ui.overflowed`, one shared fit path (text_fit.h); Clockwork Courier uses them.
+
 ### M26.7 Scene and asset preload with progress (M) — CC/FB-0012
 
 M19's `scene.loadAsync`, which a game now needs. `scene.preload(path)` and `assets.preload([paths])` return a handle

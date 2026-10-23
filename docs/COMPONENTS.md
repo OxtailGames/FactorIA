@@ -155,7 +155,11 @@ Draws a string with a TrueType font (or the built-in font). Works in world and s
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Text color. |
 | `align` | enum: left \\| center \\| right \\| start \\| end | `"left"` | Horizontal alignment of lines inside the text box. left / right are always the left / right edge, even for right-to-left text. start / end follow the current language: start = left and end = right in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left languages (i18n.direction); use them for text that must read from its start side. |
 | `pivot` | vec2 | `[0.0,1.0]` | Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right. |
-| `maxWidth` | float | `0.0` | If > 0, lines wrap at this width in world units. 0 = no wrapping. Range 0.0..100000.0. |
+| `maxWidth` | float | `0.0` | If > 0, lines wrap at this width in world units. 0 = no wrapping. With autoShrink it is also the width the text must fit (a word longer than the box shrinks the font). Range 0.0..100000.0. |
+| `maxHeight` | float | `0.0` | Box height in the same units as maxWidth that autoShrink fits the text into: a card title with maxWidth 200 and maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id). Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
+| `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |
+| `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
+| `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `layer` | int | `100` | Draw order. Higher layers draw on top. Text defaults above sprites. |
 | `space` | enum: world \\| screen | `"world"` | world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0] top-center, [1,1] bottom-right). Combine with pivot, e.g. anchor [1,0] + pivot [1,1] + position [-20, 20] = right-aligned 20px from the top-right corner. |
@@ -488,6 +492,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
@@ -495,9 +500,11 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
-| `text` | string | `"Button"` | Label, centred on the button. ` ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button. |
+| `text` | string | `"Button"` | Label, centred on the button. ` ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it, `autoSize` to grow the button or `autoShrink` to shrink the text. |
 | `maxWidth` | float | `0.0` | > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = the label wraps only at ` `. With autoSize the button is at most maxWidth plus its margins wide and grows taller instead. Range 0.0..100000.0. (since 0.2.0) |
-| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
+| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
+| `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |
+| `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
 
 ### Toggle
 
@@ -518,6 +525,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
@@ -526,14 +534,17 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
 | `label` | string | `"Toggle"` | Text to the right of the box. |
-| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
+| `maxWidth` | float | `0.0` | > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the toggle is at most maxWidth plus the box and margins wide and grows taller instead. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
+| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
+| `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |
+| `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
 | `value` | bool | `false` | true = checked. Scripts may write it; no event is sent for a write. |
 
 ### Slider
 
 Since 0.1.6.
 
-Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
+Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15% (with labelAbove the label is above the track and the track gets the 85%). Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -548,6 +559,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
@@ -555,8 +567,12 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
-| `label` | string | `""` | Text at the left; empty gives the track the extra room. |
-| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
+| `label` | string | `""` | Text at the left (or above the track with labelAbove); empty gives the track the extra room. |
+| `maxWidth` | float | `0.0` | > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the slider grows taller for the extra lines. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
+| `labelAbove` | bool | `false` | true: the label is drawn above the track on the slider's full width (wrapping at maxWidth or the width) and the track, knob and value sit in a row of 28 px at the bottom, so a long label does not squeeze the track. The slider needs a height of the label plus 28 px (autoSize adds it). false (default): the label is in the left 35%. (not released yet, on main after 0.2.0) |
+| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
+| `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |
+| `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
 | `value` | float | `0.5` | Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. |
 | `min` | float | `0.0` | Smallest value. |
 | `max` | float | `1.0` | Largest value. |
@@ -582,6 +598,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
@@ -659,6 +676,9 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `text` | string | `""` | Label centred on the button, e.g. "A" or "Jump". Empty (default) draws none. |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font. |
 | `fontSize` | float | `32.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |
+| `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
+| `maxTextScale` | float | `0.0` | > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size. Range 0.0..3.0. (not released yet, on main after 0.2.0) |
 | `textColor` | color | `[1.0,1.0,1.0,0.9]` | Label colour. |
 | `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
 | `pressed` | bool | `false` | Runtime: a finger holds the button. Read-only. Runtime-only (not saved). |
@@ -3455,9 +3475,13 @@ declare module "factoria" {
    */
   export interface UIAPI {
     /**
-     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning).
+     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning). maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size).
      */
-    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world" }): { width: number; height: number };
+    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number }): { width: number; height: number; fontSize: number };
+    /**
+     * true when the text of a screen-space or world Text with a box (maxWidth, maxHeight) or the label of a Button, Toggle, Slider or TouchButton still does not fit its box at the size it is drawn at, i.e. after ui.textScale, maxTextScale and autoShrink (down to minFontSize) have done what they can. false for any other entity, an empty text or a Text without a box. Read it after game.step or ui.layout(). Same as `overflowed: true` in `ui.state`. Example: ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);
+     */
+    overflowed(entityOrId: Entity | string): boolean;
     /**
      * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
      */
@@ -4625,9 +4649,29 @@ declare module "factoria" {
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * If > 0, lines wrap at this width in world units. 0 = no wrapping.
+     * If > 0, lines wrap at this width in world units. 0 = no wrapping. With autoShrink it is also the width the text must fit (a word longer than the box shrinks the font).
      */
     maxWidth: number;
+    /**
+     * Box height in the same units as maxWidth that autoShrink fits the text into: a card title with maxWidth 200 and maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id).
+     * @since unreleased
+     */
+    maxHeight: number;
+    /**
+     * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
+     * @since unreleased
+     */
+    autoShrink: boolean;
+    /**
+     * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
+     * @since unreleased
+     */
+    minFontSize: number;
+    /**
+     * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
+     * @since unreleased
+     */
+    maxTextScale: number;
     /**
      * Draw order. Higher layers draw on top. Text defaults above sprites.
      */
@@ -5688,6 +5732,11 @@ declare module "factoria" {
      */
     fontSize: number;
     /**
+     * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
+     * @since unreleased
+     */
+    maxTextScale: number;
+    /**
      * Label colour.
      * @since 0.1.6
      */
@@ -5726,7 +5775,7 @@ declare module "factoria" {
     readonly pressed: boolean;
     /**
      * Label, centred on the button. `
-     * ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button.
+     * ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it, `autoSize` to grow the button or `autoShrink` to shrink the text.
      * @since 0.1.6
      */
     text: string;
@@ -5737,10 +5786,20 @@ declare module "factoria" {
      */
     maxWidth: number;
     /**
-     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
      * @since 0.2.0
      */
     autoSize: boolean;
+    /**
+     * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
+     * @since unreleased
+     */
+    autoShrink: boolean;
+    /**
+     * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
+     * @since unreleased
+     */
+    minFontSize: number;
   }
   /**
    * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
@@ -5810,6 +5869,11 @@ declare module "factoria" {
      */
     fontSize: number;
     /**
+     * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
+     * @since unreleased
+     */
+    maxTextScale: number;
+    /**
      * Label colour.
      * @since 0.1.6
      */
@@ -5852,10 +5916,25 @@ declare module "factoria" {
      */
     label: string;
     /**
-     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     * > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the toggle is at most maxWidth plus the box and margins wide and grows taller instead.
+     * @since unreleased
+     */
+    maxWidth: number;
+    /**
+     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
      * @since 0.2.0
      */
     autoSize: boolean;
+    /**
+     * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
+     * @since unreleased
+     */
+    autoShrink: boolean;
+    /**
+     * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
+     * @since unreleased
+     */
+    minFontSize: number;
     /**
      * true = checked. Scripts may write it; no event is sent for a write.
      * @since 0.1.6
@@ -5863,7 +5942,7 @@ declare module "factoria" {
     value: boolean;
   }
   /**
-   * Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
+   * Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15% (with labelAbove the label is above the track and the track gets the 85%). Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
    * 
    * Category: UI
    * @since 0.1.6
@@ -5930,6 +6009,11 @@ declare module "factoria" {
      */
     fontSize: number;
     /**
+     * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
+     * @since unreleased
+     */
+    maxTextScale: number;
+    /**
      * Label colour.
      * @since 0.1.6
      */
@@ -5967,15 +6051,35 @@ declare module "factoria" {
      */
     readonly pressed: boolean;
     /**
-     * Text at the left; empty gives the track the extra room.
+     * Text at the left (or above the track with labelAbove); empty gives the track the extra room.
      * @since 0.1.6
      */
     label: string;
     /**
-     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     * > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the slider grows taller for the extra lines.
+     * @since unreleased
+     */
+    maxWidth: number;
+    /**
+     * true: the label is drawn above the track on the slider's full width (wrapping at maxWidth or the width) and the track, knob and value sit in a row of 28 px at the bottom, so a long label does not squeeze the track. The slider needs a height of the label plus 28 px (autoSize adds it). false (default): the label is in the left 35%.
+     * @since unreleased
+     */
+    labelAbove: boolean;
+    /**
+     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
      * @since 0.2.0
      */
     autoSize: boolean;
+    /**
+     * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
+     * @since unreleased
+     */
+    autoShrink: boolean;
+    /**
+     * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
+     * @since unreleased
+     */
+    minFontSize: number;
     /**
      * Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write.
      * @since 0.1.6
@@ -6069,6 +6173,11 @@ declare module "factoria" {
      * @since 0.1.6
      */
     fontSize: number;
+    /**
+     * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
+     * @since unreleased
+     */
+    maxTextScale: number;
     /**
      * Label colour.
      * @since 0.1.6
@@ -6363,6 +6472,21 @@ declare module "factoria" {
      */
     fontSize: number;
     /**
+     * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
+     * @since unreleased
+     */
+    autoShrink: boolean;
+    /**
+     * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
+     * @since unreleased
+     */
+    minFontSize: number;
+    /**
+     * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
+     * @since unreleased
+     */
+    maxTextScale: number;
+    /**
      * Label colour.
      * @since 0.2.0
      */
@@ -6600,7 +6724,7 @@ declare module "factoria" {
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
-    Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any };
@@ -6616,13 +6740,13 @@ declare module "factoria" {
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; autoSize?: boolean; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; autoSize?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
-    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; textColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };

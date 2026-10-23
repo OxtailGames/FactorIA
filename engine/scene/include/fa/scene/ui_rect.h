@@ -55,7 +55,16 @@ Rect ui_intersect(const Rect& a, const Rect& b);
 // Horizontal extent {left, right} of a Slider's track inside its rectangle `r`: after an 8 px margin the label takes 35% of
 // the rest (when not empty), the track the next 50% (85% without a label) and the value text the last 15%. Both the
 // drawing and the mouse use it, so the knob is always under the pointer.
+// With Slider.labelAbove (and a label) the label does not take the 35%: the track gets the 85% of an unlabelled slider.
 std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r);
+
+// True when the Slider's label is drawn above the track (labelAbove and a non-empty label).
+inline bool ui_slider_label_above(const Slider& s) { return s.labelAbove && !s.label.empty(); }
+// Height of the row with the track, knob and value when the label is above; the label gets the rest on top.
+constexpr float kUiSliderRowHeight = 28.0f;
+// Vertical middle of the track / knob / value row inside the Slider's rectangle `r`: the middle of r, or of its bottom
+// kUiSliderRowHeight pixels when the label is above.
+float ui_slider_mid_y(const Slider& s, const Rect& r);
 
 // The text a Slider draws at its right for `value`: "60%" for a 0..1 range, else the number with up to two decimals.
 std::string ui_slider_value_text(const Slider& s, float value);
