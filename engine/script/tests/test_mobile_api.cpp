@@ -132,31 +132,31 @@ TEST_CASE("Back leaves the game when no handler consumes it") {
     SUBCASE("no handler") {
         TestHost h("mobile_back_none");
         h.file("tests/t.test.js", R"JS(
-import { test, game } from "factoria:test";
-test("Back with nobody listening", () => { game.pressBack(); game.step(1); });
+import { test, expect, game } from "factoria:test";
+test("Back with nobody listening", () => { game.pressBack(); game.step(1); expect(game.quitRequested).toBe(true); });
 )JS");
         REQUIRE(h.start());
         CHECK_FALSE(h.quitRequested);
         CHECK(h.scripts.run_tests({"tests/t.test.js"}).ok());
-        CHECK(h.quitRequested);
+        CHECK_FALSE(h.quitRequested);  // a test run only records the request (game.quitRequested)
     }
     SUBCASE("every handler passes") {
         TestHost h("mobile_back_pass");
         h.file("tests/t.test.js", R"JS(
-import { test, game } from "factoria:test";
+import { test, expect, game } from "factoria:test";
 import { input } from "factoria";
-test("Back with a handler that has nothing to close", () => { input.onBack(() => false); game.pressBack(); game.step(1); });
+test("Back with a handler that has nothing to close", () => { input.onBack(() => false); game.pressBack(); game.step(1); expect(game.quitRequested).toBe(true); });
 )JS");
         REQUIRE(h.start());
         CHECK(h.scripts.run_tests({"tests/t.test.js"}).ok());
-        CHECK(h.quitRequested);
+        CHECK_FALSE(h.quitRequested);  // a test run only records the request (game.quitRequested)
     }
     SUBCASE("a consuming handler keeps the game") {
         TestHost h("mobile_back_keep");
         h.file("tests/t.test.js", R"JS(
-import { test, game } from "factoria:test";
+import { test, expect, game } from "factoria:test";
 import { input } from "factoria";
-test("Back closes the menu", () => { input.onBack(() => true); game.pressBack(); game.step(1); });
+test("Back closes the menu", () => { input.onBack(() => true); game.pressBack(); game.step(1); expect(game.quitRequested).toBe(false); });
 )JS");
         REQUIRE(h.start());
         CHECK(h.scripts.run_tests({"tests/t.test.js"}).ok());

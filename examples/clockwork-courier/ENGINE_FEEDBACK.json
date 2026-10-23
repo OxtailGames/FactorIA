@@ -120,10 +120,12 @@
       "suggestion": "Add game.mouse(x, y), game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) to the test API (same as game.input mouse/buttons).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) in factoria:test."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0006",
@@ -141,10 +143,12 @@
       "suggestion": "Only warn for names that differ from a hook by case or prefix (OnStart, onstart, on_start), not for generic verbs like start.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): checkHooks counts arguments: start(seconds) is a method, start() still warns."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0007",
@@ -455,10 +459,12 @@
       "suggestion": "Document the difference in the testing guide, or make scene.load from a test start the scene immediately like game.load.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: scene.load from a test is deferred on purpose (it runs at the start of the next frame, as in a game) and game.load is immediate; what is missing is saying so in SCRIPTING.md, \"Tests\": work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: scene.load from a test is deferred on purpose (it runs at the start of the next frame, as in a game) and game.load is immediate; what is missing is saying so in SCRIPTING.md, \"Tests\": work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): SCRIPTING.md, \"Tests\", now says scene.load from a test takes effect next frame and game.load is immediate."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0019",
@@ -660,12 +666,14 @@
       "suggestion": "An option (or the default) that clears storage and resets game.platform before each test, or game.resetState().",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-22: tests/helpers/store.js: fresh() before and cleanup() after every test.",
         "2026-10-22 (clockwork-courier-p5): module state, session, game.paused and the language leak too; tests/comfort.test.js resets them in afterEach.",
-        "2026-10-22 triage: holds in part: each test file already starts clean (storage, the platform fake and module state are reset between files); tests in one file share them. A reset between tests is work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: each test file already starts clean (storage, the platform fake and module state are reset between files); tests in one file share them. A reset between tests is work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): game.resetState({storage, platform}) resets the save data and the fake store between tests of one file."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0027",
@@ -981,10 +989,12 @@
       "suggestion": "Add game.quitRequested to the test API and make game.quit() only set it in tests.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): a quit request in a test sets game.quitRequested instead of stopping the run (cleared for each test); comfort.test.js uses it."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0039",
@@ -1124,10 +1134,12 @@
       "suggestion": "game.setSystemLanguages([...]) in the test API, like setAccessibility, applied by the next scene load.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): game.setSystemLanguages([...]) decides what i18n.systemLanguages answers in a test (cleared for each test)."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0045",
