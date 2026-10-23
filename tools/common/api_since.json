@@ -509,6 +509,7 @@
     "assets.provenance": "0.1.6",
     "assets.set_provenance": "0.1.6",
     "assets.slice_sheet": "0.1.6",
+    "assets.synth_sound": "unreleased",
     "audio.log": "0.1.0",
     "checkpoint.create": "0.2.0",
     "checkpoint.diff": "0.2.0",

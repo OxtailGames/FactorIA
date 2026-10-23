@@ -172,3 +172,15 @@ TEST_CASE("project.validate: warns when sound effects differ by more than 12 LU,
     testing::write_all(music.path / "assets/b.wav", sine_wav(12.0, -28.0));
     for (const ValidationIssue& w : validate_project(music.str()).warnings) CHECK(w.message.find("differ by") == std::string::npos);
 }
+
+TEST_CASE("project.validate: a sound with import normalize on has no loudness warning left") {
+    testing::TempDir tmp;
+    testing::write_all(tmp.path / "assets/quiet.wav", sine_wav(2.0, -46.0));
+    testing::write_all(tmp.path / "assets/clipped.wav", sine_wav(2.0, 0.0));
+    ValidationReport before = validate_project(tmp.str());
+    CHECK(has_warning(before, "assets/quiet.wav", "Very quiet"));
+    CHECK(has_warning(before, "assets/clipped.wav", "Peaks at"));
+    testing::write_all(tmp.path / "assets.json", R"({"format": "factoria.assets/1", "defaults": {"audio": {"normalize": true}}})");
+    ValidationReport after = validate_project(tmp.str());
+    for (const ValidationIssue& w : after.warnings) CHECK_MESSAGE(w.file.rfind("assets/", 0) != 0, w.file, ": ", w.message);
+}
