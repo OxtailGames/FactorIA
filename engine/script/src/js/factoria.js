@@ -1996,6 +1996,13 @@
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
+    // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change
+    // {id, value} is sent when the number changed (to ui.on listeners at the next step). Writing Slider.value from a script
+    // sends nothing; this does. Throws when the entity is no Slider, or is inactive or not interactable.
+    setSlider(id, value) {
+      if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`game.setSlider(id, value) expects a number, but got ${inspect(value)}`);
+      fa.call("ui.set_slider", { id: typeof id === "string" ? id : (id && id.id) || String(id), value });
+    },
     // Types text as a keyboard would: input.text shows it until the next step. Control characters are skipped, like the
     // real keyboard does; send Enter and Backspace with keyDown/keyUp.
     typeText(text) { for (const ch of String(text)) { const cp = ch.codePointAt(0); if (cp >= 32 && cp !== 127) N.testText(cp); } },

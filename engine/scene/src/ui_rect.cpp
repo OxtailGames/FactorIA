@@ -112,12 +112,46 @@ float ui_slider_mid_y(const Slider& s, const Rect& r) {
     return ui_slider_label_above(s) ? r.y + std::max(r.h - kUiSliderRowHeight * 0.5f, r.h * 0.5f) : r.y + r.h * 0.5f;
 }
 
-std::string ui_slider_value_text(const Slider& s, float value) {
-    if (s.min == 0.0f && s.max == 1.0f) return std::format("{}%", int(std::lround(value * 100.0f)));
+namespace {
+std::string trimmed_number(float value) {
     std::string t = std::format("{:.2f}", value);
     while (t.back() == '0') t.pop_back();
     if (t.back() == '.') t.pop_back();
-    return t;
+    return t == "-0" ? "0" : t;
+}
+}  // namespace
+
+std::string ui_slider_value_text(const Slider& s, float value) {
+    if (!s.format.empty()) {
+        std::string out;
+        const std::string& f = s.format;
+        for (std::size_t i = 0; i < f.size(); ++i) {
+            const char c = f[i];
+            if ((c == '{' || c == '}') && i + 1 < f.size() && f[i + 1] == c) {
+                out += c;
+                ++i;
+            } else if (c == '{') {
+                const std::size_t close = f.find('}', i + 1);
+                const std::string name = close == std::string::npos ? std::string() : f.substr(i + 1, close - i - 1);
+                if (name == "v") {
+                    out += trimmed_number(value);
+                } else if (name == "percent") {
+                    out += std::format("{}", int(std::lround(value * 100.0f)));
+                } else if (name.size() == 3 && name[0] == 'v' && name[1] == ':' && name[2] >= '0' && name[2] <= '6') {
+                    out += std::format("{:.{}f}", value, name[2] - '0');
+                } else {
+                    out += c;  // not a placeholder: drawn as written
+                    continue;
+                }
+                i = close;
+            } else {
+                out += c;
+            }
+        }
+        return out;
+    }
+    if (s.min == 0.0f && s.max == 1.0f) return std::format("{}%", int(std::lround(value * 100.0f)));
+    return trimmed_number(value);
 }
 
 }  // namespace fa
