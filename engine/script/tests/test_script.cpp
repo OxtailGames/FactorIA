@@ -929,6 +929,7 @@ export default class Good extends Behaviour {
   onStart() {} onUpdate(dt) {} onFixedUpdate(dt) {} onLateUpdate(dt) {} onDestroy() {}
   onCollisionEnter(o, i) {} onCollisionExit(o) {} onTriggerEnter(o) {} onTriggerExit(o) {} onEvent(n, d, s) {}
   loadLevel(n) {} clickCell(x, y) {} updateHud() {} step() {}
+  start(seconds) {} update(dt, extra) {}  // take arguments: methods of the game, not hooks
 }
 )");
     REQUIRE(h.start());
