@@ -425,10 +425,10 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         JsVal filterV(ctx, JS_NewStringLen(ctx, nameFilter.data(), nameFilter.size()));
         JsVal fn(ctx, JS_GetPropertyStr(ctx, hooks.get(), "testRun"));
         JSValue farg = filterV.get();
-        push_guard("test file " + path, 600.0);
+        // No guard for the whole file: testRun gives each test its own (60 s), so a long file of quick tests (a Debug
+        // build on a busy machine) is not cut short. A test over its limit ends the call and skips the rest of the file.
         timedOut = false;
         JSValue r = JS_Call(ctx, fn.get(), hooks.get(), 1, &farg);
-        pop_guard();
         if (JS_IsException(r)) {
             JSValue exc = JS_GetException(ctx);
             ScriptError e = error_from_exception(exc, "", path);
@@ -437,7 +437,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
                 timedOut = false;
                 e.message = debug_session_ended()
                                 ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
-                                : "script took too long in a test (limit exceeded); the rest of " + path + " was skipped";
+                                : "a test ran longer than 60 s and was stopped; the rest of " + path + " was skipped";
             }
             JsVal curV(ctx, JS_UNDEFINED);
             {
