@@ -132,6 +132,14 @@ Scripting
 
 UI
 
+- A child can be put at a place among its siblings, which is the order a `column` or `row` layout follows:
+  `scene.set_parent {id, parent, index}` (also `scene.spawn {index}`), `entity.setParent(parent, keepWorld, index)` and
+  `world.spawn(json, { parent, index })` / `world.spawnPrefab(path, { parent, index })`. 0 is first; an index outside
+  0..(number of the parent's other children) is an error that says the range. The order is saved with the scene.
+- One panel can serve several scenes: a prefab reference takes `overrides`, a map from a child of the prefab (its id,
+  name or a path like `"Panel/Title"`) to the `name`, `tags`, `active` and `components` to change, and
+  `world.spawnPrefab(path, { childOverrides })` and `scene.spawn {prefab, overrides}` do the same. A child or field that
+  does not exist is an error with a "did you mean". docs/MENUS.md shows it. Clockwork Courier's FB-0032 and FB-0023.
 - Text that fits: `autoShrink` (with `minFontSize`, default 10) on `Text`, `Button`, `Toggle`, `Slider` and `TouchButton`
   shrinks the font until the text fits its box (`Text.maxWidth` x the new `Text.maxHeight`, or the room the widget leaves
   its label), never under `minFontSize` times `ui.textScale`. `maxTextScale` on `Text`, every widget and `TouchButton`

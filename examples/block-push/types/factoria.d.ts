@@ -66,9 +66,9 @@ declare module "factoria" {
   export type CastShape3D = { shape: "sphere"; radius: number } | { shape: "box"; size: Vec3Like };
 
   /**
-   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
+   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props. index is the place among the parent's children (0 = first, up to their count; omitted = last) and needs parent; a bad index throws.
    */
-  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> };
+  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; index?: number; props?: Record<string, any> };
 
   /**
    * 2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.
@@ -358,7 +358,10 @@ declare module "factoria" {
     destroy(): void;
     readonly parent: Entity | null;
     readonly children: Entity[];
-    setParent(parent: EntityLike, keepWorld?: boolean): void;
+    /**
+     * Moves the entity under another one (null = top level). index is the place among the new parent's OTHER children (0 = first, up to their count; omitted = last), so it also reorders within the same parent. A parent is required for an index; a bad index throws. Layouts follow this order.
+     */
+    setParent(parent: EntityLike, keepWorld?: boolean, index?: number): void;
     hasTag(tag: string): boolean;
     addTag(tag: string): void;
     removeTag(tag: string): void;
@@ -492,9 +495,9 @@ declare module "factoria" {
      */
     spawn(entityJson: Json, opts?: SpawnOptions): Entity;
     /**
-     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge).
+     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge). `childOverrides` patches the prefab's descendants: key = a child's id, name or path like "Panel/Title", value = { name?, tags?, active?, components? }; an unknown child or field throws with a suggestion.
      */
-    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity;
+    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json; childOverrides?: Record<string, Json> }): Entity;
     /**
      * Queue a game event; delivered to onEvent and world.on listeners.
      */
