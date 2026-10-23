@@ -26,6 +26,15 @@ Animation
 
 Platform services
 
+- Ads: the new `platform.ads` service (`available(placement)`, `showRewarded(placement)` resolving `{rewarded, reason?}`
+  and `consent()`) works with the placements of `factoria.json` `platform.ads.placements`, and `platform.release` is
+  false in development runs, tests and the MCP server. The fake store answers with a scripted test ad (nothing is
+  drawn): `game.platform.ad("watched" | "closedEarly" | "noFill" | "consentRefused")` chooses how it ends (command `platform.set_ad`). The real
+  networks (Google UMP and AdMob, Apple ATT) are not in yet: the native backends answer `unavailable`.
+- A leaderboard takes `period`: `"allTime"` (default), `"daily"` or `"weekly"`. The fake keeps one board per day or
+  week of `game.today()`, so a daily board is empty again after `game.setDate` moves to the next day; a store backend
+  rejects a daily or weekly board with `unavailable` until its recurring boards are mapped.
+- Clockwork Courier uses them instead of its ad stub and its single daily board (FB-0028, FB-0030).
 - The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
   `platform.revoke`) removes it from `restore()` and sends the `purchase` event with `status: "revoked"`.
 - `platform.purchases.finish()` of a transaction the game was not told about now rejects its Promise with code
