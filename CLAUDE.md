@@ -87,9 +87,12 @@ repository, not only the one where it was agreed:
   `subagent_type: "worker"` (`.claude/agents/worker.md`: sonnet, medium effort,
   engine tools only). One work package per worker, each in its own git worktree
   or its own build dir (`build/agent-<name>`, `-j8`), with tests and docs. The
-  worker knows the build command and the report format, so the brief carries only
-  the package. A package that needs the browser pane: general-purpose,
-  `model: "sonnet"`, `effort: "medium"`.
+  worker knows the build command, the checks before reporting and the report
+  format, so the brief carries only the package. An L package (its size in the
+  ROADMAP) gets `effort: "high"` on the Agent call: design-heavy work gains from
+  more thinking, while S and M packages stay at medium, where time goes to builds
+  and tests. A package that needs the browser pane: general-purpose,
+  `model: "sonnet"`, `effort: "medium"` (`"high"` for an L package).
 - **Fast — `haiku`.** Small mechanical tasks (`subagent_type: "fast"`: haiku,
   max effort): code searches, regenerating docs/typings,
   ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
