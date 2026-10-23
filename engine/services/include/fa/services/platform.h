@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/date.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 
@@ -52,6 +53,13 @@ struct PlatformLeaderboard : PlatformEntry {
     std::string name;
     std::string nameKey;  // locale key; when set it wins over the plain text
     std::string order = "descending";  // "descending": higher is better; "ascending": lower is better (times)
+    // "allTime" (never starts over), "daily" (a board per calendar day of game.today()) or "weekly" (per week, Monday to Sunday).
+    std::string period = "allTime";
+};
+// An ad placement ("platform.ads.placements"): a place where the game offers an ad. `ids` holds the ad unit id per network.
+struct PlatformPlacement : PlatformEntry {
+    std::string type = "rewarded";  // the only kind so far
+    std::string description;        // what the player gets; for the developer, not shown by the engine
 };
 struct PlatformProduct : PlatformEntry {
     std::string type;  // "consumable" | "nonConsumable" | "subscription"
@@ -66,6 +74,7 @@ struct PlatformCatalog {
     std::vector<PlatformStat> stats;
     std::vector<PlatformLeaderboard> leaderboards;
     std::vector<PlatformProduct> products;
+    std::vector<PlatformPlacement> placements;  // platform.ads.placements
 
     // "backend": the plugin to use. `backend` is the plain string ("" = auto), `backendByPlatform` the per-platform
     // object ({"windows": "steam", "ios": "apple"}); the plugin names written in either are in `backendRefs` with their
@@ -90,8 +99,11 @@ struct PlatformCatalog {
     const PlatformStat* find_stat(const std::string& id) const;
     const PlatformLeaderboard* find_leaderboard(const std::string& id) const;
     const PlatformProduct* find_product(const std::string& id) const;
-    bool empty() const { return achievements.empty() && stats.empty() && leaderboards.empty() && products.empty(); }
-    // {achievements: [id], stats: [id], leaderboards: [id], products: [id]}
+    const PlatformPlacement* find_placement(const std::string& id) const;
+    bool empty() const {
+        return achievements.empty() && stats.empty() && leaderboards.empty() && products.empty() && placements.empty();
+    }
+    // {achievements: [id], stats: [id], leaderboards: [id], products: [id], placements: [id]}
     Json ids_json() const;
 };
 
@@ -120,8 +132,8 @@ Result<PlatformCatalog> load_platform_catalog(const Json& section);
 
 inline constexpr const char* kPlatformKey = "platform";  // the section of factoria.json
 
-// The eight services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-// "presence", "integrity". `player.signIn` belongs to none: every backend answers it.
+// The nine services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
+// "presence", "integrity", "ads". `player.signIn` belongs to none: every backend answers it.
 const std::vector<std::string>& platform_services_all();
 // The events a backend sends: "purchase", "overlay", "player".
 const std::vector<std::string>& platform_events();
@@ -207,6 +219,14 @@ public:
     // a key it does not know, the plain text of the entry is used, else the key itself.
     using Translator = std::function<std::optional<std::string>(const std::string& key)>;
     void set_translator(Translator translator);
+    // Where "today" comes from, for leaderboards with a period (the engine passes game.today(): the simulation's date, never
+    // the wall clock). Without one the date is kDefaultDate.
+    using DateSource = std::function<CalendarDate()>;
+    void set_date_source(DateSource source);
+    // True in a shipped game (platform.release in scripts), false in development runs, tests and the MCP server: a game
+    // uses it to switch off what is only for development, such as a test-ad stub.
+    void set_release(bool release);
+    bool release() const;
     const PlatformCatalog& catalog() const;
     // Replaces the backend (the default is "none"): requests still pending on the old one are dropped. `why` says in a
     // sentence why this backend runs (the `platform.*` commands quote it when they refuse to act on a real store).
@@ -236,7 +256,7 @@ public:
     std::vector<PlatformAnswer> take_answers();
     std::vector<PlatformEvent> take_events();
 
-    // {backend, services, player: {id, name, signedIn}, pending} (player: what the last signIn answer or `player` event
+    // {backend, release, services, player: {id, name, signedIn}, pending} (player: what the last signIn answer or `player` event
     // said; signedIn false before any).
     Json info() const;
     Json player() const;
