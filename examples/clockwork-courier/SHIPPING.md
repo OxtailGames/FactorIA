@@ -45,25 +45,24 @@ require a real privacy policy URL, even for a game that collects nothing (`store
 
 Problems found while exporting (each is in `ENGINE_FEEDBACK.json`; the ids are in the entries, not here):
 
-- Android source mode needs CMake 3.31.6 in the Android SDK and a JDK. On a machine without them the Gradle build tries to
-  download CMake. Offline recipe used here: `cmake.dir=<system cmake dir>` in the exported project's `local.properties`,
-  `./gradlew assembleDebug --offline -Pfactoria.cmakeVersion=<system cmake version>`, `JAVA_HOME` of any JDK 17.
-  Install the SDK pieces once (`sdkmanager "cmake;3.31.6"`) and none of this is needed.
+- Android source mode needs a CMake 3.24+ and a JDK 17+. The export uses the SDK's CMake (3.31.6, else the newest 3.24+
+  there) or one of the computer, and writes `cmake.dir` and `factoria.cmakeVersion` into the exported project by itself;
+  on a machine with no network run `./gradlew assembleDebug --offline` in the exported project (JDK: `JAVA_HOME` or the
+  one `factoria setup android` installs).
 - The first launch on a fresh emulator may show "System UI isn't responding": tap Wait. Launch with
   `adb shell am start -n com.factoria.examples.clockworkcourier/android.app.NativeActivity` (the activity is the engine's
   `android.app.NativeActivity`, not a `MainActivity`).
-- macOS: the export bundles the `factoria_player` next to the `factoria` binary and does not say which version it is.
-  Once that player was an older build than `factoria`: the `--release` app stopped with "no factoria.json in '/'" and the
-  normal app did not know `Text.key`, `Text.safeArea` or `Button`. Rebuild the engine so both match (`cmake --build
+- Desktop: the export bundles the `factoria_player` next to the `factoria` binary and stops with an error when it was
+  built from another commit than `factoria` (an older player once stopped the `--release` app with "no factoria.json in
+  '/'" and did not know `Text.key`, `Text.safeArea` or `Button`). Rebuild the engine so both match (`cmake --build
   <build dir>`, or pass `--player <build dir>/player/factoria_player`) and export again; check with
   `"Clockwork Courier.app/Contents/MacOS/clockwork-courier" --frames 200` or `open -n "Clockwork Courier.app" --stderr err.log`.
-- `platform.add_backend` has no real dry run and reformats `factoria.json`; the commit that added the plugin shows it.
 
 ## App Store (iOS and Mac App Store)
 
 Engine: the Xcode project and the app, icon from `assets/icon.png`, `ITSAppUsesNonExemptEncryption` (false), privacy
-`tracking` false, `Products.storekit` for the in-app purchases (written on export because `plugins/apple` is declared:
-`platform.add_backend apple` put it in `factoria.json` and built `plugins/apple`). The plugin's libraries are not in git:
+`tracking` false, `Products.storekit` for the in-app purchases (written on every iOS export whose catalog has products, with
+one localization per language: en, es, ja). The plugin's libraries are not in git:
 build them once on a Mac before exporting for iOS or macOS, `cmake -S plugins/apple -B plugins/apple/build && cmake --build
 plugins/apple/build` (`plugins/apple/README.md`); without them the game still runs with the local stub and `factoria validate` only warns (the plugin is `"optional": true`), but the export says which file is missing and stops. Test purchases: open the exported Xcode project, Edit Scheme, Options, StoreKit Configuration =
 `Products.storekit`. StoreKit cannot be checked without Xcode.
@@ -114,8 +113,8 @@ factoria run --headless --scene store/trailer/scenes/shot_1.scene.json \
   --record-video clockwork_courier_trailer.avi
 ```
 
-  The AVI is large (183 MB for 43.6 s, so it is not in the repository). Convert it for the stores (ffmpeg is not part of
-  the engine toolchain; install it yourself):
+  The AVI is large (183 MB for 43.6 s, so it is not in the repository). For the stores run `factoria setup ffmpeg` once and
+  record `--record-video clockwork_courier_trailer.mp4` instead (H.264 + AAC), or convert the AVI with an ffmpeg:
   `ffmpeg -i clockwork_courier_trailer.avi -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac clockwork_courier_trailer.mp4`.
   Check that it has sound before uploading.
 - The recorded input of `rooftops_3` and `market_3` drifts after about 700 frames, and level replays need a 10 frame
