@@ -166,7 +166,7 @@ describe("when no ad can be shown", () => {
     expect(flow().finished).toBe(true);
   });
 
-  test("an ad the player refuses to finish after the offer shows gives the retry screen back", () => {
+  test("consent refused after the offer showed: nothing is granted, the retry screen comes back", () => {
     runDown();
     game.platform.ad("consentRefused");
     game.click("retry_more_time");
@@ -176,7 +176,7 @@ describe("when no ad can be shown", () => {
     expect(svc.stat("more_time_used")).toBe(0);
   });
 
-  test("the shipped game is not a development run: platform.release is false here", () => {
+  test("a test run is not a shipped game: platform.release is false", () => {
     expect(platform.release).toBe(false);
   });
 });

@@ -32,10 +32,10 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
     commands.add(
         {"platform.state",
          "Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.",
-         "Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products} (the "
+         "Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
          "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the "
          "backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, "
-         "leaderboards: {id: best}, cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], "
+         "leaderboards: {id: best} (a daily or weekly board: \"id@periodKey\"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], "
          "presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, "
          "scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids "
          "included) and how it was answered: assert on it after game.step. Example: platform.state {}",

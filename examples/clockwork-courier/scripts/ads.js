@@ -1,6 +1,6 @@
 // @ts-check
 // The rewarded "more time" of the retry screen, on top of the engine's ads service (`platform.ads`; the placement "more_time" is
-// declared in factoria.json "platform.ads.placements"). While the store is the fake one the engine shows a scripted test ad
+// declared in factoria.json "platform.ads.placements"). While the store is the fake one the engine answers with a scripted test ad
 // (tests choose its outcome with game.platform.ad(...)); a real build answers through the ad SDK of its platform plugin.
 //
 //   moreTimeOffer()    { mode: "free" | "ad" | "none" }: what the retry screen offers (see below)
