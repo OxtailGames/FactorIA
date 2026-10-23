@@ -789,7 +789,8 @@
       const hook = bare || (/^on/i.test(m) ? closest(m, HOOKS) : "");
       // A hook-without-`on` is only a lookalike when it takes no more arguments than the hook: start(seconds) is a method of
       // the game (onStart takes none), update(dt) is a misspelt onUpdate(dt).
-      if (hook && !(bare && fn.length > HOOK_ARGS[bare])) out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
+      if (!hook || (bare && fn.length > HOOK_ARGS[bare])) continue;
+      out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
         `(did you mean '${hook}()'?). Rename it to ${hook}, or give a helper a name that is not close to a hook.`);
     }
     return out;
