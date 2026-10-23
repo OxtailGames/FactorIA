@@ -363,7 +363,15 @@ void build_palette(Animator& a) {
             pose = blend_poses(from, pose, std::clamp(rt.fadeElapsed / rt.fadeDuration, 0.0f, 1.0f));
         }
     }
-    a.palette = skin_palette(sk, pose, 0);
+    const std::vector<Mat4> globals = pose_globals(sk, pose);
+    a.skinPalettes.resize(sk.skins.size());
+    for (std::size_t si = 0; si < sk.skins.size(); ++si) {
+        const SkelSkin& s = sk.skins[si];
+        std::vector<Mat4>& out = a.skinPalettes[si];
+        out.clear();
+        for (std::size_t j = 0; j < s.joints.size(); ++j) out.push_back(globals[std::size_t(s.joints[j])] * s.inverseBind[j]);
+    }
+    a.palette = a.skinPalettes.empty() ? std::vector<Mat4>{} : a.skinPalettes[0];
 }
 
 void update_one(World& w, Entity e, Animator& a, float dt) {

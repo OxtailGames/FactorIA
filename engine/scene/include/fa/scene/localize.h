@@ -1,10 +1,11 @@
 // The localization pass: writes the string of each `key` into the text of the component that has it.
+//   TouchButton.key                                      -> TouchButton.text
 //   Text.key                                             -> Text.text
 //   Button.key / Toggle.key / Slider.key / TextField.key -> Button.text / Toggle.label / Slider.label / TextField.placeholder
 // A text is written only when it differs. A key that no string table has leaves the component's own text and logs one warning
 // per key. The engine runs it after every scene load, every frame before drawing and on every language change; scripts that
-// spawn entities run it for the new ones (docs/LOCALIZATION.md). Plural entries and {placeholders} need arguments, which a
-// `key` field has none of: use i18n.t(key, args) from a script for those.
+// spawn entities run it for the new ones (docs/LOCALIZATION.md). The values of a key's {placeholders} (and the
+// `count` of a plural entry) come from the component's `keyArgs`.
 #pragma once
 
 #include "fa/core/i18n.h"
