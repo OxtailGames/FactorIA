@@ -267,7 +267,7 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
 - **Answers** may come later and from any thread (`PlatformSink`, a weak handle: an answer after the engine is gone is
   ignored). The game thread takes them once per frame (`Engine` calls `PlatformServices::frame()` and
   `ScriptSystem::dispatch_platform()` first thing), which settles the scripts' Promises and calls `platform.on` listeners.
-- **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.set_fake`
+- **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.revoke`, `platform.set_fake`
   (`platform_commands.h`, registered by the runtime): `game.platform` of `factoria:test` is a view of them.
 Docs: [PLATFORM.md](PLATFORM.md).
 

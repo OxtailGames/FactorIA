@@ -90,7 +90,7 @@ export default class LevelSelect extends Behaviour {
 
   /** Redraws every card, the totals and the buttons from the saved progress. */
   refresh() {
-    this.capSizes();
+    this.fitTexts();
     for (const l of levels.LEVELS) this.drawCard(l);
     for (const d of levels.DISTRICTS) {
       this.setText("district_" + d.id + "_title", i18n.t(d.nameKey) + (progress.isDistrictUnlocked(d.id) ? "" : "  " + i18n.t("select.districtLocked", { count: d.stars, have: progress.starsBefore(d.id) })));
@@ -105,22 +105,25 @@ export default class LevelSelect extends Behaviour {
   }
 
   /**
-   * The cards, headings and district titles sit at fixed places and fit a fixed width, so at a big text size (ui.textScale) their
-   * text would be clipped or overlap. Their effective size stops at 1.15 times the design size (1.3 for the headings); the other
-   * texts of the screen (buttons, hint) still follow the player's setting. (FB-0042)
+   * The cards, headings and district titles sit at fixed places and fit a fixed width, so at a big text size (ui.textScale)
+   * their text would be clipped or overlap. They cap their growth with `maxTextScale` (1.15 for the cards and 1.3 for the
+   * headings), and a card label that is still too long shrinks (`autoShrink`); the other texts of the screen follow the
+   * player's setting. (FB-0042)
    */
-  capSizes() {
-    const s = Math.max(ui.textScale, 0.01);
-    const cap = (id, comp, base, max) => {
+  fitTexts() {
+    const set = (id, comp, max, shrink) => {
       const e = world.find(id);
-      if (e && e.has(comp)) e.get(comp).fontSize = (base * Math.min(max, s)) / s;
+      if (!e || !e.has(comp)) return;
+      const c = e.get(comp);
+      c.maxTextScale = max;
+      if (shrink) c.autoShrink = true;
     };
-    cap("select_title", "Text", 44, 1.3);
-    cap("select_total", "Text", 26, 1.3);
-    cap("select_name", "Button", 24, 1.15);
-    cap("select_cloud", "Text", 20, 1.15);
-    for (const d of levels.DISTRICTS) cap("district_" + d.id + "_title", "Text", 28, 1.15);
-    for (const l of levels.LEVELS) cap("card_" + l.id, "Button", 24, 1.15);
+    set("select_title", "Text", 1.3);
+    set("select_total", "Text", 1.3);
+    set("select_name", "Button", 1.15, true);
+    set("select_cloud", "Text", 1.15);
+    for (const d of levels.DISTRICTS) set("district_" + d.id + "_title", "Text", 1.15);
+    for (const l of levels.LEVELS) set("card_" + l.id, "Button", 1.15, true);
   }
 
   drawCard(l) {

@@ -259,20 +259,7 @@ export default class Options extends Behaviour {
     }
   }
 
-  /**
-   * The sections are as wide as the text size asks: 712 px at 100 %, more at a big text size (a Toggle or Slider label does not
-   * wrap, FB-0041), never wider than the screen leaves.
-   */
-  fitWidth() {
-    const width = Math.round(Math.min(1140, 712 * Math.max(1, ui.textScale)));
-    for (const tab of TABS) {
-      const list = world.find(`${tab}_section`).get("ScrollList");
-      if (list.size[0] !== width) list.size = [width, list.size[1]];
-    }
-  }
-
   onUpdate() {
-    this.fitWidth();
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
       MenuStack.busy = this.release = false;

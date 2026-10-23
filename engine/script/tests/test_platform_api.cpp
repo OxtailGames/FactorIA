@@ -124,7 +124,7 @@ test("an undeclared id throws with a suggestion and where to declare it", () => 
   expect(() => platform.stats.get("wins ")).toThrow("did you mean");
 });
 
-test("wrong arguments throw", () => {
+test("wrong arguments throw", async () => {
   expect(() => platform.achievements.progress("veteran", 2)).toThrow("fraction from 0 to 1");
   expect(() => platform.stats.set("wins", 1.5)).toThrow("is an int");
   expect(() => platform.leaderboards.submit("high_score", 1.5)).toThrow("whole number");
@@ -134,7 +134,11 @@ test("wrong arguments throw", () => {
   expect(() => platform.presence.set("x", { level: 3 })).toThrow("must be strings");
   expect(() => platform.overlay.open("achievments")).toThrow('did you mean "achievements"');
   expect(() => platform.stats.add("wins", "1")).toThrow("delta must be a finite number");
-  expect(() => platform.purchases.finish("nope")).toThrow("is not one this game was told about");
+  // An unknown transaction is a store-like failure, not a mistake in the call: the Promise rejects with unknownId.
+  let finishError;
+  await platform.purchases.finish("nope").catch((e) => { finishError = e; });
+  expect(finishError.code).toBe("unknownId");
+  expect(finishError.message).toContain("is not one this game was told about");
 });
 
 test("a bad integrity challenge throws at once, naming the character and what to do", () => {
@@ -254,6 +258,21 @@ test("scripted answers are used in order", async () => {
   expect(codes).toEqual(["network", "network", "ok:false"]);
 });
 
+test("revoke takes a purchase back: restore forgets it and the refund event arrives", async () => {
+  game.platform.reset();
+  const bought = await platform.purchases.buy("remove_ads");
+  await platform.purchases.finish(bought.transactionId);
+  expect((await platform.purchases.restore()).length).toBe(1);
+  const seen = [];
+  platform.on("purchase", (e) => seen.push(e.status + " " + e.productId + " " + e.transactionId));
+  game.platform.revoke("remove_ads");
+  expect(seen).toEqual([]);
+  game.step(1);
+  expect(seen).toEqual(["revoked remove_ads " + bought.transactionId]);
+  expect(await platform.purchases.restore()).toEqual([]);
+  expect(() => game.platform.revoke("remove_ads")).toThrow("is not owned");
+});
+
 test("each test file starts with a fresh fake", () => {
   expect(game.platform.state().fake.calls.length > 0).toBe(true);
   game.platform.reset();
@@ -271,7 +290,7 @@ test("nothing carried over from the other file", () => {
     TestReport rep = h.scripts.run_tests({"tests/delay.test.js", "tests/fresh.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 7);
+    CHECK(rep.passed == 8);
 }
 
 TEST_CASE("platform api: a host without platform services reports the none backend and explains every call") {

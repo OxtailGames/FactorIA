@@ -1314,12 +1314,18 @@
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
+    // maxTextScale caps that scale; autoShrink (with minFontSize, maxHeight and maxWidth as the box) shrinks the font to fit,
+    // exactly as Text does; `fontSize` in the result is the size it would be drawn at.
     measureText(text, o = {}) {
       const space = o.space ?? "screen";
       if (space !== "screen" && space !== "world") throw new Error(`ui.measureText(text, { space }): space must be "screen" or "world", got ${inspect(space)}`);
-      const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0, space === "screen");
-      return { width: m[0], height: m[1] };
+      const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0, space === "screen", o.maxTextScale ?? 0,
+        o.autoShrink ?? false, o.minFontSize ?? 10, o.maxHeight ?? 0);
+      return { width: m[0], height: m[1], fontSize: m[2] };
     },
+    // True when the text of a Text entity (with a maxWidth / maxHeight box) or the label of a widget still does not fit its box at
+    // the size it is drawn at (autoShrink and maxTextScale applied). Read it after game.step or ui.layout().
+    overflowed(entityOrId) { return N.overflowed(entityHandle(entityOrId, "ui.overflowed")); },
     // Where a widget or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
     // the safe area included (not the +Y-up convention of entity.bounds()). Takes an Entity or an id/name; null for anything
     // that is neither (a world-space sprite). Layout runs each frame: read it after game.step or ui.layout().
@@ -2025,6 +2031,9 @@
       respond(method, answer, times = 1) { fa.call("platform.respond", { method, answer: plain(answer), times }); },
       // emit(event, data): sends "purchase", "overlay" or "player" to platform.on listeners at the next game.step().
       emit(event, data = {}) { fa.call("platform.emit", { event, data: plain(data) }); },
+      // revoke(productId): takes a purchase back like a refund: restore() no longer lists it and platform.on("purchase")
+      // listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step().
+      revoke(productId) { fa.call("platform.revoke", { productId }); },
       reset() { fa.call("platform.reset"); },
       // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
       // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().
