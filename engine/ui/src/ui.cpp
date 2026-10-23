@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "fa/core/utf8.h"
+#include "fa/scene/text_fit.h"
 #include "ui_internal.h"
 
 namespace fa {
@@ -403,6 +404,7 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
             j["visible"] = visible && tb->shown;
             if (!tb->text.empty()) j["text"] = tb->text;
         }
+        if (ui_text_overflowed(w, it.e, design, measure)) j["overflowed"] = true;
         list.push_back(std::move(j));
     }
     // Screen-space Text is no widget, but a test checks where the HUD text is (and that it fits).
@@ -418,9 +420,11 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
     for (const auto& [rect, e] : texts) {
         const std::optional<Rect> clip = ui_clip_rect(w, e, design);  // a ScrollList clips its Text children like its widgets
         const bool visible = !clip || (clip->w > 0 && clip->h > 0 && clip->overlaps(rect));
-        list.push_back(Json::object({{"id", w.id_of(e)}, {"kind", "Text"}, {"rect", to_json(rect)}, {"text", w.get<Text>(e)->text},
-                                     {"focused", false}, {"hovered", false}, {"pressed", false}, {"interactable", false},
-                                     {"visible", visible}}));
+        Json j = Json::object({{"id", w.id_of(e)}, {"kind", "Text"}, {"rect", to_json(rect)}, {"text", w.get<Text>(e)->text},
+                               {"focused", false}, {"hovered", false}, {"pressed", false}, {"interactable", false},
+                               {"visible", visible}});
+        if (ui_text_overflowed(w, e, design, measure)) j["overflowed"] = true;
+        list.push_back(std::move(j));
     }
     return Json::object({{"focused", focus_ && w.alive(focus_) ? Json(w.id_of(focus_)) : Json(nullptr)},
                          {"hovered", hover_ && w.alive(hover_) ? Json(w.id_of(hover_)) : Json(nullptr)},
