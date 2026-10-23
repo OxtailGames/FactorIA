@@ -1693,8 +1693,12 @@
      "doc": "Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI); TouchStick and TouchButton, the on-screen gamepad, send no events: they press gamepad bindings (docs/MOBILE.md). The UI keeps working while time.scale is 0.",
      "members": [
       {
-       "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: \"screen\" | \"world\" }): { width: number; height: number }",
-       "doc": "Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default \"screen\") says how it will be drawn: a \"screen\" label is measured at fontSize * ui.textScale, a \"world\" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning)."
+       "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: \"screen\" | \"world\"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number }): { width: number; height: number; fontSize: number }",
+       "doc": "Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default \"screen\") says how it will be drawn: a \"screen\" label is measured at fontSize * ui.textScale, a \"world\" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning). maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size)."
+      },
+      {
+       "sig": "overflowed(entityOrId: Entity | string): boolean",
+       "doc": "true when the text of a screen-space or world Text with a box (maxWidth, maxHeight) or the label of a Button, Toggle, Slider or TouchButton still does not fit its box at the size it is drawn at, i.e. after ui.textScale, maxTextScale and autoShrink (down to minFontSize) have done what they can. false for any other entity, an empty text or a Text without a box. Read it after game.step or ui.layout(). Same as `overflowed: true` in `ui.state`. Example: ui.textScale = 2; game.step(1); expect(ui.overflowed(\"play_button\")).toBe(false);"
       },
       {
        "sig": "rectOf(entityOrId: Entity | string): Rect | null",
@@ -1831,8 +1835,8 @@
      "doc": "The outcome of a purchase, from purchases.buy() or the \"purchase\" event.",
      "members": [
       {
-       "sig": "readonly status: \"purchased\" | \"pending\" | \"cancelled\"",
-       "doc": "purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a \"purchase\" event follows when it is decided. cancelled: the player backed out (not an error)."
+       "sig": "readonly status: \"purchased\" | \"pending\" | \"cancelled\" | \"revoked\"",
+       "doc": "revoked (only in a \"purchase\" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a \"purchase\" event follows when it is decided. cancelled: the player backed out (not an error)."
       },
       {
        "sig": "readonly productId: string",
@@ -2005,7 +2009,7 @@
       },
       {
        "sig": "finish(transactionId: string): Promise<void>",
-       "doc": "Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a \"purchase\" event or restore()."
+       "doc": "Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a \"purchase\" event or restore(). A transaction the game was not told about (or finished already) rejects with code \"unknownId\"."
       },
       {
        "sig": "restore(): Promise<{ productId: string; transactionId: string; receipt: string }[]>",
@@ -2943,6 +2947,10 @@
       {
        "sig": "emit(event: \"purchase\" | \"overlay\" | \"player\", data?: Json): void",
        "doc": "Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased \"purchase\" also records an unfinished transaction."
+      },
+      {
+       "sig": "revoke(productId: string): void",
+       "doc": "Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on(\"purchase\") listeners get { status: \"revoked\", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones."
       },
       {
        "sig": "reset(): void",

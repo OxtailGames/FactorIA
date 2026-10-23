@@ -927,8 +927,19 @@ constexpr const char* kSchemaText =
           "items": {
             "type": "object",
             "required": [
-              "id",
-              "name"
+              "id"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "nameKey"
+                ]
+              }
             ],
             "properties": {
               "id": {
@@ -940,6 +951,11 @@ constexpr const char* kSchemaText =
                 "type": "string",
                 "minLength": 1,
                 "description": "The leaderboard's title."
+              },
+              "nameKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A key of locales/<language>.json instead of \"name\": the title in the current language (docs/PLATFORM.md, \"Translated texts\")."
               },
               "order": {
                 "enum": [

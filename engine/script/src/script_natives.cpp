@@ -23,6 +23,7 @@
 #include "fa/scene/animation.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/localize.h"
+#include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
@@ -688,26 +689,40 @@ NATIVE(particlesBurst) {
     return JS_UNDEFINED;
 }
 
-// Size {w, h} of `text` laid out like Text rendering: the renderer's own layout when there is one, otherwise (headless) an
-// approximation of 0.6 em per character and 1.2 em per line, with a one-time warning. `what` names the caller in it.
-Vec2 measure_text_size(Impl* I, const std::string& text, float size, const std::string& font, float maxW, const char* what,
-                       RenderSpace space) {
-    Renderer* r = I->host->renderer();
-    if (r && r->initialized()) return r->measure_text(text, size, font, maxW, space);
-    static bool warned = false;
-    if (!warned) {
-        warned = true;
-        fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
-    }
-    return approx_text_size(text, space == RenderSpace::Screen ? size * I->host->text_scale() : size, maxW);
+// How scripts measure text: the renderer's own layout when there is one, otherwise (headless) an approximation of 0.6 em
+// per character and 1.2 em per line, with a one-time warning (`what` names the caller in it). The Text-level size includes
+// the player's text size, the maxTextScale cap and autoShrink (text_fit.h), like the renderer.
+VisualMeasure script_measure(Impl* I, const char* what) {
+    VisualMeasure m;
+    m.textScale = I->host->text_scale();
+    m.textSize = [I, what](const Text& t) {
+        Renderer* r = I->host->renderer();
+        if (r && r->initialized()) return r->measure_text(t);
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
+        }
+        return approx_text_size(t, I->host->text_scale());
+    };
+    return m;
 }
 
-NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace) -> [w, h]
+NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight) -> [w, h, size]
     SETUP;
-    Vec2 m = measure_text_size(I, arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 16)),
-                               arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0)), "ui.measureText",
-                               arg_bool(ctx, argc, argv, 4, true) ? RenderSpace::Screen : RenderSpace::World);
-    return array_of(ctx, {m.x, m.y});
+    Text t;
+    t.text = arg_str(ctx, argc, argv, 0);
+    t.fontSize = static_cast<float>(arg_num(ctx, argc, argv, 1, 16));
+    t.font = arg_str(ctx, argc, argv, 2);
+    t.maxWidth = static_cast<float>(arg_num(ctx, argc, argv, 3, 0));
+    t.space = arg_bool(ctx, argc, argv, 4, true) ? RenderSpace::Screen : RenderSpace::World;
+    t.maxTextScale = static_cast<float>(arg_num(ctx, argc, argv, 5, 0));
+    t.autoShrink = arg_bool(ctx, argc, argv, 6, false);
+    t.minFontSize = static_cast<float>(arg_num(ctx, argc, argv, 7, 10));
+    t.maxHeight = static_cast<float>(arg_num(ctx, argc, argv, 8, 0));
+    const VisualMeasure measure = script_measure(I, "ui.measureText");
+    const TextFit fit = fit_text(text_fit_spec(t), t.text, t.font, measure.textScale, text_extent_of(measure));
+    return array_of(ctx, {fit.size.x, fit.size.y, fit.px});
 }
 
 NATIVE(textScale) {  // () -> the player's text size option
@@ -819,10 +834,7 @@ NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     SETUP;
     UiSystem* U = I->host->ui();
     if (!U) return throw_err(ctx, "ui.layout: this run has no UI system");
-    VisualMeasure measure;
-    measure.textSize = [I](const Text& t) {
-        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "ui.layout()", t.space);
-    };
+    const VisualMeasure measure = script_measure(I, "ui.layout()");
     U->layout(W, I->host->design_size(), measure, false);  // the script is still changing the menu: the frame's layout warns
     return JS_UNDEFINED;
 }
@@ -830,10 +842,7 @@ NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
 NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left origin | null
     SETUP;
     ENTITY(e, 0);
-    VisualMeasure measure;
-    measure.textSize = [I](const Text& t) {
-        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "ui.rectOf() of a Text", t.space);
-    };
+    const VisualMeasure measure = script_measure(I, "ui.rectOf() of a Text");
     const std::optional<Rect> box = ui_screen_rect(W, e, I->host->design_size(), measure);
     if (!box) return JS_NULL;
     JSValue a = JS_NewArray(ctx);
@@ -842,14 +851,18 @@ NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left ori
     return a;
 }
 
+NATIVE(overflowed) {  // (entity) -> bool: the text of a Text or a widget label does not fit its box at its effective size
+    SETUP;
+    ENTITY(e, 0);
+    const VisualMeasure measure = script_measure(I, "ui.overflowed()");
+    return JS_NewBool(ctx, ui_text_overflowed(W, e, I->host->design_size(), measure));
+}
+
 NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     SETUP;
     ENTITY(e, 0);
-    VisualMeasure measure;
+    VisualMeasure measure = script_measure(I, "entity.bounds() of a Text");
     measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
-    measure.textSize = [I](const Text& t) {
-        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "entity.bounds() of a Text", t.space);
-    };
     const std::optional<Rect> box = entity_world_rect(W, e, measure);
     if (!box) return JS_NULL;
     JSValue a = JS_NewArray(ctx);
@@ -2348,7 +2361,7 @@ const Reg kRegs[] = {
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

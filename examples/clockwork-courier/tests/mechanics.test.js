@@ -90,7 +90,7 @@ describe("guard dogs", () => {
     expect(dog.behaviour.state).toBe("alert");
     expect(dog.behaviour.sees).toBe(true);
     expect(log.map((e) => e.name)).toEqual(["dog_alerted"]);
-    expect(game.audioLog()).toContainPlayed("impactPunch_heavy_000.ogg");
+    expect(game.audioLog()).toContainPlayed("dog_bark.wav");
     game.step(30);
     expect(dog.behaviour.state).toBe("chase");
     game.step(120);
