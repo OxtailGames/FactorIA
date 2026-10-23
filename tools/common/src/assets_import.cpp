@@ -337,9 +337,10 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     if (!done.ok()) fail("failed", done.error().message, done.error().hint);
     ImportOutput& out = *done;
 
-    // The asset itself must not overwrite a file silently. Its sidecars (textures, buffers) often share a name with another
-    // model's (every Kenney kit has Textures/colormap.png): an identical file is shared, a different one is kept and warned
-    // about, so the models already in the project keep their textures.
+    // The asset itself must not overwrite a file silently. Its textures often share a name with another model's (every
+    // Kenney kit has Textures/colormap.png): an identical file is shared, a different one is kept and warned about, so the
+    // models already in the project keep their textures. A different buffer (.bin) is a clash: the model cannot load
+    // another model's geometry.
     std::vector<std::string> clashes;
     auto same_bytes = [&](const std::string& rel, const std::vector<std::uint8_t>& bytes) {
         auto old = read_bytes(project_file(projectDir, rel));
@@ -351,7 +352,10 @@ Json import_asset(const std::string& projectDir, const Json& a) {
         if (!overwrite && exists(f.path)) {
             if (i == 0) {
                 clashes.push_back(f.path);
-            } else if (!same_bytes(f.path, f.bytes)) {
+            } else if (same_bytes(f.path, f.bytes)) {
+            } else if (to_lower(fs::extension(f.path)) == ".bin") {
+                clashes.push_back(f.path);
+            } else {
                 out.warnings.push_back("'" + f.path + "' already exists and is a DIFFERENT file (another model's?), so it was kept and the "
                                        "model will draw with that one. Import this model into its own folder (`path`, e.g. "
                                        "\"" + fs::parent(f.path) + "/<pack>/\") or pass overwrite: true to replace it.");
@@ -418,9 +422,10 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "The importer is chosen by the extension:\n"
         "- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).\n"
         "- .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it "
-        "(a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT file with "
+        "(a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT image with "
         "the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own "
-        "folder with `path`, or pass overwrite). project.validate reports a model whose texture is missing.\n"
+        "folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose "
+        "texture or buffer is missing.\n"
         "- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the "
         "`sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from "
         "the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. "
