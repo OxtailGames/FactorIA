@@ -44,7 +44,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   with its buttons. A long label can wrap with `maxWidth` on the button, and a two-line label (`
 `) is centred line by
   line. A column that holds a `ScrollList` (a list of saves, achievements) gives it `"fill": true`: the list takes the
-  height the other children leave and the column stays inside the screen. A `fit` panel that is still bigger than the
+  height the other children leave and the column stays inside the screen. `"shrink": true` instead makes the list only as
+  tall as its content when that is less than the room left, so a short list makes a short, centred panel and a long one
+  stops at the screen height and scrolls. A `fit` panel that is still bigger than the
   screen logs a warning, and `factoria validate` reports it for the design size.
 - **Fixed places.** A widget that must keep its size (a card, a round touch button) uses `"autoShrink": true` (with
   `minFontSize`) instead: its label shrinks until it fits, at any text size and in any language. `maxTextScale` stops a

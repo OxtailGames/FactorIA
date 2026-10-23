@@ -644,6 +644,29 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return state;
           });
 
+    I.commands.add({"ui.set_slider", "Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.",
+           "For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to "
+           "[min, max] and snapped to `step` exactly as dragging the track does, and the \"ui.change\" event {id, value} is sent "
+           "when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that "
+           "is the difference. Needs an active, interactable Slider. Returns {id, value, changed}. Example: ui.set_slider "
+           "{\"id\":\"music_volume\",\"value\":0.5}",
+           parse_schema(R"({"type":"object","required":["id","value"],"properties":{
+               "id":{"type":"string","description":"Entity id (or name) of the Slider."},
+               "value":{"type":"number","description":"The wanted value; clamped to [min, max] and snapped to step."}}})"),
+           false, "ui"},
+          [&I](const Json& a) {
+              const Entity e = need_entity(I.world, a, "id");
+              const std::string id = I.world.id_of(e);
+              const Slider* s = I.world.get<Slider>(e);
+              if (!s) throw CommandError("invalid_argument", "'" + id + "' has no Slider component.", "Use the id of a Slider (ui.state lists them).");
+              if (!I.world.active_in_hierarchy(e) || !s->interactable)
+                  throw CommandError("invalid_argument", "Slider '" + id + "' cannot be dragged: it is " + (s->interactable ? "inactive" : "not interactable") + ".",
+                                     "A player cannot drag it either; activate it or set interactable true first.");
+              const float before = s->value;
+              const float now = I.ui.set_slider(I.world, e, a.at("value").get<float>());
+              return Json::object({{"id", id}, {"value", now}, {"changed", now != before}});
+          });
+
     I.commands.add({"ui.set_text_scale", "Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.",
            "The player's \"text size\" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of "
            "every screen-space Text (space \"screen\") and of the labels of Button, Toggle, Slider and TextField is multiplied by "

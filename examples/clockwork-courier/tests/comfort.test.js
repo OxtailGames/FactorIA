@@ -170,13 +170,13 @@ describe("camera options", () => {
     game.step(3);
     game.click("tab_touch");
     game.step(2);
-    game.click("camera_sensitivity"); // a click on the middle of the widget lands on the track: some value of the range
+    game.setSlider("camera_sensitivity", 2); // like a drag: clamped, stepped, ui.change
     game.step(2);
-    // The middle of the widget is near the start of the track: a value close to 1, which save() leaves out as the default.
-    const saved = storage.get("settings").cameraSensitivity ?? 1;
-    expect(saved).toBeGreaterThanOrEqual(0.4);
-    expect(saved).toBeLessThanOrEqual(2.5);
-    expect(game.find("camera").behaviour.sensitivity).toBeCloseTo(base * saved);
+    expect(storage.get("settings").cameraSensitivity).toBe(2);
+    expect(game.find("camera").behaviour.sensitivity).toBeCloseTo(base * 2);
+    game.setSlider("camera_sensitivity", 9); // past the end of the range: the largest value
+    game.step(2);
+    expect(storage.get("settings").cameraSensitivity).toBe(2.5);
     game.click("invert_y");
     game.step(2);
     expect(storage.get("settings").invertY).toBe(true);

@@ -332,7 +332,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `Panel` | `size`, `pivot`, `anchor`, `layer` (default 200), `color`, `texture` + `slice` (9-slice), `layout` (none, row, column, grid), `spacing`, `padding` [l,t,r,b], `columns`, `align`, `justify`, `fit` | A background that places its children in a column, row or grid. |
 | `Button` | `text`, `size`, `autoFocus`, `interactable`, `font`, `fontSize`, `textColor`, `accentColor` + the style fields of Panel | Sends `ui.click`. |
 | `Toggle` | `label`, `value` | Sends `ui.change` `{value: bool}`. |
-| `Slider` | `label`, `value`, `min`, `max`, `step`, `showValue` | Sends `ui.change` `{value: number}`; left / right change it by `step`. |
+| `Slider` | `label`, `value`, `min`, `max`, `step`, `showValue`, `format` (`"{percent}%"`) | Sends `ui.change` `{value: number}`; left / right change it by `step`. |
 | `TextField` | `text`, `placeholder`, `maxLength` | Sends `ui.change` while typing and `ui.submit` on Enter. |
 | `ScrollList` | `spacing`, `padding`, `scrollSpeed`, `scroll` | A column that scrolls with the wheel and clips its children. |
 | `TouchStick` | `stick` (left, right), `knobColor`, `touchOnly` + the style fields of Panel (`safeArea` on by default); runtime `value`, `pressed`, `shown` | On-screen stick for phones: a finger moves that stick of a virtual pad, so actions bound to `GamepadLeftStick*` work by touch. Shown only while the player uses touch (`docs_read {"name":"mobile"}`). |

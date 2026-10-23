@@ -3185,6 +3185,10 @@
        "doc": "Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap()."
       },
       {
+       "sig": "setSlider(id: string, value: number): void",
+       "doc": "Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable."
+      },
+      {
        "sig": "pressBack(): void",
        "doc": "Presses the system Back button of Android. The input.onBack handlers run at the next step(); when none consumes it the game asks to quit (game.quitRequested in game.state())."
       },
