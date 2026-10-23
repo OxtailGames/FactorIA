@@ -1255,6 +1255,9 @@ pause menu opened by `game.suspend()`; a headless run with `--date 2026-02-29` f
 
 ### M26.4 Rigid glTF animation and several skins (M) — CC/FB-0001, CC/FB-0002
 
+Done (branch `m26/rigid-animation`): rigid skins for meshes on animated nodes, one palette per skin, Clockwork Courier
+imports the original robot and dog (no `skinify.py`).
+
 - Meshes that are children of animated nodes (a body part under a bone, or an animated mesh node with no skin at all,
   as in RobotExpressive and Kenney's cube pets) follow their node: the importer gives them a rigid skin of one joint
   (`parse_skeleton`, skeleton.cpp), so the Animator plays them with no change to the file. A model with clips that
@@ -1371,6 +1374,8 @@ Not at the same time as M26.3 (the same `factoria:test` object in factoria.js).
 Acceptance: a JS test for each item, in `engine/script/tests`.
 
 ### M26.12 Localized text with parameters (M) — CC/FB-0021 (and its duplicate CC/FB-0027), CC/FB-0040
+
+Done (branch `m26/i18n-args`): `keyArgs`, `TouchButton.key`, validate checks args; Courier uses them.
 
 - `keyArgs` on `Text`, `Button` (`UiControl`) and `TouchButton`: the values of a key's `{placeholders}`, passed to
   `i18n.t` when the text is localized (localize.cpp), so a script sets `keyArgs` once instead of rewriting `text` every

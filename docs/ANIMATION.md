@@ -13,7 +13,8 @@ a headless run, a replay and the test runner see exactly what a player sees.
 
 ## The Animator component
 
-Put it on the entity that has the skinned model:
+Put it on the entity that has the animated model (skinned, or made of rigid parts that follow animated nodes, see
+"Rigid parts"):
 
 ```json
 { "id": "hero",
@@ -111,19 +112,32 @@ Rules, all checked in the fixed step:
 before the step's game events are dispatched, so clip events reach `world.on` in the step that produced them. It does not
 run while `time.scale` is 0. Headless runs animate exactly as windowed ones.
 
-The result is `Animator::palette` (`components.h`): one skinning matrix per joint of the model's first skin, in the glTF's
-model space (`jointGlobal * inverseBindMatrix`). Entities without a skin keep an empty palette. `skeleton.h` reads the
-rig (`load_skeleton`: nodes, skins, clips, and the `JOINTS_0`/`WEIGHTS_0` of every skinned primitive) and `animation.h`
-samples clips (`sample_clip`, `blend_poses`, `skin_palette`), both testable without a GPU. LINEAR, STEP and CUBICSPLINE
-samplers are supported; morph-target weights are not read yet.
+The result is `Animator::skinPalettes` (`components.h`): per skin of the model, one skinning matrix per joint, in the glTF's
+model space (`jointGlobal * inverseBindMatrix`); `Animator::palette` is the first one. Entities without a skin or rigid
+part keep empty palettes. `skeleton.h` reads the rig (`load_skeleton`: nodes, skins, clips, and the
+`JOINTS_0`/`WEIGHTS_0` of every skinned primitive) and `animation.h` samples clips (`sample_clip`, `blend_poses`,
+`skin_palette`), both testable without a GPU. LINEAR, STEP and CUBICSPLINE samplers are supported; morph-target weights
+are not read yet.
+
+## Rigid parts
+
+Many models are not skinned: every body part is a plain mesh under a bone node (RobotExpressive, Blender exports with no
+weight painting), or the mesh nodes themselves are animated (Kenney's cube pets). The Animator plays them with no change
+to the file. The importer (`parse_skeleton`) gives every mesh with no skin of its own that sits on an animated node, or
+under one, a rigid skin: one joint per animated node, every vertex 100% on its joint, the inverse bind matrix the inverse
+of that node's rest matrix. A part follows its nearest animated ancestor (itself included). Meshes with no animated node
+above them stay static, and a file with clips that nothing can play (no skin, no mesh on an animated node) logs one
+warning that names the clips.
 
 ## How it is drawn
 
 A skinned model with an `Animator` is drawn on the GPU: every vertex blends up to 4 joint matrices of the palette. Before
 the first fixed step there is no palette yet and the model shows in its bind pose. Limits and choices:
 
-- **At most 64 joints** (3x4 matrices, 192 vec4 uniforms: fits the 256 vec4 minimum of WebGL2/GLES3). Over the limit
-  the model is drawn in bind pose and a warning says so.
+- **Several skins:** each mesh is drawn with the palette of its own skin (a file with two skins over the same joints, one
+  per hand, draws both right). The skins of a file are numbered as in the glTF; the importer's rigid skins come after.
+- **At most 64 joints per skin** (3x4 matrices, 192 vec4 uniforms: fits the 256 vec4 minimum of WebGL2/GLES3). Over
+  the limit the model is drawn in bind pose and a warning says so.
 - Shadows follow the animation (the shadow pass uses the same palette).
 - Each animated model is its own draw (a palette per entity): skinned entities never join an instanced batch, even with
   the same model. Many static copies of a model (no Animator) still instance.
@@ -183,6 +197,6 @@ export default class Hero extends Behaviour {
 
 ## Not there yet
 
-- More than 64 joints: the model is drawn in its bind pose (not animated) and a warning names the limit; re-export it
-  with fewer joints. Only the first skin of a file is animated.
+- More than 64 joints in one skin: that part is drawn in its bind pose (not animated) and a warning names the limit;
+  re-export it with fewer joints (rigid parts are split over several skins of 64 joints, so they have no such limit).
 - Morph targets, animation layers/masks and root motion are not supported.

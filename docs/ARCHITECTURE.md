@@ -230,7 +230,7 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
 - **When it runs:** the runtime calls it once per FIXED step, after `physics.step` and before `scripts.dispatch_events`, with
   `fixedDt * time.scale` (not at all while the scale is 0). Events therefore reach `world.on` in the step that produced them and
   headless runs are deterministic. The variable-rate render step never advances animation.
-- **What the renderer reads:** `Animator::palette` (components.h), a runtime-only vector with one matrix per joint of skin 0,
+- **What the renderer reads:** `Animator::skinPalettes` (components.h), a runtime-only vector with one palette per skin (`palette` is skin 0; the importer adds "rigid" skins for meshes that follow animated nodes), one matrix per joint,
   `jointGlobal * inverseBind` in the glTF's model space (vertices of a skinned mesh are not transformed by their node). The renderer
   (`renderer.cpp`) packs it into the `fa_skin` uniform (64 joints x 3 rows of a 3x4 matrix) and draws with the
   skinned programs of the mesh template (`mesh_skin`, `shadow_skin`: only the vertex stage differs, the lighting code is

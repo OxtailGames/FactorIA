@@ -24,10 +24,12 @@
       "suggestion": "Support node-transform animation of non-skinned mesh nodes in the Animator (drive the node world matrix of a MeshRenderer model's nodes), or auto-convert rigid-per-bone meshes to a skin at load. At least print a warning when a model has clips but no skin.",
       "effort": "large",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.4 (Rigid glTF animation and several skins) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.4 (Rigid glTF animation and several skins) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/rigid-animation (M26.4): a mesh that is a child of an animated node, or an animated mesh node with no skin, follows its node through a rigid skin the importer makes (parse_skeleton), so the Animator plays RobotExpressive and the Kenney cube pets as exported; a model with clips that nothing can play logs one warning naming them. The game imports the original robot.glb (hands included) and animal-dog.glb again and tools/skinify.py is gone."
+      ],
+      "engineIssue": "m26/rigid-animation"
     },
     {
       "id": "FB-0002",
@@ -48,10 +50,12 @@
       "suggestion": "Merge skins that have the same joints/IBMs at load, or animate every skin of the file; the 'first skin' limit is a trap for exported characters.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.4 (Rigid glTF animation and several skins) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.4 (Rigid glTF animation and several skins) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/rigid-animation (M26.4): every mesh is drawn with the palette of its own skin (Animator::skinPalettes, one per glTF skin), so the two hand skins of the original robot.glb animate; the 'first skin only' limit and its warning are gone. The game imports the original robot.glb with both hands."
+      ],
+      "engineIssue": "m26/rigid-animation"
     },
     {
       "id": "FB-0003",
@@ -520,10 +524,12 @@
       ],
       "suggestion": "Text.keyArgs (an object of replacements) or a {name} placeholder filled from a bound value, re-localized on language change.",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; CC/FB-0027 merged here (the same missing keyArgs, met on a Button, plus validate's warning on keys with placeholders); work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; CC/FB-0027 merged here (the same missing keyArgs, met on a Button, plus validate's warning on keys with placeholders); work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/i18n-args (M26.12): Text, Button, Toggle, Slider, TextField and TouchButton take keyArgs (the values of the key's {placeholders}); the engine formats the key with them when the text is localized and after a language switch, so a script sets keyArgs once. The HUD parcel counter, the results heading and time lines and the paint shop's texts use it; the results spring line (several translated lines with marks) stays one string."
+      ],
+      "engineIssue": "m26/i18n-args"
     },
     {
       "id": "FB-0022",
@@ -672,11 +678,13 @@
       "suggestion": "A `keyArgs` object (or a Text/Button `args` field scripts can set) so the engine formats the key with placeholders.",
       "effort": "small",
       "occurrences": 1,
-      "status": "duplicate",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-22: The dynamic buttons of the shop have no `key`; scripts/ui/shop.js sets the text with i18n.t(key, args) at every refresh.",
-        "2026-10-22 triage: duplicate of FB-0021 (keyArgs on localized widgets; its occurrences were merged there); validate's check of placeholders against keyArgs is part of work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: duplicate of FB-0021 (keyArgs on localized widgets; its occurrences were merged there); validate's check of placeholders against keyArgs is part of work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/i18n-args (M26.12): keyArgs on Button (see FB-0021) and factoria validate now checks a key's placeholders against the entity's keyArgs: it warns only for a placeholder with no arg or an arg no translation uses. The shop's dynamic buttons use key and keyArgs."
+      ],
+      "engineIssue": "m26/i18n-args"
     },
     {
       "id": "FB-0028",
@@ -999,10 +1007,12 @@
       "suggestion": "A `key` field on TouchButton, like Text and Button.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/i18n-args (M26.12): TouchButton has key and keyArgs like the other widgets; hud.js sets the key and the engine rewrites the label at every language switch."
+      ],
+      "engineIssue": "m26/i18n-args"
     },
     {
       "id": "FB-0041",

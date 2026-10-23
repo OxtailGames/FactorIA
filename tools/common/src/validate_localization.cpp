@@ -28,7 +28,8 @@ struct TextField {
     const char* field;
 };
 constexpr TextField kTextFields[] = {
-    {"Text", "text"}, {"Button", "text"}, {"Toggle", "label"}, {"Slider", "label"}, {"TextField", "placeholder"}};
+    {"Text", "text"}, {"Button", "text"}, {"Toggle", "label"}, {"Slider", "label"}, {"TextField", "placeholder"},
+    {"TouchButton", "text"}};
 
 std::string quote(const std::string& s) { return "'" + s + "'"; }
 
@@ -279,6 +280,47 @@ void compare_with_default(Reporter& out, const TableFile& def, const TableFile& 
     }
 }
 
+// The placeholders a key uses in any language (a plural entry also uses `count`), so an arg is "unused" only when no translation
+// reads it. The arg names are the same ones i18n.t takes, so a later `{name:format}` suffix (M26.13) changes only placeholders_of.
+std::set<std::string> placeholders_in_any_language(const std::string& key, const std::vector<TableFile>& tables) {
+    std::set<std::string> names;
+    for (const TableFile& table : tables) {
+        if (!table.table) continue;
+        const auto it = table.table->entries.find(key);
+        if (it == table.table->entries.end()) continue;
+        names.merge(placeholders_of(it->second));
+        if (it->second.plural()) names.insert("count");
+    }
+    return names;
+}
+
+// A component's keyArgs against the placeholders of its key: warns for a placeholder with no arg and for an arg no translation uses.
+void check_key_args(Reporter& out, const SceneText& t, const std::vector<TableFile>& tables) {
+    const std::set<std::string> used = placeholders_in_any_language(t.key, tables);
+    const std::string where = t.component + " of entity " + quote(t.entity);
+    std::vector<std::string> argNames, usedNames(used.begin(), used.end());
+    for (auto a = t.args.begin(); a != t.args.end(); ++a) argNames.push_back(a.key());
+    for (const std::string& name : used) {
+        if (t.args.contains(name)) continue;
+        const bool count = name == "count";
+        const std::string close = closest_match(name, argNames);
+        out.warn(t.file, t.argsPointer,
+                 where + " uses the key " + quote(t.key) + ", whose text has {" + name + "}, but its keyArgs has no \"" + name + "\"" +
+                     (count ? ": a plural entry always shows its \"other\" form without a count" : ": the placeholder would show as written") + ".",
+                 "Add \"" + name + "\" to the " + t.component + "'s keyArgs (e.g. \"keyArgs\": {\"" + name +
+                     "\": 0}); a script can change it later with entity.set or scene.set_component." +
+                     (close.empty() ? std::string() : " Did you mean to rename the arg " + quote(close) + " to " + quote(name) + "?"));
+    }
+    for (const std::string& arg : argNames) {
+        if (used.count(arg)) continue;
+        const std::string close = closest_match(arg, usedNames);
+        out.warn(t.file, t.argsPointer + "/" + arg,
+                 where + " has keyArgs \"" + arg + "\", which no translation of the key " + quote(t.key) + " uses" +
+                     (used.empty() ? " (the key has no placeholders)" : " (it uses " + describe_names(used) + ")") + ".",
+                 close.empty() ? "Remove the arg, or add {" + arg + "} to the key's text in locales/." : "Did you mean \"" + close + "\"?");
+    }
+}
+
 // ---- the whole check ------------------------------------------------------------------------------------------------------
 
 void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const std::vector<SceneText>& texts,
@@ -318,15 +360,8 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
                           " and log a warning.",
                       close.empty() ? "Add the key to " + def->file + " (and to the other languages' tables), or fix the spelling."
                                     : "Did you mean " + quote(close) + "? Otherwise add the key to " + def->file + ".");
-        } else if (it->second.plural() && reported.insert(t.file + t.keyPointer).second) {
-            out.warn(t.file, t.keyPointer,
-                     t.component + " uses the key " + quote(t.key) + ", a plural entry: a component has no count, so it always shows the \"other\" form.",
-                     "Write the text with i18n.t(\"" + t.key + "\", { count }) in a script instead, or use a key that is one string.");
-        } else if (!placeholders_of(it->second).empty() && reported.insert(t.file + t.keyPointer).second) {
-            out.warn(t.file, t.keyPointer,
-                     t.component + " uses the key " + quote(t.key) + ", whose text has " + describe_names(placeholders_of(it->second)) +
-                         ": a component has no arguments, so the placeholders would show as written.",
-                     "Write the text with i18n.t(\"" + t.key + "\", { ... }) in a script instead, or use a key without placeholders.");
+        } else if (t.argsKnown && reported.insert(t.file + t.keyPointer).second) {
+            check_key_args(out, t, tables);
         }
     }
 }
@@ -440,6 +475,11 @@ void collect_scene_texts(const std::string& file, const std::string& entityPoint
         const std::string base = entityPointer + "/components/" + f.component;
         t.pointer = base + "/" + f.field;
         t.keyPointer = base + "/key";
+        t.entity = entity.contains("id") && entity["id"].is_string() ? entity["id"].get<std::string>() : entityPointer;
+        const auto args = it->find("keyArgs");
+        if (args != it->end() && args->is_object()) t.args = *args;
+        t.argsKnown = args != it->end() || !instance;
+        t.argsPointer = base + (args != it->end() ? "/keyArgs" : "/key");  // where the problem is: the args, else the key without any
         t.component = f.component;
         t.field = f.field;
         t.text = text.value_or("");

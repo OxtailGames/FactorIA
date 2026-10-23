@@ -1,8 +1,8 @@
 // Skeletal animation without a GPU: sampling clips into poses, blending, skinning matrices, and the Animator system
 // that plays them. The runtime calls update_animators() once per FIXED step (after physics, before the step's game
 // events are dispatched), so animation, clip events and state machine transitions are deterministic and also run in
-// headless runs. The renderer only READS Animator::palette (components.h): one skinning matrix per joint of skin 0,
-// ready to upload as the joint matrices of a skinned draw.
+// headless runs. The renderer only READS Animator::palette (components.h): one skinning matrix per joint of
+// each skin (palette = skin 0, skinPalettes = all), ready to upload as the joint matrices of a skinned draw.
 #pragma once
 
 #include <string>
