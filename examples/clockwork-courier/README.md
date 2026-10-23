@@ -379,5 +379,5 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - Jingles: Kenney "Music Jingles" (CC0).
 - Sounds: Kenney "Impact Sounds" and "Interface Sounds" (CC0), https://kenney.nl.
 - Robot model: "Robot Expressive" by Quaternius (CC0), modified by Don McCurdy, from the three.js
-  examples. Modified here: rescaled, hands removed and the meshes skinned to the skeleton (`tools/skinify.py`).
+  examples. Imported as published.
   Provenance of every asset is in `assets.json`.

@@ -123,9 +123,8 @@
   "results": {
     "title": "¡Entregado!",
     "titleNamed": "¡Entregado, {name}!",
-    "time": "Tiempo: {time} s",
-    "best": "Mejor: {time} s",
-    "newBest": "¡Nuevo récord!",
+    "timeBest": "Tiempo: {time} s   Mejor: {best} s",
+    "timeNewBest": "Tiempo: {time} s   ¡Nuevo récord!",
     "spring": "Muelle restante: {seconds} s",
     "goal": {
       "fast": "Rápido: menos de {par} s",
@@ -181,7 +180,7 @@
   "daily": {
     "done": "¡Ruta diaria hecha!",
     "doneNamed": "¡Ruta diaria hecha, {name}!",
-    "best": "Mejor de hoy: {time} s"
+    "timeBest": "Tiempo: {time} s   Mejor de hoy: {best} s"
   },
   "retry": {
     "title": "Se acabó la cuerda",

@@ -58,10 +58,13 @@ struct SkinVertices {
     int node = -1;
     int primitive = 0;
     int skin = 0;
+    bool rigid = false;  // a mesh with no skin of its own that follows an animated node: one synthetic joint, weight 1
     std::vector<std::array<std::uint16_t, 4>> joints;
     std::vector<std::array<float, 4>> weights;
 };
 
+// `skins` has the file's skins first, then "rigid" skins (up to 64 joints each) made by the importer for meshes that
+// follow animated nodes without a skin of their own (SkinVertices::rigid).
 struct SkeletonAsset {
     std::string path;
     std::vector<SkelNode> nodes;

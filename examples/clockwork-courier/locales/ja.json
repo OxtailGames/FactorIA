@@ -123,9 +123,8 @@
   "results": {
     "title": "お届け完了！",
     "titleNamed": "お届け完了、{name}さん！",
-    "time": "タイム：{time}秒",
-    "best": "ベスト：{time}秒",
-    "newBest": "新記録！",
+    "timeBest": "タイム：{time}秒   ベスト：{best}秒",
+    "timeNewBest": "タイム：{time}秒   新記録！",
     "spring": "ぜんまいののこり：{seconds}秒",
     "goal": {
       "fast": "はやい：{par}秒以内",
@@ -179,7 +178,7 @@
   "daily": {
     "done": "今日のルート、完了！",
     "doneNamed": "今日のルート、完了、{name}さん！",
-    "best": "今日のベスト：{time}秒"
+    "timeBest": "タイム：{time}秒   今日のベスト：{best}秒"
   },
   "retry": {
     "title": "ぜんまいが止まっちゃった",
