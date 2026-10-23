@@ -51,7 +51,8 @@ PackedTexture packed_texture(std::string_view path);
 
 // Edits (tools; the manifest must be writable, so desktop only). Loads the file from disk (a missing one starts as
 // {"format": ...}), runs `edit` on the entry of `path` (an object, created when missing; an entry left empty is
-// removed), and writes the file back with 2-space indent and the entries sorted by path. Fails on an unreadable or
+// removed), and writes the file back with 2-space indent. The entries stay in the order of the file; they are kept
+// sorted by path only when they were sorted before the edit (new entries are appended to a hand-ordered file). Fails on an unreadable or
 // invalid file instead of overwriting it.
 Result<void> update_entry(std::string_view path, const std::function<void(Json& entry)>& edit);
 // The same for the whole document (style, defaults); `edit` receives the parsed object.

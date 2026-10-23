@@ -90,13 +90,15 @@
       "suggestion": "Make the loudness check read the effective import settings (defaults merged with per-asset), or say in the warning that the default is already applied and the warning is about the source file.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "workaroundFiles": [
         "assets.json"
       ],
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/model-import (M26.5): validate's loudness warnings use the gain defaults.audio.normalize applies (peak and LUFS after the gain). The project now sets defaults.audio.targetLufs -20, because the peak-limited click_001.ogg cannot reach -16 and the spread of effects was still over 12 LU."
+      ],
+      "engineIssue": "m26/model-import"
     },
     {
       "id": "FB-0005",
@@ -184,10 +186,12 @@
       "suggestion": "assets.import for .glb/.gltf should copy every external uri it references (keeping the relative layout under a folder named after the model or the pack), add provenance for them, and warn when the destination folder already holds a different file of the same name. validate should report a model whose external texture is missing.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/model-import (M26.5): assets.import of a .glb or .gltf copies the textures and buffers its uris point at (with provenance), shares an identical file already there and warns when a DIFFERENT file of the same name is (import each kit into its own folder); factoria validate reports a model whose texture is missing. The kit folders under assets/models stay: they are the layout the warning recommends."
+      ],
+      "engineIssue": "m26/model-import"
     },
     {
       "id": "FB-0009",
@@ -313,10 +317,12 @@
       "suggestion": "Document a CC0 animal/creature pack in the assets guide, or add an `audio.synth` helper (noise burst plus filtered sweep) for simple barks, growls and whooshes.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/model-import (M26.5): assets.synth_sound {path, preset, seed} makes a deterministic bark, growl, meow and the usual effects offline; the guard dog now plays assets/audio/dog_bark.wav (preset bark) and the borrowed impactPunch_heavy_000.ogg is gone."
+      ],
+      "engineIssue": "m26/model-import"
     },
     {
       "id": "FB-0014",
@@ -1097,10 +1103,12 @@
       "suggestion": "Keep the file order and touch only the entry.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/model-import (M26.5): assets.set_provenance (every assets.json edit) keeps the order of the file and changes only the entry; a hand-ordered file gets new entries appended, a sorted one stays sorted."
+      ],
+      "engineIssue": "m26/model-import"
     },
     {
       "id": "FB-0046",

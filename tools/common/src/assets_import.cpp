@@ -147,17 +147,25 @@ std::string uri_decode(const std::string& uri) {
     return out;
 }
 
-// A .gltf with the .bin buffers and images it refers to, which sit next to it (or in subfolders) and are copied along.
-Result<ImportOutput> import_gltf(const ImportRequest& request) {
-    auto bytes = read_bytes(request.source);
-    if (!bytes.ok()) return bytes.error();
+// The JSON chunk of a binary glTF (.glb), or an error that says what is wrong with the file.
+Result<std::string> glb_json(const std::vector<std::uint8_t>& b, const std::string& file) {
+    auto u32 = [&](std::size_t at) { return std::uint32_t(b[at]) | (std::uint32_t(b[at + 1]) << 8) | (std::uint32_t(b[at + 2]) << 16) | (std::uint32_t(b[at + 3]) << 24); };
+    if (b.size() < 20 || std::string_view(reinterpret_cast<const char*>(b.data()), 4) != "glTF")
+        return make_error("'" + file + "' is not a binary glTF (.glb) file.", "Export the model as glTF Binary (.glb) or glTF Separate (.gltf).");
+    if (u32(16) != 0x4E4F534Au || 20 + std::size_t(u32(12)) > b.size())
+        return make_error("'" + file + "' has no readable JSON chunk.", "Export the model again as glTF 2.0.");
+    return std::string(reinterpret_cast<const char*>(b.data()) + 20, u32(12));
+}
+
+// A .gltf (or .glb) with the .bin buffers and images it refers to, which sit next to it (or in subfolders) and are copied along.
+Result<ImportOutput> import_gltf_text(const ImportRequest& request, std::vector<std::uint8_t> bytes, const std::string& jsonText) {
     const std::string file = request.source.filename().string();
-    auto doc = parse_json(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), file);
+    auto doc = parse_json(jsonText, file);
     if (!doc.ok()) return make_error("'" + file + "' is not valid JSON: " + doc.error().message, "A .gltf is a JSON file; for a binary model use a .glb.");
     if (!doc->is_object() || !doc->contains("asset"))
         return make_error("'" + file + "' is not a glTF file (it has no \"asset\" section).", "Export the model as glTF 2.0 (.gltf or .glb) from your 3D tool.");
     ImportOutput out;
-    out.files.push_back({request.dest, std::move(*bytes)});
+    out.files.push_back({request.dest, std::move(bytes)});
     const stdfs::path from = request.source.parent_path();
     const std::string toDir = fs::parent(request.dest);
     std::set<std::string> seen;
@@ -191,6 +199,21 @@ Result<ImportOutput> import_gltf(const ImportRequest& request) {
     return out;
 }
 
+Result<ImportOutput> import_gltf(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    std::string text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+    return import_gltf_text(request, std::move(*bytes), text);
+}
+
+Result<ImportOutput> import_glb(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    auto json = glb_json(*bytes, request.source.filename().string());
+    if (!json.ok()) return json.error();
+    return import_gltf_text(request, std::move(*bytes), *json);
+}
+
 Result<ImportOutput> import_psd(const ImportRequest& request) {
     auto bytes = read_bytes(request.source);
     if (!bytes.ok()) return bytes.error();
@@ -211,12 +234,56 @@ Result<ImportOutput> import_psd(const ImportRequest& request) {
     return out;
 }
 
+// Validate: every file (texture or buffer) a glTF/glb under assets/ refers to must exist next to it.
+void check_model_files_impl(const std::string& projectDir, std::vector<ValidationIssue>& errors) {
+    const stdfs::path root = stdfs::path(projectDir);
+    std::error_code ec;
+    if (!stdfs::is_directory(root / "assets", ec)) return;
+    std::vector<stdfs::path> models;
+    for (stdfs::recursive_directory_iterator it(root / "assets", stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string ext = to_lower(it->path().extension().string());
+        if ((ext == ".gltf" || ext == ".glb") && it->is_regular_file(ec)) models.push_back(it->path());
+    }
+    std::sort(models.begin(), models.end());
+    for (const stdfs::path& model : models) {
+        const std::string rel = stdfs::relative(model, root, ec).generic_string();
+        auto bytes = read_bytes(model);
+        if (!bytes.ok()) continue;
+        std::string text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        if (to_lower(model.extension().string()) == ".glb") {
+            auto chunk = glb_json(*bytes, rel);
+            if (!chunk.ok()) continue;
+            text = std::move(*chunk);
+        }
+        auto doc = parse_json(text, rel);
+        if (!doc.ok() || !doc->is_object()) continue;
+        for (const char* key : {"images", "buffers"}) {
+            if (!doc->contains(key) || !(*doc)[key].is_array()) continue;
+            int index = 0;
+            for (const Json& item : (*doc)[key]) {
+                const int i = index++;
+                if (!item.is_object() || !item.contains("uri") || !item["uri"].is_string()) continue;
+                const std::string raw = item["uri"].get<std::string>();
+                if (starts_with(raw, "data:") || raw.find("://") != std::string::npos) continue;
+                const std::string norm = fs::normalize(uri_decode(raw));
+                const bool image = std::string(key) == "images";
+                if (!norm.empty() && stdfs::is_regular_file(model.parent_path() / norm, ec)) continue;
+                const std::string where = fs::parent(rel);
+                errors.push_back({rel, std::string("/") + key + "/" + std::to_string(i) + "/uri",
+                                  std::string("This model refers to the ") + (image ? "texture" : "buffer") + " '" + raw + "', and '" +
+                                      (where.empty() ? norm : where + "/" + norm) + "' does not exist: it draws untextured or fails to load.",
+                                  "Copy the file there (assets.import of the model copies the files its uris point at), or edit the uri in the model."});
+            }
+        }
+    }
+}
+
 const std::map<std::string, Route>& routes() {
     static const std::map<std::string, Route> r = {
         {".aseprite", {"aseprite", ".png", import_aseprite}}, {".ase", {"aseprite", ".png", import_aseprite}},
         {".psd", {"psd", ".png", import_psd}},                {".obj", {"obj", ".gltf", import_obj}},
         {".fbx", {"fbx", ".glb", import_fbx}},                {".gltf", {"gltf", ".gltf", import_gltf}},
-        {".glb", {"copy", ".glb", import_copy}},              {".png", {"copy", ".png", import_copy}},
+        {".glb", {"glb", ".glb", import_glb}},              {".png", {"copy", ".png", import_copy}},
         {".jpg", {"copy", ".jpg", import_copy}},              {".jpeg", {"copy", ".jpeg", import_copy}},
         {".tga", {"copy", ".tga", import_copy}},              {".bmp", {"copy", ".bmp", import_copy}},
         {".wav", {"copy", ".wav", import_copy}},              {".ogg", {"copy", ".ogg", import_copy}},
@@ -270,11 +337,32 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     if (!done.ok()) fail("failed", done.error().message, done.error().hint);
     ImportOutput& out = *done;
 
+    // The asset itself must not overwrite a file silently. Its sidecars (textures, buffers) often share a name with another
+    // model's (every Kenney kit has Textures/colormap.png): an identical file is shared, a different one is kept and warned
+    // about, so the models already in the project keep their textures.
     std::vector<std::string> clashes;
-    for (const OutFile& f : out.files)
-        if (!overwrite && exists(f.path)) clashes.push_back(f.path);
+    auto same_bytes = [&](const std::string& rel, const std::vector<std::uint8_t>& bytes) {
+        auto old = read_bytes(project_file(projectDir, rel));
+        return old.ok() && *old == bytes;
+    };
+    std::vector<OutFile> toWrite;
+    for (std::size_t i = 0; i < out.files.size(); ++i) {
+        OutFile& f = out.files[i];
+        if (!overwrite && exists(f.path)) {
+            if (i == 0) {
+                clashes.push_back(f.path);
+            } else if (!same_bytes(f.path, f.bytes)) {
+                out.warnings.push_back("'" + f.path + "' already exists and is a DIFFERENT file (another model's?), so it was kept and the "
+                                       "model will draw with that one. Import this model into its own folder (`path`, e.g. "
+                                       "\"" + fs::parent(f.path) + "/<pack>/\") or pass overwrite: true to replace it.");
+            }
+            continue;
+        }
+        toWrite.push_back(std::move(f));
+    }
     if (!clashes.empty())
         fail("exists", "These files already exist: " + join(clashes, ", ") + ".", "Pass overwrite: true to replace them, or choose another `path` (the files next to a model follow its folder).");
+    out.files = std::move(toWrite);
 
     Json provenance = Json::object({{"origin", "imported"}, {"date", assets::today()}});
     provenance["source"] = arg_string(a, "sourceUrl", false, replace_all(sourceArg, "\\", "/"));
@@ -314,6 +402,10 @@ Json import_asset(const std::string& projectDir, const Json& a) {
 
 }  // namespace
 
+namespace assets_detail {
+void check_model_files(const std::string& projectDir, std::vector<ValidationIssue>& errors) { check_model_files_impl(projectDir, errors); }
+}  // namespace assets_detail
+
 void register_asset_commands(CommandRegistry& registry, const std::string& projectDir) {
     CommandInfo info;
     info.name = "assets.import";
@@ -324,8 +416,11 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance "
         "(origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. "
         "The importer is chosen by the extension:\n"
-        "- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf, .glb: copied as they are (images are checked to decode).\n"
-        "- .gltf: copied with the .bin buffers and images it refers to, which must sit next to it or below it.\n"
+        "- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).\n"
+        "- .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it "
+        "(a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT file with "
+        "the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own "
+        "folder with `path`, or pass overwrite). project.validate reports a model whose texture is missing.\n"
         "- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the "
         "`sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from "
         "the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. "
@@ -356,6 +451,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_slice_sheet_command(registry, projectDir);
     register_draw_icon_command(registry, projectDir);
     register_draw_capsules_command(registry, projectDir);
+    register_synth_sound_command(registry, projectDir);
 }
 
 }  // namespace fa

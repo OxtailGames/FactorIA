@@ -393,3 +393,27 @@ TEST_CASE("assets.disclosure answers the store survey from the provenance record
     CHECK(p["hasAiContent"] == false);
     CHECK(p["markdown"].get<std::string>().find("None of the assets is recorded as made with AI.") != std::string::npos);
 }
+
+TEST_CASE("assets.set_provenance keeps the order of a hand-ordered assets.json and changes one entry") {
+    Game game(fake_config());
+    game.put("assets/z.png", png_bytes(2, 2, 1, 2, 3));
+    game.put("assets/a.png", png_bytes(2, 2, 1, 2, 3));
+    game.put("assets/m.png", png_bytes(2, 2, 1, 2, 3));
+    game.put("assets.json",
+             R"({"format":"factoria.assets/1","assets":{"assets/z.png":{"import":{"compression":"none"}},"assets/a.png":{"import":{"atlas":"ui"}},"assets/m.png":{"import":{"atlas":"hud"}}}})");
+    game.ok("assets.set_provenance", {{"path", "assets/a.png"}, {"origin", "original"}});
+    const Json m = game.manifest();
+    std::vector<std::string> keys;
+    for (auto it = m["assets"].begin(); it != m["assets"].end(); ++it) keys.push_back(it.key());
+    CHECK(keys == std::vector<std::string>{"assets/z.png", "assets/a.png", "assets/m.png"});
+    CHECK(m["assets"]["assets/a.png"]["provenance"]["origin"] == "original");
+    CHECK(m["assets"]["assets/a.png"]["import"]["atlas"] == "ui");
+    CHECK(m["assets"]["assets/z.png"] == Json::parse(R"({"import":{"compression":"none"}})"));
+    CHECK(m["assets"]["assets/m.png"] == Json::parse(R"({"import":{"atlas":"hud"}})"));
+
+    // a new entry goes to the end of a hand-ordered file
+    game.put("assets/b.png", png_bytes(2, 2, 1, 2, 3));
+    game.ok("assets.set_provenance", {{"path", "assets/b.png"}, {"origin", "original"}});
+    CHECK(game.manifest()["assets"].begin().key() == "assets/z.png");
+    CHECK((--game.manifest()["assets"].end()).key() == "assets/b.png");
+}
