@@ -129,6 +129,8 @@ Scripting
   pauses the game and the music while the app is in the background; `game.suspend()`, `game.resume()`, `game.focus()`
   and `game.blur()` in `factoria:test` test it. A pause menu opened by a `suspend` handler stays after resume.
 - Clockwork Courier uses the date and the lifecycle API instead of its workarounds (FB-0019, FB-0035).
+- `factoria test` no longer stops a test file after 600 s in all: only a single test over 60 s is stopped, so a long file
+  of quick tests passes in a Debug build on a busy machine. The message says which limit it was.
 
 UI
 

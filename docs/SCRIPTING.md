@@ -832,6 +832,8 @@ behaviours; `game.load` also reseeds. Before each test input overrides, the game
 received object with an equal value, recursively; the object may have more). Failures print expected/received and
 `file:line` of the failing `expect`. A `TypeError: ... is not a function` in a test or a script shows the source line
 with a caret under the call, because QuickJS does not name the missing function.
+A test that runs longer than 60 s (an endless loop, a `while` waiting for something that never happens) is stopped,
+and the rest of its file is skipped; a file has no limit of its own, so split a test, not the file.
 
 Timing in a test: `world.emit(name, data)` is queued, and its listeners (`world.on`, `onEvent`) run at the next
 `game.step`, so call `game.step(1)` after emitting before you check or await a script that waits for it. The answers
