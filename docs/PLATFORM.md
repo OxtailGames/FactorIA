@@ -149,9 +149,10 @@ if (await platform.ads.available("more_time")) {
 
 The placement id is checked against the catalog (a typo throws with a "did you mean"). The consent sheets (Google's UMP
 for the GDPR, Apple's App Tracking Transparency) are the platform's job: the game reads their answer with
-`platform.ads.consent()` and never needs its own stub. **The fake backend shows a scripted test ad**, the same path in
-development and in tests, so a game has no ad provider of its own; check `platform.release` to keep a development-only
-control out of a shipped build. **The real networks are not built yet**: Google UMP and AdMob, Apple ATT and the GDPR/COPPA
+`platform.ads.consent()` and never needs its own stub. **The fake backend answers with a scripted test ad**, the same
+path in development and in tests, so a game has no ad provider of its own. It draws nothing: the ad ends at once (or after
+`delayFrames`) the way `game.platform.ad(...)` says, "watched" unless told otherwise. Check `platform.release` to keep a
+development-only control out of a shipped build. **The real networks are not built yet**: Google UMP and AdMob, Apple ATT and the GDPR/COPPA
 screen are M12's next packages. Until then no store backend offers the `"ads"` service, so `platform.has("ads")` is false
 there and every ads call rejects with `unavailable`.
 

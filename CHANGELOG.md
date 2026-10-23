@@ -19,8 +19,8 @@ Platform services
 
 - Ads: the new `platform.ads` service (`available(placement)`, `showRewarded(placement)` resolving `{rewarded, reason?}`
   and `consent()`) works with the placements of `factoria.json` `platform.ads.placements`, and `platform.release` is
-  false in development runs, tests and the MCP server. The fake store shows a scripted test ad: `game.platform.ad(
-  "watched" | "closedEarly" | "noFill" | "consentRefused")` chooses how it ends (command `platform.set_ad`). The real
+  false in development runs, tests and the MCP server. The fake store answers with a scripted test ad (nothing is
+  drawn): `game.platform.ad("watched" | "closedEarly" | "noFill" | "consentRefused")` chooses how it ends (command `platform.set_ad`). The real
   networks (Google UMP and AdMob, Apple ATT) are not in yet: the native backends answer `unavailable`.
 - A leaderboard takes `period`: `"allTime"` (default), `"daily"` or `"weekly"`. The fake keeps one board per day or
   week of `game.today()`, so a daily board is empty again after `game.setDate` moves to the next day; a store backend
