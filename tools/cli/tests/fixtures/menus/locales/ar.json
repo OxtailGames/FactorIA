@@ -55,5 +55,7 @@
     "restored": "تمت استعادة مشترياتك.",
     "nothingToRestore": "لم يكن هناك ما يُستعاد.",
     "unreachable": "تعذّر الوصول إلى المتجر ({code}). {detail}"
-  }
+  },
+  "keyboard": { "space": "مسافة", "delete": "حذف", "done": "تم" },
+  "name": { "title": "اسمك", "placeholder": "الاسم", "next": "متابعة" }
 }
