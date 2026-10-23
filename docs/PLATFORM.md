@@ -33,12 +33,17 @@ error with a "did you mean", not a silent failure inside a store SDK. Every sect
       "ids": { "steam": "ACH_WIN_ONE_GAME", "apple": "com.studio.game.first_win" } }
   ],
   "stats": [ { "id": "wins", "type": "int", "ids": { "steam": "NumWins" } } ],
-  "leaderboards": [ { "id": "high_score", "name": "High score", "order": "descending", "ids": { "apple": "high_score_v2" } } ],
+  "leaderboards": [
+    { "id": "high_score", "name": "High score", "order": "descending", "ids": { "apple": "high_score_v2" } },
+    { "id": "daily_route", "name": "Daily route", "order": "ascending", "period": "daily" }
+  ],
   "products": [
     { "id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99, "currency": "USD",
       "ids": { "apple": "com.studio.game.gems100" } },
     { "id": "remove_ads", "type": "nonConsumable", "title": "Remove ads", "price": 2.99 }
   ],
+  "ads": { "placements": [ { "id": "more_time", "type": "rewarded", "description": "Watch to get 20 s more.",
+                              "ids": { "admob": "ca-app-pub-1234567890123456/1234567890" } } ] },
   "backend": "auto"
 }
 ```
@@ -49,14 +54,15 @@ error with a "did you mean", not a silent failure inside a store SDK. Every sect
 | `ids` | The id each store uses for the same thing: `{"steam": "ACH_WIN_ONE_GAME"}`. The key is the backend's name; without an entry the store id is `id`. |
 | achievements | `name` (required unless `nameKey`), `nameKey`, `description`, `descriptionKey`, `hidden` (default false). |
 | stats | `type`: `"int"` (default) or `"float"`. An int stat takes whole numbers. |
-| leaderboards | `name` (required unless `nameKey`), `nameKey`, `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times). |
+| leaderboards | `name` (required unless `nameKey`), `nameKey`, `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times), `period`: `"allTime"` (default), `"daily"` or `"weekly"` (below). |
+| `ads.placements` | `id` (where the game offers an ad), `type`: `"rewarded"` (the only kind so far), `description` (for you), `ids` (the ad unit id per network, e.g. `{"admob": "ca-app-pub-..."}`). Section 3b. |
 | products | `type`: `"consumable"`, `"nonConsumable"` or `"subscription"` (required), `title` (required unless `titleKey`), `titleKey`, `description`, `descriptionKey`, `price` (a number, `currency` default `"USD"`). Only the fake store uses `price`: real stores give their own, localized. |
 | `backend` | Which backend plugin to use: `"auto"` (default), a plugin's name, or one per platform: `{"windows": "steam", "macos": "steam", "linux": "steam", "ios": "apple", "android": "googleplay"}`. See section 5. |
 
 ### The catalog from scripts
 
 `game.project.platform` is the section as written in factoria.json, read only: `game.project.platform.products`
-(`{ id, type, title, titleKey, price... }`), `.achievements`, `.stats` and `.leaderboards` (`{ id, name, nameKey, order }`).
+(`{ id, type, title, titleKey, price... }`), `.achievements`, `.stats`, `.leaderboards` (`{ id, name, nameKey, order, period }`) and `.ads.placements`.
 Use it instead of a second table of ids and product types in the code (is `remove_ads` a consumable?), and translate a
 `nameKey` with `i18n.t(entry.nameKey)` for a screen of your own. It is absent when the game declares no `"platform"`.
 `platform.state()` in tests lists only the ids.
@@ -101,7 +107,8 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | Call | Resolves with |
 |---|---|
 | `platform.backend` | The name of the backend that runs: `"fake"`, `"none"`, `"steam"`... (the plugin's name). |
-| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`. Check it before using a service that a store may not have. |
+| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`, `"ads"`. Check it before using a service that a store may not have. |
+| `platform.release` | `true` in a shipped game, `false` in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development (a test-ad stub, a cheat button). |
 | `platform.player` | The last known `{ id, name, signedIn }` (empty and signed out until the store tells). |
 | `platform.signIn()` | `{ id, name, signedIn }`. Always allowed. |
 | `platform.on(event, fn)` | Returns a function that removes the listener. Events: below. |
@@ -112,8 +119,8 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.stats.get(id)` | The number. |
 | `platform.stats.set(id, value)` | The new value. An int stat needs a whole number. |
 | `platform.stats.add(id, delta)` | The new value (a get, then a set: not atomic). |
-| `platform.leaderboards.submit(id, score)` | `{ id, score, best }`; `best` is the player's best after this. The score is a whole number. |
-| `platform.leaderboards.entries(id, { range = "top", count = 10 })` | `[{ rank, name, score, playerId, isPlayer }]`. `range`: `"top"`, `"around"` (the player's neighbours) or `"friends"`; `count` 1 to 100. |
+| `platform.leaderboards.submit(id, score)` | `{ id, score, best }`; `best` is the player's best after this (on a daily or weekly board: today's or this week's). The score is a whole number. |
+| `platform.leaderboards.entries(id, { range = "top", count = 10 })` | `[{ rank, name, score, playerId, isPlayer }]` (of the current period). `range`: `"top"`, `"around"` (the player's neighbours) or `"friends"`; `count` 1 to 100. |
 | `platform.cloud.save(key, value)` | `{ key, bytes }`. `value` is anything JSON can hold. Keys: `A-Z a-z 0-9 _ . -`, up to 64 characters. |
 | `platform.cloud.load(key)` | The value, or `undefined` when there is no such key. |
 | `platform.cloud.list()` / `.remove(key)` | `["key", ...]` / nothing. |
@@ -123,7 +130,40 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.purchases.restore()` | `[{ productId, transactionId, receipt }]`: what the player owns that does not get used up (non-consumables, active subscriptions). |
 | `platform.overlay.open(page, id?)` | Opens the store's own screen: `page` is `"achievements"`, `"leaderboards"`, `"friends"` or `"store"`; `id` narrows it to one achievement, leaderboard or product. |
 | `platform.presence.set(text, data?)` | "What the player is doing" for friends. `data`: an object whose values are strings. |
+| `platform.ads.available(placement)` | `true` when a rewarded ad is ready at the placement (`false`: no fill, or the consent was refused). |
+| `platform.ads.showRewarded(placement)` | `{ rewarded, reason? }` when the ad ends. `rewarded` is true only when the player watched it to the end: pay the reward then. Otherwise `reason` is `"closedEarly"`, `"noFill"` or `"consentRefused"`. A network failure rejects. |
+| `platform.ads.consent()` | `{ gdpr, tracking, canShowAds }`: what the consent sheets answered. `gdpr`: `"granted"`, `"denied"`, `"notRequired"` or `"unknown"`; `tracking` (Apple's App Tracking Transparency): `"authorized"`, `"denied"`, `"notDetermined"`, `"restricted"` or `"notRequired"`; `canShowAds` is false when the GDPR consent was refused. |
 | `platform.integrity.token(challenge)` | `{ token }`: a signed token for **your server** to verify (see below). `challenge` is a string your server made: 16 to 500 characters of URL-safe Base64 (`A-Z a-z 0-9 - _ =`); anything else throws at once. |
+
+### Ads
+
+A game with a "watch an ad" button declares its places in `platform.ads.placements` and asks the platform:
+
+```js
+if (await platform.ads.available("more_time")) {
+  const ad = await platform.ads.showRewarded("more_time");
+  if (ad.rewarded) addSeconds(20);              // only a finished ad pays
+  else if (ad.reason === "closedEarly") showHint("Watch it to the end to get the time.");
+}
+```
+
+The placement id is checked against the catalog (a typo throws with a "did you mean"). The consent sheets (Google's UMP
+for the GDPR, Apple's App Tracking Transparency) are the platform's job: the game reads their answer with
+`platform.ads.consent()` and never needs its own stub. **The fake backend shows a scripted test ad**, the same path in
+development and in tests, so a game has no ad provider of its own; check `platform.release` to keep a development-only
+control out of a shipped build. **The real networks are not built yet**: Google UMP and AdMob, Apple ATT and the GDPR/COPPA
+screen are M12's next packages. Until then no store backend offers the `"ads"` service, so `platform.has("ads")` is false
+there and every ads call rejects with `unavailable`.
+
+### Leaderboard periods
+
+`"period": "daily"` or `"weekly"` in the catalog makes the board start over: `submit` and `entries` address the board of
+the current calendar day (or week, Monday to Sunday) of `game.today()` (docs/SCRIPTING.md, "The date"), never of the wall
+clock inside a simulation. The fake keeps one board per day or week, so the board is empty again the day after a
+`game.setDate` in a test. The backend gets the board in the arguments: `period`, `periodKey` (`"2026-10-23"` for a day, the
+Monday's date for a week, `""` for `allTime`) and `date`. **The store backends do not map periods yet** (Steam, Game Center
+and Play Games recurring boards are M12's next packages): a daily or weekly board there rejects with `unavailable`, an
+`allTime` one works as before.
 
 **Purchases: grant, then finish.** A store keeps a purchase "unfinished" until the game calls `finish`, and hands it over
 again on the next run. Grant what was bought first, finish after, and remember the `transactionId`s you granted so the
@@ -192,7 +232,7 @@ player what happened (`e.hint`) and grant nothing.
 ## 3. The fake store, and testing with it
 
 The fake backend runs in development and in **every** headless run: `factoria test`, `factoria call`, `factoria
-session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all eight
+session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all nine
 services, and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
 `{ id: "fake-player", name: "Player", signedIn: true }`; `buy` answers `purchased` with the transaction `fake-1`,
 `fake-2`... and the receipt `fake-receipt-1`...; the purchase stays unfinished until `finish`; consumables are never
@@ -208,6 +248,7 @@ once, without `game.step()`.
 | `game.platform.respond(method, answer, times = 1)` | Queues the answer of the next `times` calls of `method` (`"purchases.buy"`; first come, first served). `answer` is `{ error: "network", message?, hint? }` to fail, `{ result: value }` to answer exactly that, or fields merged into the default result: `{ status: "cancelled" }`. A cancelled buy owns nothing. |
 | `game.platform.emit(event, data)` | Sends `"purchase"`, `"overlay"` or `"player"` to the `platform.on` listeners at the next `game.step()`. An emitted purchased `purchase` is also an unfinished transaction. |
 | `game.platform.revoke(productId)` | Takes a purchase back, as a refund does: `restore()` no longer lists it, its unfinished transaction is dropped, and `platform.on("purchase")` listeners get `{ status: "revoked", productId, transactionId, receipt }` at the next `game.step()` (take the goods away). A product the player does not own throws, listing the owned ones. Command: `platform.revoke`. |
+| `game.platform.ad(outcome, { gdpr, tracking })` | How the fake's test ad ends from now on: `"watched"` (default, rewarded), `"closedEarly"`, `"noFill"` (no ad: `ads.available()` is false) or `"consentRefused"` (also answers denied in `ads.consent()`). `gdpr` and `tracking` set what `ads.consent()` answers; a denied `gdpr` stops every ad. `reset()` restores the defaults; `state().fake.ads` counts `shown` and `rewarded`. Command: `platform.set_ad`. |
 | `game.platform.set({ signedIn, delayFrames, backend })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
@@ -241,7 +282,7 @@ test("the store overlay pauses the game", () => {
 
 The same controls are commands, for MCP clients and `factoria call` (they work on the fake only, and say which backend
 runs when it is another): `platform.state`, `platform.reset`, `platform.respond {method, answer, times}`,
-`platform.emit {event, data}`, `platform.set_fake {signedIn, delayFrames, backend}` (an unknown option is refused with a "did you mean").
+`platform.emit {event, data}`, `platform.set_ad {outcome, gdpr, tracking}`, `platform.set_fake {signedIn, delayFrames, backend}` (an unknown option is refused with a "did you mean").
 
 ## 4. Which backend runs
 
@@ -513,8 +554,8 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `achievements.reset` | `{ achievements: [{ id, storeId }] }` | `{}` |
 | `stats.get` | `{ id, storeId, type }` | `{ id, value }` |
 | `stats.set` | `{ id, storeId, type, value }` | `{ id, value }` |
-| `leaderboards.submit` | `{ id, storeId, name, order, score }` | `{ id, score, best }` |
-| `leaderboards.entries` | `{ id, storeId, name, order, range, count }` | `[{ rank, name, score, playerId, isPlayer }]` |
+| `leaderboards.submit` | `{ id, storeId, name, order, period, periodKey, date, score }` | `{ id, score, best }` |
+| `leaderboards.entries` | `{ id, storeId, name, order, period, periodKey, date, range, count }` | `[{ rank, name, score, playerId, isPlayer }]` |
 | `cloud.save` | `{ key, data }` (`data` is JSON text) | `{ key, bytes }` |
 | `cloud.load` | `{ key }` | `{ key, data }`, or `null` when there is no such key |
 | `cloud.list` | `{}` | `["key", ...]` |
@@ -525,6 +566,9 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `purchases.restore` | `{ products: [{ id, storeId, type }] }` | `[{ productId, transactionId, receipt }]` |
 | `overlay.open` | `{ page, id?, storeId? }` | `{}` |
 | `presence.set` | `{ text, data }` | `{}` |
+| `ads.available` | `{ placement, adUnitId, type }` | `{ available }` |
+| `ads.showRewarded` | `{ placement, adUnitId, type }` | `{ rewarded, reason? }` |
+| `ads.consent` | `{}` | `{ gdpr, tracking, canShowAds }` |
 | `integrity.token` | `{ challenge }` | `{ token }` (`token` is a string; the engine has checked `challenge` is 16 to 500 characters of URL-safe Base64) |
 
 The C++ side is `fa/services/platform.h` (`PlatformBackend`, `PlatformServices`, `platform_methods()` with this table)

@@ -212,7 +212,7 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/settings.js`, `accessibility.js`, `haptics.js`, `comfort.js` | Saved options and what they change in a scene; assist, reduced motion and quality numbers; vibration pulses; per-level comfort entity (suspend pause, low-spring warning, catch and delivery haptics). |
 | `scripts/hud.js`, `parcel.js`, `delivery_door.js` | Spring bar, parcel counter, pickup and delivery. |
 | `scripts/services.js`, `store.js`, `paints.js`, `shortcuts.js` | P4 store services: achievements, stats and score submissions that listen to the events; purchases and the wallet; robot paints; the shortcut zones (see "Contract: store services"). |
-| `scripts/ads.js`, `ad_stub.js`, `more_time.js` | P4 rewarded "more time" on the retry screen: the ad provider interface, the stub overlay, the button and the continue. |
+| `scripts/ads.js`, `more_time.js` | P4 rewarded "more time" on the retry screen: the offer on top of the engine's `platform.ads`, the button and the continue. |
 | `scripts/ui/shop.js`, `achievements.js`, `leaderboards.js`, `toast.js` | P4 screens of the title (Shop, Achievements, Leaderboards) and the achievement toast. |
 | `scripts/intro.js` | P6 studio intro (`scenes/intro.scene.json`, the `mainScene`): about 4.8 s, plays once (`introSeen` in storage), ends early on a tap, key, pad button, Skip or Back, then goes to the title. |
 | `store/` | P6 store material: `en/`, `es/`, `ja/` listing texts (`store/check_store.py` checks lengths), `keyart.png` and `trailer/` (director script and generator). The `capsules/` and `screenshots/` (phone, tablet, desktop) are not in git: `store/make_store_images.py` writes them (see SHIPPING.md). Kept out of the shipped game by `export.exclude`. |
@@ -312,7 +312,7 @@ and `scripts/store.js`. Every platform call is a Promise and every one can fail,
 | `store.js` | The wallet (`owned`, `seen` transaction ids, worn `paint`, `tips`). `buy(id)` resolves `{ status: purchased, pending, cancelled or failed, key }`; `restore()`; `reconcile({ authoritative })` (a store that stops listing a product revokes it, only on a real store); `listen()` for purchases that arrive outside `buy()`; `owns`, `noAds`, `paintUnlocked`, `equippedPaint`, `equip`. Grant first (save), then `finish`, `seen` makes a transaction count once. |
 | `paints.js` | Seven robot paints: Factory orange (free), Rust (3 stars), Mint (8), Midnight (13), Gold (18), Copper and Neon (products). `apply(entity, id)` sets `MeshRenderer.color` and `emissive`. The courier's `model` and the title robot wear the worn paint. |
 | `shortcuts.js` | Six zones (rooftops 1 and 2, market 1 and 2 have a spatial shortcut; rooftops 3 and market 3 do not): `inside(levelId, position)`, `all()`, `total()`. |
-| `ads.js` | `moreTimeOffer()` is `{ mode: "free" | "ad" | "none" }`, `requestMoreTime()` runs it, `setProvider(p)` installs an ad SDK. |
+| `ads.js` | `moreTimeOffer()` is `{ mode: "free" | "ad" | "none" }`, `requestMoreTime()` runs it through `platform.ads.showRewarded("more_time")`. |
 
 **Achievements** (ids = locale keys `ach.<id>.name` / `.desc`): `first_delivery` (a parcel delivered), `rooftops_done` and
 `market_done` (every level of the district won), `star_collector` (9 stars), `all_stars` (18), `clean_run` (a level won without
@@ -329,12 +329,10 @@ optional parcel), `first_shortcut`, `all_shortcuts` (the six zones), `dog_whispe
 **Products**: `remove_ads` (non-consumable), `paint_copper`, `paint_neon` (non-consumable), `tip_jar` "Oil can"
 (consumable). Apple has no stats (`platform.has("stats")` is false): those calls are dropped, the game keeps counting.
 
-**Ads provider** (`scripts/ads.js`; the engine has no ads API): an object
-`{ name, available(): boolean, showRewarded(placement): Promise<{ rewarded: boolean, reason? }> }`. `reason` is `skipped`,
-`failed` or `noFill`. While the store is the fake one the stub (`ad_stub.js`: a "Test ad" overlay with a 3 s countdown, then
-"Claim reward" or "Skip") is used; any other backend has no provider and the retry screen shows no ad offer until an SDK
-plugin calls `ads.setProvider()`. **Remove ads** keeps the button and makes it free ("More time"), it does not remove the
-feature.
+**Ads** (`scripts/ads.js` on the engine's `platform.ads`; placement `more_time` in factoria.json): the fake store shows a
+scripted test ad, tests choose its end with `game.platform.ad("watched" | "closedEarly" | "noFill" | "consentRefused")`; a
+backend without the ads service (`platform.has("ads")` false) shows no ad offer. **Remove ads** keeps the button and makes it
+free ("More time"), it does not remove the feature. The `daily_route` leaderboard has `period: "daily"`: one board per day.
 
 **More time** (`more_time.js`): on the retry screen after the spring ran down, once per attempt, an ad gives 20 s and the
 courier gets up at the last checkpoint (`spring.resume(seconds)`, `flow.continued = true`).
