@@ -55,5 +55,7 @@
     "restored": "Your purchases were restored.",
     "nothingToRestore": "There was nothing to restore.",
     "unreachable": "The store could not be reached ({code}). {detail}"
-  }
+  },
+  "keyboard": { "space": "Space", "delete": "Delete", "done": "Done" },
+  "name": { "title": "Your name", "placeholder": "Name", "next": "Continue" }
 }

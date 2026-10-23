@@ -556,6 +556,7 @@
     "game.input": "0.1.0",
     "game.logs": "0.1.0",
     "game.pause": "0.1.0",
+    "game.render_stats": "unreleased",
     "game.resume": "0.1.0",
     "game.screenshot": "0.1.0",
     "game.state": "0.1.0",

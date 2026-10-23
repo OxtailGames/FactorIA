@@ -606,6 +606,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            true, "game"},
           [&engine, &I](const Json& a) { return engine.state(a); });
 
+    I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
+           "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "
+           "drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, "
+           "triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. "
+           "width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() "
+           "in tests. Needs graphics. Example: game.render_stats {}",
+           parse_schema(R"({"type":"object","properties":{}})"),
+           true, "game"},
+          [&engine](const Json&) {
+              Json j = engine.render_stats_now();
+              if (j.is_null())
+                  throw CommandError("unavailable", "This run has no renderer, so nothing is drawn and there are no render stats.",
+                                     "Run with graphics (headless needs Mesa/EGL on Linux) and not graphics=false.");
+              return j;
+          });
+
     I.commands.add({"game.logs", "Read recent log lines (engine, scripts, assets...).",
            "Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
            parse_schema(R"({"type":"object","properties":{

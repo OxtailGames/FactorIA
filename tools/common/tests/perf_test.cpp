@@ -79,6 +79,55 @@ TEST_CASE("perf_compare: a baseline lowered below the measurement is a regressio
     CHECK(perf_compare(measured, lowered, PerfTolerance{}, false).status == "fail");
 }
 
+TEST_CASE("perf_compare: render numbers are budgeted only when the baseline recorded them") {
+    PerfSample measured = sample(5, 8, 100, 40, 200);
+    measured.triangles = 5000;
+    measured.lights = 4;
+    measured.textureMB = 20;
+    PerfSample old = sample(5, 8, 100, 40, 200);  // a baseline from before the render numbers: triangles = -1
+    CHECK(old.triangles < 0);
+    PerfVerdict v = perf_compare(measured, old, PerfTolerance{}, true);
+    CHECK(v.status == "pass");
+    CHECK(row(v, "triangles") == nullptr);
+    CHECK(row(v, "lights") == nullptr);
+    CHECK(row(v, "textureMB") == nullptr);
+    // A baseline that has them: the scene going over fails.
+    PerfSample base = old;
+    base.triangles = 5000;
+    base.lights = 4;
+    base.textureMB = 20;
+    CHECK(perf_compare(measured, base, PerfTolerance{}, true).status == "pass");
+    measured.triangles = 9000;
+    v = perf_compare(measured, base, PerfTolerance{}, false);
+    CHECK(v.status == "fail");
+    REQUIRE(row(v, "triangles") != nullptr);
+    CHECK(row(v, "triangles")->exceeded);
+    CHECK(row(v, "triangles")->limit == doctest::Approx(5500));
+    // The file round-trips without inventing fields the baseline never had.
+    CHECK_FALSE(perf_sample_json(old).contains("triangles"));
+    CHECK(perf_sample_from_json(perf_sample_json(old)).triangles < 0);
+    CHECK(perf_sample_from_json(perf_sample_json(base)).triangles == 5000);
+}
+
+TEST_CASE("perf budgets: absolute caps, unknown keys teach") {
+    std::vector<std::string> problems;
+    const PerfBudgets b = perf_budgets_from_json(Json::parse(R"({"maxTriangles":100,"maxLight":3})"), &problems);
+    CHECK(b.maxTriangles == 100);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].find("maxLights") != std::string::npos);  // did you mean
+    PerfSample m = sample(1, 1, 50, 10, 10);
+    m.triangles = 101;
+    m.lights = 1;
+    m.textureMB = 1;
+    const auto rows = perf_budget_rows(m, b);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].metric == "maxTriangles");
+    CHECK(rows[0].exceeded);
+    m.triangles = 100;
+    CHECK_FALSE(perf_budget_rows(m, b)[0].exceeded);
+    CHECK(perf_budget_rows(m, PerfBudgets{}).empty());
+}
+
 TEST_CASE("perf tolerances: overrides, and problems teach") {
     std::vector<std::string> problems;
     const PerfTolerance t = perf_tolerance_from_json(Json::parse(R"({"memory":0.5,"cpuAvg":3})"), &problems);
@@ -276,4 +325,63 @@ TEST_CASE("perf.profile and perf.measure from an engine that owns the GPU: a tea
         }
     }
     host.shutdown();
+}
+
+TEST_CASE("perf.check: a triangle budget fails when the scene goes over it") {
+    TempDir t;
+    auto made = create_project(t.str(), "2d-empty");
+    REQUIRE(made.ok());
+    const std::filesystem::path root(t.str());
+    // Five meshes under a camera and a sun.
+    const std::string scene = R"({"format":"factoria.scene/1","entities":[
+      {"id":"camera","components":{"Transform":{"position":[0,3,8],"rotation":[-15,0,0]},"Camera":{"projection":"perspective","primary":true}}},
+      {"id":"sun","components":{"Transform":{"rotation":[-50,-30,0]},"Light":{"type":"directional"}}},
+      {"id":"floor","components":{"Transform":{"scale":[20,1,20]},"MeshRenderer":{"mesh":"plane"}}},
+      {"id":"c1","components":{"Transform":{"position":[-2,1,0]},"MeshRenderer":{"mesh":"cube"}}},
+      {"id":"c2","components":{"Transform":{"position":[2,1,0]},"MeshRenderer":{"mesh":"cube"}}}]})";
+    auto project = load_json_file((root / "factoria.json").generic_string());
+    REQUIRE(project.ok());
+    const std::string mainScene = project.value()["mainScene"].get<std::string>();
+    REQUIRE(fs::write_text((root / mainScene).generic_string(), scene).ok());
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    CommandResult m = reg.call("perf.measure", Json::object({{"frames", 5}}));
+    REQUIRE_MESSAGE(m.ok, m.error.dump());
+    const Json& sample = m.result["sample"];
+    CHECK(sample.contains("triangles"));
+    CHECK(sample.contains("lights"));
+    CHECK(sample.contains("textureMB"));
+    const int triangles = sample["triangles"].get<int>();
+    if (triangles == 0) return;  // no GPU on this machine: nothing is drawn, so there is nothing to put over a budget
+    CHECK(triangles == 26);
+    CHECK(sample["lights"] == 1);
+    REQUIRE(fs::write_text((root / "perf.json").generic_string(),
+                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxTriangles":26,"maxLights":1}})").ok());
+    CommandResult ok = reg.call("perf.check", Json::object());  // no baseline for this runner: the caps still apply
+    REQUIRE_MESSAGE(ok.ok, ok.error.dump());
+    CHECK(ok.result["status"] == "no_baseline");
+    // The scene goes over a lower cap (file or argument): fails with the numbers.
+    CommandResult over = reg.call("perf.check", Json::object({{"budgets", Json::object({{"maxTriangles", 25}})}}));
+    REQUIRE_FALSE(over.ok);
+    CHECK(over.error["code"] == "perf_budget_exceeded");
+    CHECK(over.error["message"].get<std::string>().find("maxTriangles 26 > budget 25") != std::string::npos);
+    // A typo in a budget name teaches.
+    CommandResult typo = reg.call("perf.check", Json::object({{"budgets", Json::object({{"maxTriangels", 25}})}}));
+    REQUIRE_FALSE(typo.ok);
+    CHECK(typo.error["message"].get<std::string>().find("maxTriangles") != std::string::npos);
+    // With a baseline of this runner, an old one without render numbers keeps passing.
+    CommandResult b = reg.call("perf.baseline", Json::object({{"frames", 5}, {"repeats", 1}}));
+    REQUIRE(b.ok);
+    auto file = load_json_file((root / "perf.json").generic_string());
+    REQUIRE(file.ok());
+    Json old = file.value();
+    const std::string runner = b.result["runner"].get<std::string>();
+    old["runners"][runner].erase("triangles");
+    old["runners"][runner].erase("lights");
+    old["runners"][runner].erase("textureMB");
+    old.erase("budgets");
+    REQUIRE(fs::write_text((root / "perf.json").generic_string(), dump_json(old)).ok());
+    CommandResult pass = reg.call("perf.check", Json::object({{"strictTime", false}}));
+    REQUIRE_MESSAGE(pass.ok, pass.error.dump());
+    for (const Json& r : pass.result["rows"]) CHECK(r["metric"] != "triangles");
 }
