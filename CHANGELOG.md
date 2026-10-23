@@ -29,9 +29,9 @@ Tools
 Assets
 
 - `assets.import` of a `.glb` or `.gltf` copies the textures and buffers its `uri`s point at next to the model (with
-  provenance), shares an identical file already there, and warns when the destination holds a different file of the
-  same name (kits that ship different `colormap.png` files); `factoria validate` reports a model whose texture or buffer
-  file is missing.
+  provenance), shares an identical file already there, warns when the destination holds a different image of the same
+  name (kits that ship different `colormap.png` files) and stops on a different buffer; `factoria validate` reports a
+  model whose texture or buffer file is missing.
 - `assets.set_provenance` (and every command that edits `assets.json`) keeps the order of a hand-ordered file instead of
   sorting all of it; a sorted file stays sorted.
 - `factoria validate`'s loudness warnings use the sound as it plays: a project with `defaults.audio.normalize` has no

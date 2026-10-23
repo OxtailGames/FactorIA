@@ -739,7 +739,7 @@
         "kind": "sound",
         "provider": "factoria assets.synth_sound",
         "seed": 1,
-        "license": "CC0 (made by the engine's offline synthesizer)",
+        "license": "CC0-1.0",
         "author": "factoria",
         "notes": "preset bark, 0.45 s, seed 1",
         "date": "2026-10-23"

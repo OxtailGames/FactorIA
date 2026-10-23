@@ -186,7 +186,7 @@ Json synth_sound(const std::string& projectDir, const Json& a) {
                                     {"kind", "sound"},
                                     {"provider", "factoria assets.synth_sound"},
                                     {"seed", seed},
-                                    {"license", "CC0 (made by the engine's offline synthesizer)"},
+                                    {"license", "CC0-1.0"},
                                     {"author", "factoria"},
                                     {"notes", "preset " + presetName + ", " + std::format("{:.2f}", seconds) + " s, seed " + std::to_string(seed)},
                                     {"date", assets::today()}});

@@ -392,6 +392,25 @@ TEST_CASE("assets.import: a .glb brings its external texture, validate passes, a
     CHECK(found);
 }
 
+TEST_CASE("assets.import: a different buffer with the same name is a clash, an identical one is shared") {
+    AssetsProject p;
+    const std::string gltf = R"({"asset":{"version":"2.0"},"buffers":[{"uri":"scene.bin","byteLength":4}]})";
+    write_all(p.tmp.path / "a/car.gltf", gltf);
+    write_all(p.tmp.path / "a/scene.bin", "AAAA");
+    write_all(p.tmp.path / "b/boat.gltf", gltf);
+    write_all(p.tmp.path / "b/scene.bin", "BBBB");
+    p.ok("assets.import", {{"source", (p.tmp.path / "a/car.gltf").string()}});
+    const Json same = p.ok("assets.import", {{"source", (p.tmp.path / "a/car.gltf").string()}, {"path", "assets/models/car2.gltf"}});
+    CHECK_FALSE(same.contains("warnings"));
+    CommandResult clash = p.call("assets.import", {{"source", (p.tmp.path / "b/boat.gltf").string()}});
+    REQUIRE_FALSE(clash.ok);
+    CHECK(clash.error["message"].get<std::string>().find("scene.bin") != std::string::npos);
+    CHECK_FALSE(p.exists("assets/models/boat.gltf"));
+    CHECK(read_all(p.file("assets/models/scene.bin")) == "AAAA");
+    p.ok("assets.import", {{"source", (p.tmp.path / "b/boat.gltf").string()}, {"path", "assets/models/b/"}});
+    CHECK(read_all(p.file("assets/models/b/scene.bin")) == "BBBB");
+}
+
 TEST_CASE("assets.synth_sound: the same seed gives the same bytes, another seed another take, provenance recorded") {
     AssetsProject p;
     const Json a = p.ok("assets.synth_sound", {{"path", "assets/audio/bark.wav"}, {"preset", "bark"}, {"seed", 3}});
