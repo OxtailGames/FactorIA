@@ -33,6 +33,12 @@ bool answers_with_array(const std::string& method) {
            method == "purchases.restore";
 }
 
+// The board a leaderboard request is about: the id, plus the period's key for a daily or weekly board.
+std::string board_key(const Json& args) {
+    const std::string key = args.value("periodKey", std::string());
+    return args.value("id", std::string()) + (key.empty() ? std::string() : "@" + key);
+}
+
 Json number_json(double v, bool whole) { return whole ? Json(static_cast<long long>(v)) : Json(v); }
 
 }  // namespace
@@ -50,6 +56,10 @@ void FakeBackend::reset() {
     achievements_.clear();
     stats_.clear();
     bests_.clear();
+    adOutcome_ = "watched";
+    gdpr_ = "granted";
+    tracking_ = "authorized";
+    adsShown_ = adsRewarded_ = 0;
     cloud_.clear();
     owned_.clear();
     unfinished_.clear();
@@ -93,6 +103,25 @@ Result<void> FakeBackend::respond(const std::string& method, const Json& answer,
                           "Script the whole list with {\"result\": [...]} or reject with {\"error\": \"network\"}.");
     }
     scripted_[method].push_back({answer, times});
+    return {};
+}
+
+Result<void> FakeBackend::set_ad(const std::string& outcome, const std::string& gdpr, const std::string& tracking) {
+    static const std::vector<std::string> outcomes = {"watched", "closedEarly", "consentRefused", "noFill"};
+    static const std::vector<std::string> gdprs = {"granted", "denied", "notRequired", "unknown"};
+    static const std::vector<std::string> trackings = {"authorized", "denied", "notDetermined", "restricted", "notRequired"};
+    auto check = [](const std::string& value, const std::vector<std::string>& allowed, const char* what) -> Result<void> {
+        if (value.empty() || std::count(allowed.begin(), allowed.end(), value)) return {};
+        return make_error("platform.set_ad: " + in_quotes(value) + " is not " + what, did_you_mean(value, allowed) + " Use one of " +
+                                                                                           join(allowed, ", ") + ".");
+    };
+    if (auto r = check(outcome, outcomes, "an ad outcome"); !r.ok()) return r;
+    if (auto r = check(gdpr, gdprs, "a GDPR consent state"); !r.ok()) return r;
+    if (auto r = check(tracking, trackings, "a tracking permission state"); !r.ok()) return r;
+    if (!outcome.empty()) adOutcome_ = outcome;
+    if (outcome == "consentRefused") gdpr_ = tracking_ = "denied";
+    if (!gdpr.empty()) gdpr_ = gdpr;
+    if (!tracking.empty()) tracking_ = tracking;
     return {};
 }
 
@@ -287,7 +316,7 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
         o.result = Json::object({{"id", sid}, {"value", args["value"]}});
         o.commit = [this, sid, v](const Json&) { stats_[sid] = v; };
     } else if (method == "leaderboards.submit") {
-        const std::string lid = id();
+        const std::string lid = board_key(args);
         const long long score = args.value("score", 0LL);
         const bool lower = args.value("order", std::string()) == "ascending";
         const auto it = bests_.find(lid);
@@ -296,7 +325,7 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
         o.commit = [this, lid, best](const Json&) { bests_[lid] = best; };
     } else if (method == "leaderboards.entries") {
         Json list = Json::array();
-        if (const auto it = bests_.find(id()); it != bests_.end())
+        if (const auto it = bests_.find(board_key(args)); it != bests_.end())
             list.push_back(Json::object({{"rank", 1}, {"name", "Player"}, {"score", it->second}, {"playerId", kPlayerId}, {"isPlayer", true}}));
         o.result = std::move(list);
     } else if (method == "cloud.save") {
@@ -349,6 +378,21 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
             if (const auto it = owned_.find(p.value("id", std::string())); it != owned_.end())
                 list.push_back(Json::object({{"productId", it->first}, {"transactionId", it->second.transactionId}, {"receipt", it->second.receipt}}));
         o.result = std::move(list);
+    } else if (method == "ads.available") {
+        const bool ready = adOutcome_ != "noFill" && adOutcome_ != "consentRefused" && gdpr_ != "denied";
+        o.result = Json::object({{"available", ready}});
+    } else if (method == "ads.showRewarded") {
+        std::string reason;
+        if (gdpr_ == "denied" || adOutcome_ == "consentRefused") reason = "consentRefused";
+        else if (adOutcome_ == "noFill") reason = "noFill";
+        else if (adOutcome_ == "closedEarly") reason = "closedEarly";
+        o.result = reason.empty() ? Json::object({{"rewarded", true}}) : Json::object({{"rewarded", false}, {"reason", reason}});
+        o.commit = [this, reason](const Json& final) {
+            if (reason != "consentRefused" && reason != "noFill") ++adsShown_;  // a test ad was on screen
+            if (final.is_object() && final.value("rewarded", false)) ++adsRewarded_;
+        };
+    } else if (method == "ads.consent") {
+        o.result = Json::object({{"gdpr", gdpr_}, {"tracking", tracking_}, {"canShowAds", gdpr_ != "denied"}});
     } else if (method == "overlay.open") {
         o.result = Json::object();
     } else if (method == "presence.set") {
@@ -400,6 +444,8 @@ Json FakeBackend::state() const {
                          {"owned", owned},
                          {"unfinished", unfinished},
                          {"presence", presence_},
+                         {"ads", Json::object({{"outcome", adOutcome_}, {"gdpr", gdpr_}, {"tracking", tracking_}, {"shown", adsShown_},
+                                               {"rewarded", adsRewarded_}})},
                          {"scripted", scripted},
                          {"held", held_.size()},
                          {"calls", calls},
