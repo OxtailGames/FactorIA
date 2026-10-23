@@ -17,11 +17,13 @@ void write_tables(TestHost& h) {
     h.file("locales/en.json", R"({ "$name": "English",
       "menu": { "play": "Play", "title": "My Game" },
       "greeting": "Hello, {name}!",
+      "hud": { "score": "Score: {score}" },
       "items": { "one": "{count} item", "other": "{count} items" },
       "only_en": "Only English" })");
     h.file("locales/es.json", R"({ "$name": "Español",
       "menu": { "play": "Jugar", "title": "Mi juego" },
       "greeting": "¡Hola, {name}!",
+      "hud": { "score": "Puntos: {score}" },
       "items": { "one": "{count} objeto", "other": "{count} objetos" } })");
     h.file("locales/pt-BR.json", R"json({ "$name": "Português (Brasil)", "menu": { "play": "Jogar", "title": "Meu jogo" } })json");
     h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
@@ -173,4 +175,46 @@ test("off", () => {
     MESSAGE(rep.summary());
     CHECK(rep.ok());
     CHECK(rep.passed == 1);
+}
+
+TEST_CASE("i18n api: a script sets keyArgs once and the label follows the args and the language") {
+    TestHost h("i18n_keyargs", settings());
+    write_tables(h);
+    h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
+      { "id": "score", "components": { "Text": { "text": "Score: 0", "key": "hud.score", "keyArgs": { "score": 0 }, "space": "screen" } } },
+      { "id": "pad", "components": { "TouchButton": { "text": "x", "key": "menu.play" } } } ] })");
+    h.file("tests/keyargs.test.js", R"js(
+import { test, expect, game } from "factoria:test";
+import { i18n, world } from "factoria";
+
+test("keyArgs set from a script are formatted by the end of the frame and survive a language switch", () => {
+  const label = game.find("score");
+  expect(label.get("Text").text).toBe("Score: 0");
+  label.get("Text").keyArgs = { score: 41 };
+  game.step(1);
+  expect(label.get("Text").text).toBe("Score: 41");
+  i18n.setLanguage("es");
+  expect(label.get("Text").text).toBe("Puntos: 41");
+  expect(label.get("Text").keyArgs.score).toBe(41);
+  label.set("Text", { keyArgs: { score: 42 } });
+  game.step(1);
+  expect(label.get("Text").text).toBe("Puntos: 42");
+  i18n.setLanguage("en");
+  expect(label.get("Text").text).toBe("Score: 42");
+});
+
+test("a TouchButton with a key follows the language, and a spawned label takes its keyArgs at once", () => {
+  expect(game.find("pad").get("TouchButton").text).toBe("Play");
+  i18n.setLanguage("es");
+  expect(game.find("pad").get("TouchButton").text).toBe("Jugar");
+  const e = world.spawn({ name: "late", components: { Text: { text: "x", key: "hud.score", keyArgs: { score: 7 } } } });
+  expect(e.get("Text").text).toBe("Puntos: 7");
+  i18n.setLanguage("en");
+});
+)js");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/keyargs.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
 }

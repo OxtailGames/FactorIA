@@ -1861,7 +1861,7 @@
     {
      "kind": "alias",
      "name": "PlatformService",
-     "type": "\"achievements\" | \"stats\" | \"leaderboards\" | \"cloudSave\" | \"purchases\" | \"overlay\" | \"presence\" | \"integrity\"",
+     "type": "\"achievements\" | \"stats\" | \"leaderboards\" | \"cloudSave\" | \"purchases\" | \"overlay\" | \"presence\" | \"integrity\" | \"ads\"",
      "doc": "A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code \"unavailable\"."
     },
     {
@@ -2013,7 +2013,7 @@
     {
      "kind": "interface",
      "name": "PlatformLeaderboardsAPI",
-     "doc": "Leaderboards of factoria.json platform.leaderboards.",
+     "doc": "Leaderboards of factoria.json platform.leaderboards. A board with \"period\": \"daily\" or \"weekly\" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake backend keeps one per period; real stores reject with \"unavailable\" until M12 maps them to their recurring boards).",
      "members": [
       {
        "sig": "submit(id: string, score: number): Promise<{ id: string; score: number; best: number }>",
@@ -2095,6 +2095,44 @@
     },
     {
      "kind": "interface",
+     "name": "PlatformConsent",
+     "doc": "What the player answered to the consent sheets, from ads.consent().",
+     "members": [
+      {
+       "sig": "readonly gdpr: \"granted\" | \"denied\" | \"notRequired\" | \"unknown\"",
+       "doc": "The GDPR (Google UMP) sheet: granted, denied, notRequired (the player is outside the regions that need it) or unknown (not asked yet)."
+      },
+      {
+       "sig": "readonly tracking: \"authorized\" | \"denied\" | \"notDetermined\" | \"restricted\" | \"notRequired\"",
+       "doc": "The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet."
+      },
+      {
+       "sig": "readonly canShowAds: boolean",
+       "doc": "False when the player refused the GDPR consent: no ad may be requested then."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "PlatformAdsAPI",
+     "doc": "Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped game gets a real network once a backend offers one (check platform.has(\"ads\")): until then every call rejects with code \"unavailable\". Use platform.release to keep a development-only ad stub out of a shipped game.",
+     "members": [
+      {
+       "sig": "available(placement: string): Promise<boolean>",
+       "doc": "True when a rewarded ad is ready to show at the placement (false: no fill, or the player refused the consent). Use it to show or hide the \"watch an ad\" button. A placement the catalog does not declare throws at once with a suggestion."
+      },
+      {
+       "sig": "showRewarded(placement: string): Promise<{ rewarded: boolean; reason?: \"closedEarly\" | \"noFill\" | \"consentRefused\" }>",
+       "doc": "Shows a rewarded ad and resolves when it ends. rewarded is true only when the player watched it to the end: give the reward then and only then. Otherwise reason says why: closedEarly (the player closed it), noFill (no ad to show), consentRefused (the player refused the consent). Rejects with code \"network\" or \"unavailable\" when the platform failed."
+      },
+      {
+       "sig": "consent(): Promise<PlatformConsent>",
+       "doc": "What the GDPR and tracking sheets answered, for the game's privacy screen."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "PlatformIntegrityAPI",
      "doc": "Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.",
      "members": [
@@ -2107,7 +2145,7 @@
     {
      "kind": "interface",
      "name": "PlatformAPI",
-     "doc": "Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity. factoria.json \"platform\" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` (\"unavailable\", \"notSignedIn\", \"notAllowed\", \"unknownId\", \"network\" or \"failed\") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.",
+     "doc": "Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json \"platform\" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` (\"unavailable\", \"notSignedIn\", \"notAllowed\", \"unknownId\", \"network\" or \"failed\") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.",
      "members": [
       {
        "sig": "readonly backend: string",
@@ -2168,6 +2206,14 @@
       {
        "sig": "readonly integrity: PlatformIntegrityAPI",
        "doc": ""
+      },
+      {
+       "sig": "readonly ads: PlatformAdsAPI",
+       "doc": ""
+      },
+      {
+       "sig": "readonly release: boolean",
+       "doc": "True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button."
       }
      ]
     },
@@ -2363,7 +2409,7 @@
      "kind": "const",
      "name": "platform",
      "type": "PlatformAPI",
-     "doc": "Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity (docs/PLATFORM.md)."
+     "doc": "Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md)."
     },
     {
      "kind": "const",
@@ -3011,6 +3057,10 @@
       {
        "sig": "revoke(productId: string): void",
        "doc": "Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on(\"purchase\") listeners get { status: \"revoked\", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones."
+      },
+      {
+       "sig": "ad(outcome: \"watched\" | \"closedEarly\" | \"noFill\" | \"consentRefused\", options?: { gdpr?: \"granted\" | \"denied\" | \"notRequired\" | \"unknown\"; tracking?: \"authorized\" | \"denied\" | \"notDetermined\" | \"restricted\" | \"notRequired\" }): void",
+       "doc": "How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr and options.tracking set what ads.consent() answers; a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded."
       },
       {
        "sig": "reset(): void",

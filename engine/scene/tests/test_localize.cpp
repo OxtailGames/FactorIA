@@ -101,3 +101,67 @@ TEST_CASE("localize: one entity, and a game without localization") {
     CHECK(localize_world(w, off) == 0);  // keys are kept as written; the text stays
     CHECK(w.get<Button>(a)->text == "Jugar");
 }
+
+namespace {
+
+I18n score_game() {
+    I18n i;
+    i.configure("en", {"en", "es"});
+    const auto add = [&](const char* lang, const std::vector<std::pair<std::string, std::string>>& strings) {
+        StringTable t;
+        t.language = lang;
+        for (const auto& [k, v] : strings) t.entries[k].text = v;
+        REQUIRE(i.add_table(std::move(t)).ok());
+    };
+    add("en", {{"hud.score", "Score: {score} / {goal}"}, {"touch.jump", "Jump {key}"}});
+    add("es", {{"hud.score", "Puntos: {score} de {goal}"}, {"touch.jump", "Saltar {key}"}});
+    return i;
+}
+
+}  // namespace
+
+TEST_CASE("localize: keyArgs fill the placeholders, in two languages, and a switch keeps them") {
+    World w;
+    I18n i18n = score_game();
+    Entity label = w.create("score", "score");
+    Text& t = w.add<Text>(label);
+    t.key = "hud.score";
+    t.keyArgs = Json{{"score", 12}, {"goal", 30.5}};
+    CHECK(localize_world(w, i18n) == 1);
+    CHECK(w.get<Text>(label)->text == "Score: 12 / 30.5");
+    CHECK(localize_world(w, i18n) == 0);  // nothing changed, nothing written
+
+    w.get<Text>(label)->keyArgs["score"] = 13;  // a script changes the args once: the next pass re-localizes
+    CHECK(localize_world(w, i18n) == 1);
+    CHECK(w.get<Text>(label)->text == "Score: 13 / 30.5");
+
+    REQUIRE(i18n.set_language("es").ok());  // the language changes, the args stay
+    CHECK(localize_world(w, i18n) == 1);
+    CHECK(w.get<Text>(label)->text == "Puntos: 13 de 30.5");
+    CHECK(w.get<Text>(label)->keyArgs["score"] == 13);
+
+    Entity button = w.create("buy", "buy");
+    Button& b = w.add<Button>(button);
+    b.key = "hud.score";
+    b.keyArgs = Json{{"score", "tres"}, {"goal", 4}};
+    CHECK(localize_entity(w, button, i18n) == 1);
+    CHECK(w.get<Button>(button)->text == "Puntos: tres de 4");
+}
+
+TEST_CASE("localize: a TouchButton takes a key and keyArgs") {
+    World w;
+    I18n i18n = score_game();
+    Entity e = w.create("jump", "jump");
+    TouchButton& b = w.add<TouchButton>(e);
+    b.key = "touch.jump";
+    b.keyArgs = Json{{"key", "A"}};
+    CHECK(localize_world(w, i18n) == 1);
+    CHECK(w.get<TouchButton>(e)->text == "Jump A");
+    REQUIRE(i18n.set_language("es").ok());
+    CHECK(localize_world(w, i18n) == 1);
+    CHECK(w.get<TouchButton>(e)->text == "Saltar A");
+    Entity plain = w.create("plain", "plain");
+    w.add<TouchButton>(plain).text = "B";  // no key: untouched
+    CHECK(localize_world(w, i18n) == 0);
+    CHECK(w.get<TouchButton>(plain)->text == "B");
+}

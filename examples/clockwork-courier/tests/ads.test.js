@@ -1,20 +1,21 @@
-// The rewarded "more time" on the retry screen (scripts/more_time.js, scripts/ads.js, scripts/ad_stub.js): the stub ad, the
-// skipped and the free path of "Remove ads", the once-per-attempt rule, a custom provider and the leaderboards.
+// The rewarded "more time" on the retry screen (scripts/more_time.js, scripts/ads.js): the engine's test ad (game.platform.ad
+// chooses how it ends), closed early, consent refused, no fill, the free path of "Remove ads", the once-per-attempt rule and
+// the leaderboards.
+import { platform } from "factoria";
 import { test, describe, expect, game, beforeEach, afterEach } from "factoria:test";
 import { Autoplay, YARD_ROUTE } from "./helpers/autoplay.js";
 import * as ads from "../scripts/ads.js";
 import * as store from "../scripts/store.js";
 import * as svc from "../scripts/services.js";
-import { StubAdProvider } from "../scripts/ad_stub.js";
 import { fresh, cleanup, send, calls, record, loadYard, runDown } from "./helpers/store.js";
 
 const flow = () => game.find("level").behaviour;
 const spring = () => game.find("spring").behaviour;
 const button = () => game.find("retry_more_time");
+const shown = () => game.platform.state().fake.ads.shown;
 const retryUp = () => game.find("retry_panel").active;
 const setup = () => {
   fresh();
-  ads.setProvider(null);
   loadYard();
 };
 
@@ -32,7 +33,7 @@ describe("the offer on the retry screen", () => {
     expect(kids.indexOf("retry_more_time")).toBeLessThan(kids.indexOf("retry_retry"));
   });
 
-  test("a store without ads (backend none, no provider) shows no button", () => {
+  test("a store without ads (backend none) shows no button", () => {
     game.platform.set({ backend: "none" });
     runDown();
     expect(retryUp()).toBe(true);
@@ -45,25 +46,18 @@ describe("the offer on the retry screen", () => {
   });
 });
 
-describe("the stub ad", () => {
+describe("the engine's test ad", () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  test("the overlay counts down, then the reward can be claimed: +20 s and the courier carries on", () => {
+  test("watching the ad to the end pays: +20 s and the courier carries on", () => {
     const log = record(["more_time_granted", "level_failed"]);
     runDown();
-    const shown = StubAdProvider.shown;
+    const before = shown();
     game.click("retry_more_time");
-    game.step(3);
-    expect(StubAdProvider.shown).toBe(shown + 1);
-    expect(game.find("ad_overlay")).not.toBeNull();
-    expect(retryUp()).toBe(false); // out of the way of the ad
-    expect(game.find("ad_claim").active).toBe(false); // still counting down
-    game.step(200);
-    expect(game.find("ad_claim").active).toBe(true);
-    game.click("ad_claim");
     game.step(5);
-    expect(game.find("ad_overlay")).toBeNull();
+    expect(shown()).toBe(before + 1);
+    expect(game.platform.calls().filter((c) => c.method === "ads.showRewarded").pop().args.placement).toBe("more_time");
     expect(retryUp()).toBe(false);
     expect(spring().left).toBeGreaterThan(18);
     expect(spring().left).toBeLessThanOrEqual(20);
@@ -77,8 +71,6 @@ describe("the stub ad", () => {
   test("the courier can run again with the new time (the spring winds down once more)", () => {
     runDown();
     game.click("retry_more_time");
-    game.step(200);
-    game.click("ad_claim");
     game.step(5);
     const before = spring().left;
     game.step(120);
@@ -88,8 +80,6 @@ describe("the stub ad", () => {
   test("once per attempt: the next time the spring runs down there is no second offer", () => {
     runDown();
     game.click("retry_more_time");
-    game.step(200);
-    game.click("ad_claim");
     game.step(5);
     runDown();
     expect(retryUp()).toBe(true);
@@ -99,8 +89,6 @@ describe("the stub ad", () => {
   test("Retry starts a new attempt with its own offer", () => {
     runDown();
     game.click("retry_more_time");
-    game.step(200);
-    game.click("ad_claim");
     game.step(5);
     runDown();
     game.click("retry_retry");
@@ -109,14 +97,12 @@ describe("the stub ad", () => {
     expect(button().active).toBe(true);
   });
 
-  test("skipping gives nothing: the retry screen comes back with the offer", () => {
+  test("closing the ad early gives nothing: the retry screen comes back with the offer", () => {
     const log = record(["more_time_granted"]);
     runDown();
+    game.platform.ad("closedEarly");
     game.click("retry_more_time");
     game.step(10);
-    game.click("ad_skip");
-    game.step(5);
-    expect(game.find("ad_overlay")).toBeNull();
     expect(retryUp()).toBe(true);
     expect(button().active).toBe(true);
     expect(flow().finished).toBe(true);
@@ -126,11 +112,13 @@ describe("the stub ad", () => {
 
   test("a second click while the ad is up does not show a second ad", () => {
     runDown();
-    const shown = StubAdProvider.shown;
+    game.platform.set({ delayFrames: 30 });
+    const before = shown();
     game.click("retry_more_time");
     game.step(3);
-    expect(StubAdProvider.shown).toBe(shown + 1);
-    expect(flow().askingForTime).toBe(true);
+    game.click("retry_more_time");
+    game.step(60);
+    expect(shown()).toBe(before + 1);
   });
 });
 
@@ -138,16 +126,15 @@ describe("Remove ads", () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  test("with it the button is free: no overlay, no ad, still once per attempt", async () => {
+  test("with it the button is free: no ad, still once per attempt", async () => {
     await store.grant({ productId: "remove_ads", transactionId: "t-ra" });
-    const shown = StubAdProvider.shown;
+    const before = shown();
     runDown();
     expect(button().active).toBe(true);
     expect(button().get("Button").text).toContain("free");
     game.click("retry_more_time");
     game.step(10);
-    expect(game.find("ad_overlay")).toBeNull();
-    expect(StubAdProvider.shown).toBe(shown);
+    expect(shown()).toBe(before);
     expect(spring().left).toBeGreaterThan(15);
     expect(flow().finished).toBe(false);
     runDown();
@@ -161,40 +148,36 @@ describe("Remove ads", () => {
   });
 });
 
-describe("a provider of a real ad SDK", () => {
+describe("when no ad can be shown", () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  test("setProvider replaces the stub: its answer decides, the overlay never shows", () => {
-    const asked = [];
-    ads.setProvider({
-      name: "fake sdk",
-      available: () => true,
-      showRewarded: (placement) => {
-        asked.push(placement);
-        return Promise.resolve({ rewarded: true });
-      },
-    });
+  test("no fill hides the offer", () => {
+    game.platform.ad("noFill");
     runDown();
-    game.click("retry_more_time");
-    game.step(10);
-    expect(asked).toEqual(["more_time"]);
-    expect(game.find("ad_overlay")).toBeNull();
-    expect(flow().finished).toBe(false);
+    expect(retryUp()).toBe(true);
+    expect(button().active).toBe(false);
   });
 
-  test("a provider that has no ad loaded hides the offer; one that fails gives the retry screen back", () => {
-    ads.setProvider({ name: "empty", available: () => false, showRewarded: () => Promise.resolve({ rewarded: false, reason: "noFill" }) });
+  test("consent refused: the offer is hidden and nothing is granted", () => {
+    game.platform.ad("consentRefused");
     runDown();
     expect(button().active).toBe(false);
-    fresh();
-    loadYard();
-    ads.setProvider({ name: "broken", available: () => true, showRewarded: () => Promise.reject(new Error("sdk crashed")) });
+    expect(flow().finished).toBe(true);
+  });
+
+  test("consent refused after the offer showed: nothing is granted, the retry screen comes back", () => {
     runDown();
+    game.platform.ad("consentRefused");
     game.click("retry_more_time");
     game.step(10);
     expect(retryUp()).toBe(true);
     expect(flow().finished).toBe(true);
+    expect(svc.stat("more_time_used")).toBe(0);
+  });
+
+  test("a test run is not a shipped game: platform.release is false", () => {
+    expect(platform.release).toBe(false);
   });
 });
 
@@ -206,8 +189,6 @@ describe("a continued run and the leaderboards", () => {
     const log = record(["level_completed"]);
     runDown();
     game.click("retry_more_time");
-    game.step(200);
-    game.click("ad_claim");
     game.step(5);
     expect(new Autoplay(game).run(YARD_ROUTE).reached).toBe(true);
     game.step(200);

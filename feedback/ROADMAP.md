@@ -1331,6 +1331,8 @@ Acceptance: platform tests for a refund, the rejection and a leaderboard name in
 
 ### M26.9 Ads and leaderboard periods: the API and the fake (M) — CC/FB-0028, CC/FB-0030
 
+Done (branch `m26/ads-periods`): `platform.ads`, `platform.release`, leaderboard `period`, fake ads; Courier uses them.
+
 After M26.3 (the date of a period) and M26.8 (same catalog code).
 - A `platform.ads` service like `purchases`: the catalog's `platform.ads.placements`, `ads.available(placement)`,
   `ads.showRewarded(placement)` resolving `{rewarded}`, `ads.consent()` (what the GDPR and tracking sheets answered) and
@@ -1372,6 +1374,8 @@ Not at the same time as M26.3 (the same `factoria:test` object in factoria.js).
 Acceptance: a JS test for each item, in `engine/script/tests`.
 
 ### M26.12 Localized text with parameters (M) — CC/FB-0021 (and its duplicate CC/FB-0027), CC/FB-0040
+
+Done (branch `m26/i18n-args`): `keyArgs`, `TouchButton.key`, validate checks args; Courier uses them.
 
 - `keyArgs` on `Text`, `Button` (`UiControl`) and `TouchButton`: the values of a key's `{placeholders}`, passed to
   `i18n.t` when the text is localized (localize.cpp), so a script sets `keyArgs` once instead of rewriting `text` every
