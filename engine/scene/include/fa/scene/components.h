@@ -556,6 +556,7 @@ struct Collider3D {
     float restitution = 0.0f;
     std::int32_t layer = 0;
     std::int32_t mask = -1;
+    bool navObstacle = false;         // left out of the NavMesh3D bake; blocks the cells it covers while it is there
 };
 
 // Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body
@@ -597,6 +598,23 @@ struct CharacterController3D {
     float pushStrength = 1.0f;        // scale of the speed given to the free dynamic bodies it walks into (0 = none)
     bool isGrounded = false;          // runtime: standing on walkable ground after the last move (read only)
     Vec3 groundNormal{0, 1, 0};       // runtime: normal of that ground (read only)
+};
+
+// A navigation mesh baked from the static 3D colliders inside a box around the entity: walkable cells for path finding
+// (physics.nav_bake / nav.find_path, scripts' nav.findPath). Walkable = flat enough (maxSlope), tall enough (agentHeight),
+// at least agentRadius from walls and drops, connected to the next cell when the height step is at most stepHeight.
+struct NavMesh3D {
+    Vec3 size{40, 10, 40};            // bounds in meters, centred on the entity's world position (rotation and scale ignored)
+    float cellSize = 0.25f;           // width of a cell on the ground plane, meters
+    float cellHeight = 0.05f;         // heights are rounded to a multiple of this, meters
+    float agentRadius = 0.3f;         // radius of the walker the mesh is baked for, meters
+    float agentHeight = 1.8f;         // height of the walker, meters (the clearance a cell needs overhead)
+    float stepHeight = 0.4f;          // highest step the walker climbs, meters
+    float maxSlope = 45.0f;           // steepest walkable slope, degrees
+    bool autoBake = true;             // bake when the scene loads and again when static colliders change
+    bool enabled = true;              // false: ignored by nav.find_path
+    std::int32_t walkableCells = 0;   // runtime: walkable cells after the last bake (read only)
+    std::int32_t regions = 0;         // runtime: separate walkable areas after the last bake (read only)
 };
 
 // ---------------------------------------------------------------- audio ---

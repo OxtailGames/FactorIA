@@ -218,10 +218,12 @@
       "suggestion": "A `nav.findPath(from, to, {radius, stepHeight})` API (and a NavGrid/navmesh component baked from static colliders, with a dirty flag for moving obstacles) next to physics.raycast3d.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.10 (Navmesh and paths for 3D) in feedback/ROADMAP.md (M19's navmesh, taken now that a game needs it)."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.10 (Navmesh and paths for 3D) in feedback/ROADMAP.md (M19's navmesh, taken now that a game needs it).",
+        "2026-10-23: fixed in m26/navmesh (M26.10): a NavMesh3D component baked from the static colliders (agentRadius, agentHeight, stepHeight, maxSlope), nav.findPath(from, to, {radius}) in scripts and the nav.find_path / nav.bake / nav.info commands, Collider3D.navObstacle for gates and crates that move, and \"Show navmesh\" in the editor (docs/NAVIGATION.md). The game's scripts/nav.js, dog.js and tap_move.js still use their own grid: moving them onto the engine API needs the six levels re-tuned and retested, which is a game task."
+      ],
+      "engineIssue": "m26/navmesh"
     },
     {
       "id": "FB-0010",

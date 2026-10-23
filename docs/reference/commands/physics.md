@@ -2,6 +2,43 @@
 
 # Commands: physics
 
+## `nav.bake`
+
+Not released yet (on main after 0.2.0).
+
+Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats.
+
+A NavMesh3D component marks a box of the level. Baking voxelizes the static colliders inside it (no RigidBody3D or a static one; triggers and Collider3D.navObstacle colliders are left out) into a grid of walkable cells: not steeper than maxSlope, agentHeight of room above, agentRadius from walls and drops, neighbours joined when they differ by at most stepHeight. It is baked by itself when the scene loads and when the colliders change (autoBake); call this to bake on demand, for example with autoBake off. mesh = id of the entity with the NavMesh3D; omitted = every enabled one. Result: a list of {mesh, cellsX, cellsZ, cells, spans, walkableCells, regions, obstacles}; no timing, so the same level gives the same result. Example: nav.bake {"mesh":"navmesh"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `mesh` | string | no | Id of the entity with the NavMesh3D to bake; omitted = all enabled ones. |
+
+## `nav.find_path`
+
+Not released yet (on main after 0.2.0).
+
+Find a walkable path between two 3D points on the baked NavMesh3D.
+
+A* over the walkable grid, then string pulling: the result is few corner points from `from` to `to` on the walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, from, to, mesh} or {found:false, reason, message, hint}: reason is start_off_mesh / goal_off_mesh (not on walkable ground; nearest and nearestDistance say where the nearest walkable point is) or disconnected (the two are in different walkable areas, or a moving obstacle blocks the way). A start or goal within `snap` meters of walkable ground is moved onto it. closest=true returns a path to the reachable point nearest the goal (complete=false) instead of failing when disconnected. radius = agent radius of this query; larger than the NavMesh3D.agentRadius it was baked for is an error: bake for the bigger agent (a second NavMesh3D). mesh = id of the NavMesh3D entity; omitted = the first enabled one that contains `from`. Scripts: nav.findPath(from, to, {radius}). Example: nav.find_path {"from":[0,0,0],"to":[10,0,5]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `from` | array | yes | Start point [x,y,z] in meters (the agent's feet). |
+| `to` | array | yes | Goal point [x,y,z] in meters. |
+| `radius` | number | no | Agent radius for this query; must not exceed NavMesh3D.agentRadius. Default: the mesh's. |
+| `snap` | number | no | How far (meters) a start or goal off the walkable cells is moved onto the nearest one. Default: agentRadius + 2 cells. |
+| `closest` | boolean | no | When the goal is unreachable, return a path to the reachable point nearest to it (complete=false). |
+| `mesh` | string | no | Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`. |
+
+## `nav.info`
+
+Not released yet (on main after 0.2.0).
+
+List the NavMesh3D components with their bounds, agent size, bake state and stats.
+
+Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, autoBake, baked, error?, boundsMin, boundsMax, cellSize, agentRadius, agentHeight, stepHeight, maxSlope, staleSinceBake, stats}. staleSinceBake is true when the colliders changed after the last bake of a mesh with autoBake off (call nav.bake).
+
 ## `physics.raycast`
 
 Cast a ray against colliders (2D segment or 3D ray) and return the first hit.

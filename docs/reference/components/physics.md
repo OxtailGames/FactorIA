@@ -61,6 +61,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |
 | `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers. |
+| `navObstacle` | bool | `false` | true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing. (not released yet, on main after 0.2.0) |
 
 ## Joint2D
 
@@ -113,6 +114,26 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 | `maxMotorTorque` | float | `10.0` | hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more. Range 0.0..1000000.0. |
 | `collideConnected` | bool | `false` | false (default): the two joined bodies do not collide with each other. true: they do. |
 | `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
+
+## NavMesh3D
+
+Not released yet (on main after 0.2.0).
+
+A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[40.0,10.0,40.0]` | Size [x, y, z] in meters of the baked box, centred on the entity's world position; rotation and scale are ignored. Cover the whole level: ground outside is not walkable and the box edge counts as a drop. y must reach from below the lowest floor to above the highest head. |
+| `cellSize` | float | `0.25` | Width of one cell on the ground plane, meters. Smaller = finer paths, more memory and a slower bake (cells = x/cellSize * z/cellSize, at most 4 million). Walls thinner than half a cell can be missed. Range 0.05..10.0. |
+| `cellHeight` | float | `0.05` | Heights are rounded to a multiple of this, meters; a path is up to half of it above or below the true surface. Keep it at most stepHeight / 4. Range 0.01..5.0. |
+| `agentRadius` | float | `0.3` | Radius in meters of the walker the mesh is made for: walkable cells stay this far from walls and drops, so a body of that radius never touches them. findPath with a bigger radius is an error (bake another NavMesh3D for the bigger agent). Range 0.0..10.0. |
+| `agentHeight` | float | `1.8` | Height in meters of the walker; ground with less free space above it (under a low ceiling or table) is not walkable. Range 0.1..50.0. |
+| `stepHeight` | float | `0.4` | Highest step in meters the walker climbs; a higher ledge is a wall. Match CharacterController3D.stepOffset. Range 0.0..10.0. |
+| `maxSlope` | float | `45.0` | Steepest walkable ground in degrees; steeper ground is a wall. Match CharacterController3D.slopeLimit. Range 0.0..89.0. |
+| `autoBake` | bool | `true` | true (default): bake when the scene loads and again when a static collider is added, moved or removed. false: only the nav.bake command bakes (and a scene without a bake has no paths). |
+| `enabled` | bool | `true` | false = nav.findPath ignores this mesh (and it is not baked). |
+| `walkableCells` | int | `0` | Runtime: how many cells can be walked on after the last bake (read only). Read-only. Runtime-only (not saved). |
+| `regions` | int | `0` | Runtime: how many separate walkable areas the last bake found; two points in different areas have no path (read only). Read-only. Runtime-only (not saved). |
 
 ## RigidBody2D
 
