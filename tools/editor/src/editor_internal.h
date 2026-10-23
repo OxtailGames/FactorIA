@@ -381,6 +381,8 @@ public:
     bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
+    bool showNav_ = false;                 // draw the NavMesh3D walkable cells (Window > Show navmesh)
+    std::vector<NavCell> navCells_;        // last cells drawn; kept while the mouse is down so a drag does not rebake each frame
     // gizmos (viewport_gizmo.cpp)
     GizmoMode gizmoMode_ = GizmoMode::Move;
     std::vector<GizmoShape> gizmoShapes_;  // this frame's handles (panel pixels); empty when no gizmo shows
