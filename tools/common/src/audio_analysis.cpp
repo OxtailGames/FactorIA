@@ -88,17 +88,21 @@ std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir)
         const Loudness& l = a->loudness;
         const bool normalize = tooling_detail::bool_setting(a->settings, "normalize");
         const double gain = normalize ? normalization_gain_db(l, tooling_detail::number_setting(a->settings, "targetLufs", -16.0)) : 0.0;
-        if (l.peakDb > kClippedDb)
-            out.push_back({path, "", "Peaks at " + num(l.peakDb) + " dBFS: the waveform reaches full scale and is probably clipped.",
-                           "Export the sound again at a lower level (the engine has no limiter), or set import \"normalize\": true "
-                           "so it plays with its peak under -1 dBFS."});
+        // What the player hears: the file's levels plus the gain that import "normalize" applies.
+        const double peak = l.peakDb + gain, lufs = l.integratedLufs + gain;
+        const std::string played = normalize ? " (after the normalize gain of " + std::format("{:+.1f}", gain) + " dB)" : "";
+        if (peak > kClippedDb)
+            out.push_back({path, "", "Peaks at " + num(peak) + " dBFS" + played + ": the waveform reaches full scale and is probably clipped.",
+                           normalize ? "Normalization keeps the peak under -1 dBFS unless the gain is capped; level the source file."
+                                     : "Export the sound again at a lower level (the engine has no limiter), or set import \"normalize\": true "
+                                       "so it plays with its peak under -1 dBFS."});
         if (l.integratedLufs <= kSilentLufs)
             out.push_back({path, "", "Has no audible content (nothing above " + num(kSilentLufs) + " LUFS).",
                            "Replace the placeholder with the real sound."});
-        else if (l.integratedLufs > kLoudLufs)
-            out.push_back({path, "", "Very loud: " + num(l.integratedLufs) + " LUFS (music is mastered around -14 to -16).", normalizeHint});
-        else if (l.integratedLufs < kQuietLufs)
-            out.push_back({path, "", "Very quiet: " + num(l.integratedLufs) + " LUFS (music is mastered around -14 to -16).", normalizeHint});
+        else if (lufs > kLoudLufs)
+            out.push_back({path, "", "Very loud: " + num(lufs) + " LUFS" + played + " (music is mastered around -14 to -16).", normalize ? "Lower its targetLufs, or level the source file." : normalizeHint});
+        else if (lufs < kQuietLufs)
+            out.push_back({path, "", "Very quiet: " + num(lufs) + " LUFS" + played + " (music is mastered around -14 to -16).", normalize ? "Raise its targetLufs, or level the source file (the gain is capped at 24 dB)." : normalizeHint});
         if (l.integratedLufs > kSilentLufs && !clip_streams("auto", l.seconds)) effects.push_back({path, l.integratedLufs + gain});
     }
     if (effects.size() >= 2) {

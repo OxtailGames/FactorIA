@@ -191,8 +191,8 @@ Since 0.1.6.
 Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from.
 
 Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
-- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf, .glb: copied as they are (images are checked to decode).
-- .gltf: copied with the .bin buffers and images it refers to, which must sit next to it or below it.
+- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).
+- .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it (a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT file with the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own folder with `path`, or pass overwrite). project.validate reports a model whose texture is missing.
 - .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips; the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
 - .psd: the merged image becomes a PNG (layers are flattened).
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
@@ -282,4 +282,38 @@ background "auto" first makes a solid background transparent (the four corners m
 | `align` | string ["center","bottom"] | no | auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground. |
 | `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
 | `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
+
+## `assets.synth_sound` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
+
+Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Peaks at -3 dBFS. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
+- bark: a dog bark: two short rough barks.
+- growl: a low growl: a rattling low saw with noise.
+- meow: a cat meow: a rising then falling vowel-like tone.
+- screech: a high rough screech.
+- whoosh: air passing: noise swelling and fading.
+- explosion: a blast: low rumble and a noise burst.
+- hit: an impact: a short thump with a click.
+- coin: a coin pickup: two bright notes.
+- pickup: an item pickup: a quick rising blip.
+- jump: a jump: a rising chirp.
+- powerup: a power-up: a fast rising arpeggio-like sweep.
+- laser: a laser shot: a quick falling zap.
+- blip: a UI blip: a very short tone.
+- click: a UI click: a tiny noise tick.
+- error: a refusal buzz: two low square pulses.
+- splash: water: a noisy plop that fades.
+- footstep: a soft footstep on dirt.
+Good for placeholders and simple effects; for richer sounds import a CC0 kit (docs/ASSETS.md) or use assets.generate_sound. Example: {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the WAV, project-relative, under assets/ and ending in .wav, e.g. "assets/audio/bark.wav". |
+| `preset` | string ["bark","growl","meow","screech","whoosh","explosion","hit","coin","pickup","jump","powerup","laser","blip","click","error","splash","footstep"] | yes | The kind of sound to make. See the list in the command description. |
+| `seed` | integer | no | Chooses the take: the same preset and seed always give the same file; change it for a variation (pitch and timing shift up to about 10 percent). Default 0. |
+| `seconds` | number | no | Length in seconds. Default: the preset's own length. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
 

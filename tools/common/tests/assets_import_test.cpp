@@ -5,6 +5,7 @@
 
 #include "asset_test_helpers.h"
 #include "fa/core/asset_manifest.h"
+#include "fa/tooling/validate.h"
 
 extern "C" unsigned char* stbi_zlib_compress(unsigned char* data, int data_len, int* out_len, int quality);  // stb_image_write
 
@@ -337,4 +338,89 @@ TEST_CASE("assets.import: a PSD becomes a PNG of its merged image") {
     CommandResult bad = p.call("assets.import", {{"source", art(p, "fake.psd", "not photoshop")}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error["message"].get<std::string>().find("Photoshop") != std::string::npos);
+}
+
+namespace {
+
+// A binary glTF whose JSON chunk is `json` (no BIN chunk).
+std::string glb_with(std::string json) {
+    while (json.size() % 4) json += ' ';
+    std::string b;
+    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char(v >> (8 * i))); };
+    b += "glTF"; u32(2); u32(std::uint32_t(20 + json.size())); u32(std::uint32_t(json.size())); b += "JSON"; b += json;
+    return b;
+}
+
+}  // namespace
+
+TEST_CASE("assets.import: a .glb brings its external texture, validate passes, and a collision warns") {
+    AssetsProject p;
+    write_png(p.tmp.path / "kitA/Textures/colormap.png", make_image(2, 2, {1, 2, 3, 255}));
+    write_png(p.tmp.path / "kitB/Textures/colormap.png", make_image(2, 2, {200, 2, 3, 255}));
+    const std::string json = R"({"asset":{"version":"2.0"},"images":[{"uri":"Textures/colormap.png"}]})";
+    write_all(p.tmp.path / "kitA/tree.glb", glb_with(json));
+    write_all(p.tmp.path / "kitB/rock.glb", glb_with(json));
+
+    const Json a = p.ok("assets.import", {{"source", (p.tmp.path / "kitA/tree.glb").string()}});
+    CHECK(a["details"]["images"] == 1);
+    CHECK(p.exists("assets/models/Textures/colormap.png"));
+    CHECK(p.manifest()["assets"].contains("assets/models/Textures/colormap.png"));
+    CHECK_FALSE(a.contains("warnings"));
+    {
+        ValidationReport r = validate_project(p.dir);
+        for (const ValidationIssue& e : r.errors) CHECK_MESSAGE(e.file != "assets/models/tree.glb", e.message);
+    }
+
+    // the same texture again is shared silently; a different one is kept and warned about
+    const Json same = p.ok("assets.import", {{"source", (p.tmp.path / "kitA/tree.glb").string()}, {"path", "assets/models/tree2.glb"}});
+    CHECK_FALSE(same.contains("warnings"));
+    const Json clash = p.ok("assets.import", {{"source", (p.tmp.path / "kitB/rock.glb").string()}});
+    CHECK(has_warning(clash, "Textures/colormap.png"));
+    CHECK(has_warning(clash, "DIFFERENT"));
+    CHECK(read_png(p.file("assets/models/Textures/colormap.png")).rgba[0] == 1);  // the first kit's texture is still there
+    // its own folder avoids it
+    const Json own = p.ok("assets.import", {{"source", (p.tmp.path / "kitB/rock.glb").string()}, {"path", "assets/models/kitB/"}});
+    CHECK_FALSE(own.contains("warnings"));
+    CHECK(read_png(p.file("assets/models/kitB/Textures/colormap.png")).rgba[0] == 200);
+
+    // validate reports a model whose texture is gone
+    stdfs::remove(p.file("assets/models/kitB/Textures/colormap.png"));
+    ValidationReport r = validate_project(p.dir);
+    bool found = false;
+    for (const ValidationIssue& e : r.errors)
+        if (e.file == "assets/models/kitB/rock.glb" && e.message.find("colormap.png") != std::string::npos) found = true;
+    CHECK(found);
+}
+
+TEST_CASE("assets.synth_sound: the same seed gives the same bytes, another seed another take, provenance recorded") {
+    AssetsProject p;
+    const Json a = p.ok("assets.synth_sound", {{"path", "assets/audio/bark.wav"}, {"preset", "bark"}, {"seed", 3}});
+    CHECK(a["path"] == "assets/audio/bark.wav");
+    const std::string first = read_all(p.file("assets/audio/bark.wav"));
+    REQUIRE(first.size() > 44);
+    CHECK(first.substr(0, 4) == "RIFF");
+    p.ok("assets.synth_sound", {{"path", "assets/audio/bark2.wav"}, {"preset", "bark"}, {"seed", 3}});
+    CHECK(read_all(p.file("assets/audio/bark2.wav")) == first);
+    p.ok("assets.synth_sound", {{"path", "assets/audio/bark3.wav"}, {"preset", "bark"}, {"seed", 4}});
+    CHECK(read_all(p.file("assets/audio/bark3.wav")) != first);
+    const Json prov = p.manifest()["assets"]["assets/audio/bark.wav"]["provenance"];
+    CHECK(prov["origin"] == "original");
+    CHECK(prov["ai"] == false);
+    CHECK(prov["seed"] == 3);
+
+    // every preset makes a sound that is not silent
+    for (const char* preset : {"growl", "meow", "screech", "whoosh", "explosion", "hit", "coin", "pickup", "jump", "powerup", "laser", "blip", "click", "error", "splash", "footstep"}) {
+        p.ok("assets.synth_sound", {{"path", std::string("assets/audio/p_") + preset + ".wav"}, {"preset", preset}});
+        const std::string wav = read_all(p.file(std::string("assets/audio/p_") + preset + ".wav"));
+        bool loud = false;
+        for (std::size_t i = 44; i + 1 < wav.size(); i += 2) loud = loud || wav[i + 1] != 0 || wav[i] != 0;
+        CHECK_MESSAGE(loud, preset);
+    }
+
+    CommandResult bad = p.call("assets.synth_sound", {{"path", "assets/audio/x.wav"}, {"preset", "barkk"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["hint"].get<std::string>().find("bark") != std::string::npos);
+    CHECK_FALSE(p.call("assets.synth_sound", {{"path", "assets/audio/bark.wav"}, {"preset", "bark"}}).ok);  // exists
+    CHECK_FALSE(p.call("assets.synth_sound", {{"path", "sounds/x.wav"}, {"preset", "bark"}}).ok);
+    CHECK_FALSE(p.call("assets.synth_sound", {{"path", "assets/x.ogg"}, {"preset", "bark"}}).ok);
 }
