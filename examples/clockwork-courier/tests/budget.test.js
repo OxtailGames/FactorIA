@@ -1,4 +1,4 @@
-// P6, release checks that need no GPU: the render budget of every level (what the scene asks the renderer to draw) and
+// P6, release checks that need no GPU: the render budget of every level (triangles, lights, shadow casters and draw calls from game.renderStats() where there is a GPU) and
 // the exact pixel size of the icon and store files (assets.textureSize answers 32x32 for a missing file). The icons and
 // the key art are in git, so a missing one fails. The screenshots and capsules are not (store/make_store_images.py
 // writes them): they are checked when they are there. The real draw-call budget is perf.json (`factoria call perf.check`).
@@ -6,12 +6,13 @@ import { test, describe, expect, game } from "factoria:test";
 import { assets } from "factoria";
 import { LEVELS } from "../scripts/levels.js";
 
-// Workaround for FB-0050 (no render stats in the test API): counts what the scene asks for, not what the GPU draws.
-// Measured at P6 with the scene running (max over the levels: 416 entities in market_3, 264 meshes in market_3, 20 lights in
-// market_2, 12 particle emitters in rooftops_2). About 25% room: a level past it needs a look at the phone first.
-const BUDGET = { entities: 520, meshes: 330, lights: 26, emitters: 16 };
+// What the renderer really draws (game.renderStats(): triangles, lights, shadow casters, draw calls, texture memory), per
+// level, with about 25% room over the measured maximum (30387 triangles and 20 lights in market_2, 126 shadow casters
+// in market_3, 118 draw calls in market_3). A level past it needs a look on the phone first. On a machine without a GPU
+// renderStats throws, so the test falls back to counting what the scene asks for (entities, meshes, lights, emitters).
+const BUDGET = { triangles: 38000, lights: 26, shadowCasters: 160, drawCalls: 150, textureMB: 6, entities: 520, meshes: 330, emitters: 16 };
 
-function stats() {
+function counts() {
   const all = game.world.entities();
   const count = (c) => all.filter((e) => e.has(c)).length;
   return { entities: all.length, meshes: count("MeshRenderer"), lights: count("Light"), emitters: count("ParticleEmitter") };
@@ -22,11 +23,20 @@ describe("render budget", () => {
     test(`${level.id} stays inside the budget`, () => {
       game.load(level.scene);
       game.step(10);
-      const s = stats();
-      expect(s.entities <= BUDGET.entities).toBe(true);
-      expect(s.meshes <= BUDGET.meshes).toBe(true);
-      expect(s.lights >= 1 && s.lights <= BUDGET.lights).toBe(true);
-      expect(s.emitters <= BUDGET.emitters).toBe(true);
+      const c = counts();
+      expect(c.entities <= BUDGET.entities).toBe(true);
+      expect(c.meshes <= BUDGET.meshes).toBe(true);
+      expect(c.emitters <= BUDGET.emitters).toBe(true);
+      let s = null;
+      try { s = game.renderStats(); } catch (e) { /* no GPU on this machine */ }
+      const lights = s ? s.lights : c.lights;
+      expect(lights >= 1 && lights <= BUDGET.lights).toBe(true);
+      if (s) {
+        expect(s.triangles <= BUDGET.triangles).toBe(true);
+        expect(s.shadowCasters <= BUDGET.shadowCasters).toBe(true);
+        expect(s.drawCalls <= BUDGET.drawCalls).toBe(true);
+        expect(s.textureMB <= BUDGET.textureMB).toBe(true);
+      }
     });
   }
 });

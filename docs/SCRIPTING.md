@@ -354,7 +354,30 @@ editor's game view), so check `window.available` first or offer the option only 
   waits at the start of each frame and does not touch the simulation (the fixed step still runs per game time), so it
   only saves power and heat; with vsync on the display rate wins when it is lower.
 - Phones and tablets are always full screen, with the display's frame rate: `setFullscreen(true)` is a no-op, and
-  `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation.
+  `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation. Read `window.supports("frameCap")`
+  first and hide the option where it is false instead of catching the Error.
+- `supports(feature)`: `"frameCap"`, `"fullscreen"` and `"resize"` are true in a game window on a desktop (they are false
+  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere. An unknown name
+  throws with a "did you mean".
+- `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
+  of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
+  tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
+  keep the player's choice with `storage.set`.
+
+### game.device: pick a quality preset
+`game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high" }`.
+`gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, `"gles3"`, `"wgpu"` or `"vulkan"`; `memoryGB` is the machine's physical
+memory; `tier` comes from the backend and the memory (under 3.5 GB is `"low"`, under 7.5 GB `"medium"`, 5.5 on a phone
+or tablet; unknown memory, as on the web, is `"medium"`). A phone and a tablet differ by the short side of the screen
+(600 logical pixels). **Headless runs, tests and the editor always read** `{ formFactor: "desktop", gpuBackend:
+"headless", memoryGB: 8, tier: "high" }`, so a preset picked from it never depends on the machine; tests pretend with
+`game.setDevice({ formFactor: "phone", tier: "low" })` (reset before each test).
+```js
+import { game, window, storage } from "factoria";
+const preset = storage.get("quality", game.device.tier);        // the player's choice wins, else the device's tier
+window.renderScale = { low: 0.7, medium: 0.85, high: 1 }[preset];
+const canCap = window.supports("frameCap");                      // hide the frame cap row on a phone
+```
 ```js
 import { window, storage } from "factoria";
 const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
@@ -789,6 +812,9 @@ test("player jumps", () => {
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
   `focus()`, `blur()` (what the OS does to the app, so lifecycle code can be tested),
+  `renderStats()` (what the renderer drew in the picture now, drawing a frame first when none was drawn: `{ drawCalls,
+  triangles, lights, shadowCasters, meshes, textureMB, width, height, renderScale, ... }`; throws without graphics),
+  `setDevice({ formFactor?, gpuBackend?, memoryGB?, tier? })` (see `game.device`),
   `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
 
 `game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like

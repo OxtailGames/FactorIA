@@ -903,10 +903,12 @@
       "suggestion": "Add window.renderScale (0.5..1) and a read-only game.deviceTier or gpu info, and make window.frameCap a no-op that returns the real cap on phones instead of throwing.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/render-quality (M26.15): window.renderScale (0.5..1), window.supports(\"frameCap\" | \"renderScale\" | ...) and game.device {formFactor, gpuBackend, memoryGB, tier} (fixed values headless, game.setDevice in tests). The frame cap still throws on a phone, so the options screen reads window.supports(\"frameCap\"); the presets set renderScale and a new player starts at game.device.tier instead of a screen-size guess."
+      ],
+      "engineIssue": "m26/render-quality"
     },
     {
       "id": "FB-0037",
@@ -1239,10 +1241,12 @@
       "suggestion": "Add triangles, lights, shadowCasters and textureMB to perf.measure and to a `game.renderStats()` in factoria:test (the headless EGL/Metal renderer has them after one frame).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: game.renderStats exists but stays zero until a frame is drawn, which a headless test may never do, and perf.measure records no triangles or lights: work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: game.renderStats exists but stays zero until a frame is drawn, which a headless test may never do, and perf.measure records no triangles or lights: work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/render-quality (M26.15): game.renderStats() in tests draws a frame when none was drawn and adds shadowCasters and textureMB; perf.measure records triangles, lights and textureMB; perf.check takes budgets (maxTriangles...). tests/budget.test.js checks real triangles, lights, shadow casters and draw calls (falling back to scene counts without a GPU) and perf.json holds budgets."
+      ],
+      "engineIssue": "m26/render-quality"
     },
     {
       "id": "FB-0051",

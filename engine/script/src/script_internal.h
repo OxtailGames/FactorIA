@@ -158,6 +158,9 @@ struct ScriptSystem::Impl {
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;
 
+    // ---- game.device: game.setDevice() in tests overrides some of the host's values
+    Json testDevice = Json::object();
+
     // ---- the calendar date and the app's life (script_system.cpp: ScriptSystem::today / app_event)
     CalendarDate startDate;  // what the host set: EngineConfig::date
     CalendarDate date;       // game.today(): startDate, or what game.setDate set in a test

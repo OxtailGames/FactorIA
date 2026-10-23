@@ -15,6 +15,17 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Graphics quality
+
+- `window.renderScale` (0.5 to 1) draws the picture at a share of the window's size, in games and in tests;
+  `window.supports("frameCap" | "renderScale" | "fullscreen" | "resize")` says what this run can do (the frame cap still
+  throws on a phone: read it first); `game.device` gives `formFactor`, `gpuBackend`, `memoryGB` and a `tier` (`"low"`,
+  `"medium"`, `"high"`) to pick a preset, with fixed values headless; tests pretend with `game.setDevice(...)`.
+- `game.renderStats()` in tests (and the `game.render_stats` command) draws a frame when none was drawn yet and adds
+  `shadowCasters` and `textureMB`. `perf.measure` records `triangles`, `lights` and `textureMB`; `perf.check` fails when
+  they pass the baseline (only for baselines that have them) or the new `budgets` (`maxTriangles`, `maxLights`,
+  `maxTextureMB`, `maxDrawCalls`, `maxEntities`).
+
 Platform services
 
 - The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
