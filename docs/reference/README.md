@@ -44,6 +44,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Collider3D](components/physics.md#collider3d): Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh.
 - [Joint2D](components/physics.md#joint2d): A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). _Since 0.2.0._
 - [Joint3D](components/physics.md#joint3d): Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). _Since 0.2.0._
+- [NavMesh3D](components/physics.md#navmesh3d): A navigation mesh for path finding on 3D ground. _Not released yet._
 - [RigidBody2D](components/physics.md#rigidbody2d): Puts the entity under 2D physics (Box2D).
 - [RigidBody3D](components/physics.md#rigidbody3d): Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only).
 
@@ -156,6 +157,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [physics](commands/physics.md)
 
+- [`nav.bake`](commands/physics.md#navbake): Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats. _Not released yet._
+- [`nav.find_path`](commands/physics.md#navfind_path): Find a walkable path between two 3D points on the baked NavMesh3D. _Not released yet._
+- [`nav.info`](commands/physics.md#navinfo): List the NavMesh3D components with their bounds, agent size, bake state and stats. _Not released yet._
 - [`physics.raycast`](commands/physics.md#physicsraycast): Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 - [`physics.shape_cast`](commands/physics.md#physicsshape_cast): Sweep a circle, sphere or box from one point to another and return the first collider it touches.
 
