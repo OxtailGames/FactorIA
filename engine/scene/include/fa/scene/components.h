@@ -138,6 +138,7 @@ struct Shape2D {
 struct Text {
     std::string text = "Text";
     std::string key;                  // localization key ("menu.play"); "" = none. While set, the runtime overwrites `text` with the translation
+    Json keyArgs = Json::object();    // values of the key's {placeholders} (and `count` of a plural entry): {"score": 12}
     std::string font;                 // asset path to .ttf; "" = built-in font
     float fontSize = 24.0f;           // in world units (pixels for 2D)
     Color color{1, 1, 1, 1};
@@ -254,6 +255,7 @@ struct UiControl : UiBox {
     Color textColor{1, 1, 1, 1};
     Color accentColor{1.0f, 0.76f, 0.2f, 1.0f};  // focus ring, slider fill and knob, toggle check, caret
     std::string key;                          // localization key; "" = none. Replaces Button.text, Toggle.label, Slider.label or TextField.placeholder
+    Json keyArgs = Json::object();            // values of the key's {placeholders} (and `count` of a plural entry): {"price": 40}
     bool interactable = true;                 // false: drawn at half alpha, never hovered, focused or clicked
     bool autoFocus = false;                   // takes focus when nothing is focused
     bool focused = false;                     // runtime: has keyboard / gamepad focus
@@ -354,6 +356,8 @@ struct TouchStick : UiBox {
 struct TouchButton : UiBox {
     PadButton button = PadButton::A;
     std::string text;                         // label; "" = none
+    std::string key;                          // localization key; "" = none. Replaces `text`
+    Json keyArgs = Json::object();            // values of the key's {placeholders}
     std::string font;
     float fontSize = 32.0f;
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button

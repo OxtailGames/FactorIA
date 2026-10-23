@@ -214,6 +214,45 @@ TEST_CASE("validate: the `key` of a Text or widget must be in the default table;
     CHECK(mentions(*placeholders[0], "{name}"));
 }
 
+TEST_CASE("validate: keyArgs are checked against the placeholders of the key") {
+    Project p(kTwoLanguages);
+    p.table("en", R"({"greeting": "Hello, {name}!", "hud": {"score": "Score {score} of {goal}"}, "plain": "Plain",
+                       "coins": {"one": "{count} coin", "other": "{count} coins"}})");
+    p.table("es", R"({"greeting": "¡Hola, {name}!", "hud": {"score": "Puntos {score} de {goal}"}, "plain": "Simple",
+                       "coins": {"one": "{count} moneda", "other": "{count} monedas"}})");
+    p.scene("scenes/main.scene.json", R"([
+        {"id": "camera", "components": {"Camera": {}}},
+        {"id": "good", "components": {"Text": {"text": "x", "key": "hud.score", "keyArgs": {"score": 0, "goal": 30}}}},
+        {"id": "noarg", "components": {"Text": {"text": "x", "key": "hud.score", "keyArgs": {"score": 0}}}},
+        {"id": "bare", "components": {"Button": {"text": "x", "key": "greeting"}}},
+        {"id": "extra", "components": {"TouchButton": {"text": "x", "key": "plain", "keyArgs": {"unused": 1}}}},
+        {"id": "typo", "components": {"Text": {"text": "x", "key": "greeting", "keyArgs": {"nmae": "Ana"}}}},
+        {"id": "plural", "components": {"Text": {"text": "x", "key": "coins", "keyArgs": {"count": 2}}}}])");
+    const ValidationReport r = p.validate();
+    CHECK(r.errors.empty());
+    CHECK(at(r.warnings, "scenes/main.scene.json", "/entities/1/components/Text/keyArgs").empty());
+
+    const auto noarg = at(r.warnings, "scenes/main.scene.json", "/entities/2/components/Text/keyArgs");
+    REQUIRE(noarg.size() == 1);
+    CHECK(mentions(*noarg[0], "{goal}"));
+    CHECK(mentions(*noarg[0], "entity 'noarg'"));
+    CHECK(mentions(*noarg[0], "keyArgs"));
+    const auto bare = at(r.warnings, "scenes/main.scene.json", "/entities/3/components/Button/key");
+    REQUIRE(bare.size() == 1);
+    CHECK(mentions(*bare[0], "{name}"));
+    const auto extra = at(r.warnings, "scenes/main.scene.json", "/entities/4/components/TouchButton/keyArgs/unused");
+    REQUIRE(extra.size() == 1);
+    CHECK(mentions(*extra[0], "no translation of the key 'plain' uses"));
+    const auto typo = at(r.warnings, "scenes/main.scene.json", "/entities/5/components/Text/keyArgs");
+    REQUIRE(typo.size() == 1);  // the placeholder with no arg
+    CHECK(mentions(*typo[0], "{name}"));
+    const auto unused = at(r.warnings, "scenes/main.scene.json", "/entities/5/components/Text/keyArgs/nmae");
+    REQUIRE(unused.size() == 1);
+    CHECK(mentions(*unused[0], "Did you mean \"name\"?"));
+    CHECK(at(r.warnings, "scenes/main.scene.json", "/entities/6/components/Text/keyArgs").empty());  // count picks the plural form
+    CHECK(at(r.warnings, "scenes/main.scene.json", "/entities/6/components/Text/key").empty());
+}
+
 TEST_CASE("validate: keys or locales/ without a localization section is a warning that says to add the section") {
     Project p(nullptr);
     p.scene("scenes/main.scene.json", R"([{"id": "camera", "components": {"Camera": {}}},

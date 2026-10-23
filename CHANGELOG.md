@@ -34,6 +34,14 @@ Platform services
   the backend gets carries the name in the current language. PLATFORM.md documents `game.project.platform`, the
   catalog scripts can read.
 
+Localization
+
+- `keyArgs` on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: the values of a key's `{placeholders}`
+  (and the `count` of a plural entry), so a script sets them once instead of rewriting `text` every frame, and a language
+  switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
+  placeholders against the entity's `keyArgs`: it warns for a placeholder with no arg and for an arg no translation uses,
+  not for every key with placeholders.
+
 Tools
 
 - `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many

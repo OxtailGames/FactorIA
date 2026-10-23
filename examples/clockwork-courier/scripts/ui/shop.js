@@ -163,11 +163,22 @@ export default class Shop extends Behaviour {
     if (e) e.get("Text").text = text;
   }
 
-  setButton(id, text, interactable = true) {
+  /** A Text shown from a locale key: the engine formats it with the args now and after every language switch (FB-0021). */
+  setKeyed(id, key, args = {}) {
+    const e = world.find(id);
+    if (!e) return;
+    const t = e.get("Text");
+    t.key = key;
+    t.keyArgs = args;
+  }
+
+  /** A Button shown from a locale key and its args (FB-0027: no text is written here). */
+  setButton(id, key, args = {}, interactable = true) {
     const e = world.find(id);
     if (!e) return;
     const b = e.get("Button");
-    b.text = text;
+    b.key = key;
+    b.keyArgs = args;
     b.interactable = interactable;
   }
 
@@ -185,31 +196,35 @@ export default class Shop extends Behaviour {
     const paint = this.paint;
     const view = paintView(paint);
     this.paintRobot(paint.id);
-    this.setText("shop_paint_name", i18n.t(paint.nameKey));
-    let state = "";
-    let label = "";
+    this.setKeyed("shop_paint_name", paint.nameKey);
+    let state = "shop.state.buy";
+    let stateArgs = {};
+    let label = "shop.buy";
+    let labelArgs = { price: this.price(view.product ?? "") };
     let can = true;
     if (view.state === "equipped") {
-      state = i18n.t("shop.state.equipped");
-      label = i18n.t("shop.equipped");
+      state = "shop.state.equipped";
+      label = "shop.equipped";
+      labelArgs = {};
       can = false;
     } else if (view.state === "owned") {
-      state = i18n.t(paint.unlock.type === "free" ? "shop.state.free" : "shop.state.owned");
-      label = i18n.t("shop.equip");
+      state = paint.unlock.type === "free" ? "shop.state.free" : "shop.state.owned";
+      label = "shop.equip";
+      labelArgs = {};
     } else if (view.state === "stars") {
-      state = i18n.t("shop.state.stars", { count: view.stars, have: view.have });
-      label = i18n.t("shop.locked");
+      state = "shop.state.stars";
+      stateArgs = { count: view.stars, have: view.have };
+      label = "shop.locked";
+      labelArgs = {};
       can = false;
-    } else {
-      state = i18n.t("shop.state.buy");
-      label = i18n.t("shop.buy", { price: this.price(view.product ?? "") });
     }
-    this.setText("shop_paint_state", state);
-    this.setButton("shop_paint_action", label, can && !this.busy);
+    this.setKeyed("shop_paint_state", state, stateArgs);
+    this.setButton("shop_paint_action", label, labelArgs, can && !this.busy);
     const noAds = store.noAds();
-    this.setButton("shop_remove_ads", noAds ? i18n.t("shop.adsRemoved") : i18n.t("shop.removeAds", { price: this.price("remove_ads") }), !noAds && !this.busy);
-    this.setButton("shop_tip", i18n.t("shop.tip", { price: this.price("tip_jar"), count: store.load().tips }), !this.busy);
-    this.setButton("shop_restore", i18n.t("shop.restore"), !this.busy);
+    if (noAds) this.setButton("shop_remove_ads", "shop.adsRemoved", {}, false);
+    else this.setButton("shop_remove_ads", "shop.removeAds", { price: this.price("remove_ads") }, !this.busy);
+    this.setButton("shop_tip", "shop.tip", { price: this.price("tip_jar"), count: store.load().tips }, !this.busy);
+    this.setButton("shop_restore", "shop.restore", {}, !this.busy);
     this.setStatus(this.status);
   }
 }
