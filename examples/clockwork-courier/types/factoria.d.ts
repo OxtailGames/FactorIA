@@ -4453,7 +4453,7 @@ declare module "factoria" {
    */
   export interface PluginsAPI {
     /**
-     * Native plugin 'apple' (not loaded: factoria.json#/plugins/apple: the macos build is missing: macos/libapple.dylib not found in /Users/adria/Documents/GitHub/FactorIA/.claude/worktrees/m26-8/examples/clockwork-courier/plugins/apple Build the plugin for macos into its folder (its CMakeLists.txt copies the build there, docs/EXTENDING.md "Native plugins"), or, when it is not made for macos, list the platforms it is made for in "platforms".).
+     * Native plugin 'apple' (not loaded when these typings were generated, so its functions are not listed: build it, then run `factoria api --dts` again; `factoria validate` says why it did not load).
      */
     readonly apple: {
     };
