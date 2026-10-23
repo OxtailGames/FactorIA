@@ -1072,6 +1072,91 @@
     },
     {
      "kind": "interface",
+     "name": "NavPathOptions",
+     "doc": "Options of nav.findPath.",
+     "members": [
+      {
+       "sig": "radius?: number",
+       "doc": "Agent radius of this query (meters). Default: the NavMesh3D's agentRadius. Larger than that is an error: bake a NavMesh3D for the bigger agent."
+      },
+      {
+       "sig": "snap?: number",
+       "doc": "How far (meters) a start or goal that is not on walkable ground is moved onto the nearest walkable cell (default agentRadius + 2 cells)."
+      },
+      {
+       "sig": "closest?: boolean",
+       "doc": "When the goal cannot be reached, return a path to the reachable point nearest to it (complete = false) instead of found = false."
+      },
+      {
+       "sig": "mesh?: string",
+       "doc": "Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "NavPath",
+     "doc": "Result of nav.findPath.",
+     "members": [
+      {
+       "sig": "found: boolean",
+       "doc": "true: `points` holds a path. false: `reason`, `message` and `hint` say why."
+      },
+      {
+       "sig": "points: Vec3[]",
+       "doc": "Corners of the path from the start to the goal on the walkable surface (meters), few of them: walk straight from one to the next. Empty when not found."
+      },
+      {
+       "sig": "length: number",
+       "doc": "Meters along the points."
+      },
+      {
+       "sig": "complete: boolean",
+       "doc": "false when only a path to the reachable point nearest the goal was returned (opts.closest)."
+      },
+      {
+       "sig": "mesh: string",
+       "doc": "Id of the NavMesh3D entity that answered."
+      },
+      {
+       "sig": "reason?: \"start_off_mesh\" | \"goal_off_mesh\" | \"disconnected\"",
+       "doc": "Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way."
+      },
+      {
+       "sig": "message?: string",
+       "doc": "What is wrong, with numbers (nearest walkable point, areas, limits)."
+      },
+      {
+       "sig": "hint?: string",
+       "doc": "How to fix it."
+      },
+      {
+       "sig": "nearest?: Vec3",
+       "doc": "reason start_off_mesh / goal_off_mesh: the nearest walkable point."
+      },
+      {
+       "sig": "nearestDistance?: number",
+       "doc": "Meters from the point asked for to `nearest`."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "NavAPI",
+     "doc": "Path finding on the baked NavMesh3D (docs/NAVIGATION.md). The mesh is baked from the static colliders when the scene loads.",
+     "members": [
+      {
+       "sig": "findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath",
+       "doc": "Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];"
+      },
+      {
+       "sig": "bake(mesh?: string): { mesh: string; cellsX: number; cellsZ: number; cells: number; spans: number; walkableCells: number; regions: number; obstacles: number }[]",
+       "doc": "Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "RaycastOptions",
      "doc": "Options of physics.raycast / raycast3d.",
      "members": [
@@ -2202,6 +2287,12 @@
      "name": "physics",
      "type": "PhysicsAPI",
      "doc": "Physics."
+    },
+    {
+     "kind": "const",
+     "name": "nav",
+     "type": "NavAPI",
+     "doc": "Path finding on the baked NavMesh3D."
     },
     {
      "kind": "const",
