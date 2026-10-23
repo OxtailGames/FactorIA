@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <set>
 
 #include "fa/core/strings.h"
