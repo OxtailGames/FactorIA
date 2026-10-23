@@ -1,18 +1,12 @@
 // @ts-check
-// scenes/loading.scene.json. The engine has no asynchronous scene load and no progress API (ENGINE_FEEDBACK), so
-// `scene.load` blocks the frame it is called in and nothing can be drawn while it runs. The most honest bar possible:
-// it counts the STEPS this script really takes, each drawn before the next starts, and ends at 100% only when the
-// load call is about to be made. `progress` (0..1) is what the bar and the tests read.
-//
-//   step 1  show the level's name and the empty bar        step 3  last frame drawn, then scene.load
-//   step 2  bar at 2/3
+// scenes/loading.scene.json. The next level is read ahead with scene.preload (a few files every frame), so the bar shows
+// the real share of the level's files that is read and the scene keeps running (and drawing) the whole time. When the
+// last file is in, the scene.load that follows reads nothing from the disk. `progress` (0..1) is what the bar and the
+// tests read.
 //
 // The level comes from session.nextScene (set by the main menu and by the results panel's "Next level").
 import { Behaviour, scene, session, world, input, i18n } from "factoria";
 import * as levels from "./levels.js";
-
-/** Frames shown before the blocking load (each one is one step of the bar). */
-export const STEPS = 3;
 
 export default class Loading extends Behaviour {
   /** Bar entity id; its width goes from 0 to `barWidth`. */
@@ -23,18 +17,31 @@ export default class Loading extends Behaviour {
   barWidth = 480;
 
   onStart() {
-    this.step = 0;
     this.progress = 0;
     this.loaded = false;
     const lvl = levels.byScene(session.nextScene);
     const t = world.find(this.title);
     if (t && lvl) t.get("Text").text = i18n.t(lvl.nameKey);
     this.show();
-    // Android Back while the level loads (three frames): ignored, so it cannot close the app in the middle of the load.
+    // Android Back while the level loads: ignored, so it cannot close the app in the middle of the load.
     this.offBack = input.onBack(() => true);
+    this.job = scene.preload(session.nextScene);
+    // A level that could not be read ahead still loads (scene.load reports what is wrong with it).
+    const go = () => {
+      if (this.gone) return;  // the scene was left while the files were being read
+      this.loaded = true;
+      scene.load(session.nextScene);
+    };
+    this.job.promise.then(go, (e) => {
+      if (this.gone) return;
+      console.warn(`loading: ${e.message}`);
+      go();
+    });
   }
 
   onDestroy() {
+    this.gone = true;
+    if (!this.loaded) this.job?.release();  // left early: give the files back
     this.offBack?.();
   }
 
@@ -44,13 +51,8 @@ export default class Loading extends Behaviour {
   }
 
   onUpdate() {
-    if (this.loaded) return;
-    this.step++;
-    this.progress = Math.min(1, this.step / STEPS);
+    if (this.progress === this.job.progress) return;
+    this.progress = this.job.progress;
     this.show();
-    if (this.step >= STEPS) {
-      this.loaded = true;
-      scene.load(session.nextScene);
-    }
   }
 }
