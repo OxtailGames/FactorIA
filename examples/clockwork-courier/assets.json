@@ -377,7 +377,7 @@
         "source": "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
         "license": "CC0-1.0",
         "author": "Quaternius (modified by Don McCurdy)",
-        "notes": "Modified for this project: scaled, hands removed, and the rigid meshes skinned to the bones (tools/skinify.py) because the engine ignores rigid-mesh animation under bones (ENGINE_FEEDBACK FB-0001)."
+        "notes": "Imported as published (the engine plays its rigid parts and both hand skins itself)."
       }
     },
     "assets/models/pets/animal-dog.glb": {

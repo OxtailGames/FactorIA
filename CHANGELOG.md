@@ -15,6 +15,15 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Animation
+
+- Models animated by node transforms play with no change to the file: a body part that is a child of an animated bone
+  (RobotExpressive) and an animated mesh node with no skin at all (Kenney's cube pets) follow their node, through a
+  rigid skin the importer makes. A file with clips that nothing can play logs one warning naming the clips.
+- A glTF with several skins is drawn with each mesh's own skin (it used the first skin's palette for all, which bent the
+  second skin's mesh out of shape). `Animator::skinPalettes` holds one palette per skin. Clockwork Courier imports the
+  original robot and dog again and drops `tools/skinify.py` (FB-0001, FB-0002).
+
 Tools
 
 - `scene.format` with neither `paths`, `all` nor `check` writes nothing and fails with `paths_required`, saying how many

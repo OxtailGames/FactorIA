@@ -11,11 +11,14 @@
 #include <mutex>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 #include "fa/scene/gltf_file.h"
 
 namespace fa {
 
 namespace {
+
+constexpr int kRigidSkinJoints = 64;  // same as the renderer's kMaxSkinJoints: one palette upload per skin
 
 cgltf_result file_read(const cgltf_memory_options*, const cgltf_file_options*, const char* path, cgltf_size* size,
                        void** data) {
@@ -192,9 +195,43 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
         out.clips.push_back(std::move(clip));
     }
 
+    // Rigid parts: a mesh with no skin of its own that sits on an animated node (or under one) follows that node. It gets
+    // a "rigid" skin: one joint per animated node that carries meshes, inverse bind = inverse of the node's rest
+    // matrix, every vertex 100% on its joint. The Animator then plays it like any skin.
+    std::vector<char> animated(out.nodes.size(), 0);
+    for (const AnimClip& c : out.clips)
+        for (const AnimChannel& ch : c.channels)
+            if (ch.node >= 0) animated[std::size_t(ch.node)] = 1;
+    auto driver_of = [&](int n) {  // nearest animated node from n up to the root, or -1
+        for (; n >= 0; n = out.nodes[std::size_t(n)].parent)
+            if (animated[std::size_t(n)]) return n;
+        return -1;
+    };
+    struct RigidRef { int skin, joint; };
+    std::map<int, RigidRef> rigidJoint;  // driver node -> where it sits in the rigid skins
+    const int firstRigidSkin = int(out.skins.size());
+    auto rigid_ref = [&](int driver) {
+        auto it = rigidJoint.find(driver);
+        if (it != rigidJoint.end()) return it->second;
+        const int k = int(rigidJoint.size());
+        const int skinIndex = firstRigidSkin + k / kRigidSkinJoints;
+        if (std::size_t(skinIndex) >= out.skins.size()) {
+            out.skins.emplace_back();
+            out.skins.back().name = "rigid";
+        }
+        SkelSkin& sk = out.skins[std::size_t(skinIndex)];
+        Mat4 world;
+        cgltf_node_transform_world(&data->nodes[driver], world.m);
+        sk.joints.push_back(driver);
+        sk.inverseBind.push_back(world.inverse());
+        return rigidJoint[driver] = RigidRef{skinIndex, int(sk.joints.size()) - 1};
+    };
+
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];
-        if (!node.mesh || !node.skin) continue;
+        if (!node.mesh) continue;
+        const int driver = node.skin ? -1 : driver_of(int(ni));
+        if (!node.skin && driver < 0) continue;
         for (cgltf_size pi = 0; pi < node.mesh->primitives_count; ++pi) {
             const cgltf_primitive& prim = node.mesh->primitives[pi];
             if (prim.type != cgltf_primitive_type_triangles) continue;
@@ -206,13 +243,25 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
                 else if (at.type == cgltf_attribute_type_joints) jnt = at.data;
                 else if (at.type == cgltf_attribute_type_weights) wgt = at.data;
             }
-            if (!pos || !jnt || !wgt) continue;
+            if (!pos) continue;
             SkinVertices sv;
             sv.node = int(ni);
             sv.primitive = int(pi);
-            sv.skin = int(node.skin - data->skins);
             sv.joints.resize(pos->count);
             sv.weights.resize(pos->count);
+            if (!node.skin) {
+                const RigidRef ref = rigid_ref(driver);
+                sv.skin = ref.skin;
+                sv.rigid = true;
+                for (cgltf_size v = 0; v < pos->count; ++v) {
+                    sv.joints[v] = {std::uint16_t(ref.joint), 0, 0, 0};
+                    sv.weights[v] = {1.0f, 0.0f, 0.0f, 0.0f};
+                }
+                out.skinVertices.push_back(std::move(sv));
+                continue;
+            }
+            if (!jnt || !wgt) continue;
+            sv.skin = int(node.skin - data->skins);
             const std::size_t jointCount = node.skin->joints_count;
             for (cgltf_size v = 0; v < pos->count; ++v) {
                 cgltf_uint j[4] = {0, 0, 0, 0};
@@ -256,6 +305,12 @@ Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path
     if (!bytes) return bytes.error();
     auto parsed = parse_skeleton(*bytes, path);
     if (!parsed) return parsed.error();
+    if (!parsed->clips.empty() && parsed->skinVertices.empty()) {
+        std::string names;
+        for (const AnimClip& c : parsed->clips) names += (names.empty() ? "" : ", ") + c.name;
+        FA_WARN("animation", "{}: has animation clips ({}) but no mesh on an animated node or skin, so nothing can play them; "
+                             "the model stays in its bind pose.", path, names);
+    }
     auto asset = std::make_shared<const SkeletonAsset>(std::move(*parsed));
     std::lock_guard lock(g_cacheMutex);
     cache()[path] = CacheEntry{mtime, asset};
