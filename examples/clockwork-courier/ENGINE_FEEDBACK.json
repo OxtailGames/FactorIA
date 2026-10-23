@@ -303,10 +303,12 @@
       "suggestion": "scene.preload(path) returning a handle with progress 0..1 (loading assets on a worker), or scene.loadAsync plus an `onProgress` callback; the same for assets.preload([paths]).",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.7 (Scene and asset preload with progress) in feedback/ROADMAP.md (M19's scene.loadAsync, taken now that a game needs it)."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.7 (Scene and asset preload with progress) in feedback/ROADMAP.md (M19's scene.loadAsync, taken now that a game needs it).",
+        "2026-10-23: fixed in m26/scene-preload (M26.7): `scene.preload(path)` and `assets.preload(paths)` return a handle with `progress`, `done` and a `promise`; the work is cut into files, four per frame in tests and a few ms per frame in a window; the scene.load that follows reads nothing from the disk. scripts/loading.js now shows the real progress and scripts/intro.js preloads the title screen."
+      ],
+      "engineIssue": "m26/scene-preload"
     },
     {
       "id": "FB-0013",

@@ -567,6 +567,38 @@ the press is released over the same widget; a Slider follows the pointer while p
   `size` or `region` is drawn at and the one `entity.bounds()` uses. A missing or unreadable file gives 32 × 32 (the size
   of the missing-texture checker). It reads the file, so it works headless; the result is cached per file and
   modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
+- `assets.preload(paths)` → a preload handle (below): reads the files ahead of time, for assets a script uses later.
+
+### Preloading: `scene.preload(path)`, `assets.preload(paths)`
+`scene.load` reads the scene and everything it uses before the frame goes on, so a big level freezes the game for a
+moment. `scene.preload("scenes/level2.scene.json")` returns a handle at once and reads the scene file and what it points
+at (prefabs, materials, textures, models with their `.bin` and images, audio, fonts, and the scripts and files named in
+them) a little every frame, so a loading screen keeps running and drawing. The files then wait in memory: `scene.load` of
+that scene, and the renderer and audio on first use, find them there and read nothing from the disk.
+`assets.preload(["assets/boss.glb", "assets/boss.ogg"])` does the same for a list of files.
+
+```js
+const job = scene.preload("scenes/level2.scene.json");   // in onStart of the loading scene
+// every frame: bar.get("Shape2D").size = [400 * job.progress, 16];
+job.promise.then(() => scene.load("scenes/level2.scene.json"));
+```
+- The handle has `progress` (0..1, never goes down), `done`, `files` and `bytes` read so far, `error` (`""` or why it
+  failed), `promise` (resolves with `{ files, bytes }`, rejects with an Error that has `.hint`) and `release()`.
+  Its values change between frames only. A script that only polls `done` is not reported for an unhandled rejection.
+- Work is counted in units, one per file; the first unit reads the scene (or the first assets) and finds everything it
+  names, so `progress` is exact from the second frame on. Per frame: **tests, headless runs and replays do exactly four
+  units**, so what a test sees (how many frames it takes, which `progress` values) is the same on every machine; **a game
+  with a window** works until about 4 ms of the frame are used (at least one unit), so the number of frames depends on
+  the machine and the game must not depend on it. A worker thread may do the reading later without changing the handle.
+- A path that does not exist throws at once with a "did you mean" list; a read error (or a scene that is not JSON) sets
+  `error` and rejects the Promise. The loading scene should still call `scene.load` in that case, which reports it.
+- The Promise outlives the scene that asked: a loading scene that is left before it resolves (a test that moves on)
+  sets a flag in `onDestroy` that its callback checks, and calls `release()` there unless its own `scene.load` already ran
+  (releasing then would drop the files the load is about to read). docs/MENUS.md has the recipe.
+- Memory: the files stay for the first scene load after the job finished and are dropped at the second (or by
+  `release()`), so a preload costs about one scene's files beyond the one in use. A file changed on disk since it was read
+  is read again.
+- Tests: `game.fileReads()` counts the files read from the disk; compare two values to prove a load read nothing.
 
 ### scene / game / storage
 - Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
@@ -848,6 +880,8 @@ behaviours; `game.load` also reseeds. Before each test input overrides, the game
 received object with an equal value, recursively; the object may have more). Failures print expected/received and
 `file:line` of the failing `expect`. A `TypeError: ... is not a function` in a test or a script shows the source line
 with a caret under the call, because QuickJS does not name the missing function.
+A test that runs longer than 60 s (an endless loop, a `while` waiting for something that never happens) is stopped,
+and the rest of its file is skipped; a file has no limit of its own, so split a test, not the file.
 
 Timing in a test: `world.emit(name, data)` is queued, and its listeners (`world.on`, `onEvent`) run at the next
 `game.step`, so call `game.step(1)` after emitting before you check or await a script that waits for it. The answers

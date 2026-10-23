@@ -961,6 +961,10 @@ declare module "factoria" {
 
   export interface SceneAPI {
     /**
+     * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     */
+    preload(path: string): PreloadHandle;
+    /**
      * Deferred to the end of the frame.
      */
     load(path: string): void;
@@ -1316,9 +1320,47 @@ declare module "factoria" {
   }
 
   /**
+   * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   */
+  export interface PreloadHandle {
+    /**
+     * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     */
+    readonly progress: number;
+    /**
+     * True once every file is read, or the job failed (then error says why).
+     */
+    readonly done: boolean;
+    /**
+     * Files read so far.
+     */
+    readonly files: number;
+    /**
+     * Bytes read so far.
+     */
+    readonly bytes: number;
+    /**
+     * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
+     */
+    readonly error: string;
+    /**
+     * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     */
+    readonly promise: Promise<{ files: number; bytes: number }>;
+    /**
+     * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     */
+    release(): void;
+  }
+
+  /**
    * Asset queries.
    */
   export interface AssetsAPI {
+    /**
+     * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     */
+    preload(paths: string[]): PreloadHandle;
     /**
      * Pixel size of the texture file at the project-relative `path`, e.g. assets.textureSize("assets/hero.png"). This is the size a Sprite without `size` or `region` is drawn at and that entity.bounds() uses. A missing or unreadable file gives 32 x 32, the size of the missing-texture checker. Cached per file and modification time, so it is cheap to call every frame. Works headless (it reads the file, not the GPU texture). Throws for an empty or non-string path.
      */
@@ -4978,6 +5020,10 @@ declare module "factoria:test" {
      * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
      */
     load(path: string): void;
+    /**
+     * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
+     */
+    fileReads(): number;
     /**
      * Simulates frames at the fixed rate.
      */

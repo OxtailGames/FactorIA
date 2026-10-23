@@ -842,6 +842,7 @@ void ScriptSystem::on_scene_loaded() {
     // entity.behaviour exists right after a scene load; onStart runs before the first update.
     impl_->construct_all();
     impl_->run_jobs();
+    impl_->preload.scene_loaded();
 }
 
 Json platform_answer_json(const PlatformAnswer& a) {
@@ -855,6 +856,22 @@ void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
     if (I.debugger) I.debugger->impl().frame_start();  // terminate request, then the client's poll
+    if (I.preload.active()) {  // scene.preload / assets.preload: this frame's share of the work
+        const std::vector<Preloader::Update> updates = I.preload.tick(I.host->preload_time_budget_ms());
+        if (!updates.empty()) {
+            Json list = Json::array();
+            for (const Preloader::Update& u : updates)
+                list.push_back(Json::object({{"id", u.id}, {"done", u.done}, {"total", u.total}, {"bytes", u.bytes},
+                                             {"finished", u.finished}, {"error", u.error}, {"hint", u.hint}}));
+            JSValue lv = I.from_json(list);
+            JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "preloadDeliver");
+            JSValue r = I.call("preload progress", "", fn, I.hooks.get(), {lv});
+            JS_FreeValue(I.ctx, r);
+            JS_FreeValue(I.ctx, fn);
+            JS_FreeValue(I.ctx, lv);
+            I.run_jobs();
+        }
+    }
     PlatformServices* services = I.host->platform_services();
     if (!services) return;
     const std::vector<PlatformAnswer> answers = services->take_answers();
