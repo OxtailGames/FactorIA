@@ -1413,6 +1413,8 @@ Acceptance: `fa_test_physics` cases: a body started in a wall is reported once; 
 `stalled`; a 12-plank bridge sleeps within 5 s; two bridges side by side give the same poses as each one alone; a joint
 with `connected: ""` loads, validates and runs.
 
+Done (branch `m26/joints`): start-overlap warning and validate, `Joint3D.stalled`, `damping`, joint islands, chains.
+
 ### M26.15 Graphics quality and render stats (M) — CC/FB-0036, CC/FB-0050
 
 - `window.renderScale` (0.5..1, wired to the renderer's render scale), `window.supports(feature)` and `game.device`

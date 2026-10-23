@@ -128,6 +128,15 @@ Physics
   `mass` x gravity (`applyWeight`, `mass`), so a seesaw tips and a bridge plank sags, and `pushStrength` scales the push on
   the free dynamic bodies it walks into (a body held by a `Joint3D` is never shoved). Clockwork Courier dropped its
   workarounds (FB-0010, FB-0011).
+- A dynamic body that starts inside a static collider is reported once in the log (both entities, the depth and the fix),
+  and `factoria validate` warns about it for scenes.
+- Joints form islands: a chain of planks falls asleep when it is at rest, a collision in one island no longer stops the
+  rest of the world, and two bridges side by side move exactly as each would alone. Chains of three or more jointed
+  bodies get more solver iterations and settle by themselves, so a rope bridge no longer needs heavy damping
+  (FB-0014, FB-0015, FB-0017, FB-0053, FB-0054).
+- `Joint3D.damping` (friction on the relative turning) and `Joint3D.stalled` (read only: a motor pushes and the joint
+  cannot turn, for example a gate against a wall). `docs/AI_GUIDE.md` has a rope bridge recipe.
+- `connected: ""` means the world on `Joint3D` and `Joint2D` in scenes, `factoria validate` and scripts.
 
 Navigation
 

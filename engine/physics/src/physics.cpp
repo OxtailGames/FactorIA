@@ -113,6 +113,10 @@ std::optional<CharacterMoveResult> Physics::move_character(World& world, Entity 
     return impl_->p3d.move_character(world, e, delta);
 }
 std::vector<std::string> Physics::problems3d() const { return impl_->p3d.problems(); }
+std::vector<StartOverlap> Physics::start_overlaps3d(World& world) {
+    impl_->p3d.sync(world);
+    return impl_->p3d.start_overlaps(world, false);
+}
 
 Result<std::vector<NavBakeStats>> Physics::nav_bake(World& world, const std::string& mesh) {
     impl_->p3d.sync(world);
