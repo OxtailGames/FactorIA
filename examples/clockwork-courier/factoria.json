@@ -61,7 +61,7 @@
       {"id": "time_market_2", "name": "Best time: Stall Street", "order": "ascending"},
       {"id": "time_market_3", "name": "Best time: Midnight Rush", "order": "ascending"},
       {"id": "total_stars", "name": "Total stars", "order": "descending"},
-      {"id": "daily_route", "name": "Daily route time", "order": "ascending"}
+      {"id": "daily_route", "name": "Daily route time", "order": "ascending", "period": "daily"}
     ],
     "products": [
       {"id": "remove_ads", "type": "nonConsumable", "titleKey": "shop.product.remove_ads", "title": "Remove ads", "description": "No more ad offers. More time stays free.", "price": 2.99, "currency": "USD"},
@@ -69,6 +69,11 @@
       {"id": "paint_neon", "type": "nonConsumable", "titleKey": "shop.product.paint_neon", "title": "Neon paint", "description": "A glowing green coat for the robot.", "price": 0.99, "currency": "USD"},
       {"id": "tip_jar", "type": "consumable", "titleKey": "shop.product.tip_jar", "title": "Oil can", "description": "A tip for the developers. Changes nothing in the game.", "price": 1.99, "currency": "USD"}
     ],
+    "ads": {
+      "placements": [
+        {"id": "more_time", "type": "rewarded", "description": "Watch an ad on the retry screen to get 20 more seconds of spring."}
+      ]
+    },
     "backend": "auto"
   },
   "platforms": ["windows", "macos", "linux", "ios", "android"],

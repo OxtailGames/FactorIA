@@ -42,6 +42,12 @@ public:
     // the game gets the "purchase" event a real backend sends: {status: "revoked", productId, transactionId, receipt}. A
     // product the player does not own (and no unfinished transaction of it) is an error naming the owned ones.
     Result<void> revoke(const std::string& productId);
+    // What the fake shows for ads (docs/PLATFORM.md, "Ads"). `outcome` decides every ads.showRewarded until changed: "watched"
+    // (rewarded), "closedEarly" (the player closed the ad: not rewarded), "consentRefused" (also sets gdpr and tracking to
+    // "denied") and "noFill" (no ad to show: ads.available is false). `gdpr`: "granted", "denied", "notRequired" or "unknown";
+    // `tracking`: "authorized", "denied", "notDetermined", "restricted" or "notRequired". An empty string leaves that one as it
+    // is. A refused GDPR consent makes every ad end "consentRefused" and ads.available false, whatever the outcome.
+    Result<void> set_ad(const std::string& outcome, const std::string& gdpr = {}, const std::string& tracking = {});
     // Fresh state: signed in, no delay, nothing scripted, nothing unlocked or bought, an empty request log; transactions
     // and integrity tokens are numbered from 1 again.
     void reset();
@@ -57,7 +63,7 @@ public:
 
     // {player, signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value},
     //  leaderboards: {id: best}, cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}],
-    //  presence: {text, data}, scripted: {method: queued}, held: n, calls: [{seq, frame, method, args, answered, ok?,
+    //  presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: queued}, held: n, calls: [{seq, frame, method, args, answered, ok?,
     //  result? | error?, scripted?}], callsDropped}. `frame` counts frames since the fake was made or reset.
     Json state() const;
 
@@ -98,7 +104,9 @@ private:
     std::vector<Held> held_;
     std::map<std::string, Achievement> achievements_;
     std::map<std::string, double> stats_;
-    std::map<std::string, long long> bests_;
+    std::map<std::string, long long> bests_;  // by board: the id, then "@" and the period's key for a daily or weekly board
+    std::string adOutcome_ = "watched", gdpr_ = "granted", tracking_ = "authorized";
+    long long adsShown_ = 0, adsRewarded_ = 0;
     std::map<std::string, std::string> cloud_;
     std::map<std::string, Transaction> owned_;  // by product id: non-consumables and subscriptions
     std::vector<Transaction> unfinished_;
