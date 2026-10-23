@@ -35,6 +35,14 @@ Graphics quality
   they pass the baseline (only for baselines that have them) or the new `budgets` (`maxTriangles`, `maxLights`,
   `maxTextureMB`, `maxDrawCalls`, `maxEntities`).
 
+Scripts
+
+- `scene.preload(path)` and `assets.preload(paths)` read a scene's files (or a list of assets) ahead of time, a few per
+  frame, and return a handle with `progress` (0..1), `done` and a `promise`: a loading screen keeps animating while the
+  next level is read, and the `scene.load` that follows reads nothing from the disk. Tests do a fixed amount of work per
+  frame, so they give the same result on every machine; `game.fileReads()` counts disk reads. Clockwork Courier's
+  loading bar now shows real progress and its intro reads the title screen while it plays (FB-0012).
+
 Platform services
 
 - Ads: the new `platform.ads` service (`available(placement)`, `showRewarded(placement)` resolving `{rewarded, reason?}`
@@ -149,6 +157,8 @@ Scripting
   pauses the game and the music while the app is in the background; `game.suspend()`, `game.resume()`, `game.focus()`
   and `game.blur()` in `factoria:test` test it. A pause menu opened by a `suspend` handler stays after resume.
 - Clockwork Courier uses the date and the lifecycle API instead of its workarounds (FB-0019, FB-0035).
+- `factoria test` no longer stops a test file after 600 s in all: only a single test over 60 s is stopped, so a long file
+  of quick tests passes in a Debug build on a busy machine. The message says which limit it was.
 
 UI
 

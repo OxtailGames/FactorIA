@@ -78,6 +78,20 @@ std::filesystem::path os_path(const std::filesystem::path& p);
 // \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child. Same result and error.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
 
+// ---- Reading ahead (scene.preload, assets.preload) ---------------------------------------------------------------
+// warm(path) reads the file now and keeps its bytes; the next read_bytes / read_text of that path answers from memory
+// (no disk read), as often as it is asked, until unwarm / unwarm_all drops it. A file whose modification time changed since
+// it was warmed is read from disk again (and forgotten). Thread-safe.
+// `text` / `size` (optional) receive the file's text (BOM removed) and its size in bytes, also when it was warm already.
+Result<void> warm(std::string_view path, std::string* text = nullptr, std::uint64_t* size = nullptr);
+bool is_warm(std::string_view path);
+void unwarm(std::string_view path);
+void unwarm_all();
+std::uint64_t warm_bytes();  // bytes held by warm files
+// Files read from disk (or from a pack) by read_bytes / read_text / warm since the process started. A read served from
+// a warm file does not count. Tests compare two values to prove a load read nothing.
+std::uint64_t disk_reads();
+
 Result<std::string> read_text(std::string_view path);
 Result<std::vector<std::uint8_t>> read_bytes(std::string_view path);
 Result<void> write_text(std::string_view path, std::string_view text);  // creates parent dirs
