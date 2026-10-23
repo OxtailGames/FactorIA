@@ -994,8 +994,8 @@ Since 0.1.6.
 Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from.
 
 Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
-- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf, .glb: copied as they are (images are checked to decode).
-- .gltf: copied with the .bin buffers and images it refers to, which must sit next to it or below it.
+- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).
+- .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it (a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT image with the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose texture or buffer is missing.
 - .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips; the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
 - .psd: the merged image becomes a PNG (layers are flattened).
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
@@ -1085,6 +1085,40 @@ background "auto" first makes a solid background transparent (the four corners m
 | `align` | string ["center","bottom"] | no | auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground. |
 | `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
 | `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
+
+### `assets.synth_sound` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
+
+Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Peaks at -3 dBFS. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
+- bark: a dog bark: two short rough barks.
+- growl: a low growl: a rattling low saw with noise.
+- meow: a cat meow: a rising then falling vowel-like tone.
+- screech: a high rough screech.
+- whoosh: air passing: noise swelling and fading.
+- explosion: a blast: low rumble and a noise burst.
+- hit: an impact: a short thump with a click.
+- coin: a coin pickup: two bright notes.
+- pickup: an item pickup: a quick rising blip.
+- jump: a jump: a rising chirp.
+- powerup: a power-up: a fast rising arpeggio-like sweep.
+- laser: a laser shot: a quick falling zap.
+- blip: a UI blip: a very short tone.
+- click: a UI click: a tiny noise tick.
+- error: a refusal buzz: two low square pulses.
+- splash: water: a noisy plop that fades.
+- footstep: a soft footstep on dirt.
+Good for placeholders and simple effects; for richer sounds import a CC0 kit (docs/ASSETS.md) or use assets.generate_sound. Example: {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the WAV, project-relative, under assets/ and ending in .wav, e.g. "assets/audio/bark.wav". |
+| `preset` | string ["bark","growl","meow","screech","whoosh","explosion","hit","coin","pickup","jump","powerup","laser","blip","click","error","splash","footstep"] | yes | The kind of sound to make. See the list in the command description. |
+| `seed` | integer | no | Chooses the take: the same preset and seed always give the same file; change it for a variation (pitch and timing shift up to about 10 percent). Default 0. |
+| `seconds` | number | no | Length in seconds. Default: the preset's own length. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
 
 ## audio
 
@@ -1642,6 +1676,18 @@ Script the next answer(s) the fake platform backend gives to a method: an error,
 | `method` | string | yes | The platform method, e.g. "purchases.buy", "achievements.unlock", "cloud.save". |
 | `answer` | object | yes | {error, message?, hint?} \| {result} \| an object merged into the default result. |
 | `times` | integer | no | How many requests get this answer. Default 1. |
+
+### `platform.revoke` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.
+
+The product leaves purchases.restore() and its unfinished transaction is dropped; the game gets a "purchase" event {status: "revoked", productId, transactionId, receipt} at the start of the next frame (game.step), which platform.on("purchase", fn) listeners receive. Fails when the player owns no such product (the message lists the owned ones) or when the game runs a real store backend. Example: platform.revoke {"productId":"remove_ads"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `productId` | string | yes | The catalog id of the product to take back, e.g. "remove_ads". |
 
 ### `platform.set_fake` (modifies state)
 
@@ -3574,9 +3620,9 @@ declare module "factoria" {
    */
   export interface PlatformPurchase {
     /**
-     * purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
+     * revoked (only in a "purchase" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
      */
-    readonly status: "purchased" | "pending" | "cancelled";
+    readonly status: "purchased" | "pending" | "cancelled" | "revoked";
     /**
      * The catalog id of the product (as in factoria.json platform.products).
      */
@@ -3740,7 +3786,7 @@ declare module "factoria" {
      */
     buy(id: string): Promise<PlatformPurchase>;
     /**
-     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore().
+     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore(). A transaction the game was not told about (or finished already) rejects with code "unknownId".
      */
     finish(transactionId: string): Promise<void>;
     /**
@@ -6976,6 +7022,10 @@ declare module "factoria:test" {
      * Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased "purchase" also records an unfinished transaction.
      */
     emit(event: "purchase" | "overlay" | "player", data?: Json): void;
+    /**
+     * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
+     */
+    revoke(productId: string): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */

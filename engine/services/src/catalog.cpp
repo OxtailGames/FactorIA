@@ -324,8 +324,8 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
     p.read_section<PlatformLeaderboard>(
         section, "leaderboards", "leaderboard",
         [&](const Json& e, const std::string& ptr, PlatformLeaderboard& l) {
-            p.unknown_keys(e, ptr, {"id", "name", "order", "ids"});
-            p.need_string(e, ptr, "name", l.name, "\"High score\"");
+            p.unknown_keys(e, ptr, {"id", "name", "nameKey", "order", "ids"});
+            p.text_or_key(e, ptr, "name", "nameKey", l.name, l.nameKey, true, "\"High score\" (or \"nameKey\": a locale key)");
             p.read_enum(e, ptr, "order", {"descending", "ascending"}, "a leaderboard order", l.order, false);
             p.read_ids(e, ptr, l);
         },
