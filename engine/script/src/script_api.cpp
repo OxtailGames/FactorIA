@@ -257,7 +257,12 @@ std::string emit_plugins(const std::vector<ScriptPlugin>& plugins) {
     std::string out = jsdoc("The native plugins of this game (factoria.json \"plugins\"): plugins.<plugin>.<function>(...args).", "  ");
     out += "  export interface PluginsAPI {\n";
     for (const ScriptPlugin& p : plugins) {
-        out += jsdoc(p.error.empty() ? "Native plugin '" + p.name + "'." : "Native plugin '" + p.name + "' (not loaded: " + p.error + ").", "    ");
+        // Not the load error itself: it names this machine's folders, and the typings are committed.
+        out += jsdoc(p.error.empty() ? "Native plugin '" + p.name + "'."
+                                     : "Native plugin '" + p.name + "' (not loaded when these typings were generated, so its "
+                                       "functions are not listed: build it, then run `factoria api --dts` again; "
+                                       "`factoria validate` says why it did not load).",
+                     "    ");
         out += "    readonly " + p.name + ": {\n";
         for (const ScriptPlugin::Function& f : p.functions) out += jsdoc(f.doc, "      ") + "      " + f.name + "(...args: any[]): any;\n";
         out += "    };\n";

@@ -44,6 +44,8 @@ Tools
 - They patch `factoria.json` instead of rewriting it: only `plugins.<name>` is added, and the other keys, their order
   and the layout stay as they were. `export` and `icon` saves (the editor, `assets.draw_icon`) use the same patcher.
 - The plugin templates come with a `.gitignore` for their build output.
+- `factoria api --dts` lists a native plugin that is not built without its load error, so the typings no longer
+  carry this machine's folders and come out the same on every machine.
 
 Assets
 
