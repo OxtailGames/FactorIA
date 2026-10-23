@@ -181,8 +181,9 @@ multiplied by the duck (`settings.js` keeps the saved value untouched). `scripts
 ### Loading screen
 
 `scenes/loading.scene.json`: the main menu and the results panel's Next level put the target in `session.nextScene`
-and load it. The engine has no asynchronous scene load, so the bar cannot show real progress (ENGINE_FEEDBACK): it
-counts the three frames the script really runs before the blocking `scene.load` (`progress` 1/3, 2/3, then the load).
+and load it. The script reads the level ahead with `scene.preload` (a few files per frame), the bar follows its
+`progress` (0..1) and the `scene.load` that follows reads nothing from the disk. The studio intro does the same for the
+title screen while it plays.
 
 ## The yard
 
@@ -356,7 +357,6 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - Characters do not weigh on dynamic bodies and kinematic platforms do not carry a `CharacterController3D`; the
   seesaw, the bridge and the moving platforms emulate both in script (ENGINE_FEEDBACK).
 - The rope bridge needs heavy damping to stop ringing; narrower planks than 2 m are unstable.
-- The loading bar counts steps, not real progress.
 - Quality presets only change what scripts own (shadows, fog, particles, lights): the engine has no render scale or GPU
   info API (FB-0036).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
