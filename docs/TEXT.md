@@ -198,6 +198,27 @@ them (`color`, `padding`). Text uses `font`, `fontSize`, `textColor` and, before
   log says so once. An inactive `Captions` entity draws nothing: switch it off for a "Subtitles" option
   (docs/MENUS.md, "Captions").
 
+## Typing text
+
+A `TextField` takes the characters in `input.text`, Backspace (it repeats while held) and Enter (`ui.submit`). Where those
+come from depends on the device, and the game does not change for any of them:
+
+- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed.
+- **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
+  (the UI does this by itself: [MOBILE.md](MOBILE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
+  delivers what each key types in its layout.
+- **A gamepad alone.** The kit's on-screen keyboard ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)"): the
+  d-pad walks the keys, its layout follows the language's script.
+- **Web.** The page gets typed text from the browser's **`keypress`** events (`keydown` and `keyup` give the keys: Backspace,
+  Enter, arrows), the way sokol_app reads them, so a character reaches the game only when the browser generates a
+  `keypress` for it. A real keyboard does; a browser pane's or automation tool's synthetic events may send `keydown`
+  only, and then letters do not appear (the key still works as a button). To test typing in a page, send events the
+  browser treats as typed (Chrome DevTools `Input.dispatchKeyEvent` with `text`, as `platforms/web/smoke.mjs` does for the
+  CI check), or use the page's own keyboard. On a touch device a hidden `<input>` takes the focus while a `TextField`
+  has it, which is what makes a phone browser show its keyboard; what it receives (typed text, Backspace) goes to the same
+  `input.text` and Backspace. Text that a keyboard composes (predictive words, swipe, IME) arrives when the composition
+  ends.
+
 ## Limits
 
 - Outline fonts only: no colour emoji, no bitmap-only fonts, no SDF/MSDF atlases; a variable font draws its default
