@@ -66,6 +66,13 @@ constexpr const char* kMinFontSizeDoc =
     "autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, "
     "capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.";
 
+constexpr const char* kKeyArgsDoc =
+    "Values for the {placeholders} of `key`, an object of name -> string or number: {\"score\": 12} fills \"Score: {score}\" "
+    "(and `count` picks the form of a plural entry). Set it once from a script (`entity.set(\"Text\", { keyArgs: { score } })` "
+    "or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when "
+    "the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty "
+    "(default) = no arguments. Ignored while `key` is empty.";
+
 // UiControl fields: the label font, colours and interaction state of Button, Toggle, Slider and TextField.
 template <class T>
 TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
@@ -79,6 +86,7 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
                "(never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the "
                "language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps "
                "the text written in the field and logs one warning.")
+        .field("keyArgs", static_cast<Json T::*>(&UiControl::keyArgs), kKeyArgsDoc)
         .field("fontSize", static_cast<float T::*>(&UiControl::fontSize), "Label glyph height in design pixels.").range(1, 4096)
         .field("maxTextScale", static_cast<float T::*>(&UiControl::maxTextScale), kMaxTextScaleDoc).range(0, 3)
         .field("textColor", static_cast<Color T::*>(&UiControl::textColor), "Label colour.")
@@ -375,6 +383,7 @@ void register_builtin_components(TypeRegistry& r) {
                "language and then to localization.defaultLanguage) into `text` when a scene or prefab loads, every frame and "
                "when the language changes, so `text` is overwritten at run time. A key that no string table has keeps the "
                "text written here and logs one warning.")
+        .field("keyArgs", &Text::keyArgs, kKeyArgsDoc)
         .asset_field("font", &Text::font, "font",
                      "Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, "
                      "Cyrillic, Hebrew, Arabic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "
@@ -1048,6 +1057,11 @@ void register_builtin_components(TypeRegistry& r) {
                         "The pad button it holds down: actions bound to \"Gamepad\" + this name (GamepadA, GamepadDpadUp...) "
                         "fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.")
             .field("text", &TouchButton::text, "Label centred on the button, e.g. \"A\" or \"Jump\". Empty (default) draws none.")
+            .field("key", &TouchButton::key,
+                   "Localization key, e.g. \"touch.jump\" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the "
+                   "runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key "
+                   "that no string table has keeps `text` and logs one warning.")
+            .field("keyArgs", &TouchButton::keyArgs, kKeyArgsDoc)
             .asset_field("font", &TouchButton::font, "font", "Font of the label: project path of a .ttf, empty = the built-in font.")
             .field("fontSize", &TouchButton::fontSize, "Label glyph height in design pixels.").range(1, 4096)
             .field("autoShrink", &TouchButton::autoShrink, kAutoShrinkDoc)

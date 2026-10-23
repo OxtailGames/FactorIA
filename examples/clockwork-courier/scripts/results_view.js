@@ -31,6 +31,9 @@ export function goalLines(levelId, goals) {
 }
 
 /**
+ * Each line is a plain string, or `{ key, args }` for a Text the engine formats itself (Text.keyArgs, FB-0021): level_flow sets
+ * the key and the args once, and a language switch needs no new call (refreshPanel only re-reads the time, whose decimal
+ * separator comes from the locale).
  * @param {string} levelId
  * @param {{ time: number, left: number, stars: number, goals: any, best?: boolean, daily?: { best: boolean } | null }} run
  */
@@ -39,19 +42,18 @@ export function lines(levelId, run) {
   if (run.daily) {
     const saved = progress.dailyTime(run.daily.date)?.time ?? run.time;
     return {
-      results_heading: i18n.t(name ? "daily.doneNamed" : "daily.done", { name }),
+      results_heading: { key: name ? "daily.doneNamed" : "daily.done", args: { name } },
       results_stars: "",
-      results_time: i18n.t("results.time", { time: fmt.decimal(run.time) }) + "   " + i18n.t("daily.best", { time: fmt.decimal(saved) }),
-      results_spring: i18n.t("results.spring", { seconds: Math.ceil(run.left) }),
+      results_time: { key: "daily.timeBest", args: { time: fmt.decimal(run.time), best: fmt.decimal(saved) } },
+      results_spring: { key: "results.spring", args: { seconds: Math.ceil(run.left) } },
     };
   }
   const saved = progress.resultFor(levelId);
   const best = saved ? saved.time : run.time;
-  const timeLine = i18n.t("results.time", { time: fmt.decimal(run.time) }) + "   " + i18n.t(run.best ? "results.newBest" : "results.best", { time: fmt.decimal(best) });
   return {
-    results_heading: i18n.t(name ? "results.titleNamed" : "results.title", { name }),
+    results_heading: { key: name ? "results.titleNamed" : "results.title", args: { name } },
     results_stars: starText(run.stars),
-    results_time: timeLine,
-    results_spring: [i18n.t("results.spring", { seconds: Math.ceil(run.left) }), ...goalLines(levelId, run.goals)].join("\n"),
+    results_time: { key: run.best ? "results.timeNewBest" : "results.timeBest", args: { time: fmt.decimal(run.time), best: fmt.decimal(best) } },
+    results_spring: [i18n.t("results.spring", { seconds: Math.ceil(run.left) }), ...goalLines(levelId, run.goals)].join("\n"), // several lines with marks: one string
   };
 }
