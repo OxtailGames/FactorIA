@@ -1950,6 +1950,9 @@
       respond(method, answer, times = 1) { fa.call("platform.respond", { method, answer: plain(answer), times }); },
       // emit(event, data): sends "purchase", "overlay" or "player" to platform.on listeners at the next game.step().
       emit(event, data = {}) { fa.call("platform.emit", { event, data: plain(data) }); },
+      // revoke(productId): takes a purchase back like a refund: restore() no longer lists it and platform.on("purchase")
+      // listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step().
+      revoke(productId) { fa.call("platform.revoke", { productId }); },
       reset() { fa.call("platform.reset"); },
       // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
       // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().

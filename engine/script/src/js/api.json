@@ -1788,8 +1788,8 @@
      "doc": "The outcome of a purchase, from purchases.buy() or the \"purchase\" event.",
      "members": [
       {
-       "sig": "readonly status: \"purchased\" | \"pending\" | \"cancelled\"",
-       "doc": "purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a \"purchase\" event follows when it is decided. cancelled: the player backed out (not an error)."
+       "sig": "readonly status: \"purchased\" | \"pending\" | \"cancelled\" | \"revoked\"",
+       "doc": "revoked (only in a \"purchase\" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a \"purchase\" event follows when it is decided. cancelled: the player backed out (not an error)."
       },
       {
        "sig": "readonly productId: string",
@@ -1962,7 +1962,7 @@
       },
       {
        "sig": "finish(transactionId: string): Promise<void>",
-       "doc": "Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a \"purchase\" event or restore()."
+       "doc": "Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a \"purchase\" event or restore(). A transaction the game was not told about (or finished already) rejects with code \"unknownId\"."
       },
       {
        "sig": "restore(): Promise<{ productId: string; transactionId: string; receipt: string }[]>",
@@ -2900,6 +2900,10 @@
       {
        "sig": "emit(event: \"purchase\" | \"overlay\" | \"player\", data?: Json): void",
        "doc": "Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased \"purchase\" also records an unfinished transaction."
+      },
+      {
+       "sig": "revoke(productId: string): void",
+       "doc": "Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on(\"purchase\") listeners get { status: \"revoked\", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones."
       },
       {
        "sig": "reset(): void",

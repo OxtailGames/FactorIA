@@ -531,6 +531,7 @@
     "platform.add_backend": "0.2.0",
     "platform.emit": "0.2.0",
     "platform.reset": "0.2.0",
+    "platform.revoke": "unreleased",
     "platform.respond": "0.2.0",
     "platform.set_fake": "0.2.0",
     "platform.state": "0.2.0",
