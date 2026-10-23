@@ -306,3 +306,63 @@ TEST_CASE("typescript declarations: window, rebinding and button names") {
         CHECK(dts.find(needle) != std::string::npos);
     }
 }
+
+TEST_CASE("window.renderScale, window.supports and game.device without a renderer or a window") {
+    TestHost h("window_quality_headless");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { window, game as g } from "factoria";
+test("render scale is remembered, bad values teach", () => {
+  expect(window.renderScale).toBe(1);
+  window.renderScale = 0.75;
+  expect(window.renderScale).toBe(0.75);
+  expect(() => { window.renderScale = 0.4; }).toThrow("window.renderScale expects a number from 0.5 to 1");
+  expect(() => { window.renderScale = NaN; }).toThrow("window.renderScale expects");
+});
+test("render scale is back at 1 in the next test", () => {
+  expect(window.renderScale).toBe(1);
+});
+test("supports names the feature or throws with a suggestion", () => {
+  expect(window.supports("renderScale")).toBe(true);
+  expect(window.supports("frameCap")).toBe(false);
+  expect(window.supports("fullscreen")).toBe(false);
+  expect(window.supports("resize")).toBe(false);
+  expect(() => window.supports("renderscale")).toThrow('did you mean "renderScale"');
+  expect(() => window.supports("hdr")).toThrow('use one of "frameCap", "renderScale"');
+});
+test("game.device is fixed headless and game.setDevice pretends", () => {
+  expect(g.device).toEqual({ formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" });
+  game.setDevice({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low" });
+  expect(g.device).toEqual({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low" });
+  expect(window.supports("frameCap")).toBe(false);  // still no window
+  expect(() => game.setDevice({ formFactor: "tv" })).toThrow("formFactor must be one of");
+  expect(() => game.setDevice({ memoryGb: 2 })).toThrow("did you mean 'memoryGB'");
+});
+test("game.renderStats needs graphics", () => {
+  expect(() => game.renderStats()).toThrow("no renderer");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("window.supports(frameCap) follows the window and the form factor") {
+    WindowedHost h("window_quality_windowed", Json::parse(R"({"display": {"width": 1000, "height": 562}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { window } from "factoria";
+test("a desktop window can cap, a pretend phone cannot", () => {
+  expect(window.supports("frameCap")).toBe(true);
+  expect(window.supports("resize")).toBe(true);
+  game.setDevice({ formFactor: "phone" });
+  expect(window.supports("frameCap")).toBe(false);
+  expect(window.supports("renderScale")).toBe(true);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
