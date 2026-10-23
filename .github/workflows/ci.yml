@@ -108,6 +108,13 @@ jobs:
           FA_REQUIRE_SHDC: '1'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release
 
+      # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
+      # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
+      # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
+      - name: Physics replay hash (linux)
+        if: always()
+        run: ctest --preset linux-release -R physics_determinism -V
+
       - name: Upload test output on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -212,6 +219,13 @@ jobs:
           FA_REQUIRE_SHDC: '1'
         run: ctest --preset windows-release
 
+      # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
+      # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
+      # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
+      - name: Physics replay hash (windows)
+        if: always()
+        run: ctest --preset windows-release -R physics_determinism -V
+
       - name: Upload test output on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -265,6 +279,13 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
         run: ctest --preset macos-release
+
+      # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
+      # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
+      # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
+      - name: Physics replay hash (macos)
+        if: always()
+        run: ctest --preset macos-release -R physics_determinism -V
 
       - name: Upload test output on failure
         if: failure()

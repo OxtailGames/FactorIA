@@ -775,6 +775,7 @@ test("player jumps", () => {
 ```
 
 - `test(name, fn)`, `test.skip`, `describe(name, fn)`
+- `robust(check, { runs = 5, nudge = 0.005 })`: runs `check(p)` `runs` times under small repeatable perturbations and fails naming the run that failed. Run 0 is not perturbed; `p.nudge(...entitiesOrIds)` moves entities by up to `nudge` metres per axis and `p.nudgeBodies()` does it for every RigidBody2D/3D (call it after `game.load`, before the first `game.step`; the check loads its own scene). Offsets are a hash of the run, the entity id and the axis, not the RNG, so a test nudges the same way everywhere. Physics is exact for one build on one platform, not across compilers and CPUs (AI_GUIDE.md, "Physics and platforms"): use `robust` where a level test would otherwise assert an exact frame count or position of a chaotic setup, and assert what holds for every run (reached, delivered, a range, "not slower than").
 - `expect(v)`: `toBe toEqual toBeCloseTo(n, digits) toBeGreaterThan toBeGreaterThanOrEqual toBeLessThan
   toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`;
   for sounds `expect(game.audioLog()).toContainPlayed(path, { times?, bus?, source? })` (alias `toHavePlayed`; `path`

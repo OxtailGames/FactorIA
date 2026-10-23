@@ -1388,7 +1388,8 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-22 triage: holds in part: the 3D physics is the engine's own (no Jolt) and is deterministic for one build on one platform, which the docs do not say; work package M26.21 (Physics determinism across platforms) in feedback/ROADMAP.md."
+        "2026-10-22 triage: holds in part: the 3D physics is the engine's own (no Jolt) and is deterministic for one build on one platform, which the docs do not say; work package M26.21 (Physics determinism across platforms) in feedback/ROADMAP.md.",
+        "2026-10-23 M26.21 (branch m26/physics-determinism): the engine builds with no FP contraction and keeps sin/cos as library calls, CI compares a replay hash across the three desktop jobs, docs say what holds, and factoria:test has robust(check, { runs, nudge }); the level test \"the expert shortcut wins too\" uses it."
       ]
     }
   ]

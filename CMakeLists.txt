@@ -95,6 +95,29 @@ if(FA_BUILD_TESTS)
 ]] @ONLY)
 endif()
 
+# ---- floating point: the same source gives the same numbers on more CPUs and compilers (CC/FB-0055) --------------------
+# Set for EVERY target, not only fa_physics and fa_scene: inline functions of fa_core's headers (normalize, rotations, quaternion
+# maths) are emitted by every module that uses them and the linker keeps ONE copy; if that copy came from a module built
+# with other flags, physics would run it. (A Debug test binary did exactly that: its physics differed from Release.)
+#  * No contraction: a*b+c is a multiply then an add. Clang on arm64 (macOS, iOS, Android) fuses it by default, GCC does on any
+#    CPU with FMA. Emscripten has no FMA (the flag changes nothing); MSVC /fp:precise is its default, set explicitly.
+#  * -fmath-errno (Clang; GCC has it already): sin, cos, atan2... stay calls into the C library. Without it Clang folds them with
+#    its own arithmetic and merges sin(x) with cos(x) into one sincos call (macOS: __sincosf_stret), which rounds differently
+#    from the two calls, so the same source gave different physics at -O0 and -O3.
+# Nothing uses -ffast-math. docs/AI_GUIDE.md ("Physics and platforms") says what this does and does not give.
+# One genex per language: the Visual Studio generators only accept $<COMPILE_LANGUAGE:> with a single language.
+set(_fa_fp_langs C CXX)
+if(APPLE)
+    list(APPEND _fa_fp_langs OBJC OBJCXX)
+endif()
+foreach(_lang ${_fa_fp_langs})
+    if(MSVC)
+        add_compile_options("$<$<COMPILE_LANGUAGE:${_lang}>:/fp:precise>")
+    else()
+        add_compile_options("$<$<COMPILE_LANGUAGE:${_lang}>:-ffp-contract=off>" "$<$<COMPILE_LANGUAGE:${_lang}>:-fmath-errno>")
+    endif()
+endforeach()
+
 # ---- third party ------------------------------------------------------------
 find_package(Threads REQUIRED)
 add_subdirectory(external)
