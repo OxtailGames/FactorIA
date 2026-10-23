@@ -147,6 +147,8 @@ void Physics3D::reset() {
     warm_.clear();
     joints_.clear();
     jointOrder_.clear();
+    navs_.clear();
+    navOrder_.clear();
     lastWorld_ = nullptr;
     nextSeq_ = 1;
     carry_ = 0.0f;
@@ -609,6 +611,7 @@ void Physics3D::sync(World& world) {
                 b.rot[i] = r[i];
             }
             b.trigger = trig;
+            b.navObstacle = !cc && col->navObstacle;
             b.friction = cc ? 0.0f : std::max(col->friction, 0.0f);
             b.restitution = cc ? 0.0f : std::max(col->restitution, 0.0f);
             b.layer = cc ? cc->layer : col->layer;
@@ -619,6 +622,7 @@ void Physics3D::sync(World& world) {
             b.rotated = false;
             b.rotDyn = false;
             b.trigger = false;
+            b.navObstacle = false;
             b.data = nullptr;
             for (int i = 0; i < 3; ++i) b.rot[i] = pose.axis[i];
         }

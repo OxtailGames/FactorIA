@@ -10,6 +10,7 @@
 
 #include "box2d/box2d.h"
 #include "fa/physics/physics.h"
+#include "nav_grid.h"
 #include "shape3d.h"
 
 namespace fa::detail {
@@ -179,6 +180,12 @@ public:
     std::optional<CharacterMoveResult> move_character(World& world, Entity e, Vec3 delta);
     // Why the entity's Collider3D / Joint3D / CharacterController3D cannot be used ("" = fine); see Physics::problems3d.
     std::vector<std::string> problems() const;
+    // ---- navigation (nav3d.cpp): NavMesh3D components <-> baked grids
+    void nav_update(World& world, bool allowBake);
+    Result<std::vector<NavBakeStats>> nav_bake(World& world, const std::string& mesh);
+    Result<NavPath> nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options);
+    std::vector<NavCell> nav_cells(World& world, std::size_t maxCells);
+    Json nav_info(World& world);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
 
@@ -211,6 +218,7 @@ private:
         Vec3 localScale{1, 1, 1};     // the entity's world scale (joint anchors are scaled with it)
         std::vector<std::uint64_t> noCollide;  // seq of bodies joined to this one by a joint that forbids their collision
         bool jointed = false;         // has a Joint3D: always a rotating rigid body, never sleeps
+        bool navObstacle = false;     // Collider3D.navObstacle: blocks NavMesh3D cells instead of being baked into them
         bool character = false;       // CharacterController3D: kinematic capsule moved by move_character
         float stepOffset = 0.3f, slopeLimit = 45.0f, skin = 0.02f;  // character controller
         bool carriedByPlatforms = true, applyWeight = true;         // character controller: see CharacterController3D
@@ -388,6 +396,34 @@ private:
     // ---- shapes of meshes, shared by every collider of the same mesh
     std::map<std::string, std::shared_ptr<ShapeData>> shapes_;
     std::shared_ptr<const ShapeData> shape_data(const std::string& mesh, bool bvh, std::string& problem);
+    // ---- navigation
+    struct NavState {
+        Entity e;
+        std::string id;
+        NavMesh3D cfg;
+        Vec3 position;               // world position of the entity (centre of the bounds)
+        bool baked = false;
+        bool attempted = false;
+        bool stale = false;          // static colliders changed since the bake and autoBake is off
+        std::uint64_t sig = 0;       // parameters + static colliders the bake was made from
+        std::string error;           // why the last bake failed ("" = none)
+        NavGrid grid;
+        NavBakeStats stats;
+        std::map<std::uint64_t, std::uint64_t> obstacleSig;  // obstacle entity bits -> pose signature applied
+    };
+    std::map<std::uint64_t, NavState> navs_;  // by the NavMesh3D entity's bits
+    std::vector<std::uint64_t> navOrder_;     // the same keys in the order the world listed the components
+    static NavParams nav_params(const NavMesh3D& cfg, Vec3 position);
+    std::uint64_t nav_signature(const NavState& n) const;
+    bool nav_bake_one(World& world, NavState& n, std::string& error);
+    void nav_apply_obstacles(NavState& n);
+    static std::uint64_t nav_obstacle_signature(const Body& b);
+    void nav_raster(const Body& b, const NavParams& p, std::vector<NavEntry>& out) const;
+    static bool nav_column(const Body& b, float x, float z, float yLo, float yHi, float cellHeight, std::vector<NavSolid>& out);
+    static bool nav_static_solid(const Body& b) {
+        return b.enabled && b.hasShape && !b.trigger && !b.character && !b.navObstacle && b.problem.empty() &&
+               b.type == BodyType::Static;
+    }
     float lastDt_ = 1.0f / 60.0f;       // the last step's dt (character pushes turn a move into a speed)
     CharacterMoveResult move_character_body(World& world, Body& b, Vec3 delta);
 };

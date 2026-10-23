@@ -63,6 +63,18 @@ Physics
   the free dynamic bodies it walks into (a body held by a `Joint3D` is never shoved). Clockwork Courier dropped its
   workarounds (FB-0010, FB-0011).
 
+Navigation
+
+- Path finding for 3D characters. A `NavMesh3D` component (`size`, `cellSize`, `agentRadius`, `agentHeight`,
+  `stepHeight`, `maxSlope`) is baked by itself from the static colliders inside its box into a walkable grid;
+  `nav.findPath(from, to, { radius })` in scripts and `nav.find_path` return the few corner points of a path around
+  walls and up ramps, never up a step above `stepHeight`. A start or goal off the walkable ground, or in another
+  area, comes back as a result that says how far the nearest walkable point is and how to fix it; a `radius` bigger
+  than the mesh was baked for is an error that says to bake for the bigger agent. `nav.bake` and `nav.info` report the
+  cells and areas (no timing: two bakes are identical). A collider with `navObstacle` is left out of the bake and blocks
+  the cells it covers each time it moves (a gate, a crate). The editor draws the walkable cells (Window > Show navmesh).
+  Guide: docs/NAVIGATION.md (FB-0009).
+
 Native plugins
 
 - `"optional": true` on a plugin in `factoria.json` says the game runs without it: when its build for your computer is
