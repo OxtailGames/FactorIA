@@ -127,7 +127,13 @@ public:
 
     // ------------------------------------------------------------- hierarchy
     // keepWorldTransform: recompute the local Transform so the world pose is unchanged.
-    void set_parent(Entity child, Entity parent, bool keepWorldTransform = false);
+    // `index` is the place among the new parent's children (0 = first, after removing `child` from its old place when the
+    // parent does not change); negative or past the end = last (clamped, never an error here: commands and scripts check
+    // the range first). It is ignored for a null parent: top-level entities stay in creation order.
+    void set_parent(Entity child, Entity parent, bool keepWorldTransform = false, int index = -1);
+    // "" when `index` is a valid place for `moving` (or a new entity: kNullEntity) among `parent`'s children, else a sentence
+    // that says what is wrong and the valid range. Valid: 0 .. number of other children; a null parent takes no index.
+    std::string check_child_index(Entity parent, Entity moving, double index) const;
     Entity parent(Entity e) const;  // kNullEntity for roots
     const std::vector<Entity>& children(Entity e) const;
     std::vector<Entity> roots() const;  // creation order

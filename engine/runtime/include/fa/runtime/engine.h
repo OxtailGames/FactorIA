@@ -176,10 +176,15 @@ public:
     PlatformServices* platform_services() override;
     const I18n* i18n() override;
     std::string set_language(std::string_view language) override;
+    double preload_time_budget_ms() const override;
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;
     void set_text_scale(float scale) override;  // also the renderer's
+    double render_scale() const override;       // window.renderScale: the held render scale
+    std::string set_render_scale(double scale) override;
+    Json device_info() const override;          // a game window reports the real device; headless runs the fixed values
+    Json render_stats_now() override;
     std::string load_scene_now(std::string_view scenePath) override;
     std::string load_scene_json_now(const Json& scene, std::string_view sourceName) override;
 
@@ -228,7 +233,7 @@ int run_windowed(const EngineConfig& config);
 // Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],
 // statePath?, audioPath?, videoPath?, videoFrames?, videoAudio?, error?, exitCode,
 // perf: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time per frame), cpuClock ("process" or "wall"), peakMemoryMB,
-// drawCalls and entities (max over the run), graphics (the GPU in use or "none")}}.
+// drawCalls, entities, triangles, lights and textureMB (max over the run), graphics (the GPU in use or "none")}}.
 struct HeadlessRunOptions {
     int frames = 60;
     std::string inputReplayPath;          // optional

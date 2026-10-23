@@ -77,6 +77,9 @@ struct ExportOptions {
     std::string playerBinary;   // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
                                 // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
+    bool allowPlayerMismatch = false;  // desktop: bundle a factoria_player built from another commit than this factoria (its
+                                // build fingerprint differs, or it has none) with a warning instead of stopping; the
+                                // game may not run on that player
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
     std::string mobileDir;      // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
                                 // ios/{iphoneos,iphonesimulator}/*.a); giving it selects "prebuilt" mode.

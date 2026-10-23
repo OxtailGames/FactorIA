@@ -13,6 +13,11 @@
       "entities": 416,
       "graphics": "Metal / Apple M5"
     }
+  },
+  "budgets": {
+    "maxTriangles": 34000,
+    "maxLights": 24,
+    "maxTextureMB": 6,
+    "maxDrawCalls": 150
   }
 }
-

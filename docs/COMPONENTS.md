@@ -317,7 +317,7 @@ A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle),
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | enum: revolute \\| distance \\| prismatic \\| weld | `"revolute"` | revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0). |
-| `connected` | entity |  | Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position. |
+| `connected` | entity |  | Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position. |
 | `anchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin. |
 | `connectedAnchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created. |
 | `axis` | vec2 | `[1.0,0.0]` | Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x. |
@@ -377,12 +377,12 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 
 Since 0.2.0.
 
-Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | enum: hinge \\| ball \\| fixed | `"hinge"` | hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all. |
-| `connected` | entity |  | The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D. |
+| `connected` | entity |  | The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D. |
 | `anchor` | vec3 | `[0.0,0.0,0.0]` | Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge. |
 | `connectedAnchor` | vec3 | `[0.0,0.0,0.0]` | Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true. |
 | `autoAnchor` | bool | `true` | true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together). |
@@ -394,7 +394,9 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 | `motorSpeed` | float | `0.0` | hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis. |
 | `maxMotorTorque` | float | `10.0` | hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more. Range 0.0..1000000.0. |
 | `collideConnected` | bool | `false` | false (default): the two joined bodies do not collide with each other. true: they do. |
+| `damping` | float | `0.0` | Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it. Range 0.0..1000.0. (not released yet, on main after 0.2.0) |
 | `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
+| `stalled` | bool | `false` | Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only. Runtime-only (not saved). (not released yet, on main after 0.2.0) |
 
 ### CharacterController3D
 
@@ -1443,6 +1445,14 @@ Pause the simulation (frame() stops simulating; game.step still works).
 
 Example: game.pause {}
 
+### `game.render_stats`
+
+Not released yet (on main after 0.2.0).
+
+What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
+
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+
 ### `game.resume` (modifies state)
 
 Resume the simulation after game.pause.
@@ -1598,7 +1608,7 @@ Since 0.2.0.
 
 Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
 
-Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, cpuSlackMs:1, memorySlackMB:8, countSlack:2}, runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
+Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, triangles:0.1, lights:0.1, textureMB:0.1, cpuSlackMs:1, memorySlackMB:8, textureSlackMB:1, countSlack:2}, budgets?: {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities} (absolute caps, see perf.check), runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1607,7 +1617,7 @@ Measures like perf.measure (3 runs, median) and stores the result under runners.
 | `scene` | string | no | Start scene; stored in the file. |
 | `input` | string | no | Project-relative input replay; stored in the file. |
 | `repeats` | integer | no | Runs to take the median of. Default 3. |
-| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities (ratios), cpuSlackMs, memorySlackMB, countSlack. |
+| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities, triangles, lights, textureMB (ratios), cpuSlackMs, memorySlackMB, textureSlackMB, countSlack. |
 
 ### `perf.check`
 
@@ -1615,21 +1625,22 @@ Since 0.2.0.
 
 Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
 
-Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls and entities past their limit FAIL always. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
+Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls, entities, triangles, lights and texture memory (the last three only when the baseline has them) past their limit FAIL always. The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
 | `strictTime` | boolean | no | Make a time over its limit fail even outside CI (default: only in CI). |
 | `requireBaseline` | boolean | no | Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything. Default false. |
+| `budgets` | object | no | Absolute caps that fail whatever the baseline says (they replace the same keys of the file's "budgets"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities. |
 
 ### `perf.measure`
 
 Since 0.2.0.
 
-Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities.
+Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
-Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls and entities (max over the run), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles, lights (of the main pass) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1859,6 +1870,7 @@ Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon 
 | `format` | string ["apk","aab","gradle","appimage","msix","folder"] | no | Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
+| `allowPlayerMismatch` | boolean | no | Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can. Default false. |
 | `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
 
 ### `project.info`
@@ -2176,13 +2188,14 @@ Since 0.2.0.
 
 Move an entity under another entity, or to the top level of the scene.
 
-`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name) to move. |
 | `parent` | any | no | New parent's id (or name); null or empty = top level. |
 | `keepWorldTransform` | boolean | no | true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform. Default true. |
+| `index` | integer | no | Place among the new parent's other children (0 = first). Omitted = last. Needs a parent. |
 
 ### `scene.spawn` (modifies state)
 
@@ -2196,6 +2209,8 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 | `position` | array | no | [x, y] or [x, y, z] world position (Transform.position). |
 | `entity` | object | no | Entity JSON; alternatively put its fields (name, components...) at top level. |
 | `parent` | string | no | Parent entity id. |
+| `index` | integer | no | Place among the parent's children (0 = first, up to their count). Omitted = last. Needs parent. |
+| `overrides` | object | no | With prefab: patches for the prefab's children, keyed by child id, name or path (see docs/MENUS.md). |
 | `name` | string | no |  |
 | `id` | string | no |  |
 | `tags` | array | no |  |
@@ -2270,28 +2285,28 @@ The way to find out WHY a script misbehaves without an IDE. Runs the project hea
 
 Since 0.1.4.
 
-Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension (or open Xcode's App Store page).
+Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg (or open Xcode's App Store page).
 
-Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. It downloads hundreds of megabytes (setup.status says how many: installSizeMb) and can take minutes: ask the user before calling it. `android`: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's), saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with error code `license_required` until acceptLicenses is true: the Android SDK license is a legal agreement between the user and Google, so show the user the text from setup.status (components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said yes; never set it on your own. `players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the last release fails with code `no_release`); platforms narrows it (windows, linux, macos, mobile). `cmake`: CMake 3.31 from Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). `appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. `shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, for source builds and editor-less setups; downloads of factoria carry it. `vscode`: copies the VS Code extension built into factoria (the script debugger, docs_read {"name":"debugging"}) to ~/.vscode/extensions/oxtailgames.factoria-<version>/ and to VS Code Insiders, VSCodium and Cursor when they exist, records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. Example: {"component":"android","acceptLicenses":true}.
+Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. It downloads hundreds of megabytes (setup.status says how many: installSizeMb) and can take minutes: ask the user before calling it. `android`: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's), saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with error code `license_required` until acceptLicenses is true: the Android SDK license is a legal agreement between the user and Google, so show the user the text from setup.status (components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said yes; never set it on your own. `players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the last release fails with code `no_release`); platforms narrows it (windows, linux, macos, mobile). `cmake`: CMake 3.31 from Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). `appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. `shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, for source builds and editor-less setups; downloads of factoria carry it. `vscode`: copies the VS Code extension built into factoria (the script debugger, docs_read {"name":"debugging"}) to ~/.vscode/extensions/oxtailgames.factoria-<version>/ and to VS Code Insiders, VSCodium and Cursor when they exist, records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. `ffmpeg`: the static ffmpeg 6.0 build of github.com/eugeneware/ffmpeg-static (GPL, with libx264 and AAC; 19-28 MB depending on the computer) into $FACTORIA_HOME/tools/ffmpeg/<release>/, so `factoria run --record-video trailer.mp4` works without installing ffmpeg by hand; skipped when an ffmpeg is already found. Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. Example: {"component":"android","acceptLicenses":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode"] | yes | What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor). |
+| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode","ffmpeg"] | yes | What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4). |
 | `acceptLicenses` | boolean | no | android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user. Default false. |
 | `platforms` | array | no | players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). "web" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for. |
-| `force` | boolean | no | android, cmake, players: install again even when it is found (a JDK or CMake that is already there is used otherwise). Default false. |
+| `force` | boolean | no | android, cmake, players, ffmpeg: install again even when it is found (a JDK or CMake that is already there is used otherwise). Default false. |
 
 ### `setup.status`
 
 Since 0.1.4.
 
-Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension.
+Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg.
 
-Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, licenses[], canInstall}. Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player of the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of this factoria's version), `cmake` (3.24+, for the iOS export on a Mac), `xcode` (macOS: status only, it cannot be installed by a program) and `appimage` (appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with) `shaders` (sokol-shdc, the shader compiler of custom materials: $SOKOL_SHDC, the one next to factoria or the pinned one under home/tools/sokol-shdc/) and `vscode` (the FactorIA debugger extension in ~/.vscode/extensions and the other VS Code based editors' folders: installed when this factoria's version is there; docs_read {"name":"debugging"}). state is installed | missing | partial | unsupported (nothing to do on this computer). problems[] says what is missing and how to fix it; `setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android SDK license is not accepted yet) holds {id, title, text}: the full license the user must read and agree to before `setup.install` with acceptLicenses. The only network request is the fetch of that license text (fetchLicenses false skips it). Everything installed lives under `home` ($FACTORIA_HOME, default ~/.factoria). Details: docs_read {"name":"exporting"}. Example: {"component":"android"}.
+Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, licenses[], canInstall}. Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player of the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of this factoria's version), `cmake` (3.24+, for the iOS export on a Mac), `xcode` (macOS: status only, it cannot be installed by a program) and `appimage` (appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with) `shaders` (sokol-shdc, the shader compiler of custom materials: $SOKOL_SHDC, the one next to factoria or the pinned one under home/tools/sokol-shdc/) `vscode` (the FactorIA debugger extension in ~/.vscode/extensions and the other VS Code based editors' folders: installed when this factoria's version is there; docs_read {"name":"debugging"}) and `ffmpeg` (what `factoria run --record-video trailer.mp4` converts its recording to H.264 + AAC with: $FACTORIA_FFMPEG, "publish": {"ffmpeg"} of export.json, PATH or the one under home/tools/ffmpeg/). state is installed | missing | partial | unsupported (nothing to do on this computer). problems[] says what is missing and how to fix it; `setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android SDK license is not accepted yet) holds {id, title, text}: the full license the user must read and agree to before `setup.install` with acceptLicenses. The only network request is the fetch of that license text (fetchLicenses false skips it). Everything installed lives under `home` ($FACTORIA_HOME, default ~/.factoria). Details: docs_read {"name":"exporting"}. Example: {"component":"android"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode"] | no | Only this component (default: all of them). |
+| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode","ffmpeg"] | no | Only this component (default: all of them). |
 | `fetchLicenses` | boolean | no | Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI). Default true. |
 
 ## shader
@@ -2512,9 +2527,9 @@ declare module "factoria" {
   export type CastShape3D = { shape: "sphere"; radius: number } | { shape: "box"; size: Vec3Like };
 
   /**
-   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
+   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props. index is the place among the parent's children (0 = first, up to their count; omitted = last) and needs parent; a bad index throws.
    */
-  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> };
+  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; index?: number; props?: Record<string, any> };
 
   /**
    * 2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.
@@ -2804,7 +2819,10 @@ declare module "factoria" {
     destroy(): void;
     readonly parent: Entity | null;
     readonly children: Entity[];
-    setParent(parent: EntityLike, keepWorld?: boolean): void;
+    /**
+     * Moves the entity under another one (null = top level). index is the place among the new parent's OTHER children (0 = first, up to their count; omitted = last), so it also reorders within the same parent. A parent is required for an index; a bad index throws. Layouts follow this order.
+     */
+    setParent(parent: EntityLike, keepWorld?: boolean, index?: number): void;
     hasTag(tag: string): boolean;
     addTag(tag: string): void;
     removeTag(tag: string): void;
@@ -2938,9 +2956,9 @@ declare module "factoria" {
      */
     spawn(entityJson: Json, opts?: SpawnOptions): Entity;
     /**
-     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge).
+     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge). `childOverrides` patches the prefab's descendants: key = a child's id, name or path like "Panel/Title", value = { name?, tags?, active?, components? }; an unknown child or field throws with a suggestion.
      */
-    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity;
+    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json; childOverrides?: Record<string, Json> }): Entity;
     /**
      * Queue a game event; delivered to onEvent and world.on listeners.
      */
@@ -3407,6 +3425,10 @@ declare module "factoria" {
 
   export interface SceneAPI {
     /**
+     * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     */
+    preload(path: string): PreloadHandle;
+    /**
      * Deferred to the end of the frame.
      */
     load(path: string): void;
@@ -3474,6 +3496,10 @@ declare module "factoria" {
      */
     readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
     /**
+     * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
+     */
+    readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high" }>;
+    /**
      * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
      */
     readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
@@ -3531,6 +3557,14 @@ declare module "factoria" {
      * Frames per second the window may draw at: 0 = unlimited (default), else a whole number from 15 to 1000. The game loop waits so frames do not start faster than that; the simulation still runs at the fixed step, so gameplay results do not change. Useful with vsync off, or to save battery on a laptop. Setting it throws without a window and on phones and tablets (the display sets the pace).
      */
     frameCap: number;
+    /**
+     * Resolution of the picture as a fraction of the window, from 0.5 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. Works in every run with a renderer, headless tests included (game.screenshot then has that size); a run without graphics only remembers the value. A number outside 0.5 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === "low" ? 0.6 : 1.
+     */
+    renderScale: number;
+    /**
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     */
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize"): boolean;
   }
 
   /**
@@ -3762,9 +3796,47 @@ declare module "factoria" {
   }
 
   /**
+   * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   */
+  export interface PreloadHandle {
+    /**
+     * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     */
+    readonly progress: number;
+    /**
+     * True once every file is read, or the job failed (then error says why).
+     */
+    readonly done: boolean;
+    /**
+     * Files read so far.
+     */
+    readonly files: number;
+    /**
+     * Bytes read so far.
+     */
+    readonly bytes: number;
+    /**
+     * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
+     */
+    readonly error: string;
+    /**
+     * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     */
+    readonly promise: Promise<{ files: number; bytes: number }>;
+    /**
+     * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     */
+    release(): void;
+  }
+
+  /**
    * Asset queries.
    */
   export interface AssetsAPI {
+    /**
+     * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     */
+    preload(paths: string[]): PreloadHandle;
     /**
      * Pixel size of the texture file at the project-relative `path`, e.g. assets.textureSize("assets/hero.png"). This is the size a Sprite without `size` or `region` is drawn at and that entity.bounds() uses. A missing or unreadable file gives 32 x 32, the size of the missing-texture checker. Cached per file and modification time, so it is cheap to call every frame. Works headless (it reads the file, not the GPU texture). Throws for an empty or non-string path.
      */
@@ -5411,7 +5483,7 @@ declare module "factoria" {
      */
     type: "revolute" | "distance" | "prismatic" | "weld";
     /**
-     * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     * Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position.
      * @since 0.2.0
      */
     get connected(): Entity | null;
@@ -5620,7 +5692,7 @@ declare module "factoria" {
     navObstacle: boolean;
   }
   /**
-   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
    * 
    * Category: Physics
    * @since 0.2.0
@@ -5632,7 +5704,7 @@ declare module "factoria" {
      */
     type: "hinge" | "ball" | "fixed";
     /**
-     * The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D.
+     * The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D.
      * @since 0.2.0
      */
     get connected(): Entity | null;
@@ -5696,10 +5768,20 @@ declare module "factoria" {
      */
     collideConnected: boolean;
     /**
+     * Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it.
+     * @since unreleased
+     */
+    damping: number;
+    /**
      * Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only.
      * @since 0.2.0
      */
     readonly angle: number;
+    /**
+     * Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only.
+     * @since unreleased
+     */
+    readonly stalled: boolean;
   }
   /**
    * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, is carried by the kinematic platform it stands on (carriedByPlatforms), weighs on the dynamic body below it (applyWeight, mass: a seesaw tips) and pushes the free dynamic bodies it walks into (pushStrength). Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
@@ -7111,7 +7193,7 @@ declare module "factoria" {
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
     Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean };
-    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
+    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
@@ -7420,6 +7502,10 @@ declare module "factoria:test" {
      */
     load(path: string): void;
     /**
+     * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
+     */
+    fileReads(): number;
+    /**
      * Simulates frames at the fixed rate.
      */
     step(frames?: number): void;
@@ -7446,6 +7532,14 @@ declare module "factoria:test" {
      * Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to "none" before every test.
      */
     setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | "none" | "phone-portrait" | "phone-landscape"): void;
+    /**
+     * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" }. An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
+     */
+    setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high" }): void;
+    /**
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights count the main pass, shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     */
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      */

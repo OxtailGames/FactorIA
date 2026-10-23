@@ -44,17 +44,34 @@ Storefront storefront_for(const std::string& currency) {
     return kTable[0];
 }
 
-Json localizations(const PlatformProduct& p, const std::string& locale) {
-    const std::string name = p.title.empty() ? p.id : p.title;
-    return Json::array({Json::object({{"description", p.description.empty() ? name : p.description},
-                                      {"displayName", name},
-                                      {"locale", locale}})});
+std::string text_in(const StoreKitLanguage& lang, const std::string& key, const std::string& plain) {
+    if (!key.empty())
+        if (auto it = lang.strings.find(key); it != lang.strings.end() && !it->second.empty()) return it->second;
+    return plain;
+}
+
+Json localizations(const PlatformProduct& p, const std::string& locale, const std::vector<StoreKitLanguage>& languages) {
+    const std::string fallbackName = p.title.empty() ? p.id : p.title;
+    if (languages.empty())
+        return Json::array({Json::object({{"description", p.description.empty() ? fallbackName : p.description},
+                                          {"displayName", fallbackName},
+                                          {"locale", locale}})});
+    Json out = Json::array();
+    for (const StoreKitLanguage& lang : languages) {
+        const std::string name = text_in(lang, p.titleKey, fallbackName);
+        const std::string description = text_in(lang, p.descriptionKey, p.description.empty() ? name : p.description);
+        std::string tag = lang.tag;
+        for (char& c : tag)
+            if (c == '-') c = '_';
+        out.push_back(Json::object({{"description", description}, {"displayName", name}, {"locale", tag}}));
+    }
+    return out;
 }
 
 }  // namespace
 
 Json storekit_configuration(const PlatformCatalog& catalog, const std::string& backend, const std::string& groupName,
-                            const std::string& seed) {
+                            const std::string& seed, const std::vector<StoreKitLanguage>& languages) {
     const Storefront store = storefront_for(catalog.products.empty() ? "USD" : catalog.products.front().currency);
     Json products = Json::array();
     Json subscriptions = Json::array();
@@ -71,7 +88,7 @@ Json storekit_configuration(const PlatformCatalog& catalog, const std::string& b
                                                   {"groupNumber", ++level},
                                                   {"internalID", stable_id(seed, productId)},
                                                   {"introductoryOffer", nullptr},
-                                                  {"localizations", localizations(p, store.locale)},
+                                                  {"localizations", localizations(p, store.locale, languages)},
                                                   {"productID", productId},
                                                   {"recurringSubscriptionPeriod", "P1M"},
                                                   {"referenceName", name},
@@ -82,7 +99,7 @@ Json storekit_configuration(const PlatformCatalog& catalog, const std::string& b
             products.push_back(Json::object({{"displayPrice", display_price(p.price)},
                                              {"familyShareable", false},
                                              {"internalID", stable_id(seed, productId)},
-                                             {"localizations", localizations(p, store.locale)},
+                                             {"localizations", localizations(p, store.locale, languages)},
                                              {"productID", productId},
                                              {"referenceName", name},
                                              {"type", p.type == "consumable" ? "Consumable" : "NonConsumable"}}));

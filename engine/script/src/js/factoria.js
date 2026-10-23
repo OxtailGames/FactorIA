@@ -473,8 +473,8 @@
     destroy() { if (N.alive(this.$h)) N.destroy(this.$h); }
     get parent() { return entityOf(N.parent(this.$h)); }
     get children() { return N.children(this.$h).map(entityOf); }
-    setParent(parent, keepWorld = false) {
-      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld);
+    setParent(parent, keepWorld = false, index = undefined) {
+      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld, index);
     }
     hasTag(t) { return N.hasTag(this.$h, t); }
     addTag(t) { N.addTag(this.$h, t); }
@@ -856,12 +856,13 @@
     spawn(entityJson, opts = {}) {
       const parent = opts && opts.parent ? entityHandle(opts.parent, "world.spawn parent") : null;
       const j = applySpawnOptions(entityPlain(entityJson), opts || {}, "world.spawn");
-      return entityOf(N.spawn(j, parent));
+      return entityOf(N.spawn(j, parent, opts && opts.index));
     },
     spawnPrefab(path, opts = {}) {
       const ov = applySpawnOptions(opts.overrides ? entityPlain(opts.overrides) : {}, opts, "world.spawnPrefab");
+      if (opts.childOverrides !== undefined) ov.overrides = plain(opts.childOverrides);
       const parent = opts.parent ? entityHandle(opts.parent, "world.spawnPrefab parent") : null;
-      return entityOf(N.spawnPrefab(path, parent, ov));
+      return entityOf(N.spawnPrefab(path, parent, ov, opts.index));
     },
     emit(name, data, source) { N.emit(name, data === undefined ? null : plain(data), source instanceof Entity ? source.$h : null); },
     on(name, fn) { return addListener(name, fn, null); },
@@ -987,6 +988,30 @@
       }
       winSet("frameCap", 3, fps);
     },
+    // Resolution of the picture as a fraction of the window: 1 (default) draws at full size, 0.5 at half the width and height
+    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. Works in every run with graphics,
+    // headless tests included (game.screenshot then has that size); a run without a renderer only remembers the value.
+    get renderScale() { return N.renderScaleGet(); },
+    set renderScale(v) {
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.5 || v > 1) {
+        throw new Error(`window.renderScale expects a number from 0.5 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
+      }
+      const err = N.renderScaleSet(v);
+      if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
+    },
+    // supports("frameCap" | "renderScale" | "fullscreen" | "resize"): whether this run can do it, so an options menu hides what a
+    // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
+    // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
+    // with a "did you mean".
+    supports(feature) {
+      const names = ["frameCap", "renderScale", "fullscreen", "resize"];
+      if (!names.includes(feature)) {
+        const sug = typeof feature === "string" ? closest(feature, names) : "";
+        throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
+      }
+      if (feature === "renderScale") return true;
+      return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
+    },
   };
 
   const audio = {
@@ -1106,7 +1131,73 @@
     sphere(center, r, c) { const p = vecArr(center, 3, "debug.sphere(center, r) `center`"); N.debugDraw(5, p[0], p[1], p[2], r, colorArg(c)); },
   };
 
+  // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp
+  // dispatch_platform -> preloadDeliver). The numbers only change between frames, so a script sees the same values in a test
+  // on any machine.
+  const preloadJobs = new Map();  // job id -> handle state
+  class Preload {
+    constructor(id, label) {
+      this.$id = id;
+      this.$label = label;
+      this.$progress = 0; this.$done = false; this.$files = 0; this.$bytes = 0; this.$error = "";
+      this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
+      this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
+    }
+    /** How much of the work is done, 0..1. Grows by whole files; 1 when `done`. */
+    get progress() { return this.$progress; }
+    /** True once everything is read (or the job failed: see `error`). */
+    get done() { return this.$done; }
+    /** Files read so far (the scene counts as one). */
+    get files() { return this.$files; }
+    /** Bytes read so far. */
+    get bytes() { return this.$bytes; }
+    /** Why the job failed, or "". */
+    get error() { return this.$error; }
+    /** Gives the files that nobody has read yet back (and stops a job that is still running; its Promise rejects). */
+    release() {
+      N.preloadRelease(this.$id);
+      preloadJobs.delete(this.$id);
+      if (!this.$done) { this.$done = true; this.$error = "released before it finished"; this.$reject(new Error(`${this.$label}: ${this.$error}`)); }
+    }
+  }
+  function preloadStart(kind, arg, label) {
+    const r = N.preloadStart(kind, arg);
+    if (r.mistake) {
+      const e = new Error(r.mistake.message);
+      e.hint = r.mistake.hint || "";
+      throw e;
+    }
+    const h = new Preload(r.id, label);
+    preloadJobs.set(r.id, h);
+    return h;
+  }
+  function preloadDeliver(updates) {
+    for (const u of updates) {
+      const h = preloadJobs.get(u.id);
+      if (!h) continue;
+      h.$progress = u.total > 0 ? Math.min(1, u.done / u.total) : 1;
+      h.$files = u.done; h.$bytes = u.bytes;
+      if (!u.finished) continue;
+      preloadJobs.delete(u.id);
+      h.$done = true;
+      if (u.error) {
+        h.$error = u.error;
+        const e = new Error(`${h.$label} failed: ${u.error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
+        e.hint = u.hint || "";
+        h.$reject(e);
+      } else {
+        h.$progress = 1;
+        h.$resolve({ files: h.$files, bytes: h.$bytes });
+      }
+    }
+  }
+  function preloadReset() { preloadJobs.clear(); }
+
   const scene = {
+    preload(path) {
+      if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
+      return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
+    },
     load(path) { N.requestScene(path); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
@@ -1143,6 +1234,11 @@
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
       return addListener("app." + event, () => fn(), null);
     },
+    // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
+    // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
+    // "low" | "medium" | "high" from the graphics backend and the memory }. Headless runs and tests always read
+    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } (tests change it with game.setDevice).
+    get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     get platform() { return N.platform(); },
@@ -1227,7 +1323,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1332,6 +1428,12 @@
   };
 
   const assets = {
+    // Reads the files ahead of time, a few per frame: returns a handle { progress, done, promise, ... } like scene.preload.
+    preload(paths) {
+      if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || p === ""))
+        throw new Error(`assets.preload(paths) expects a non-empty array of project paths such as ["assets/hero.glb", "assets/theme.ogg"], got ${inspect(paths)}`);
+      return preloadStart(1, paths, `assets.preload([${paths.length} files])`);
+    },
     // Pixel size { width, height } of the texture file at `path` (project-relative), as the renderer and entity.bounds() see it.
     // 32 x 32 (the missing-texture checker) when the file is missing or unreadable.
     textureSize(path) {
@@ -1949,6 +2051,9 @@
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
     },
+    // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
+    // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
+    fileReads() { return N.testDiskReads(); },
     loadJson(scene) {
       const err = N.testLoadJson(plain(scene));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
@@ -1963,8 +2068,34 @@
     find(idOrName) { return world.find(idOrName); },
     get world() { return world; },
     get time() { return time; },
+    // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
+    // { formFactor, gpuBackend, memoryGB, tier }; one left out keeps the headless value. Reset before every test.
+    setDevice(overrides) {
+      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier"];
+      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
+      for (const k of Object.keys(overrides)) {
+        if (keys.includes(k)) continue;
+        const sug = closest(k, keys);
+        throw new Error(`game.setDevice: unknown field '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+      }
+      const forms = ["desktop", "phone", "tablet"], tiers = ["low", "medium", "high"];
+      if (overrides.formFactor !== undefined && !forms.includes(overrides.formFactor)) throw new Error(`game.setDevice: formFactor must be one of ${forms.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.formFactor)}`);
+      if (overrides.tier !== undefined && !tiers.includes(overrides.tier)) throw new Error(`game.setDevice: tier must be one of ${tiers.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.tier)}`);
+      if (overrides.gpuBackend !== undefined && typeof overrides.gpuBackend !== "string") throw new Error(`game.setDevice: gpuBackend must be a string such as "metal", but got ${inspect(overrides.gpuBackend)}`);
+      if (overrides.memoryGB !== undefined && (typeof overrides.memoryGB !== "number" || !(overrides.memoryGB >= 0))) throw new Error(`game.setDevice: memoryGB must be a number of gigabytes, but got ${inspect(overrides.memoryGB)}`);
+      N.testDevice(plain(overrides));
+    },
+    // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
+    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
+    // shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale }. Throws
+    // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
+    renderStats() {
+      const s = N.renderStatsNow();
+      if (s === null) throw new Error("game.renderStats(): this run has no renderer, so nothing is drawn. Run the tests with graphics (headless needs Mesa/EGL on Linux)");
+      return s;
+    },
     screenshot(path, options) {
-      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : 1,
+      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : N.renderScaleGet(),
         options && options.simulate !== undefined ? String(options.simulate) : "");
       if (err) throw new Error(`game.screenshot('${path}') failed: ${err}`);
     },
@@ -2029,6 +2160,8 @@
       N.spokenLog(true);
       N.captionClear();
       N.testAccessibility();
+      N.testDevice();
+      if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
       N.setTimeScale(1); pausedScale = null;
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
@@ -2076,7 +2209,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); },
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

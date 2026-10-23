@@ -4,6 +4,12 @@
 // iOS smoke tests wait for). Fails on a page error, a console.error line, or when the marker does not come in time.
 //
 //   node platforms/web/smoke.mjs <export folder> [--browser <path>] [--timeout <seconds>] [--screenshot <png>]
+//                                [--type <text> --expect <console line>]
+//
+// --type: once the frames are rendered, clicks the canvas and types <text> with real key events (CDP Input.dispatchKeyEvent:
+// keydown, keypress and input, like a keyboard), and waits for a console line containing <text> after --expect (the game
+// logs what its TextField holds). The web player takes typed text from the keypress events of the window, so this is the
+// check that typing works in a browser; scripts/web-smoke.sh puts a TextField in the game for it.
 //
 // The browser: --browser, else $CHROME_BIN, else the first of google-chrome, chromium, chrome, msedge found in PATH or in
 // the usual install folders of Windows and macOS. Needs Node 22 or newer (built-in WebSocket and fetch), nothing to install.
@@ -21,9 +27,11 @@ const opt = (name, fallback) => {
 const browserArg = opt('--browser', process.env.CHROME_BIN || '');
 const timeoutMs = Number(opt('--timeout', '60')) * 1000;
 const screenshot = opt('--screenshot', '');
+const typeText = opt('--type', '');
+const expectPrefix = opt('--expect', '');
 const dir = args[0];
 if (!dir || !fs.existsSync(path.join(dir, 'index.html'))) {
-  console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png]');
+  console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png] [--type text --expect prefix]');
   process.exit(2);
 }
 
@@ -85,12 +93,28 @@ if (!wsUrl) finish(1, 'FAIL: the browser did not start');
 else {
   const ws = new WebSocket(wsUrl);
   let nextId = 1;
+  let typing = false, typeTimer = null;
   const pending = new Map();
   const send = (method, params = {}, sessionId) => new Promise((resolve) => {
     const id = nextId++;
     pending.set(id, resolve);
     ws.send(JSON.stringify({ id, method, params, sessionId }));
   });
+  // Clicks the middle of the canvas (it takes the keyboard focus, as a player's click does), then presses each character
+  // of typeText as a key: keydown with text, which the browser turns into keypress and input, and keyup.
+  async function typeIntoPage(sessionId) {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 640, y: 360, button: 'left', clickCount: 1 }, sessionId);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 640, y: 360, button: 'left', clickCount: 1 }, sessionId);
+    await wait(300);
+    for (const ch of typeText) {
+      const upper = ch.toUpperCase();
+      const key = { key: ch, text: ch, unmodifiedText: ch, code: /[a-z]/i.test(ch) ? `Key${upper}` : /[0-9]/.test(ch) ? `Digit${ch}` : '', windowsVirtualKeyCode: upper.charCodeAt(0) };
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', ...key }, sessionId);
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', ...key, text: undefined, unmodifiedText: undefined }, sessionId);
+      await wait(50);  // a frame or three: each character arrives on its own
+    }
+  }
   ws.onmessage = async (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg.result || msg.error); pending.delete(msg.id); return; }
@@ -98,13 +122,21 @@ else {
       const text = msg.params.args.map((a) => a.value ?? a.description ?? '').join(' ');
       console.log(`[console.${msg.params.type}] ${text}`);
       if (msg.params.type === 'error') { clearTimeout(timer); finish(1, `FAIL: console.error: ${text}`); }
-      if (/60 frames rendered/.test(text)) {
+      if (typing && text.includes(expectPrefix + typeText)) {
+        clearTimeout(typeTimer);
+        finish(0, `OK: the player rendered 60 frames and the field took "${typeText}"`);
+      } else if (/60 frames rendered/.test(text) && !typing) {
         clearTimeout(timer);
         if (screenshot) {
           const shot = await send('Page.captureScreenshot', { format: 'png' }, msg.sessionId);
           if (shot.data) fs.writeFileSync(screenshot, Buffer.from(shot.data, 'base64'));
         }
-        finish(0, 'OK: the player rendered 60 frames');
+        if (!typeText) finish(0, 'OK: the player rendered 60 frames');
+        else {
+          typing = true;
+          typeTimer = setTimeout(() => finish(1, `FAIL: typed "${typeText}" into the page but the game never logged "${expectPrefix}${typeText}"`), 20000);
+          await typeIntoPage(msg.sessionId);
+        }
       }
     } else if (msg.method === 'Runtime.exceptionThrown') {
       const d = msg.params.exceptionDetails;

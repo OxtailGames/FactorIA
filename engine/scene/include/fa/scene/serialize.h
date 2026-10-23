@@ -104,7 +104,8 @@ struct EntityJsonOptions {
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts = {});
 // Creates an entity (and children) from entity JSON. Errors go to `report`.
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report,
-                        std::string_view sourceName = "<memory>", std::string_view pointer = "");
+                        std::string_view sourceName = "<memory>", std::string_view pointer = "",
+                        int index = -1);
 
 // Components
 Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults = false,
@@ -113,8 +114,10 @@ Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool 
 Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const Json& fields);
 
 // Prefabs
+// `overrides` is entity JSON applied over the prefab's root; its "overrides" key patches descendants (see docs/MENUS.md).
+// `index` is the place among the parent's children (-1 = last).
 Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity parent, LoadReport& report,
-                          const Json& overrides = Json::object());
+                          const Json& overrides = Json::object(), int index = -1);
 Json make_prefab(const World& world, Entity root);
 
 // Schemas (generated from the TypeRegistry) — used by validation and docs.
