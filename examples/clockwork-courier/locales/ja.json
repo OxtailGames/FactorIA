@@ -310,9 +310,6 @@
     "retry": "もう一度"
   },
   "ads": {
-    "testAd": "テスト広告",
-    "claim": "ごほうびを受け取る",
-    "skip": "スキップ",
     "moreTimeAd": {
       "other": "広告を見る：{count}秒プラス"
     },

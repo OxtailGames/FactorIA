@@ -313,9 +313,6 @@
     "retry": "Try again"
   },
   "ads": {
-    "testAd": "Test ad",
-    "claim": "Claim reward",
-    "skip": "Skip",
     "moreTimeAd": {
       "one": "Watch an ad: {count} more second",
       "other": "Watch an ad: {count} more seconds"

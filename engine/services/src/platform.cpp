@@ -17,7 +17,7 @@ namespace fa {
 
 // ------------------------------------------------------------------------------------------------------ tables ----
 const std::vector<std::string>& platform_services_all() {
-    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity"};
+    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"};
     return v;
 }
 
@@ -55,6 +55,12 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"integrity.token", "integrity",
          "Get a signed token that says this is the genuine app on a genuine device, for the game's own server to verify (args: challenge, "
          "the server's nonce; result: token)."},
+        {"ads.available", "ads", "Ask whether a rewarded ad is ready to show at a placement (args: placement; result: available)."},
+        {"ads.showRewarded", "ads",
+         "Show a rewarded ad at a placement (args: placement; result: rewarded, and reason when it is false: closedEarly, noFill or "
+         "consentRefused)."},
+        {"ads.consent", "ads",
+         "Read what the player answered to the consent sheets (result: gdpr, tracking, canShowAds)."},
     };
     return v;
 }
@@ -144,9 +150,12 @@ const T& lookup(const std::vector<T>& entries, const std::string& id, const char
     message += "; declare it in factoria.json platform." + std::string(section);
     std::string hint;
     if (ids.empty()) {
-        hint = std::string("Add it to factoria.json, e.g. \"platform\": {\"") + section + "\": [" + example + "]}.";
+        if (std::string(section) == "ads.placements")
+            hint = std::string("Add it to factoria.json, e.g. \"platform\": {\"ads\": {\"placements\": [") + example + "]}}.";
+        else
+            hint = std::string("Add it to factoria.json, e.g. \"platform\": {\"") + section + "\": [" + example + "]}.";
     } else {
-        hint = std::string("The game's ") + section + ":";
+        hint = std::string("The game's ") + (std::string(section) == "ads.placements" ? "placements" : section) + ":";
         for (std::size_t i = 0; i < ids.size() && i < 12; ++i) hint += (i ? ", " : " ") + in_quotes(ids[i]);
         if (ids.size() > 12) hint += ", ... (" + std::to_string(ids.size() - 12) + " more)";
         hint += ".";
@@ -159,7 +168,18 @@ struct PrepareContext {
     const std::string& backend;
     const std::map<std::string, std::string>& transactions;  // transactionId -> product id
     const PlatformServices::Translator& translator;
+    CalendarDate today;
 };
+
+// The key of the board a score belongs to: "" for allTime, the day for daily, the Monday of the week for weekly.
+std::string period_key(const std::string& period, const CalendarDate& today) {
+    if (period == "daily") return today.iso();
+    if (period == "weekly") {
+        const long days = today.days_since_epoch();
+        return calendar_date_from_days(days - (((days + 3) % 7) + 7) % 7).iso();  // 1970-01-01 was a Thursday
+    }
+    return {};
+}
 
 // The text of a catalog entry in the current language: its locale key translated, else the plain text, else the key.
 std::string localized(const std::string& text, const std::string& key, const PlatformServices::Translator& translate) {
@@ -248,6 +268,9 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         Json out = id_pair(l, be);
         out["name"] = localized(l.name, l.nameKey, c.translator);  // in the current language, for backends with no name of their own
         out["order"] = l.order;
+        out["period"] = l.period;  // the board of "periodKey" (the day, or the Monday of the week; "" for allTime) in "date"'s calendar
+        out["periodKey"] = period_key(l.period, c.today);
+        out["date"] = c.today.iso();
         if (method == "leaderboards.submit") {
             const double score = need_number(in, "score", "the score to submit");
             if (!is_whole(score))
@@ -323,6 +346,14 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         out["transactionId"] = tx;
         return out;
     }
+
+    if (method == "ads.available" || method == "ads.showRewarded") {
+        const auto& pl = lookup(cat.placements, need_string(in, "placement", "the id of an ad placement"), "an ad placement", "ads.placements",
+                                "{\"id\": \"more_time\"}");
+        Json out = Json::object({{"placement", pl.id}, {"adUnitId", pl.store_id(be)}, {"type", pl.type}});
+        return out;
+    }
+    if (method == "ads.consent") return Json::object();
 
     if (method == "overlay.open") {
         const std::string& page = need_string(in, "page", "\"achievements\", \"leaderboards\", \"friends\" or \"store\"");
@@ -400,6 +431,8 @@ struct PlatformSink::State {
     std::uint64_t nextId = 1;
     PlatformCatalog catalog;
     PlatformServices::Translator translator;
+    PlatformServices::DateSource dateSource;
+    bool release = false;
     std::string backendName = "none";
     std::vector<std::string> services;
 
@@ -611,6 +644,21 @@ void PlatformServices::set_catalog(PlatformCatalog catalog) {
     state_->catalog = std::move(catalog);
 }
 
+void PlatformServices::set_date_source(DateSource source) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->dateSource = std::move(source);
+}
+
+void PlatformServices::set_release(bool release) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->release = release;
+}
+
+bool PlatformServices::release() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->release;
+}
+
 void PlatformServices::set_translator(Translator translator) {
     std::lock_guard<std::mutex> lock(state_->mutex);
     state_->translator = std::move(translator);
@@ -671,7 +719,10 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         std::lock_guard<std::mutex> lock(s.mutex);
         backendName = s.backendName;
         try {
-            prepared = prepare(method, args, {s.catalog, s.backendName, s.transactions, s.translator});
+            CalendarDate today;
+            if (s.dateSource) today = s.dateSource();
+            else if (auto d = parse_calendar_date(kDefaultDate); d.ok()) today = d.value();
+            prepared = prepare(method, args, {s.catalog, s.backendName, s.transactions, s.translator, today});
         } catch (const Bad& b) {
             return make_error(b.message, b.hint);
         } catch (const Reject& r) {
@@ -686,6 +737,20 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         }
         out.id = s.nextId++;
         offered = info->service.empty() || contains(s.services, info->service);
+        // Only the fake keeps boards per period so far: the stores' recurring boards are M12's work.
+        if (offered && prepared.value("period", std::string("allTime")) != "allTime" && s.backendName != "fake") {
+            PlatformAnswer a;
+            a.id = out.id;
+            a.method = method;
+            a.ok = false;
+            a.error = {"unavailable",
+                       "platform." + method + " is not available: the " + in_quotes(s.backendName) + " backend has no " +
+                           prepared.value("period", std::string()) + " leaderboards yet",
+                       "Periods work with the fake backend (development, tests); the stores' recurring boards come with M12 "
+                       "(docs/PLATFORM.md, \"Leaderboard periods\"). Use \"period\": \"allTime\" or handle this rejection."};
+            out.answer = std::move(a);
+            return out;
+        }
         if (offered) {
             s.pending[out.id] = {method, prepared};
             s.startingId = out.id;
@@ -750,7 +815,7 @@ Json PlatformServices::info() const {
     std::lock_guard<std::mutex> lock(state_->mutex);
     Json services = Json::array();
     for (const std::string& s : state_->services) services.push_back(s);
-    return Json::object({{"backend", state_->backendName}, {"services", services}, {"player", state_->player}, {"pending", state_->pending.size()}});
+    return Json::object({{"backend", state_->backendName}, {"release", state_->release}, {"services", services}, {"player", state_->player}, {"pending", state_->pending.size()}});
 }
 
 void PlatformServices::reset_session() {

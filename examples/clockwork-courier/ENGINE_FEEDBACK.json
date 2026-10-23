@@ -695,10 +695,12 @@
       "suggestion": "A platform.ads service next to purchases: ads.available(placement), ads.showRewarded(placement) -> {rewarded}, ads.consent() (with the ATT/UMP sheets) and a platform.release boolean; the fake backend answers with a scripted test ad so games and tests share one path.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; the API, the catalog's placements, consent and platform.release with the fake backend are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; the real backends (Google UMP and AdMob, Apple ATT, the GDPR/COPPA screen) are M12's next package."
-      ]
+        "2026-10-22 triage: confirmed open; the API, the catalog's placements, consent and platform.release with the fake backend are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; the real backends (Google UMP and AdMob, Apple ATT, the GDPR/COPPA screen) are M12's next package.",
+        "2026-10-23: fixed in m26/ads-periods (M26.9): platform.ads (available, showRewarded, consent), the catalog's platform.ads.placements and platform.release; the fake shows a scripted test ad (game.platform.ad). scripts/ad_stub.js is gone, scripts/ads.js and more_time.js sit on platform.ads. The real networks (UMP, AdMob, ATT) are M12's next package."
+      ],
+      "engineIssue": "m26/ads-periods"
     },
     {
       "id": "FB-0029",
@@ -749,10 +751,12 @@
       "suggestion": "A `period` (daily, weekly) on a leaderboard that the backends map to their recurring boards, or leaderboards.submit(id, score, {suffix: date}).",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; periods in the catalog, the API and the fake are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; periods on the real store backends are M12's."
-      ]
+        "2026-10-22 triage: confirmed open; periods in the catalog, the API and the fake are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; periods on the real store backends are M12's.",
+        "2026-10-23: fixed in m26/ads-periods (M26.9): a leaderboard takes period allTime, daily or weekly; the fake keeps one board per game.today() day or week. daily_route is now period daily and services.js needs nothing else. Periods on the real stores are M12's."
+      ],
+      "engineIssue": "m26/ads-periods"
     },
     {
       "id": "FB-0031",

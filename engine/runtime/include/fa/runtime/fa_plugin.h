@@ -91,7 +91,8 @@ typedef struct FaFunctionDesc {
 typedef struct FaBackendDesc {
     const char* name;     /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
     const char* services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
-                           * "overlay","presence","integrity" (required) */
+                           * "overlay","presence","integrity","ads" (required; leave out
+                           * what it does not offer: the engine then answers "unavailable") */
     /* Starts one request: method is "achievements.unlock", "purchases.buy", ... and args_json its arguments, with the
      * store's own id for the entry in "storeId" (docs/PLATFORM.md lists every method). Answer req with resolve() or
      * reject() before or after returning, from any thread. Required. */

@@ -36,7 +36,7 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
          "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the "
          "backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, "
          "leaderboards: {id: best}, cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], "
-         "presence: {text, data}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, "
+         "presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, "
          "scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids "
          "included) and how it was answered: assert on it after game.step. Example: platform.state {}",
          schema(R"({"type":"object","properties":{}})"), true, "platform"},
@@ -116,6 +116,34 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
             auto r = need_fake(platform, "platform.revoke").revoke(id);
             if (!r.ok()) rethrow(r.error());
             return Json::object({{"productId", id}});
+        });
+
+    commands.add(
+        {"platform.set_ad",
+         "Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.",
+         "`outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): \"watched\" (the default: "
+         "{rewarded: true}), \"closedEarly\" ({rewarded: false, reason: \"closedEarly\"}), \"noFill\" (no ad: ads.available() is "
+         "false and showRewarded gives reason \"noFill\") or \"consentRefused\" (also sets gdpr and tracking to \"denied\"; "
+         "reason \"consentRefused\"). `gdpr` (\"granted\", \"denied\", \"notRequired\", \"unknown\") and `tracking` "
+         "(\"authorized\", \"denied\", \"notDetermined\", \"restricted\", \"notRequired\") are what ads.consent() answers; a "
+         "denied gdpr stops every ad. Give any of them. platform.state's fake.ads counts the ads shown and rewarded. Fails when "
+         "the game runs a real store backend. Example: platform.set_ad {\"outcome\":\"closedEarly\"}",
+         schema(R"({"type":"object","properties":{
+             "outcome":{"type":"string","enum":["watched","closedEarly","noFill","consentRefused"],"description":"How the next ads end."},
+             "gdpr":{"type":"string","enum":["granted","denied","notRequired","unknown"],"description":"What the GDPR (UMP) sheet answered."},
+             "tracking":{"type":"string","enum":["authorized","denied","notDetermined","restricted","notRequired"],"description":"What the tracking (ATT) sheet answered."}}})"),
+         false, "platform"},
+        [&platform](const Json& a) {
+            FakeBackend& fake = need_fake(platform, "platform.set_ad");
+            static const std::vector<std::string> known = {"outcome", "gdpr", "tracking"};
+            for (const auto& [key, value] : a.items()) {
+                if (std::find(known.begin(), known.end(), key) != known.end()) continue;
+                throw CommandError("invalid_argument", "platform.set_ad has no option " + Json(key).dump() + ".",
+                                   did_you_mean(key, known) + " Options: outcome, gdpr, tracking.");
+            }
+            auto r = fake.set_ad(a.value("outcome", std::string()), a.value("gdpr", std::string()), a.value("tracking", std::string()));
+            if (!r.ok()) rethrow(r.error());
+            return fake.state()["ads"];
         });
 
     commands.add(

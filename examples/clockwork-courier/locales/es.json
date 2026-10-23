@@ -313,9 +313,6 @@
     "retry": "Reintentar"
   },
   "ads": {
-    "testAd": "Anuncio de prueba",
-    "claim": "Recoger recompensa",
-    "skip": "Saltar",
     "moreTimeAd": {
       "one": "Ver un anuncio: {count} segundo más",
       "other": "Ver un anuncio: {count} segundos más"
