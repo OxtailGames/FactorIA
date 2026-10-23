@@ -1595,8 +1595,30 @@
     },
   };
 
+  // ---- nav: path finding on the baked NavMesh3D (docs/NAVIGATION.md) ----
+  const nav = {
+    // findPath(from, to, { radius, snap, closest, mesh }): { found, points: Vec3[], length, complete, mesh } or
+    // { found: false, reason, message, hint, nearest?, nearestDistance? }. Never throws for "no route".
+    findPath(from, to, o) {
+      const a = vecArr(from, 3, "nav.findPath(from, to) `from`"), b = vecArr(to, 3, "nav.findPath(from, to) `to`");
+      const args = { from: [a[0], a[1], a[2] ?? 0], to: [b[0], b[1], b[2] ?? 0] };
+      if (o) for (const k of ["radius", "snap", "closest", "mesh"]) if (o[k] !== undefined) args[k] = o[k];
+      const r = N.navFindPath(args);
+      const v = (p) => new Vec3(p[0], p[1], p[2]);
+      const out = { found: r.found, points: r.found ? r.points.map(v) : [], length: r.length ?? 0,
+                    complete: r.found ? r.complete : false, mesh: r.mesh };
+      if (!r.found) {
+        out.reason = r.reason; out.message = r.message; out.hint = r.hint;
+        if (r.nearest) { out.nearest = v(r.nearest); out.nearestDistance = r.nearestDistance; }
+      }
+      return out;
+    },
+    // bake(mesh?): bakes now (autoBake does it by itself) and returns the stats.
+    bake(mesh) { return N.navBake(mesh === undefined ? "" : String(mesh)); },
+  };
+
   const factoria = {
-    Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, screen, storage, rng, fa,
+    Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
     window: windowApi, tween, ease, cancelTweens,
   };

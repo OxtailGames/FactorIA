@@ -714,7 +714,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("friction", &Collider3D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider3D::restitution, "Bounciness: 0 = none, 1 = perfectly elastic.").range(0, 1)
         .field("layer", &Collider3D::layer, "Collision category of this collider, 0..31.").range(0, 31)
-        .field("mask", &Collider3D::mask, "Bitmask of layers this collider collides with. -1 = all layers.");
+        .field("mask", &Collider3D::mask, "Bitmask of layers this collider collides with. -1 = all layers.")
+        .field("navObstacle", &Collider3D::navObstacle,
+               "true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): "
+               "it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the "
+               "affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything "
+               "that moves or is removed during play; static level geometry needs nothing.");
 
     r.add<Joint3D>("Joint3D",
                    "Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a "
@@ -807,6 +812,55 @@ void register_builtin_components(TypeRegistry& r) {
         .read_only()
         .field("groundNormal", &CharacterController3D::groundNormal,
                "Runtime: the normal of the ground under the character after the last move (up when airborne).")
+        .runtime_only()
+        .read_only();
+
+    r.add<NavMesh3D>("NavMesh3D",
+                     "A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no "
+                     "RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or "
+                     "with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the "
+                     "ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least "
+                     "agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most "
+                     "stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the "
+                     "points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells "
+                     "it covers while it is there. The mesh is deterministic: the same colliders always give the same "
+                     "cells. See docs/NAVIGATION.md.",
+                     "Physics")
+        .field("size", &NavMesh3D::size,
+               "Size [x, y, z] in meters of the baked box, centred on the entity's world position; rotation and scale "
+               "are ignored. Cover the whole level: ground outside is not walkable and the box edge counts as a drop. "
+               "y must reach from below the lowest floor to above the highest head.")
+        .field("cellSize", &NavMesh3D::cellSize,
+               "Width of one cell on the ground plane, meters. Smaller = finer paths, more memory and a slower bake "
+               "(cells = x/cellSize * z/cellSize, at most 4 million). Walls thinner than half a cell can be missed.")
+        .range(0.05f, 10)
+        .field("cellHeight", &NavMesh3D::cellHeight,
+               "Heights are rounded to a multiple of this, meters; a path is up to half of it above or below the true "
+               "surface. Keep it at most stepHeight / 4.").range(0.01f, 5)
+        .field("agentRadius", &NavMesh3D::agentRadius,
+               "Radius in meters of the walker the mesh is made for: walkable cells stay this far from walls and "
+               "drops, so a body of that radius never touches them. findPath with a bigger radius is an error (bake "
+               "another NavMesh3D for the bigger agent).").range(0, 10)
+        .field("agentHeight", &NavMesh3D::agentHeight,
+               "Height in meters of the walker; ground with less free space above it (under a low ceiling or table) is "
+               "not walkable.").range(0.1f, 50)
+        .field("stepHeight", &NavMesh3D::stepHeight,
+               "Highest step in meters the walker climbs; a higher ledge is a wall. Match CharacterController3D.stepOffset.")
+        .range(0, 10)
+        .field("maxSlope", &NavMesh3D::maxSlope,
+               "Steepest walkable ground in degrees; steeper ground is a wall. Match CharacterController3D.slopeLimit.")
+        .range(0, 89)
+        .field("autoBake", &NavMesh3D::autoBake,
+               "true (default): bake when the scene loads and again when a static collider is added, moved or removed. "
+               "false: only the nav.bake command bakes (and a scene without a bake has no paths).")
+        .field("enabled", &NavMesh3D::enabled, "false = nav.findPath ignores this mesh (and it is not baked).")
+        .field("walkableCells", &NavMesh3D::walkableCells,
+               "Runtime: how many cells can be walked on after the last bake (read only).")
+        .runtime_only()
+        .read_only()
+        .field("regions", &NavMesh3D::regions,
+               "Runtime: how many separate walkable areas the last bake found; two points in different areas have no "
+               "path (read only).")
         .runtime_only()
         .read_only();
 

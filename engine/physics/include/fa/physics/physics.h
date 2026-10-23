@@ -85,6 +85,16 @@
 //     joint always turn (rotating rigid bodies) and never sleep; collideConnected=false (default) stops the pair from
 //     colliding. Jointed bodies are processed in creation order => deterministic. A joint that cannot be built (no body,
 //     itself, a connected entity without a body) is a teaching problem like a bad mesh collider.
+//   * NAVIGATION (NavMesh3D, nav.h): the STATIC 3D colliders inside the component's box (no RigidBody3D or a static one,
+//     not triggers, not Collider3D.navObstacle) are rasterised into a 2.5D grid of cellSize cells holding the walkable
+//     surfaces of each column: ground not steeper than maxSlope, with agentHeight of room above it, at least agentRadius
+//     from a wall or a drop (erosion by distance over the links), joined to the neighbour cells within stepHeight (8
+//     directions, no corner cutting). Boxes are covered exactly (any overlap of a cell counts, so thin walls are never
+//     missed); other shapes are sampled 3x3 per cell with vertical rays, so a wall thinner than half a cell can be
+//     missed. Baked by sync()/step() when a mesh has none or its static colliders changed (autoBake), or by nav_bake.
+//     Colliders with navObstacle are not baked: wherever they are now (checked every sync/step with a pose signature, only
+//     the cells they covered and cover are re-marked) they block the spans in reach of their footprint plus the radius.
+//     Searches are A* with total tie-breaks and string pulling: same input, same path.
 //   * 3D CHARACTER CONTROLLER (CharacterController3D): a kinematic capsule (radius, height, centre, stepOffset,
 //     slopeLimit degrees, skin) moved by Physics::move_character (script: physics.moveCharacter) or by its `velocity`
 //     field every step. Collide-and-slide: the capsule is swept like shape_cast3d, stops a skin short of what it hits
@@ -167,6 +177,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/physics/nav.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -261,6 +272,21 @@ public:
     // Problems found in the 3D colliders / joints / controllers (one teaching message each), e.g. a Mesh collider on a
     // dynamic body. The bodies concerned are ignored. Messages are also logged once and listed in debug_state.
     std::vector<std::string> problems3d() const;
+
+    // ----- navigation (NavMesh3D; see fa/physics/nav.h and docs/NAVIGATION.md)
+    // Bakes the NavMesh3D of entity `mesh` (an entity id; empty = every enabled NavMesh3D) from the static colliders as
+    // they are now; physics bodies are synced first. Meshes with autoBake bake by themselves when the scene loads and when a
+    // static collider changes, so a game rarely calls this. Errors teach (a box too big, no NavMesh3D, an unknown id).
+    Result<std::vector<NavBakeStats>> nav_bake(World& world, const std::string& mesh = "");
+    // Path on the walkable cells between two world points: A* over the cells, then string pulling so the points are few.
+    // A search that finds nothing is NOT an Error: it returns found = false with reason, message and hint. Errors are for
+    // a query that cannot be answered (no NavMesh3D, an unknown mesh id, a radius bigger than the mesh was baked for).
+    Result<NavPath> nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options = {});
+    // The walkable cells of every baked, enabled NavMesh3D (at most maxCells), for debug drawing. Bakes a mesh that has
+    // none yet (autoBake) or whose static colliders changed.
+    std::vector<NavCell> nav_cells(World& world, std::size_t maxCells = 200000);
+    // Meshes and their state: bounds, parameters, baked stats, whether the static colliders changed since the bake.
+    Json nav_info(World& world);
 
     // ----- direct body control (applied immediately if the body exists)
     void apply_impulse(World& world, Entity e, Vec3 impulse);  // 2D uses x,y

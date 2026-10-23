@@ -225,6 +225,22 @@ void Editor::draw_viewport() {
             }
         });
     }
+    if (showNav_ && !primary_is_ortho()) {
+        // Walkable cells of the NavMesh3D (docs/NAVIGATION.md). While the user drags something the previous cells are kept:
+        // the mesh rebakes by itself when the colliders move and that is not wanted on every mouse move.
+        if (!(io.MouseDown[0] && play_ != PlayState::Playing)) {
+            if (play_ != PlayState::Playing) engine_->physics().sync(w);
+            navCells_ = engine_->physics().nav_cells(w, 20000);
+        }
+        for (const NavCell& c : navCells_) {
+            const float h = c.size * 0.5f;
+            const ImVec2 q[4] = {to_vp(r->world_to_screen(Vec3{c.center.x - h, c.center.y, c.center.z - h})),
+                                 to_vp(r->world_to_screen(Vec3{c.center.x + h, c.center.y, c.center.z - h})),
+                                 to_vp(r->world_to_screen(Vec3{c.center.x + h, c.center.y, c.center.z + h})),
+                                 to_vp(r->world_to_screen(Vec3{c.center.x - h, c.center.y, c.center.z + h}))};
+            dl->AddConvexPolyFilled(q, 4, c.blocked ? IM_COL32(255, 70, 60, 90) : IM_COL32(60, 220, 120, 70));
+        }
+    }
     Entity sel = selected();
     if (showOverlay_ && !sel.is_null()) {
         const ImU32 col = IM_COL32(255, 205, 60, 255);
