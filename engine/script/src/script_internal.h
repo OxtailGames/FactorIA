@@ -160,6 +160,11 @@ struct ScriptSystem::Impl {
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;
 
+    // ---- tests: a quit request sets a flag instead of stopping the run; game.setSystemLanguages() fakes the device languages
+    bool testQuitRequested = false;
+    std::vector<std::string> testSystemLanguages;
+    void request_quit();  // the host's quit, except in a test run, where it only sets testQuitRequested
+
     // ---- game.device: game.setDevice() in tests overrides some of the host's values
     Json testDevice = Json::object();
 

@@ -1363,6 +1363,11 @@ test where a guard reaches the player around a wall; the bake is the same on eve
 
 ### M26.11 Test API gaps (M) — CC/FB-0005, CC/FB-0006, CC/FB-0018, CC/FB-0026, CC/FB-0038, CC/FB-0044
 
+Done (branch `m26/test-api`): `game.mouseDown/mouseUp/wheel`, `game.resetState`, `game.quitRequested` (a quit in a test
+only sets it; Back that nobody consumes too), `game.setSystemLanguages`, `checkHooks` counts arguments (`start(seconds)`
+is a method, `update(dt)` still warns), SCRIPTING.md on `scene.load` vs `game.load`; tests in
+`engine/script/tests/test_test_api.cpp`.
+
 Not at the same time as M26.3 (the same `factoria:test` object in factoria.js).
 - `game.mouseDown(button)`, `game.mouseUp(button)` and `game.wheel(dy)` (the natives exist), so drag and zoom can be
   tested.

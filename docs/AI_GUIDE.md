@@ -367,7 +367,7 @@ Timing you can rely on:
 - The behaviour object exists as soon as its entity does: right after `world.spawn`, `spawnPrefab`, a scene load or `game.load`. So `world.spawn(...).behaviour` and `game.find("id").behaviour` are usable at once. `onStart()` runs at the start of the next step. This holds for inactive entities too (`behaviour` of a panel spawned with `active: false` is its instance); their hooks run when they are first activated.
 - Physics bodies are created by the first physics step. In the first `onFixedUpdate` after a spawn or a load, `physics.raycast` finds nothing and `isTouching` is false. Skip the first two fixed steps before you probe (section 9.14).
 - `Script.props` keys that are not fields of the class are reported once (in the log and by `factoria validate`), with a "did you mean" hint. Declare every tunable as a class field.
-- Hooks are called by their exact names (`onStart`, `onUpdate`, ...). A method named `start()`, `update()` or `onupdate()` is never called; it is reported once (in the log and by `factoria validate`) with a "did you mean".
+- Hooks are called by their exact names (`onStart`, `onUpdate`, ...). A method named `start()`, `update()` or `onupdate()` (no arguments) is never called; it is reported once (in the log and by `factoria validate`) with a "did you mean".
 
 Inside a behaviour: `this.entity` (the owning entity), `this.world`, `this.after(seconds, fn)` and `this.every(seconds, fn)` (timers that stop when the entity is destroyed; both return a handle with `.cancel()`), `this.on(name, fn)` (an event listener), and `this.enabled` (false skips the update callbacks).
 
