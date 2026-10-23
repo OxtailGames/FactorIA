@@ -166,6 +166,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`platform.emit`](commands/platform.md#platformemit-modifies-state): Send an event to the game as the store would: a purchase, the overlay opening or closing, a sign-in change. _Since 0.2.0._
 - [`platform.reset`](commands/platform.md#platformreset-modifies-state): Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log. _Since 0.2.0._
 - [`platform.respond`](commands/platform.md#platformrespond-modifies-state): Script the next answer(s) the fake platform backend gives to a method: an error, an exact result, or a change to the default. _Since 0.2.0._
+- [`platform.revoke`](commands/platform.md#platformrevoke-modifies-state): Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would. _Not released yet._
 - [`platform.set_fake`](commands/platform.md#platformset_fake-modifies-state): Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers. _Since 0.2.0._
 - [`platform.state`](commands/platform.md#platformstate): Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds. _Since 0.2.0._
 

@@ -1677,6 +1677,18 @@ Script the next answer(s) the fake platform backend gives to a method: an error,
 | `answer` | object | yes | {error, message?, hint?} \| {result} \| an object merged into the default result. |
 | `times` | integer | no | How many requests get this answer. Default 1. |
 
+### `platform.revoke` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.
+
+The product leaves purchases.restore() and its unfinished transaction is dropped; the game gets a "purchase" event {status: "revoked", productId, transactionId, receipt} at the start of the next frame (game.step), which platform.on("purchase", fn) listeners receive. Fails when the player owns no such product (the message lists the owned ones) or when the game runs a real store backend. Example: platform.revoke {"productId":"remove_ads"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `productId` | string | yes | The catalog id of the product to take back, e.g. "remove_ads". |
+
 ### `platform.set_fake` (modifies state)
 
 Since 0.2.0.
@@ -3608,9 +3620,9 @@ declare module "factoria" {
    */
   export interface PlatformPurchase {
     /**
-     * purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
+     * revoked (only in a "purchase" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
      */
-    readonly status: "purchased" | "pending" | "cancelled";
+    readonly status: "purchased" | "pending" | "cancelled" | "revoked";
     /**
      * The catalog id of the product (as in factoria.json platform.products).
      */
@@ -3774,7 +3786,7 @@ declare module "factoria" {
      */
     buy(id: string): Promise<PlatformPurchase>;
     /**
-     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore().
+     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore(). A transaction the game was not told about (or finished already) rejects with code "unknownId".
      */
     finish(transactionId: string): Promise<void>;
     /**
@@ -7010,6 +7022,10 @@ declare module "factoria:test" {
      * Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased "purchase" also records an unfinished transaction.
      */
     emit(event: "purchase" | "overlay" | "player", data?: Json): void;
+    /**
+     * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
+     */
+    revoke(productId: string): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */

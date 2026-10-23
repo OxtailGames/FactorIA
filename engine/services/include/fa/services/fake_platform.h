@@ -38,6 +38,10 @@ public:
     // Sends an event to the game as the store would. A "purchase" with status "purchased" also records an unfinished
     // transaction (missing transactionId / receipt are made up).
     Result<void> emit(const std::string& event, const Json& data);
+    // Takes a purchase back, as a refund does: the product leaves restore() (and its unfinished transaction is dropped), and
+    // the game gets the "purchase" event a real backend sends: {status: "revoked", productId, transactionId, receipt}. A
+    // product the player does not own (and no unfinished transaction of it) is an error naming the owned ones.
+    Result<void> revoke(const std::string& productId);
     // Fresh state: signed in, no delay, nothing scripted, nothing unlocked or bought, an empty request log; transactions
     // and integrity tokens are numbered from 1 again.
     void reset();

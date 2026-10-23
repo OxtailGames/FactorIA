@@ -56,6 +56,18 @@ Script the next answer(s) the fake platform backend gives to a method: an error,
 | `answer` | object | yes | {error, message?, hint?} \| {result} \| an object merged into the default result. |
 | `times` | integer | no | How many requests get this answer. Default 1. |
 
+## `platform.revoke` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.
+
+The product leaves purchases.restore() and its unfinished transaction is dropped; the game gets a "purchase" event {status: "revoked", productId, transactionId, receipt} at the start of the next frame (game.step), which platform.on("purchase", fn) listeners receive. Fails when the player owns no such product (the message lists the owned ones) or when the game runs a real store backend. Example: platform.revoke {"productId":"remove_ads"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `productId` | string | yes | The catalog id of the product to take back, e.g. "remove_ads". |
+
 ## `platform.set_fake` (modifies state)
 
 Since 0.2.0.

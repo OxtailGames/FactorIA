@@ -124,6 +124,38 @@ Result<void> FakeBackend::emit(const std::string& event, const Json& data) {
     return {};
 }
 
+Result<void> FakeBackend::revoke(const std::string& productId) {
+    if (!sink_.alive()) return make_error("platform.revoke: the fake backend is not attached to a running game", "Use it through an Engine.");
+    Transaction taken;
+    bool found = false;
+    if (const auto it = owned_.find(productId); it != owned_.end()) {
+        taken = it->second;
+        owned_.erase(it);
+        found = true;
+    }
+    for (auto it = unfinished_.begin(); it != unfinished_.end();) {
+        if (it->productId != productId) {
+            ++it;
+            continue;
+        }
+        if (!found) taken = *it;  // a consumable that was bought and not finished yet
+        found = true;
+        it = unfinished_.erase(it);
+    }
+    if (!found) {
+        std::vector<std::string> have;
+        for (const auto& [pid, t] : owned_) have.push_back(pid);
+        const std::string best = did_you_mean(productId, have);
+        std::string hint = best;
+        if (have.empty()) hint += (hint.empty() ? "" : " ") + std::string("Nothing is owned: buy it first with platform.purchases.buy().");
+        else hint += (hint.empty() ? "" : " ") + std::string("Owned: ") + join(have, ", ") + ".";
+        return make_error("platform.revoke: " + in_quotes(productId) + " is not owned and has no unfinished purchase", hint);
+    }
+    sink_.emit("purchase", Json::object({{"status", "revoked"}, {"productId", productId}, {"transactionId", taken.transactionId},
+                                         {"receipt", taken.receipt}}));
+    return {};
+}
+
 // ----------------------------------------------------------------------------------------------------- requests ----
 Json* FakeBackend::log_entry(std::uint64_t seq) {
     if (log_.empty()) return nullptr;
