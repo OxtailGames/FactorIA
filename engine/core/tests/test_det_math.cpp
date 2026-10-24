@@ -84,6 +84,11 @@ TEST_CASE("det math: exact bit patterns") {
         {"atan2(-3, -0.25)", fa::det::atan2(-3.0f, -0.25f), 0xbfd3b43au},
         {"asin(0.3)", fa::det::asin(0.3f), 0x3e9c00adu},
         {"acos(-0.8)", fa::det::acos(-0.8f), 0x401fe0bbu},
+        // The sign of zero too: the replay hash feeds raw bits, and asin(-0) once gave +0 with Clang, -0 with MSVC.
+        {"asin(-0)", fa::det::asin(-0.0f), 0x80000000u},
+        {"asin(+0)", fa::det::asin(0.0f), 0x00000000u},
+        {"atan2(-0, 2)", fa::det::atan2(-0.0f, 2.0f), 0x80000000u},
+        {"atan2(+0, 2)", fa::det::atan2(0.0f, 2.0f), 0x00000000u},
     };
     for (const Case& c : cases) {
         INFO(c.what << " = 0x" << std::hex << bits_of(c.got));

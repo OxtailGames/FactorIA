@@ -73,13 +73,15 @@ inline float sin(float x) { float s, c; sin_cos(x, s, c); return s; }
 inline float cos(float x) { float s, c; sin_cos(x, s, c); return c; }
 
 namespace detail {
-// atan2 in double: the angle of (x, y) in [-pi, pi]. (0, 0) gives 0.
+// atan2 in double: the angle of (x, y) in [-pi, pi]. (0, 0) gives 0; y = -0 gives -0 (or -pi), like std::atan2.
+// The magnitudes use std::fabs, never `v < 0 ? -v : v`: that keeps -0 negative, and MSVC (even with /fp:precise) turns
+// it into fabs anyway, so asin(-0) came out +0 on one compiler and -0 on the other (the replay hash test caught it).
 inline double atan2_d(double yd, double xd) {
     if (yd == 0.0 && xd == 0.0) return 0.0;
-    const double ay = yd < 0 ? -yd : yd, ax = xd < 0 ? -xd : xd;
+    const double ay = std::fabs(yd), ax = std::fabs(xd);
     double a = ax == 0.0 ? 1.5707963267948966 : atan_pos(ay / ax);
     if (xd < 0.0) a = kPiD - a;
-    return (yd < 0.0 || (yd == 0.0 && std::signbit(yd))) ? -a : a;
+    return std::signbit(yd) ? -a : a;
 }
 inline double clamp_unit(float x) { return x < -1.0f ? -1.0 : (x > 1.0f ? 1.0 : double(x)); }
 }  // namespace detail
