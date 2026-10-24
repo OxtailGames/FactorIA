@@ -157,6 +157,17 @@ bool UiSystem::Repeat::tick(bool pressed, bool down, float dt) {
     return true;
 }
 
+float UiSystem::set_slider(World& w, Entity e, float value) {
+    Slider& s = *w.get<Slider>(e);
+    set_focus(w, e);
+    const float v = snap_slider(s, value);
+    if (v != s.value) {
+        s.value = v;
+        emit(w, "ui.change", e, to_json(s.value));
+    }
+    return s.value;
+}
+
 void UiSystem::reset() {
     focus_ = hover_ = press_ = kNullEntity;
     scrollToFocus_ = false;

@@ -512,7 +512,8 @@ entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the one
 - Button, Toggle, Slider and TextField also have `font`, `fontSize`, `textColor`, `accentColor` (focus ring, slider fill
   and knob, toggle check, caret), `interactable` (false: drawn at half alpha, never focused or clicked) and
   `autoFocus`. Read-only runtime flags: `focused`, `hovered`, `pressed` (a script may read them to restyle).
-  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`; TextField
+  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`, `format` (`"{v:1}x"`, `"{percent}%"`; see
+  the field's doc) and `formatKey`; TextField
   `text`, `placeholder`, `maxLength`.
 - **Layout.** A `Panel` with `layout: "column" | "row" | "grid"` places its active children (widgets, and screen-space
   `Text`, `Sprite` and `Shape2D`) inside its rectangle minus `padding`: `spacing` between them, `align` (the cross axis:
@@ -768,7 +769,10 @@ i18n.setLanguage("es");                                   // everything with a k
 const off = i18n.on("change", (e) => redraw(e.language)); // after every switch; ends with the scene, like ui.on
 ```
 
-Members: `t(key, args?)`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
+`i18n.number(1234.5)` ("1,234.5", "1234,5" in Spanish) and `i18n.duration(83.4)` ("1:23.4") write numbers and times the
+way the current language does.
+
+Members: `t(key, args?)`, `number(v, {decimals?})`, `duration(seconds, {decimals?})`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
 `name(tag)`, `on("change", fn)`. Every test file starts in `defaultLanguage`. All of it, the string tables and how the
 start language is chosen: [LOCALIZATION.md](LOCALIZATION.md).
 
@@ -883,6 +887,12 @@ test("the stick moves the player", () => {
 ```
 
 Bad button or axis names and indices outside 0..3 throw with a "did you mean".
+
+`game.setSlider("music_volume", 0.5)` drags a Slider to a value the way a player does: the value is clamped to `min`..`max` and
+snapped to `step`, the slider takes focus and `ui.change` `{ id, value }` is sent (nothing when it already had that value). It
+throws for an entity that is no Slider, or is inactive or not interactable. Writing `slider.value = 0.5` from a script is
+different: it changes the value and sends NO `ui.change` (the same for a Toggle's `value` and a TextField's `text`), so a test
+that wants the game's `ui.on("change", ...)` code to run uses `game.setSlider`. The same thing is the `ui.set_slider` command.
 
 Options-menu tests: `game.typeText("héllo")` types characters (what `input.text` returns for the next step; control
 characters are skipped) and `game.gamepad(i).setType("playstation")` plugs the pad in as that family, so

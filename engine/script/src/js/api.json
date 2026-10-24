@@ -2285,6 +2285,14 @@
        "doc": "The text of `key` in the current language, else in its base language (\"pt\" for \"pt-BR\"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws."
       },
       {
+       "sig": "number(value: number, options?: { decimals?: number }): string",
+       "doc": "`value` written the way the current language writes numbers: decimal and group separators and digits from the engine's table (en \"1,234.5\", es \"1234,5\" and \"12.345,5\", de \"1.234,5\", fr \"1 234,5\" with a narrow no-break space, ar Arabic-Indic digits \"١٬٢٣٤٫٥\"). `decimals` (0 to 9) fixes the digits after the separator; without it the number keeps the digits it has. A language the table does not know writes like English; a game without localization is English. Same as the `{v:number:1}` placeholder of a string table. Throws for a value that is not a number or decimals out of range."
+      },
+      {
+       "sig": "duration(seconds: number, options?: { decimals?: number }): string",
+       "doc": "`seconds` as a time in the current language: \"1:23.4\" for 83.4 (minutes:seconds), \"1:02:03.4\" from one hour on. `decimals` (0 to 3, default 1) are the digits of the second; the decimal separator and the digits follow the language (es \"1:23,4\", ar \"١:٢٣٫٤\"). Rounded as a whole, so 59.96 is \"1:00.0\". Same as the `{t:duration}` placeholder of a string table."
+      },
+      {
        "sig": "has(key: string): boolean",
        "doc": "True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one."
       },
@@ -2458,7 +2466,7 @@
      "kind": "const",
      "name": "i18n",
      "type": "I18nAPI",
-     "doc": "Localization: t(key, args), language, setLanguage, languages, systemLanguages, on(\"change\") (docs/LOCALIZATION.md)."
+     "doc": "Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on(\"change\") (docs/LOCALIZATION.md)."
     },
     {
      "kind": "interface",
@@ -3195,6 +3203,10 @@
       {
        "sig": "typeText(text: string): void",
        "doc": "Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap()."
+      },
+      {
+       "sig": "setSlider(id: string, value: number): void",
+       "doc": "Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable."
       },
       {
        "sig": "pressBack(): void",
