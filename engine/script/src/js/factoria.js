@@ -473,8 +473,8 @@
     destroy() { if (N.alive(this.$h)) N.destroy(this.$h); }
     get parent() { return entityOf(N.parent(this.$h)); }
     get children() { return N.children(this.$h).map(entityOf); }
-    setParent(parent, keepWorld = false) {
-      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld);
+    setParent(parent, keepWorld = false, index = undefined) {
+      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld, index);
     }
     hasTag(t) { return N.hasTag(this.$h, t); }
     addTag(t) { N.addTag(this.$h, t); }
@@ -775,16 +775,22 @@
   // The lifecycle methods the engine calls by name (script_behaviours.cpp, script_system.cpp).
   const HOOKS = ["onStart", "onEnable", "onDisable", "onUpdate", "onFixedUpdate", "onLateUpdate", "onDestroy",
     "onCollisionEnter", "onCollisionExit", "onTriggerEnter", "onTriggerExit", "onEvent"];
+  const HOOK_ARGS = { onStart: 0, onEnable: 0, onDisable: 0, onUpdate: 1, onFixedUpdate: 1, onLateUpdate: 1, onDestroy: 0,
+    onCollisionEnter: 2, onCollisionExit: 1, onTriggerEnter: 1, onTriggerExit: 1, onEvent: 3 };
   // Methods that were meant to be hooks but are never called: a hook without its `on` (update, fixedUpdate, Start) or a
   // near-miss of a name that starts with `on` (onupdate, onStrat). Helpers (loadLevel, clickCell) are not near a hook.
   function checkHooks(Cls) {
     if (!isBehaviourClass(Cls)) return [];
     const out = [];
     for (const m of Object.getOwnPropertyNames(Cls.prototype)) {
-      if (HOOKS.includes(m) || typeof Object.getOwnPropertyDescriptor(Cls.prototype, m).value !== "function") continue;
-      const hook = HOOKS.find((h) => h.toLowerCase() === "on" + m.toLowerCase()) ||
-        (/^on/i.test(m) ? closest(m, HOOKS) : "");
-      if (hook) out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
+      const fn = Object.getOwnPropertyDescriptor(Cls.prototype, m).value;
+      if (HOOKS.includes(m) || typeof fn !== "function") continue;
+      const bare = HOOKS.find((h) => h.toLowerCase() === "on" + m.toLowerCase());
+      const hook = bare || (/^on/i.test(m) ? closest(m, HOOKS) : "");
+      // A hook-without-`on` is only a lookalike when it takes no more arguments than the hook: start(seconds) is a method of
+      // the game (onStart takes none), update(dt) is a misspelt onUpdate(dt).
+      if (!hook || (bare && fn.length > HOOK_ARGS[bare])) continue;
+      out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
         `(did you mean '${hook}()'?). Rename it to ${hook}, or give a helper a name that is not close to a hook.`);
     }
     return out;
@@ -856,12 +862,13 @@
     spawn(entityJson, opts = {}) {
       const parent = opts && opts.parent ? entityHandle(opts.parent, "world.spawn parent") : null;
       const j = applySpawnOptions(entityPlain(entityJson), opts || {}, "world.spawn");
-      return entityOf(N.spawn(j, parent));
+      return entityOf(N.spawn(j, parent, opts && opts.index));
     },
     spawnPrefab(path, opts = {}) {
       const ov = applySpawnOptions(opts.overrides ? entityPlain(opts.overrides) : {}, opts, "world.spawnPrefab");
+      if (opts.childOverrides !== undefined) ov.overrides = plain(opts.childOverrides);
       const parent = opts.parent ? entityHandle(opts.parent, "world.spawnPrefab parent") : null;
-      return entityOf(N.spawnPrefab(path, parent, ov));
+      return entityOf(N.spawnPrefab(path, parent, ov, opts.index));
     },
     emit(name, data, source) { N.emit(name, data === undefined ? null : plain(data), source instanceof Entity ? source.$h : null); },
     on(name, fn) { return addListener(name, fn, null); },
@@ -987,6 +994,30 @@
       }
       winSet("frameCap", 3, fps);
     },
+    // Resolution of the picture as a fraction of the window: 1 (default) draws at full size, 0.5 at half the width and height
+    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. Works in every run with graphics,
+    // headless tests included (game.screenshot then has that size); a run without a renderer only remembers the value.
+    get renderScale() { return N.renderScaleGet(); },
+    set renderScale(v) {
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.5 || v > 1) {
+        throw new Error(`window.renderScale expects a number from 0.5 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
+      }
+      const err = N.renderScaleSet(v);
+      if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
+    },
+    // supports("frameCap" | "renderScale" | "fullscreen" | "resize"): whether this run can do it, so an options menu hides what a
+    // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
+    // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
+    // with a "did you mean".
+    supports(feature) {
+      const names = ["frameCap", "renderScale", "fullscreen", "resize"];
+      if (!names.includes(feature)) {
+        const sug = typeof feature === "string" ? closest(feature, names) : "";
+        throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
+      }
+      if (feature === "renderScale") return true;
+      return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
+    },
   };
 
   const audio = {
@@ -1106,7 +1137,73 @@
     sphere(center, r, c) { const p = vecArr(center, 3, "debug.sphere(center, r) `center`"); N.debugDraw(5, p[0], p[1], p[2], r, colorArg(c)); },
   };
 
+  // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp
+  // dispatch_platform -> preloadDeliver). The numbers only change between frames, so a script sees the same values in a test
+  // on any machine.
+  const preloadJobs = new Map();  // job id -> handle state
+  class Preload {
+    constructor(id, label) {
+      this.$id = id;
+      this.$label = label;
+      this.$progress = 0; this.$done = false; this.$files = 0; this.$bytes = 0; this.$error = "";
+      this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
+      this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
+    }
+    /** How much of the work is done, 0..1. Grows by whole files; 1 when `done`. */
+    get progress() { return this.$progress; }
+    /** True once everything is read (or the job failed: see `error`). */
+    get done() { return this.$done; }
+    /** Files read so far (the scene counts as one). */
+    get files() { return this.$files; }
+    /** Bytes read so far. */
+    get bytes() { return this.$bytes; }
+    /** Why the job failed, or "". */
+    get error() { return this.$error; }
+    /** Gives the files that nobody has read yet back (and stops a job that is still running; its Promise rejects). */
+    release() {
+      N.preloadRelease(this.$id);
+      preloadJobs.delete(this.$id);
+      if (!this.$done) { this.$done = true; this.$error = "released before it finished"; this.$reject(new Error(`${this.$label}: ${this.$error}`)); }
+    }
+  }
+  function preloadStart(kind, arg, label) {
+    const r = N.preloadStart(kind, arg);
+    if (r.mistake) {
+      const e = new Error(r.mistake.message);
+      e.hint = r.mistake.hint || "";
+      throw e;
+    }
+    const h = new Preload(r.id, label);
+    preloadJobs.set(r.id, h);
+    return h;
+  }
+  function preloadDeliver(updates) {
+    for (const u of updates) {
+      const h = preloadJobs.get(u.id);
+      if (!h) continue;
+      h.$progress = u.total > 0 ? Math.min(1, u.done / u.total) : 1;
+      h.$files = u.done; h.$bytes = u.bytes;
+      if (!u.finished) continue;
+      preloadJobs.delete(u.id);
+      h.$done = true;
+      if (u.error) {
+        h.$error = u.error;
+        const e = new Error(`${h.$label} failed: ${u.error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
+        e.hint = u.hint || "";
+        h.$reject(e);
+      } else {
+        h.$progress = 1;
+        h.$resolve({ files: h.$files, bytes: h.$bytes });
+      }
+    }
+  }
+  function preloadReset() { preloadJobs.clear(); }
+
   const scene = {
+    preload(path) {
+      if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
+      return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
+    },
     load(path) { N.requestScene(path); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
@@ -1143,6 +1240,11 @@
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
       return addListener("app." + event, () => fn(), null);
     },
+    // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
+    // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
+    // "low" | "medium" | "high" from the graphics backend and the memory }. Headless runs and tests always read
+    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } (tests change it with game.setDevice).
+    get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     get platform() { return N.platform(); },
@@ -1227,7 +1329,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1332,6 +1434,12 @@
   };
 
   const assets = {
+    // Reads the files ahead of time, a few per frame: returns a handle { progress, done, promise, ... } like scene.preload.
+    preload(paths) {
+      if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || p === ""))
+        throw new Error(`assets.preload(paths) expects a non-empty array of project paths such as ["assets/hero.glb", "assets/theme.ogg"], got ${inspect(paths)}`);
+      return preloadStart(1, paths, `assets.preload([${paths.length} files])`);
+    },
     // Pixel size { width, height } of the texture file at `path` (project-relative), as the renderer and entity.bounds() see it.
     // 32 x 32 (the missing-texture checker) when the file is missing or unreadable.
     textureSize(path) {
@@ -1578,6 +1686,29 @@
       if (args !== undefined && (!isObj(args) || Array.isArray(args)))
         throw new Error(`i18n.t("${key}", args): args must be an object like { count: 3, name: "Ana" }, but got ${platformArg(args)}`);
       return N.i18nT(key, args === undefined ? {} : plain(args));
+    },
+    // number(value, { decimals? }): the number written the way the current language writes it ("1,234.5", "1.234,5", "١٬٢٣٤٫٥"):
+    // `decimals` digits after the separator (0-9; default: as many as the number has).
+    number(value, options) {
+      if (typeof value !== "number")
+        throw new Error(`i18n.number(value, { decimals }): value must be a number like 1234.5, but got ${platformArg(value)}`);
+      if (options !== undefined && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`i18n.number(${value}, options): options must be an object like { decimals: 1 }, but got ${platformArg(options)}`);
+      const decimals = options && options.decimals !== undefined ? options.decimals : -1;
+      if (decimals !== -1 && (!Number.isInteger(decimals) || decimals < 0 || decimals > 9))
+        throw new Error(`i18n.number(${value}, { decimals }): decimals must be a whole number from 0 to 9, but got ${platformArg(decimals)}`);
+      return N.i18nNumber(value, decimals);
+    },
+    // duration(seconds, { decimals? }): seconds as a time, "1:23.4" ("h:mm:ss.d" from an hour), `decimals` 0-3 (default 1).
+    duration(seconds, options) {
+      if (typeof seconds !== "number")
+        throw new Error(`i18n.duration(seconds, { decimals }): seconds must be a number like 83.4, but got ${platformArg(seconds)}`);
+      if (options !== undefined && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`i18n.duration(${seconds}, options): options must be an object like { decimals: 0 }, but got ${platformArg(options)}`);
+      const decimals = options && options.decimals !== undefined ? options.decimals : 1;
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 3)
+        throw new Error(`i18n.duration(${seconds}, { decimals }): decimals must be a whole number from 0 to 3, but got ${platformArg(decimals)}`);
+      return N.i18nDuration(seconds, decimals);
     },
     // Is `key` in some table of the current language's fallback chain? (t never throws; has tells a real string from the key.)
     has(key) { return N.i18nHas(String(key)); },
@@ -1888,6 +2019,13 @@
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
+    // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change
+    // {id, value} is sent when the number changed (to ui.on listeners at the next step). Writing Slider.value from a script
+    // sends nothing; this does. Throws when the entity is no Slider, or is inactive or not interactable.
+    setSlider(id, value) {
+      if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`game.setSlider(id, value) expects a number, but got ${inspect(value)}`);
+      fa.call("ui.set_slider", { id: typeof id === "string" ? id : (id && id.id) || String(id), value });
+    },
     // Types text as a keyboard would: input.text shows it until the next step. Control characters are skipped, like the
     // real keyboard does; send Enter and Backspace with keyDown/keyUp.
     typeText(text) { for (const ch of String(text)) { const cp = ch.codePointAt(0); if (cp >= 32 && cp !== 127) N.testText(cp); } },
@@ -1910,6 +2048,36 @@
     // Presses the system Back button (Android). The input.onBack handlers run at the next step(); when none consumes it the
     // game asks to quit (game.quitRequested in game.state()).
     pressBack() { N.testBack(); },
+    // True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test
+    // run never stops because of it; the flag is cleared before each test.
+    get quitRequested() { return N.testQuit(false); },
+    // Pretends the device's languages are these (BCP 47 tags, best first): i18n.systemLanguages answers them, so the game's
+    // first-run language choice can be tested. Empty list = no system language. Reset (empty) before every test.
+    setSystemLanguages(list) {
+      if (!Array.isArray(list) || list.some((t) => typeof t !== "string" || !t))
+        throw new Error(`game.setSystemLanguages(list) expects an array of language tags like ["es-ES", "en"], but got ${inspect(list)}`);
+      N.testSystemLanguages(list.slice());
+    },
+    // Resets what tests of one file share: { storage = true, platform = true }. storage clears the save data (what storage.get
+    // sees) and any game.setStorageText text; platform runs platform.reset (nothing bought, unlocked or scripted, signed in, no
+    // leaderboard scores) and puts the test ad and consent answers back. Each test file already starts clean.
+    resetState(options) {
+      const o = options === undefined ? {} : options;
+      if (!isObj(o)) throw new Error(`game.resetState(options) expects { storage?: boolean, platform?: boolean }, but got ${inspect(options)}`);
+      for (const k of Object.keys(o)) {
+        if (k === "storage" || k === "platform") {
+          if (typeof o[k] !== "boolean") throw new Error(`game.resetState: ${k} must be true or false, but got ${inspect(o[k])}`);
+          continue;
+        }
+        const sug = closest(k, ["storage", "platform"]);
+        throw new Error(`game.resetState: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use storage and platform.`);
+      }
+      if (o.storage !== false) { N.testStorageText(null); N.storageClear(); }
+      if (o.platform !== false) {
+        try { fa.call("platform.reset"); fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); }
+        catch (e) { /* a real backend: nothing to reset */ }
+      }
+    },
     // Pretends the player's system has these accessibility settings: game.accessibility follows. Keys left out keep their
     // default (textScale 1, the others false). textScale is clamped to 0.5 - 4. Reset to the defaults before every test.
     setAccessibility(settings) {
@@ -1945,10 +2113,21 @@
     // The pulses input.vibrate() asked for since the test started (cleared before each test), in seconds, oldest first.
     vibrations() { return N.testVibrations(); },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },
+    // Holds a mouse button ("left", "right" or "middle") until mouseUp: input.mouse.down(button) follows.
+    mouseDown(button = "left") { N.inMouseEvent(button, true); },
+    mouseUp(button = "left") { N.inMouseEvent(button, false); },
+    // Turns the wheel by dy for the next frame (input.mouse.wheel; positive = away from the player), like a real notch.
+    wheel(dy) {
+      if (typeof dy !== "number" || !Number.isFinite(dy)) throw new Error(`game.wheel(dy) expects a number of wheel notches, e.g. game.wheel(1), but got ${inspect(dy)}`);
+      N.inWheel(dy);
+    },
     click(p, button = "left") {
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
     },
+    // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
+    // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
+    fileReads() { return N.testDiskReads(); },
     loadJson(scene) {
       const err = N.testLoadJson(plain(scene));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
@@ -1963,8 +2142,34 @@
     find(idOrName) { return world.find(idOrName); },
     get world() { return world; },
     get time() { return time; },
+    // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
+    // { formFactor, gpuBackend, memoryGB, tier }; one left out keeps the headless value. Reset before every test.
+    setDevice(overrides) {
+      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier"];
+      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
+      for (const k of Object.keys(overrides)) {
+        if (keys.includes(k)) continue;
+        const sug = closest(k, keys);
+        throw new Error(`game.setDevice: unknown field '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+      }
+      const forms = ["desktop", "phone", "tablet"], tiers = ["low", "medium", "high"];
+      if (overrides.formFactor !== undefined && !forms.includes(overrides.formFactor)) throw new Error(`game.setDevice: formFactor must be one of ${forms.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.formFactor)}`);
+      if (overrides.tier !== undefined && !tiers.includes(overrides.tier)) throw new Error(`game.setDevice: tier must be one of ${tiers.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.tier)}`);
+      if (overrides.gpuBackend !== undefined && typeof overrides.gpuBackend !== "string") throw new Error(`game.setDevice: gpuBackend must be a string such as "metal", but got ${inspect(overrides.gpuBackend)}`);
+      if (overrides.memoryGB !== undefined && (typeof overrides.memoryGB !== "number" || !(overrides.memoryGB >= 0))) throw new Error(`game.setDevice: memoryGB must be a number of gigabytes, but got ${inspect(overrides.memoryGB)}`);
+      N.testDevice(plain(overrides));
+    },
+    // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
+    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
+    // shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale }. Throws
+    // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
+    renderStats() {
+      const s = N.renderStatsNow();
+      if (s === null) throw new Error("game.renderStats(): this run has no renderer, so nothing is drawn. Run the tests with graphics (headless needs Mesa/EGL on Linux)");
+      return s;
+    },
     screenshot(path, options) {
-      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : 1,
+      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : N.renderScaleGet(),
         options && options.simulate !== undefined ? String(options.simulate) : "");
       if (err) throw new Error(`game.screenshot('${path}') failed: ${err}`);
     },
@@ -2029,6 +2234,10 @@
       N.spokenLog(true);
       N.captionClear();
       N.testAccessibility();
+      N.testQuit(true);
+      N.testSystemLanguages();
+      N.testDevice();
+      if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
       N.setTimeScale(1); pausedScale = null;
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
@@ -2076,7 +2285,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); },
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

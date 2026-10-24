@@ -182,7 +182,7 @@ this checkout at `/src`):
 |---|---|---|
 | `build` | SDK | Configures and builds `linux-sniper` into `build/linux-sniper/` (`tools/cli/factoria`, `player/factoria_player`). Arguments after `--` go to `cmake --preset`; the release adds `-DFA_UPDATE_REPO=...`. ccache keeps its cache in `~/.cache/ccache` (`FA_CCACHE_DIR` changes it), so the next build is fast. |
 | `check` | SDK | `objdump -T` on both programs: fails when one imports a glibc, `GLIBCXX`, `CXXABI` or `GCC_` symbol version newer than the sniper runtime defines (read from the container's own `libc.so.6`, `libstdc++.so.6` and `libgcc_s.so.1`, which are the runtime's), and says which symbols and how to fix it. In GitHub Actions the message is an `::error::` annotation. |
-| `smoke` | sniper **runtime** (`.../sniper/platform`: the image games run in, with no compilers and nothing installed) | `ldd` finds every library, `factoria_player --version`, `factoria version` (the same version), `factoria new --template 2d-empty` and `factoria run --headless --frames 1` with a screenshot (EGL surfaceless on Mesa's llvmpipe). |
+| `smoke` | sniper **runtime** (`.../sniper/platform`: the image games run in, with no compilers and nothing installed) | `ldd` finds every library, `factoria_player --version`, `factoria version` (the same version and build), `factoria new --template 2d-empty` and `factoria run --headless --frames 1` with a screenshot (EGL surfaceless on Mesa's llvmpipe). |
 
 The first run pulls two images (the SDK is about 1.2 GB). The tag is pinned (`SNIPER_TAG` in the script), so a build is
 reproducible; Valve publishes a new one about monthly (the tags are listed at

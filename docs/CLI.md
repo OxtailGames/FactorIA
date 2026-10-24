@@ -59,7 +59,7 @@ error, not a warning), and `factoria call scene.format '{"paths":[...]}'` is the
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (docs/ASSETS.md, "Checks"), and loudness warnings use the gain that `defaults.audio.normalize` applies. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
+### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
@@ -69,6 +69,7 @@ The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw
 `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
+A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build (without a keystore it fails; `--allow-debug-key` signs with the debug key for tests on your own device); Gradle's
 output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
@@ -104,7 +105,8 @@ in a terminal, and without one refuses until `--accept-licenses` says you have r
 when missing and lists what you do next (it never runs `sudo`). `appimage` (Linux x86_64, also WSL) installs appimagetool and the
 AppImage runtime, about 16 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`. `shaders` installs sokol-shdc, the shader compiler of custom
 materials (8-12 MB, the build for this computer, pinned by commit and SHA-256); the downloads of factoria already carry
-one, so it is for source builds. `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
+one, so it is for source builds. `ffmpeg` installs the static ffmpeg 6.0 build (19-28 MB, pinned by SHA-256) that
+`factoria run --record-video trailer.mp4` converts its recording with, so it works without installing ffmpeg by hand. `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
 VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
 downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
 removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `--force` installs again

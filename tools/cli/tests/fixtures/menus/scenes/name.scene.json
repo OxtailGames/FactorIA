@@ -1,0 +1,72 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.1, 0.12, 0.18, 1]
+        }
+      }
+    },
+    {
+      "id": "name_box",
+      "components": {
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 14,
+          "fit": true
+        }
+      },
+      "children": [
+        {
+          "id": "name_title",
+          "components": {
+            "Text": {
+              "text": "Your name",
+              "key": "name.title",
+              "fontSize": 40,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "name_field",
+          "components": {
+            "TextField": {
+              "size": [420, 56],
+              "placeholder": "Name",
+              "key": "name.placeholder",
+              "maxLength": 12,
+              "fontSize": 28,
+              "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "name_next",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Continue",
+              "key": "name.next"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyboard_host",
+      "components": {
+        "Script": {
+          "path": "scripts/ui/keyboard.js"
+        }
+      }
+    }
+  ]
+}

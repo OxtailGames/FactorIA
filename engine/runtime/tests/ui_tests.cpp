@@ -75,6 +75,31 @@ test("the gamepad alone walks the menu: focus, click, slider, toggle, cancel", (
   r.stop();
 });
 
+test("game.setSlider drags like a player: ui.change once, clamped and snapped; a script write sends nothing", () => {
+  game.loadJson(menu);
+  game.step(1);
+  const seen = [];
+  const stop = ui.on("change", "music", (e) => seen.push(e.value));
+  const slider = game.find("music").get("Slider");
+  slider.value = 0.2;                              // from a script: no event
+  game.step(1);
+  expect(seen).toEqual([]);
+  game.setSlider("music", 0.84);                   // step 0.1
+  game.step(1);
+  expect(seen).toEqual([0.8]);
+  expect(slider.value).toBeCloseTo(0.8, 5);
+  expect(ui.focused.id).toBe("music");
+  game.setSlider("music", 7);
+  game.step(1);
+  expect(seen).toEqual([0.8, 1]);
+  game.setSlider("music", 1);                      // already there
+  game.step(1);
+  expect(seen.length).toBe(2);
+  expect(() => game.setSlider("play", 0.5)).toThrow(/no Slider/);
+  expect(() => game.setSlider("music", "loud")).toThrow(/number/);
+  stop();
+});
+
 test("ui.on can listen to one widget; ui.focus and ui.on explain mistakes", () => {
   game.loadJson(menu);
   game.step(1);
@@ -238,7 +263,7 @@ TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     auto t = e.commands().call("project.test", Json::object());
     REQUIRE_MESSAGE(t.ok, t.error.dump());
     CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
-    CHECK(t.result["passed"].get<int>() == 2);
+    CHECK(t.result["passed"].get<int>() == 3);
     e.shutdown();
 }
 
@@ -360,5 +385,45 @@ TEST_CASE("game.input back is the Back button: a script handler consumes it") {
     REQUIRE_MESSAGE(b.ok, b.error.dump());
     e.step(1);
     CHECK(e.commands().call("script.eval", Json{{"code", "globalThis.backs"}}).result["value"] == 1);
+    e.shutdown();
+}
+
+// Focus path -> Input::keyboard_shown(), which the windowed runner hands to app_show_keyboard (the platform call; the
+// headless engine only records the request, so this is the "faked" platform: what the phone would be told).
+TEST_CASE("ui: a focused TextField raises the on-screen keyboard and blur hides it") {
+    TempProject p("keyboard");
+    p.write("scenes/main.scene.json", R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "cam", "components": { "Camera": {} } },
+        { "id": "name", "components": { "TextField": { "size": [200, 30] } } },
+        { "id": "ok", "components": { "Transform": { "position": [0, 60, 0] }, "Button": { "size": [80, 30] } } }
+      ] })");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto eval = [&](const char* code) {
+        auto r = e.commands().call("script.eval", Json{{"code", code}});
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+    };
+    e.step(2);
+    CHECK_FALSE(e.input().keyboard_shown());  // nothing has the focus
+    eval("ui.focus('name')");
+    e.step(1);
+    CHECK(e.input().keyboard_shown());
+    eval("ui.focus('ok')");
+    e.step(1);
+    CHECK_FALSE(e.input().keyboard_shown());
+    eval("ui.focus('name')");
+    e.step(1);
+    CHECK(e.input().keyboard_shown());
+    eval("ui.focus(null)");
+    e.step(1);
+    CHECK_FALSE(e.input().keyboard_shown());
+    // A gamepad player gets the game's own on-screen keyboard (docs/MENUS.md), not the phone's.
+    e.input().set_last_device(InputDevice::Gamepad);
+    eval("ui.focus('name')");
+    e.step(1);
+    CHECK_FALSE(e.input().keyboard_shown());
     e.shutdown();
 }

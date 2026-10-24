@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "common.h"
+#include "fa/core/build_info.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
@@ -28,10 +29,10 @@ Command make_version_command() {
         editor = true;
 #endif
         if (ctx.args.has("json")) {
-            print_json(ctx.out, Json::object({{"name", "factoria"}, {"version", FA_ENGINE_VERSION}, {"editor", editor}}));
+            print_json(ctx.out, Json::object({{"name", "factoria"}, {"version", FA_ENGINE_VERSION}, {"build", fa::build_fingerprint()}, {"editor", editor}}));
             return 0;
         }
-        ctx.out << "factoria " << FA_ENGINE_VERSION << "\n";
+        ctx.out << "factoria " << FA_ENGINE_VERSION << " (build " << fa::build_fingerprint() << ")\n";
         return 0;
     };
     return c;

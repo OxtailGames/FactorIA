@@ -1,6 +1,16 @@
 fa_add_module(core
     DEPS fa_ext_json
     PRIVATE_DEPS fa_ext_stb)
+# The build fingerprint (fa/core/build_info.h): the commit, written to a header at every build; only build_info.cpp includes it.
+find_package(Git QUIET)
+set(FA_BUILD_FINGERPRINT_DIR ${CMAKE_BINARY_DIR}/generated)
+add_custom_target(fa_build_fingerprint
+    COMMAND ${CMAKE_COMMAND} -DOUT=${FA_BUILD_FINGERPRINT_DIR}/fa_build_fingerprint.h -DSRC=${FA_ROOT}
+            -DGIT=${GIT_EXECUTABLE} -P ${FA_ROOT}/cmake/build_fingerprint.cmake
+    BYPRODUCTS ${FA_BUILD_FINGERPRINT_DIR}/fa_build_fingerprint.h
+    COMMENT "Build fingerprint" VERBATIM)
+add_dependencies(fa_core fa_build_fingerprint)
+target_include_directories(fa_core PRIVATE ${FA_BUILD_FINGERPRINT_DIR})
 if(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_core PRIVATE android log)
 endif()

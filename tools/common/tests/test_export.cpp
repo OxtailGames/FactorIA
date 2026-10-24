@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include "fa/core/build_info.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -29,7 +31,7 @@ bool has(const std::vector<std::string>& v, const std::string& s) { return std::
 std::vector<std::string> warnings_without_icon_note(const std::vector<std::string>& warnings) {
     std::vector<std::string> out;
     for (const auto& w : warnings)
-        if (w.find("No icon is set") == std::string::npos) out.push_back(w);
+        if (w.find("No icon is set") == std::string::npos && w.find("allowPlayerMismatch") == std::string::npos) out.push_back(w);
     return out;
 }
 
@@ -282,6 +284,7 @@ TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify acce
     o.platform = "macos";
     o.outDir = tmp.sub("out");
     o.playerBinary = player;
+    o.allowPlayerMismatch = true;  // /usr/bin/true is not a factoria_player
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(warnings_without_icon_note(r.value().warnings).empty());
@@ -977,13 +980,13 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
         CHECK(capabilities);
         CHECK(storekit);
     }
-    SUBCASE("a plugin without StoreKit gets no configuration, and no manifest means no extras") {
+    SUBCASE("a plugin without StoreKit still gets the catalog's configuration, and no manifest means no extras") {
         add_apple_plugin(proj, R"({"entitlements": {"com.apple.developer.game-center": true}})", nullptr);
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-        CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "Products.storekit"));
+        CHECK(stdfs::exists(stdfs::path(r->outputDir) / "Products.storekit"));  // the catalog has products: the plugin is not needed
         const std::string script = testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh");
-        CHECK(script.find("storekit_scheme") == std::string::npos);
+        CHECK(script.find("storekit_scheme") != std::string::npos);
         CHECK(script.find("FA_GAME_PLUGIN_SWIFT") == std::string::npos);
         CHECK(script.find("FA_GAME_PLUGIN_FRAMEWORKS") == std::string::npos);
         CHECK(script.find("FA_GAME_ENTITLEMENTS") != std::string::npos);
@@ -1178,5 +1181,137 @@ TEST_CASE("export: the exported linux player runs the game" * doctest::skip(!kIs
         if (line.find("] ERROR script:") != std::string::npos) MESSAGE("script error in exported game: " << line);
         else CHECK_MESSAGE(false, line);
         pos += 8;
+    }
+}
+
+TEST_CASE("export ios: Products.storekit is written without the Apple plugin, with one localization per language of the game") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["platform"] = Json::parse(R"({"products": [
+        {"id": "gems", "type": "consumable", "title": "100 gems", "titleKey": "shop.gems", "price": 0.99}]})");
+    project["localization"] = Json::parse(R"({"defaultLanguage": "en", "languages": ["en", "es"]})");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+    testing::write_all(stdfs::path(proj) / "locales/en.json", R"({"shop": {"gems": "100 gems"}})");
+    testing::write_all(stdfs::path(proj) / "locales/es.json", R"({"shop": {"gems": "100 gemas"}})");
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "ios";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
+    o.buildSourceRoot = tmp.sub("no-checkout-here");
+    auto r = export_project(o);  // no plugins declared at all
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    auto config = parse_json(testing::read_all(root / "Products.storekit"), "Products.storekit");
+    REQUIRE(config.ok());
+    const Json& loc = (*config)["products"][0]["localizations"];
+    REQUIRE(loc.size() == 2);
+    CHECK(loc[0]["locale"] == "en");
+    CHECK(loc[0]["displayName"] == "100 gems");
+    CHECK(loc[1]["locale"] == "es");
+    CHECK(loc[1]["displayName"] == "100 gemas");
+    CHECK(stdfs::exists(root / "storekit_scheme.cmake"));
+    CHECK(testing::read_all(root / "build_ios.sh").find("storekit_scheme.cmake") != std::string::npos);
+
+    // No products, no file.
+    project.erase("platform");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+    o.outDir = tmp.sub("out2");
+    auto none = export_project(o);
+    REQUIRE_MESSAGE(none.ok(), (none.ok() ? "" : none.error().to_string()));
+    CHECK_FALSE(stdfs::exists(stdfs::path(none->outputDir) / "Products.storekit"));
+}
+
+// A player stand-in the exporter treats as an executable (starts with MZ) and carries the given build fingerprint.
+static std::string fingerprinted_player(const testing::TempDir& tmp, const std::string& fingerprint, const char* name = "factoria_player.exe") {
+    const std::string p = tmp.sub(std::string("fp_player/") + name);
+    std::string bytes = std::string("MZ\x90\0 padding ", 14);
+    if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
+    testing::write_all(p, bytes + " end");
+    return p;
+}
+
+TEST_CASE("export desktop: a player from another build stops the export unless allowPlayerMismatch") {
+    if (std::string(build_fingerprint()) == "unknown") return;  // built outside a git checkout: nothing to compare
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "windows";
+    o.outDir = tmp.sub("out");
+
+    SUBCASE("the same build exports quietly") {
+        o.playerBinary = fingerprinted_player(tmp, build_fingerprint());
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        for (const std::string& w : r->warnings) CHECK(w.find("build fingerprint") == std::string::npos);
+    }
+    SUBCASE("another build stops with a teaching error naming both builds") {
+        o.playerBinary = fingerprinted_player(tmp, "0123456789ab");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("was built from 0123456789ab") != std::string::npos);
+        CHECK(r.error().message.find(build_fingerprint()) != std::string::npos);
+        CHECK(r.error().hint.find("--allow-player-mismatch") != std::string::npos);
+        CHECK(r.error().hint.find("allowPlayerMismatch") != std::string::npos);
+        CHECK(r.error().hint.find("factoria setup players") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-windows")));  // nothing written
+    }
+    SUBCASE("a player built outside git (unknown) is not compared") {
+        o.playerBinary = fingerprinted_player(tmp, "unknown");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    }
+    SUBCASE("the same commit with uncommitted changes on one side only is a warning") {
+        const std::string mine = build_fingerprint();
+        const auto dirty = mine.find("-dirty");
+        o.playerBinary = fingerprinted_player(tmp, dirty == std::string::npos ? mine + "-dirty" : mine.substr(0, dirty));
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool said = false;
+        for (const std::string& w : r->warnings) said = said || w.find("the same commit") != std::string::npos;
+        CHECK(said);
+    }
+    SUBCASE("a player without a fingerprint is told apart") {
+        o.playerBinary = fingerprinted_player(tmp, "");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("has no build fingerprint") != std::string::npos);
+    }
+    SUBCASE("allowPlayerMismatch exports anyway and says so in the warnings") {
+        o.playerBinary = fingerprinted_player(tmp, "0123456789ab");
+        o.allowPlayerMismatch = true;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool said = false;
+        for (const std::string& w : r->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        CHECK(said);
+    }
+    SUBCASE("the export command maps the argument (the player is the one `setup players` installed)") {
+        const std::string home = tmp.sub("fa_home");
+        ScopedEnv homeEnv("FACTORIA_HOME", home.c_str());
+#ifdef _WIN32
+        const std::string other = "linux";
+#else
+        const std::string other = "windows";
+#endif
+        const std::string exe = other == "windows" ? "factoria_player.exe" : "factoria_player";
+        testing::write_all(stdfs::path(home) / "players" / FA_ENGINE_VERSION / other / exe,
+                           std::string("MZ\x90\0 FA-BUILD-FINGERPRINT:0123456789ab; end", 43));
+        CommandRegistry reg;
+        register_export_commands(reg, proj);
+        auto refused = reg.call("project.export", {{"platform", other}, {"out", "dist"}});
+        REQUIRE_FALSE(refused.ok);
+        CHECK(refused.error["message"].get<std::string>().find("0123456789ab") != std::string::npos);
+        CHECK(refused.error["hint"].get<std::string>().find("allowPlayerMismatch") != std::string::npos);
+        auto allowed = reg.call("project.export", {{"platform", other}, {"out", "dist"}, {"allowPlayerMismatch", true}});
+        CHECK(allowed.ok);
+    }
+    SUBCASE("a text stand-in is not an executable and is not compared") {
+        o.playerBinary = make_fake_player(tmp);
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     }
 }

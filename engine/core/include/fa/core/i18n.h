@@ -73,7 +73,12 @@ Result<StringTable> parse_string_table(const Json& document, std::string_view la
 
 // Replaces {name} with args.name (strings as they are, numbers without a trailing ".0", booleans, null as ""); "{{" and "}}"
 // are literal braces. A placeholder with no argument stays as written and its name is appended to *missing.
-std::string format_message(std::string_view text, const Json& args, std::vector<std::string>* missing = nullptr);
+// `{v:number}` / `{v:number:1}` write a number with the separators and digits of `language` (fa/core/number_format.h; "" =
+// English), with that many decimals (0-9) or as many as the number has; `{t:duration}` / `{t:duration:0}` write seconds
+// as "1:23.4". A bad format, a bad decimals count or a value that is no number shows the value as it is and appends the
+// reason to *problems.
+std::string format_message(std::string_view text, const Json& args, std::vector<std::string>* missing = nullptr,
+                           std::string_view language = {}, std::vector<std::string>* problems = nullptr);
 
 // ---- The localization of a running game ----------------------------------------------------------------------------------
 class I18n {
@@ -113,6 +118,10 @@ public:
     std::optional<std::string> translate(std::string_view key, const Json& args = nullptr) const;
     // translate(), or the key itself (warning once per key) when no table has it.
     std::string t(std::string_view key, const Json& args = nullptr) const;
+    // A number / a time in the current language (format_number / format_duration; English when localization is off).
+    // decimals < 0: as many as the number has. For duration, decimals < 0 means 1.
+    std::string number(double value, int decimals = -1) const;
+    std::string duration(double seconds, int decimals = 1) const;
     bool has(std::string_view key) const;  // some table of the fallback chain has the key
     // The language's own name (`$name`), else the tag.
     std::string name(std::string_view language) const;

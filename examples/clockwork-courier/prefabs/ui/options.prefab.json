@@ -460,6 +460,7 @@
             "id": "control_size",
             "components": {
               "Slider": {
+                "format": "{v:1}x",
                 "autoSize": false,
                 "label": "Control size",
                 "key": "options.controlSize",
@@ -475,6 +476,7 @@
             "id": "control_opacity",
             "components": {
               "Slider": {
+                "format": "{percent}%",
                 "autoSize": false,
                 "label": "Control opacity",
                 "key": "options.controlOpacity",
@@ -490,6 +492,7 @@
             "id": "camera_sensitivity",
             "components": {
               "Slider": {
+                "format": "{v:1}x",
                 "autoSize": false,
                 "label": "Camera speed",
                 "key": "options.cameraSensitivity",

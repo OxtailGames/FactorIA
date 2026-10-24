@@ -3,7 +3,7 @@
 // the assist-mode numbers and the safe area. Options are set the way the options menu saves them (storage "settings") and
 // then the scene is loaded, or by clicking the options menu itself.
 import { test, describe, expect, game, afterEach } from "factoria:test";
-import { scene, storage, ui, screen, session, i18n, game as engine } from "factoria";
+import { scene, storage, ui, screen, session, i18n, window, game as engine } from "factoria";
 import { Autoplay, YARD_ROUTE } from "./helpers/autoplay.js";
 import * as settings from "../scripts/settings.js";
 import * as accessibility from "../scripts/accessibility.js";
@@ -78,13 +78,40 @@ describe("graphics quality", () => {
     expect(game.find("quality").get("Button").text).toBe("Quality: low");
   });
 
-  test("a phone starts at medium quality and a 30 fps cap; the cap is greyed out there", () => {
+  test("a new player starts at the device's tier; a phone starts with a 30 fps cap and the cap is greyed out there", () => {
     expect(settings.QUALITIES).toEqual(["low", "medium", "high"]);
     expect(settings.FRAME_CAPS).toEqual([30, 60, 0]);
-    // The test platform is not a phone: high and no cap.
+    // The test device is a desktop with a high tier (game.device): high and no cap.
     storage.set("settings", {});
     expect(settings.load().quality).toBe("high");
     expect(settings.load().frameCap).toBe(0);
+    game.setDevice({ formFactor: "phone", tier: "medium" });
+    expect(settings.load().quality).toBe("medium");
+    expect(settings.load().frameCap).toBe(30);
+    expect(settings.onPhone()).toBe(true);
+    game.setDevice({ tier: "low" });
+    expect(settings.load().quality).toBe("low");
+  });
+
+  test("each preset draws at its own render scale", () => {
+    expect(accessibility.QUALITY.low.renderScale).toBeLessThan(accessibility.QUALITY.medium.renderScale);
+    expect(accessibility.QUALITY.high.renderScale).toBe(1);
+    start(ROOFS, { quality: "high" });
+    expect(window.renderScale).toBe(1);
+    start(ROOFS, { quality: "low" });
+    expect(window.renderScale).toBe(accessibility.QUALITY.low.renderScale);
+    let s = null;
+    try {
+      s = game.renderStats();
+    } catch (e) {
+      // a machine with no GPU draws nothing: the scale above is all there is to check
+    }
+    if (s) {
+      expect(s.renderScale).toBe(accessibility.QUALITY.low.renderScale);
+      expect(s.width).toBeLessThan(screen.size.x);
+    }
+    start(ROOFS, { quality: "high" });
+    expect(window.renderScale).toBe(1);
   });
 });
 
@@ -170,13 +197,13 @@ describe("camera options", () => {
     game.step(3);
     game.click("tab_touch");
     game.step(2);
-    game.click("camera_sensitivity"); // a click on the middle of the widget lands on the track: some value of the range
+    game.setSlider("camera_sensitivity", 2); // like a drag: clamped, stepped, ui.change
     game.step(2);
-    // The middle of the widget is near the start of the track: a value close to 1, which save() leaves out as the default.
-    const saved = storage.get("settings").cameraSensitivity ?? 1;
-    expect(saved).toBeGreaterThanOrEqual(0.4);
-    expect(saved).toBeLessThanOrEqual(2.5);
-    expect(game.find("camera").behaviour.sensitivity).toBeCloseTo(base * saved);
+    expect(storage.get("settings").cameraSensitivity).toBe(2);
+    expect(game.find("camera").behaviour.sensitivity).toBeCloseTo(base * 2);
+    game.setSlider("camera_sensitivity", 9); // past the end of the range: the largest value
+    game.step(2);
+    expect(storage.get("settings").cameraSensitivity).toBe(2.5);
     game.click("invert_y");
     game.step(2);
     expect(storage.get("settings").invertY).toBe(true);
@@ -467,16 +494,10 @@ describe("Android Back on every screen", () => {
     expect(game.find("quit_confirm").active).toBe(false);
     game.pressBack();
     game.step(2);
-    let quits = 0;
-    const real = engine.quit;
-    engine.quit = () => quits++; // a real quit would end the test run (FB-0038)
-    try {
-      game.click("quit_yes");
-      game.step(2);
-    } finally {
-      engine.quit = real;
-    }
-    expect(quits).toBe(1);
+    expect(game.quitRequested).toBe(false);
+    game.click("quit_yes");
+    game.step(2);
+    expect(game.quitRequested).toBe(true); // a test records the request instead of stopping the run (FB-0038)
   });
 
   test("title: options and credits close with Back without asking to quit", () => {

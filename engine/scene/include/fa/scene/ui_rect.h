@@ -66,7 +66,8 @@ constexpr float kUiSliderRowHeight = 28.0f;
 // kUiSliderRowHeight pixels when the label is above.
 float ui_slider_mid_y(const Slider& s, const Rect& r);
 
-// The text a Slider draws at its right for `value`: "60%" for a 0..1 range, else the number with up to two decimals.
+// The text a Slider draws at its right for `value`: its `format` pattern when it has one ({v}, {v:N}, {percent}), else "60%"
+// for a 0..1 range, else the number with up to two decimals.
 std::string ui_slider_value_text(const Slider& s, float value);
 
 }  // namespace fa

@@ -110,7 +110,8 @@ suggestion; `factoria validate` reports the same through
 
 The engine calls these by their exact names. A method that looks like a hook but
 is not one (`start()`, `update()`, `fixedUpdate()` without the `on`, or a
-near-miss such as `onupdate()` or `onStrat()`) is never called: the first
+near-miss such as `onupdate()` or `onStrat()`; a method that takes arguments, like `start(seconds)`, is a normal
+method of the class and is not reported) is never called: the first
 behaviour of the class created logs ONE warning per such method with a "did you
 mean", and `factoria validate` reports the same for every behaviour script (under
 `scripts/` or named by a `Script.path`). Helpers with other names (`loadLevel()`)
@@ -136,7 +137,7 @@ are not affected.
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
 | `destroy()` | deferred to end of frame (children too); leaves physics at once (see below) |
-| `parent`, `children`, `setParent(e, keepWorld?)` | hierarchy |
+| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, or an index without a parent, throws. Layout containers follow this order |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |
@@ -228,10 +229,13 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
 
 ### world
 - `find(idOrName)` → Entity | null · `findAll(name)` · `findByTag(tag)` · `entities()`
-- `spawn(entityJson, { position, rotation, scale, parent, props })` → Entity (same format as scene files; `{ name, tags, components: {...} }`)
-- `spawnPrefab(path, { position, rotation, scale, parent, props, overrides })` → Entity.
+- `spawn(entityJson, { position, rotation, scale, parent, index, props })` → Entity (same format as scene files; `{ name, tags, components: {...} }`)
+- `spawnPrefab(path, { position, rotation, scale, parent, index, props, overrides, childOverrides })` → Entity.
   `props` is merged into the entity's `Script.props` (on top of the prefab's own); `overrides` is entity JSON
-  merged over the prefab (`{ components: { Sprite: { color: ... } } }`).
+  merged over the prefab (`{ components: { Sprite: { color: ... } } }`). `childOverrides` changes the prefab's
+  descendants: `{ Title: { components: { Text: { text: "You won" } } } }`; a key is a child's id, name or a path such
+  as `"Panel/Title"`, a value holds `name`, `tags`, `active` and `components`. A child or field that does not exist
+  throws with a "did you mean" (docs/MENUS.md, "A panel shared between scenes").
 - Destroyed entities (`entity.destroy()`, deferred to frame end) stop being returned by `find`/`findAll`/`findByTag`
   immediately and their id can be reused right away (`world.spawn({ id: "gem_1" })` right after destroying `gem_1`).
   They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no
@@ -354,7 +358,30 @@ editor's game view), so check `window.available` first or offer the option only 
   waits at the start of each frame and does not touch the simulation (the fixed step still runs per game time), so it
   only saves power and heat; with vsync on the display rate wins when it is lower.
 - Phones and tablets are always full screen, with the display's frame rate: `setFullscreen(true)` is a no-op, and
-  `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation.
+  `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation. Read `window.supports("frameCap")`
+  first and hide the option where it is false instead of catching the Error.
+- `supports(feature)`: `"frameCap"`, `"fullscreen"` and `"resize"` are true in a game window on a desktop (they are false
+  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere. An unknown name
+  throws with a "did you mean".
+- `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
+  of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
+  tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
+  keep the player's choice with `storage.set`.
+
+### game.device: pick a quality preset
+`game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high" }`.
+`gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, `"gles3"`, `"wgpu"` or `"vulkan"`; `memoryGB` is the machine's physical
+memory; `tier` comes from the backend and the memory (under 3.5 GB is `"low"`, under 7.5 GB `"medium"`, 5.5 on a phone
+or tablet; unknown memory, as on the web, is `"medium"`). A phone and a tablet differ by the short side of the screen
+(600 logical pixels). **Headless runs, tests and the editor always read** `{ formFactor: "desktop", gpuBackend:
+"headless", memoryGB: 8, tier: "high" }`, so a preset picked from it never depends on the machine; tests pretend with
+`game.setDevice({ formFactor: "phone", tier: "low" })` (reset before each test).
+```js
+import { game, window, storage } from "factoria";
+const preset = storage.get("quality", game.device.tier);        // the player's choice wins, else the device's tier
+window.renderScale = { low: 0.7, medium: 0.85, high: 1 }[preset];
+const canCap = window.supports("frameCap");                      // hide the frame cap row on a phone
+```
 ```js
 import { window, storage } from "factoria";
 const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
@@ -485,7 +512,8 @@ entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the one
 - Button, Toggle, Slider and TextField also have `font`, `fontSize`, `textColor`, `accentColor` (focus ring, slider fill
   and knob, toggle check, caret), `interactable` (false: drawn at half alpha, never focused or clicked) and
   `autoFocus`. Read-only runtime flags: `focused`, `hovered`, `pressed` (a script may read them to restyle).
-  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`; TextField
+  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`, `format` (`"{v:1}x"`, `"{percent}%"`; see
+  the field's doc) and `formatKey`; TextField
   `text`, `placeholder`, `maxLength`.
 - **Layout.** A `Panel` with `layout: "column" | "row" | "grid"` places its active children (widgets, and screen-space
   `Text`, `Sprite` and `Shape2D`) inside its rectangle minus `padding`: `spacing` between them, `align` (the cross axis:
@@ -566,6 +594,38 @@ the press is released over the same widget; a Slider follows the pointer while p
   `size` or `region` is drawn at and the one `entity.bounds()` uses. A missing or unreadable file gives 32 × 32 (the size
   of the missing-texture checker). It reads the file, so it works headless; the result is cached per file and
   modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
+- `assets.preload(paths)` → a preload handle (below): reads the files ahead of time, for assets a script uses later.
+
+### Preloading: `scene.preload(path)`, `assets.preload(paths)`
+`scene.load` reads the scene and everything it uses before the frame goes on, so a big level freezes the game for a
+moment. `scene.preload("scenes/level2.scene.json")` returns a handle at once and reads the scene file and what it points
+at (prefabs, materials, textures, models with their `.bin` and images, audio, fonts, and the scripts and files named in
+them) a little every frame, so a loading screen keeps running and drawing. The files then wait in memory: `scene.load` of
+that scene, and the renderer and audio on first use, find them there and read nothing from the disk.
+`assets.preload(["assets/boss.glb", "assets/boss.ogg"])` does the same for a list of files.
+
+```js
+const job = scene.preload("scenes/level2.scene.json");   // in onStart of the loading scene
+// every frame: bar.get("Shape2D").size = [400 * job.progress, 16];
+job.promise.then(() => scene.load("scenes/level2.scene.json"));
+```
+- The handle has `progress` (0..1, never goes down), `done`, `files` and `bytes` read so far, `error` (`""` or why it
+  failed), `promise` (resolves with `{ files, bytes }`, rejects with an Error that has `.hint`) and `release()`.
+  Its values change between frames only. A script that only polls `done` is not reported for an unhandled rejection.
+- Work is counted in units, one per file; the first unit reads the scene (or the first assets) and finds everything it
+  names, so `progress` is exact from the second frame on. Per frame: **tests, headless runs and replays do exactly four
+  units**, so what a test sees (how many frames it takes, which `progress` values) is the same on every machine; **a game
+  with a window** works until about 4 ms of the frame are used (at least one unit), so the number of frames depends on
+  the machine and the game must not depend on it. A worker thread may do the reading later without changing the handle.
+- A path that does not exist throws at once with a "did you mean" list; a read error (or a scene that is not JSON) sets
+  `error` and rejects the Promise. The loading scene should still call `scene.load` in that case, which reports it.
+- The Promise outlives the scene that asked: a loading scene that is left before it resolves (a test that moves on)
+  sets a flag in `onDestroy` that its callback checks, and calls `release()` there unless its own `scene.load` already ran
+  (releasing then would drop the files the load is about to read). docs/MENUS.md has the recipe.
+- Memory: the files stay for the first scene load after the job finished and are dropped at the second (or by
+  `release()`), so a preload costs about one scene's files beyond the one in use. A file changed on disk since it was read
+  is read again.
+- Tests: `game.fileReads()` counts the files read from the disk; compare two values to prove a load read nothing.
 
 ### scene / game / storage
 - Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
@@ -709,7 +769,10 @@ i18n.setLanguage("es");                                   // everything with a k
 const off = i18n.on("change", (e) => redraw(e.language)); // after every switch; ends with the scene, like ui.on
 ```
 
-Members: `t(key, args?)`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
+`i18n.number(1234.5)` ("1,234.5", "1234,5" in Spanish) and `i18n.duration(83.4)` ("1:23.4") write numbers and times the
+way the current language does.
+
+Members: `t(key, args?)`, `number(v, {decimals?})`, `duration(seconds, {decimals?})`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
 `name(tag)`, `on("change", fn)`. Every test file starts in `defaultLanguage`. All of it, the string tables and how the
 start language is chosen: [LOCALIZATION.md](LOCALIZATION.md).
 
@@ -789,7 +852,25 @@ test("player jumps", () => {
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
   `focus()`, `blur()` (what the OS does to the app, so lifecycle code can be tested),
+  `renderStats()` (what the renderer drew in the picture now, drawing a frame first when none was drawn: `{ drawCalls,
+  triangles, lights, shadowCasters, meshes, textureMB, width, height, renderScale, ... }`; throws without graphics),
+  `setDevice({ formFactor?, gpuBackend?, memoryGB?, tier? })` (see `game.device`),
   `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
+
+More `game` calls for tests: `mouseDown(button = "left")` and `mouseUp(button)` hold and release a mouse button (`input.mouse.down(button)`
+follows; with `mouseMove` they test a drag), `wheel(dy)` turns the wheel for the next frame
+(`input.mouse.wheel`), `quitRequested` (true once the game asked to quit with `game.quit()` or an unconsumed Back; a test
+run never stops because of it, and it is cleared before each test), `setSystemLanguages(["es-ES", "en"])` (what
+`i18n.systemLanguages` answers, so a game's own first-run language choice can be tested; the engine's start language is
+not picked again, a test starts in the default language; empty again before each test) and
+`resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
+unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
+one file share storage and the fake store unless you call `resetState`.
+
+**`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
+of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next
+`game.step()`. `game.load(path)` is immediate: the scene is loaded and its behaviours constructed before it returns. After
+`scene.load` step one or two frames before reading the new scene's state.
 
 `game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like
 `game.tap`), `axis(name, value)`, `connect()` and `disconnect()`. Like `keyDown`, `press`, `release` and `axis` act at once and
@@ -806,6 +887,12 @@ test("the stick moves the player", () => {
 ```
 
 Bad button or axis names and indices outside 0..3 throw with a "did you mean".
+
+`game.setSlider("music_volume", 0.5)` drags a Slider to a value the way a player does: the value is clamped to `min`..`max` and
+snapped to `step`, the slider takes focus and `ui.change` `{ id, value }` is sent (nothing when it already had that value). It
+throws for an entity that is no Slider, or is inactive or not interactable. Writing `slider.value = 0.5` from a script is
+different: it changes the value and sends NO `ui.change` (the same for a Toggle's `value` and a TextField's `text`), so a test
+that wants the game's `ui.on("change", ...)` code to run uses `game.setSlider`. The same thing is the `ui.set_slider` command.
 
 Options-menu tests: `game.typeText("héllo")` types characters (what `input.text` returns for the next step; control
 characters are skipped) and `game.gamepad(i).setType("playstation")` plugs the pad in as that family, so
@@ -832,6 +919,8 @@ behaviours; `game.load` also reseeds. Before each test input overrides, the game
 received object with an equal value, recursively; the object may have more). Failures print expected/received and
 `file:line` of the failing `expect`. A `TypeError: ... is not a function` in a test or a script shows the source line
 with a caret under the call, because QuickJS does not name the missing function.
+A test that runs longer than 60 s (an endless loop, a `while` waiting for something that never happens) is stopped,
+and the rest of its file is skipped; a file has no limit of its own, so split a test, not the file.
 
 Timing in a test: `world.emit(name, data)` is queued, and its listeners (`world.on`, `onEvent`) run at the next
 `game.step`, so call `game.step(1)` after emitting before you check or await a script that waits for it. The answers

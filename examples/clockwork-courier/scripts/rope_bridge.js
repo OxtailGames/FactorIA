@@ -3,8 +3,8 @@
 // curve under gravity. The script builds the planks when the scene starts (so a level only says where the bridge goes):
 //
 //   from, to   world positions of the two ends (the surface level at both ends, metres). Put them just past the edges
-//              of the slabs (0.05 m or more): a plank that starts inside a static collider is pushed out of it, the
-//              chain buckles and never settles, and the level plays differently on each platform (FB-0053).
+//              of the slabs (0.05 m or more): a plank that starts inside a static collider is pushed out of it and the
+//              chain buckles (the engine logs it on the first step and `factoria validate` reports it).
 //   planks     how many planks
 //   width      across the bridge, metres;  sag: how far the middle hangs below the ends at the start, metres
 //
@@ -17,7 +17,7 @@ export default class RopeBridge extends Behaviour {
   from = [0, 0, 0];
   to = [0, 0, -8];
   planks = 9;
-  width = 2;
+  width = 1.2;
   thickness = 0.14;
   sag = 0.35;
   /** Mass of one plank, kg. */
@@ -57,9 +57,9 @@ export default class RopeBridge extends Behaviour {
             Transform: { position: mid, rotation: [pitch, yaw, 0], scale: [this.width, this.thickness, plank] },
             ...visual,
             Collider3D: { shape: "box", friction: 0.8 },
-            // Heavy damping: with the lighter 3 / 8 the chain swung differently whenever another entity was made before it (a
-            // HUD icon), and the courier sometimes fell through on the rooftops_3 shortcut. Now it hangs still.
-            RigidBody3D: { type: "dynamic", mass: this.mass, linearDamping: 8, angularDamping: 30 },
+            // No damping here: the engine settles a chain of three or more jointed bodies by itself (more solver
+            // iterations, a little drag) and lets it fall asleep once it hangs still.
+            RigidBody3D: { type: "dynamic", mass: this.mass },
           },
           children: [-1, 1].flatMap((side, k) => [
             // A rope rail along the plank and a post at its middle, 0.8 m above the plank: sizes are given in metres and
@@ -89,10 +89,8 @@ export default class RopeBridge extends Behaviour {
     // a static anchor entity at the start (an entity holds one Joint3D, and each plank's is already used).
     for (let i = 0; i < n; i++) {
       const next = i < n - 1 ? this.pieces[i + 1].e.id : "";
-      // An empty `connected` is the world; the field is left out then (the scene validator refuses an explicit "").
-      const joint = { type: "hinge", axis: [1, 0, 0], anchor: [0, 0, -0.5], collideConnected: false };
-      if (next) joint.connected = next;
-      this.pieces[i].e.add("Joint3D", joint);
+      // An empty `connected` is the world.
+      this.pieces[i].e.add("Joint3D", { type: "hinge", axis: [1, 0, 0], anchor: [0, 0, -0.5], connected: next, collideConnected: false });
     }
     const first = this.pieces[0];
     this.startAnchor = world.spawn(
