@@ -4,7 +4,7 @@
 // every level scene already has (results_heading, results_stars, results_time, results_spring), so no scene needed new widgets.
 //
 //   lines(levelId, run)   { results_heading, results_stars, results_time, results_spring } for a finished run
-//   starText(n, max)      "***" style string of n filled stars out of max (level select shares it)
+//   starText(n, max)      a string such as "★★☆": n filled stars out of max (level select shares it)
 //   goalLines(levelId, goals)  one line per goal: "[x] Fast: under 50 s"
 import { i18n } from "factoria";
 import * as fmt from "./fmt.js";
@@ -12,9 +12,9 @@ import * as levels from "./levels.js";
 import * as progress from "./progress.js";
 import * as stars from "./stars.js";
 
-/** Filled and empty star marks. ASCII on purpose: the default font has no star glyphs. */
-const FULL = "*";
-const EMPTY = "-";
+/** Filled and empty star marks: U+2605 and U+2606, both in the built-in font. */
+const FULL = "\u2605";
+const EMPTY = "\u2606";
 
 export function starText(n, max = 3) {
   return FULL.repeat(Math.max(0, Math.min(max, n))) + EMPTY.repeat(Math.max(0, max - n));

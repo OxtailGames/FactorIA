@@ -40,6 +40,11 @@ A 3D example game for phones
   reduced motion, assist mode, captions), English, Spanish and Japanese, and store texts, images and a trailer. Its
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
+- With this release's fixes, Clockwork Courier dropped the rest of its workarounds: the dog and tap-to-move walk on a
+  `NavMesh3D`, the level panels are three shared prefabs, the name screen uses the menu kit's keyboard, the paints are
+  per-material colours, the stars are ★ and ☆, and its tests reset their state with `game.resetState` and drive the
+  mouse and the wheel. `ui.check_layout` finds no issue in it. Still open: playing a video for the studio intro
+  (FB-0051), and rope bridges and moving platforms in the navmesh, so a dog stops at a bridge (FB-0056).
 
 Sliders and lists
 
