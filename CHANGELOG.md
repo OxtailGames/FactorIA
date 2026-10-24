@@ -109,6 +109,9 @@ Scripts
   next level is read, and the `scene.load` that follows reads nothing from the disk. Tests do a fixed amount of work per
   frame, so they give the same result on every machine; `game.fileReads()` counts disk reads. Clockwork Courier's
   loading bar now shows real progress and its intro reads the title screen while it plays (FB-0012).
+- A script stopped for running too long while inside `find`, `findIndex`, `findLast` or `findLastIndex` no longer
+  crashes the game (a QuickJS bug freed one of the array's objects too early; the engine replaces those four). And a
+  timer, tween or `world.on` listener stopped this way ends alone: before, every script after it was stopped too.
 
 Platform services
 
