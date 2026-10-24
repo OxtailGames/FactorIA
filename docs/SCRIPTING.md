@@ -110,7 +110,8 @@ suggestion; `factoria validate` reports the same through
 
 The engine calls these by their exact names. A method that looks like a hook but
 is not one (`start()`, `update()`, `fixedUpdate()` without the `on`, or a
-near-miss such as `onupdate()` or `onStrat()`) is never called: the first
+near-miss such as `onupdate()` or `onStrat()`; a method that takes arguments, like `start(seconds)`, is a normal
+method of the class and is not reported) is never called: the first
 behaviour of the class created logs ONE warning per such method with a "did you
 mean", and `factoria validate` reports the same for every behaviour script (under
 `scripts/` or named by a `Script.path`). Helpers with other names (`loadLevel()`)
@@ -136,7 +137,7 @@ are not affected.
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
 | `destroy()` | deferred to end of frame (children too); leaves physics at once (see below) |
-| `parent`, `children`, `setParent(e, keepWorld?)` | hierarchy |
+| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, or an index without a parent, throws. Layout containers follow this order |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |
@@ -228,10 +229,13 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
 
 ### world
 - `find(idOrName)` → Entity | null · `findAll(name)` · `findByTag(tag)` · `entities()`
-- `spawn(entityJson, { position, rotation, scale, parent, props })` → Entity (same format as scene files; `{ name, tags, components: {...} }`)
-- `spawnPrefab(path, { position, rotation, scale, parent, props, overrides })` → Entity.
+- `spawn(entityJson, { position, rotation, scale, parent, index, props })` → Entity (same format as scene files; `{ name, tags, components: {...} }`)
+- `spawnPrefab(path, { position, rotation, scale, parent, index, props, overrides, childOverrides })` → Entity.
   `props` is merged into the entity's `Script.props` (on top of the prefab's own); `overrides` is entity JSON
-  merged over the prefab (`{ components: { Sprite: { color: ... } } }`).
+  merged over the prefab (`{ components: { Sprite: { color: ... } } }`). `childOverrides` changes the prefab's
+  descendants: `{ Title: { components: { Text: { text: "You won" } } } }`; a key is a child's id, name or a path such
+  as `"Panel/Title"`, a value holds `name`, `tags`, `active` and `components`. A child or field that does not exist
+  throws with a "did you mean" (docs/MENUS.md, "A panel shared between scenes").
 - Destroyed entities (`entity.destroy()`, deferred to frame end) stop being returned by `find`/`findAll`/`findByTag`
   immediately and their id can be reused right away (`world.spawn({ id: "gem_1" })` right after destroying `gem_1`).
   They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no
@@ -508,7 +512,8 @@ entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the one
 - Button, Toggle, Slider and TextField also have `font`, `fontSize`, `textColor`, `accentColor` (focus ring, slider fill
   and knob, toggle check, caret), `interactable` (false: drawn at half alpha, never focused or clicked) and
   `autoFocus`. Read-only runtime flags: `focused`, `hovered`, `pressed` (a script may read them to restyle).
-  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`; TextField
+  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`, `format` (`"{v:1}x"`, `"{percent}%"`; see
+  the field's doc) and `formatKey`; TextField
   `text`, `placeholder`, `maxLength`.
 - **Layout.** A `Panel` with `layout: "column" | "row" | "grid"` places its active children (widgets, and screen-space
   `Text`, `Sprite` and `Shape2D`) inside its rectangle minus `padding`: `spacing` between them, `align` (the cross axis:
@@ -764,7 +769,10 @@ i18n.setLanguage("es");                                   // everything with a k
 const off = i18n.on("change", (e) => redraw(e.language)); // after every switch; ends with the scene, like ui.on
 ```
 
-Members: `t(key, args?)`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
+`i18n.number(1234.5)` ("1,234.5", "1234,5" in Spanish) and `i18n.duration(83.4)` ("1:23.4") write numbers and times the
+way the current language does.
+
+Members: `t(key, args?)`, `number(v, {decimals?})`, `duration(seconds, {decimals?})`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
 `name(tag)`, `on("change", fn)`. Every test file starts in `defaultLanguage`. All of it, the string tables and how the
 start language is chosen: [LOCALIZATION.md](LOCALIZATION.md).
 
@@ -850,6 +858,21 @@ test("player jumps", () => {
   `setDevice({ formFactor?, gpuBackend?, memoryGB?, tier? })` (see `game.device`),
   `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
 
+More `game` calls for tests: `mouseDown(button = "left")` and `mouseUp(button)` hold and release a mouse button (`input.mouse.down(button)`
+follows; with `mouseMove` they test a drag), `wheel(dy)` turns the wheel for the next frame
+(`input.mouse.wheel`), `quitRequested` (true once the game asked to quit with `game.quit()` or an unconsumed Back; a test
+run never stops because of it, and it is cleared before each test), `setSystemLanguages(["es-ES", "en"])` (what
+`i18n.systemLanguages` answers, so a game's own first-run language choice can be tested; the engine's start language is
+not picked again, a test starts in the default language; empty again before each test) and
+`resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
+unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
+one file share storage and the fake store unless you call `resetState`.
+
+**`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
+of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next
+`game.step()`. `game.load(path)` is immediate: the scene is loaded and its behaviours constructed before it returns. After
+`scene.load` step one or two frames before reading the new scene's state.
+
 `game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like
 `game.tap`), `axis(name, value)`, `connect()` and `disconnect()`. Like `keyDown`, `press`, `release` and `axis` act at once and
 the next `game.step` sees them; they connect the pad. Actions bound to `Gamepad*` names react as they do to a real pad:
@@ -865,6 +888,12 @@ test("the stick moves the player", () => {
 ```
 
 Bad button or axis names and indices outside 0..3 throw with a "did you mean".
+
+`game.setSlider("music_volume", 0.5)` drags a Slider to a value the way a player does: the value is clamped to `min`..`max` and
+snapped to `step`, the slider takes focus and `ui.change` `{ id, value }` is sent (nothing when it already had that value). It
+throws for an entity that is no Slider, or is inactive or not interactable. Writing `slider.value = 0.5` from a script is
+different: it changes the value and sends NO `ui.change` (the same for a Toggle's `value` and a TextField's `text`), so a test
+that wants the game's `ui.on("change", ...)` code to run uses `game.setSlider`. The same thing is the `ui.set_slider` command.
 
 Options-menu tests: `game.typeText("héllo")` types characters (what `input.text` returns for the next step; control
 characters are skipped) and `game.gamepad(i).setType("playstation")` plugs the pad in as that family, so

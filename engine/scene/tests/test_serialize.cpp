@@ -566,3 +566,126 @@ TEST_CASE("scene: generated JSON schemas validate scenes") {
     CHECK(prefab["required"].size() == 2);
     CHECK(validate_json(prefab, make_prefab(w, w.find_by_id("player"))).empty());
 }
+
+// ---------------------------------------------------------------- sibling order and prefab child overrides (M26.20) --
+namespace {
+std::string kids(const World& w, Entity parent) {
+    std::string out;
+    for (Entity c : w.children(parent)) out += (out.empty() ? "" : ",") + w.id_of(c);
+    return out;
+}
+}  // namespace
+
+TEST_CASE("scene: set_parent puts a child at an index, also within the same parent") {
+    World w;
+    Entity p = w.create("p", "p");
+    Entity a = w.create("a", "a"), b = w.create("b", "b"), c = w.create("c", "c"), d = w.create("d", "d");
+    w.set_parent(a, p);
+    w.set_parent(b, p);
+    w.set_parent(c, p);
+    CHECK(kids(w, p) == "a,b,c");
+    w.set_parent(d, p, false, 0);  // insert first
+    CHECK(kids(w, p) == "d,a,b,c");
+    w.set_parent(c, p, false, 1);  // move within the same parent
+    CHECK(kids(w, p) == "d,c,a,b");
+    w.set_parent(d, p, false, 3);  // 3 = last of the 3 others
+    CHECK(kids(w, p) == "c,a,b,d");
+    w.set_parent(a, p);  // no index = last
+    CHECK(kids(w, p) == "c,b,d,a");
+    w.set_parent(c, p, false, 99);  // the World clamps; commands and scripts check first
+    CHECK(kids(w, p) == "b,d,a,c");
+    // Ranges for callers that validate.
+    CHECK(w.check_child_index(p, c, 0).empty());
+    CHECK(w.check_child_index(p, c, 3).empty());  // 3 other children
+    CHECK(w.check_child_index(p, kNullEntity, 4).empty());  // a new entity: 4 children, 4 = last
+    CHECK(w.check_child_index(p, c, 4).find("0 to 3") != std::string::npos);
+    CHECK(!w.check_child_index(p, c, -1).empty());
+    CHECK(!w.check_child_index(p, c, 0.5).empty());
+    CHECK(w.check_child_index(kNullEntity, c, 0).find("needs a parent") != std::string::npos);
+}
+
+TEST_CASE("scene: the child order survives save_scene and load_scene") {
+    World w;
+    Entity p = w.create("p", "p");
+    for (const char* id : {"a", "b", "c"}) w.set_parent(w.create(id, id), p);
+    w.set_parent(w.find_by_id("c"), p, false, 0);
+    CHECK(kids(w, p) == "c,a,b");
+    Json saved = save_scene(w);
+    World w2;
+    LoadReport r = load_scene(w2, saved, "round");
+    REQUIRE(r.ok());
+    CHECK(kids(w2, w2.find_by_id("p")) == "c,a,b");
+    // entity_from_json with an index
+    LoadReport r2;
+    Entity n = entity_from_json(w2, Json::parse(R"({"id":"n"})"), w2.find_by_id("p"), r2, "x", "", 1);
+    REQUIRE(!n.is_null());
+    CHECK(kids(w2, w2.find_by_id("p")) == "c,n,a,b");
+}
+
+TEST_CASE("scene: a prefab reference overrides the prefab's children") {
+    TempProject p;
+    REQUIRE(fs::write_text("prefabs/panel.prefab.json", R"({
+      "format": "factoria.prefab/1",
+      "entity": {
+        "id": "panel", "components": { "Sprite": { "layer": 1 } },
+        "children": [
+          { "id": "title", "name": "Title", "components": { "Sprite": { "layer": 2, "texture": "assets/t.png" } } },
+          { "name": "Row", "children": [ { "id": "ok", "name": "Ok", "components": { "Sprite": { "layer": 3 } } } ] }
+        ]
+      }})").ok());
+    World w;
+    LoadReport r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entities":[
+        { "id": "a", "prefab": "prefabs/panel.prefab.json",
+          "overrides": { "title": { "components": { "Sprite": { "layer": 20 } }, "tags": ["big"] },
+                         "Row/Ok": { "name": "Done", "components": { "Sprite": { "layer": 30 } } } } },
+        { "id": "b", "prefab": "prefabs/panel.prefab.json", "overrides": { "Ok": { "components": { "Sprite": { "layer": 31 } } } } },
+        { "id": "c", "prefab": "prefabs/panel.prefab.json" }
+      ]})"), "scene.json");
+    INFO(r.summary());
+    REQUIRE(r.ok());
+    auto layer_under = [&](Entity root, const char* name) {
+        for (Entity e : w.entities())
+            if (w.is_ancestor(root, e) && w.info(e).name == name) return w.get<Sprite>(e)->layer;
+        return -999;
+    };
+    Entity a = w.find_by_id("a"), b = w.find_by_id("b"), c = w.find_by_id("c");
+    REQUIRE((!a.is_null() && !b.is_null() && !c.is_null()));
+    CHECK(layer_under(a, "Title") == 20);
+    CHECK(layer_under(a, "Done") == 30);
+    CHECK(layer_under(b, "Title") == 2);
+    CHECK(layer_under(b, "Ok") == 31);  // found by name anywhere
+    CHECK(layer_under(c, "Title") == 2);
+    CHECK(layer_under(c, "Ok") == 3);
+    for (Entity e : w.children(a))
+        if (w.info(e).name == "Title") {
+            CHECK(w.has_tag(e, "big"));
+            CHECK(w.get<Sprite>(e)->texture == "assets/t.png");  // deep merge kept the rest
+        }
+
+    // The same through instantiate_prefab (world.spawnPrefab) with a place among the siblings.
+    Entity host = w.create("host", "host");
+    w.set_parent(w.create("first", "first"), host);
+    LoadReport r2;
+    Entity d = instantiate_prefab(w, "prefabs/panel.prefab.json", host, r2,
+                                  Json::parse(R"({"overrides":{"title":{"components":{"Sprite":{"layer":44}}}}})"), 0);
+    INFO(r2.summary());
+    REQUIRE(r2.ok());
+    CHECK(w.children(host).front() == d);
+    CHECK(layer_under(d, "Title") == 44);
+
+    // Typos: an unknown child, a key of the override and a field are errors that suggest the fix.
+    World w3;
+    LoadReport bad = load_scene(w3, Json::parse(R"({"format":"factoria.scene/1","entities":[
+        { "prefab": "prefabs/panel.prefab.json", "overrides": { "titel": { "components": { "Sprite": { "layer": 5 } } } } },
+        { "prefab": "prefabs/panel.prefab.json", "overrides": { "title": { "component": {} } } },
+        { "prefab": "prefabs/panel.prefab.json", "overrides": { "title": { "components": { "Sprite": { "layr": 5 } } } } }
+      ]})"), "bad.json");
+    CHECK(!bad.ok());
+    CHECK(has_message(bad, kErr, "/entities/0/overrides/titel"));
+    CHECK(has_message(bad, kErr, "has no child 'titel'"));
+    CHECK(has_message(bad, kErr, "Did you mean 'title'?"));
+    CHECK(has_message(bad, kErr, "Unknown key 'component'"));
+    CHECK(has_message(bad, kErr, "Did you mean 'components'?"));
+    CHECK(has_message(bad, kErr, "Unknown field 'layr' on Sprite"));
+    CHECK(has_message(bad, kErr, "Did you mean 'layer'?"));
+}

@@ -32,6 +32,23 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Sliders and lists
+
+- `Slider.format` shows the value as a pattern: `"{v:1}x"`, `"{percent}%"` (the value times 100); `Slider.formatKey` takes the
+  pattern from a string table, so it can differ per language. `game.setSlider(id, value)` in a test drags a slider like a
+  player: clamped, snapped to `step`, `ui.change` sent (the `ui.set_slider` command); writing `Slider.value` from a script
+  still sends nothing. `ScrollList.shrink` makes a list as tall as its content up to the room the other children leave, so a
+  short list in a `fit` panel makes a short panel.
+
+Tests
+
+- `factoria:test` can hold a mouse button and turn the wheel (`game.mouseDown`, `mouseUp`, `wheel`), so a drag orbit and a
+  wheel zoom are tested through the input path. `game.resetState({ storage, platform })` clears the save data and the fake
+  store between tests of one file, `game.setSystemLanguages([...])` sets what `i18n.systemLanguages` answers, and a quit
+  request in a test (`game.quit()`, Back nobody consumes) sets `game.quitRequested` instead of stopping the run.
+  SCRIPTING.md says `scene.load` from a test takes effect next frame while `game.load` is immediate. The hook warning
+  skips a method that takes arguments, like `start(seconds)`.
+
 Animation
 
 - Models animated by node transforms play with no change to the file: a body part that is a child of an animated bone
@@ -81,6 +98,11 @@ Platform services
 
 Localization
 
+- Numbers and times follow the language: `{v:number:1}` and `{t:duration}` in a string table and `i18n.number(v, {decimals})`
+  and `i18n.duration(seconds)` in scripts write 1234.5 as "1,234.5", "1234,5" (Spanish; "12.345,5" from five digits),
+  "1.234,5" (German), "1 234,5" (French, narrow no-break space) or "١٬٢٣٤٫٥" (Arabic digits), and 83.4 seconds as "1:23.4".
+  A small table in the engine, no ICU; a language it does not know is written like English (docs/LOCALIZATION.md).
+  Clockwork Courier uses it instead of its own helper (FB-0039).
 - `keyArgs` on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: the values of a key's `{placeholders}`
   (and the `count` of a plural entry), so a script sets them once instead of rewriting `text` every frame, and a language
   switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
@@ -202,6 +224,14 @@ Scripting
 
 UI
 
+- A child can be put at a place among its siblings, which is the order a `column` or `row` layout follows:
+  `scene.set_parent {id, parent, index}` (also `scene.spawn {index}`), `entity.setParent(parent, keepWorld, index)` and
+  `world.spawn(json, { parent, index })` / `world.spawnPrefab(path, { parent, index })`. 0 is first; an index outside
+  0..(number of the parent's other children) is an error that says the range. The order is saved with the scene.
+- One panel can serve several scenes: a prefab reference takes `overrides`, a map from a child of the prefab (its id,
+  name or a path like `"Panel/Title"`) to the `name`, `tags`, `active` and `components` to change, and
+  `world.spawnPrefab(path, { childOverrides })` and `scene.spawn {prefab, overrides}` do the same. A child or field that
+  does not exist is an error with a "did you mean". docs/MENUS.md shows it. Clockwork Courier's FB-0032 and FB-0023.
 - Text that fits: `autoShrink` (with `minFontSize`, default 10) on `Text`, `Button`, `Toggle`, `Slider` and `TouchButton`
   shrinks the font until the text fits its box (`Text.maxWidth` x the new `Text.maxHeight`, or the room the widget leaves
   its label), never under `minFontSize` times `ui.textScale`. `maxTextScale` on `Text`, every widget and `TouchButton`

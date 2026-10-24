@@ -1,5 +1,7 @@
 #include "fa/core/i18n.h"
 
+#include "fa/core/number_format.h"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -320,7 +322,8 @@ Result<StringTable> parse_string_table(const Json& document, std::string_view la
     return table;
 }
 
-std::string format_message(std::string_view text, const Json& args, std::vector<std::string>* missing) {
+std::string format_message(std::string_view text, const Json& args, std::vector<std::string>* missing, std::string_view language,
+                           std::vector<std::string>* problems) {
     if (text.find_first_of("{}") == std::string_view::npos) return std::string(text);
     const auto valid_name = [](std::string_view s) {
         return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) {
@@ -352,17 +355,52 @@ std::string format_message(std::string_view text, const Json& args, std::vector<
             ++i;
         } else if (c == '{') {
             const std::size_t close = text.find('}', i + 1);
-            const std::string_view name = close == std::string_view::npos ? std::string_view() : text.substr(i + 1, close - i - 1);
+            std::string_view inner = close == std::string_view::npos ? std::string_view() : text.substr(i + 1, close - i - 1);
+            // {name}, {name:number}, {name:number:2}, {name:duration}, {name:duration:0}
+            std::string_view name = inner, type, param;
+            if (const std::size_t c1 = inner.find(':'); c1 != std::string_view::npos) {
+                name = inner.substr(0, c1);
+                type = inner.substr(c1 + 1);
+                if (const std::size_t c2 = type.find(':'); c2 != std::string_view::npos) {
+                    param = type.substr(c2 + 1);
+                    type = type.substr(0, c2);
+                }
+            }
             if (!valid_name(name)) {
                 out += c;
                 continue;
             }
             const auto found = args.is_object() ? args.find(std::string(name)) : Json::const_iterator();
             if (args.is_object() && found != args.end()) {
-                out += value_text(*found);
+                bool formatted = false;
+                if (inner.size() > name.size()) {
+                    const bool isNumber = type == "number", isDuration = type == "duration";
+                    const bool digits = param.size() == 1 && param[0] >= '0' && param[0] <= '9';
+                    if (!isNumber && !isDuration) {
+                        if (problems)
+                            problems->push_back("{" + std::string(inner) + "}: unknown format '" + std::string(type) +
+                                                "' (use {" + std::string(name) + ":number}, {" + std::string(name) + ":number:1} or {" +
+                                                std::string(name) + ":duration})");
+                    } else if (!param.empty() && !digits) {
+                        if (problems)
+                            problems->push_back("{" + std::string(inner) + "}: '" + std::string(param) +
+                                                "' is not a number of decimals (one digit 0-9, e.g. {" + std::string(name) + ":" +
+                                                std::string(type) + ":1})");
+                    } else if (!found->is_number()) {
+                        if (problems)
+                            problems->push_back("{" + std::string(inner) + "}: the argument '" + std::string(name) + "' is " +
+                                                (found->is_string() ? "a string" : "not a number") + ", so it is shown as it is (pass a number)");
+                    } else {
+                        const double v = found->get<double>();
+                        const int d = param.empty() ? -1 : param[0] - '0';
+                        out += isNumber ? format_number(v, d, language) : format_duration(v, d < 0 ? 1 : d, language);
+                        formatted = true;
+                    }
+                }
+                if (!formatted) out += value_text(*found);
             } else {
                 out += '{';
-                out += name;
+                out += inner;
                 out += '}';
                 if (missing) missing->emplace_back(name);
             }
@@ -478,7 +516,10 @@ std::optional<std::string> I18n::translate(std::string_view key, const Json& arg
             text = &(form != e.forms.end() ? form : e.forms.find(PluralCategory::Other))->second;
         }
         std::vector<std::string> missing;
-        std::string out = format_message(*text, args, &missing);
+        std::vector<std::string> problems;
+        std::string out = format_message(*text, args, &missing, table->language, &problems);
+        for (const std::string& problem : problems)
+            warn_once("fmt|" + k + "|" + problem, "'" + k + "' (" + table->file + ") " + problem);
         for (const std::string& name : missing)
             warn_once("arg|" + k + "|" + name, "'" + k + "' (" + table->file + ") uses {" + name + "} but no argument '" + name +
                                                     "' was given: the placeholder stays in the text (hint: i18n.t(\"" + k + "\", {" + name + ": ...}))");
@@ -486,6 +527,10 @@ std::optional<std::string> I18n::translate(std::string_view key, const Json& arg
     }
     return std::nullopt;
 }
+
+std::string I18n::number(double value, int decimals) const { return format_number(value, decimals, current_); }
+
+std::string I18n::duration(double seconds, int decimals) const { return format_duration(seconds, decimals, current_); }
 
 std::string I18n::t(std::string_view key, const Json& args) const {
     if (auto text = translate(key, args)) return *text;

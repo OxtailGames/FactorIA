@@ -1049,7 +1049,19 @@ void register_builtin_components(TypeRegistry& r) {
                    "Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: "
                    "keys move (max - min) / 20 per press and dragging is not snapped.").range(0, 1000000)
             .field("showValue", &Slider::showValue,
-                   "Draw the value at the right: \"60%\" when min is 0 and max is 1, else the number with up to 2 decimals.");
+                   "Draw the value at the right. Without `format`: \"60%\" when min is 0 and max is 1, else the number with up to 2 "
+                   "decimals.")
+            .field("format", &Slider::format,
+                   "Pattern of the shown value, e.g. \"{v}%\" or \"{v:1}x\". {v} is the value with up to 2 decimals (trailing "
+                   "zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a "
+                   "whole number (a 0.3..1 opacity slider shows 30%..100% with \"{percent}%\"; {percent} does not depend on min "
+                   "and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the "
+                   "default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the "
+                   "number. Use formatKey for a pattern per language.")
+            .field("formatKey", &Slider::formatKey,
+                   "Localization key whose translation is the pattern, written into `format` like `key` writes the label "
+                   "(\"slider.percent\": \"{v} %\" in French). \"\" = none. A key no table has is reported once and `format` "
+                   "stays as it is.");
     }
     {
         auto field = r.add<TextField>("TextField",
@@ -1086,7 +1098,14 @@ void register_builtin_components(TypeRegistry& r) {
                    "panel's padding, the gaps and the other children, so the panel ends exactly as tall as the screen at most "
                    "(never below 64 px; if the other children do not leave that, the panel is taller than the screen and "
                    "warns). In a Panel without fit it is the panel's own inner height minus the others. Several fill lists "
-                   "share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours.");
+                   "share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours.")
+            .field("shrink", &ScrollList::shrink,
+                   "true: like `fill`, but the list is only as tall as its content (padding, children and gaps) when that is less "
+                   "than the room the other children leave, so inside a `fit` Panel a short list makes a short panel and a "
+                   "long one stops at the screen height and scrolls. The room is computed as for `fill` (it needs a parent "
+                   "Panel with layout column; ignored otherwise; never below 64 px). `fill` and `shrink` together: `fill` "
+                   "wins. Several shrink lists share the room: each takes what it needs, and a list that needs more than an "
+                   "equal share takes what the shorter ones leave. `size.x` is yours.");
     }
     {
         auto stick = r.add<TouchStick>("TouchStick",
