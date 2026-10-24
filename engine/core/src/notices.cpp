@@ -30,6 +30,8 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"acorn", "https://github.com/acornjs/acorn", "MIT", "external/acorn/LICENSE",
          "JavaScript parser of the script debugger", false},
         {"qoa", "https://github.com/phoboslab/qoa", "MIT", "external/qoa/LICENSE", "QOA audio files", true},
+        {"pl_mpeg", "https://github.com/phoboslab/pl_mpeg", "MIT", "external/pl_mpeg/LICENSE",
+         "MPEG-1 video and MP2 audio decoding (the Video component)", true},
         {"nlohmann/json", "https://github.com/nlohmann/json", "MIT", "external/nlohmann_json/LICENSE.MIT", "JSON", true},
         {"SDL_GameControllerDB", "https://github.com/mdqinc/SDL_GameControllerDB", "zlib",
          "external/sdl_gamecontrollerdb/LICENSE", "gamepad mappings (data)", true},

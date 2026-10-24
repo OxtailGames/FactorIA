@@ -1,6 +1,6 @@
 fa_add_module(core
     DEPS fa_ext_json
-    PRIVATE_DEPS fa_ext_stb)
+    PRIVATE_DEPS fa_ext_stb fa_ext_plmpeg)
 # The build fingerprint (fa/core/build_info.h): the commit, written to a header at every build; only build_info.cpp includes it.
 find_package(Git QUIET)
 set(FA_BUILD_FINGERPRINT_DIR ${CMAKE_BINARY_DIR}/generated)
