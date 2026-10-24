@@ -3119,6 +3119,10 @@ declare module "factoria" {
      */
     readonly keyboardShown: boolean;
     /**
+     * True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only.
+     */
+    readonly platformKeyboard: boolean;
+    /**
      * The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });
      */
     onBack(handler: () => boolean | void): () => void;

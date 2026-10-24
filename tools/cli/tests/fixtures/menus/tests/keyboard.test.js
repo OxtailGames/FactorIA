@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { ui } from "factoria";
+import { input, ui } from "factoria";
 import { keysFor } from "../scripts/ui/keyboard.js";
 
 // A player with only a gamepad types a name through the on-screen keyboard (scripts/ui/keyboard.js).
@@ -83,4 +83,22 @@ test("the keys follow the language and the field's maxLength", () => {
   pad.tap("DpadUp");
   pad.tap("A"); // "a" does not fit
   expect(field().text).toBe("123456789012");
+});
+
+test("a platform keyboard takes the field: the on-screen keyboard stays closed", () => {
+  game.load("scenes/name.scene.json");
+  game.step(2);
+  // The engine sets input.platformKeyboard when a native plugin (the Steam Deck's) shows its own keyboard for the focused field.
+  const engineGetter = Object.getOwnPropertyDescriptor(input, "platformKeyboard");
+  Object.defineProperty(input, "platformKeyboard", { get: () => true, configurable: true });
+  try {
+    pad.tap("DpadDown");
+    pad.tap("DpadUp"); // back to the field with the pad: the platform keyboard is up, this one is not
+    expect(ui.focused.id).toBe("name_field");
+    expect(open()).toBe(false);
+    pad.tap("A"); // A on the field asks the platform again, not this keyboard
+    expect(open()).toBe(false);
+  } finally {
+    Object.defineProperty(input, "platformKeyboard", engineGetter);
+  }
 });

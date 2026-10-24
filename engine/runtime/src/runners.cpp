@@ -175,6 +175,12 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             return;
         }
         apply_expand(st->engine, app_framebuffer_width(), app_framebuffer_height());
+        // The rectangle of a TextField for the platform's keyboard (a plugin's text input handler) is in window pixels.
+        st->engine.set_design_to_window([st](Vec2 p) {
+            Renderer* r = st->engine.renderer();
+            if (!r) return p;
+            return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(), st->engine.project().scaleMode);
+        });
         // A phone is played by touch from the start: touch-only on-screen controls are drawn before the first finger.
         if (app_is_mobile()) st->engine.input().set_last_device(InputDevice::Touch);
     };

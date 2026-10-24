@@ -409,7 +409,7 @@ GamepadType Input::gamepad_type(int index) const {
 void Input::reset_options() {
     reset_bindings();
     mouseVisible_ = true;
-    mouseLocked_ = keyboardShown_ = false;
+    mouseLocked_ = keyboardShown_ = platformKeyboard_ = false;
     backEdge_ = false;
     vibrations_.clear();
     lastDevice_ = InputDevice::Keyboard;

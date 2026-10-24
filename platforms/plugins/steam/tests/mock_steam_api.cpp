@@ -112,6 +112,9 @@ struct World {
         bool owned;
     };
     std::vector<Dlc> dlc;
+    // the keyboards (ISteamUtils): where Steam runs, which of them it offers, and the text the modal one returns
+    bool onDeck = false, bigPicture = false, floatingOffered = true, modalOffered = true;
+    std::string enteredText;
     // overlay and presence
     bool overlayEnabled = true;
     std::map<std::string, std::string> presence;
@@ -290,10 +293,13 @@ Json state() {
 //   reset                         the defaults (the library stays initialised)
 //   set {...}                     options: initMode ("", "norunning", "noappid", "mismatch": how SteamAPI_Init fails), exitLog (a file
 //                                 that gets a line for every StoreStats and Shutdown), loggedOn, running, cloudAccount, cloudApp, failWrites, overlayEnabled, createBoards, failStats,
+//                                 onDeck, bigPicture (IsSteamRunningOnSteamDeck / InBigPictureMode), floatingOffered, modalOffered (false: that keyboard's function returns false),
 //                                 hold (keep call results back until "release"), failNext (n call results end in an I/O failure),
 //                                 refuseNext (n calls return the invalid handle 0), unlockedAchievements [names], intStats {name: n}
 //   release                       deliver the call results that were held back
 //   fire overlay {active}         GameOverlayActivated_t
+//   fire gamepadText {submitted, text}  the modal keyboard closed: GamepadTextInputDismissed_t, GetEnteredGamepadTextInput has text
+//   fire floatingDismissed        FloatingGamepadTextInputDismissed_t
 //   fire dlc {appId, owned}       the player gets the DLC: DlcInstalled_t
 //   fire connected | disconnected SteamServersConnected_t, SteamServersDisconnected_t
 //   fire stray                    a SteamAPICallCompleted_t for a call nobody made
@@ -318,6 +324,10 @@ Json control(const Json& cmd) {
         flag("cloudApp", g.cloudApp);
         flag("failWrites", g.failWrites);
         flag("overlayEnabled", g.overlayEnabled);
+        flag("onDeck", g.onDeck);
+        flag("bigPicture", g.bigPicture);
+        flag("floatingOffered", g.floatingOffered);
+        flag("modalOffered", g.modalOffered);
         flag("createBoards", g.createBoards);
         flag("failStats", g.failStats);
         flag("hold", g.hold);
@@ -350,6 +360,14 @@ Json control(const Json& cmd) {
             a.userInitiated = true;
             a.appId = 480;
             push_callback(kGameOverlayActivated, bytes_of(a));
+        } else if (what == "gamepadText") {  // the modal keyboard closed: {submitted, text}
+            g.enteredText = cmd.value("text", "");
+            GamepadTextInputDismissed d{};
+            d.submitted = cmd.value("submitted", true);
+            d.submittedText = static_cast<u32>(g.enteredText.size());
+            push_callback(kGamepadTextInputDismissed, bytes_of(d));
+        } else if (what == "floatingDismissed") {  // the floating keyboard closed
+            push_callback(kFloatingGamepadTextInputDismissed, {});
         } else if (what == "dlc") {
             const u32 app = cmd.value("appId", 480001u);
             for (auto& d : g.dlc)
@@ -567,6 +585,42 @@ MOCK_API u32 SteamAPI_ISteamUtils_GetAppID(void* self) {
 MOCK_API bool SteamAPI_ISteamUtils_IsOverlayEnabled(void* self) {
     expect(self, &g_utils, "ISteamUtils::IsOverlayEnabled");
     return g.overlayEnabled;
+}
+
+MOCK_API bool SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(void* self) {
+    expect(self, &g_utils, "ISteamUtils::IsSteamRunningOnSteamDeck");
+    return g.onDeck;
+}
+MOCK_API bool SteamAPI_ISteamUtils_IsSteamInBigPictureMode(void* self) {
+    expect(self, &g_utils, "ISteamUtils::IsSteamInBigPictureMode");
+    return g.bigPicture;
+}
+MOCK_API bool SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput(void* self, int mode, int x, int y, int w, int h) {
+    expect(self, &g_utils, "ISteamUtils::ShowFloatingGamepadTextInput");
+    record("ShowFloatingGamepadTextInput " + std::to_string(mode) + " " + std::to_string(x) + " " + std::to_string(y) + " " +
+           std::to_string(w) + " " + std::to_string(h));
+    return g.floatingOffered;
+}
+MOCK_API bool SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput(void* self) {
+    expect(self, &g_utils, "ISteamUtils::DismissFloatingGamepadTextInput");
+    record("DismissFloatingGamepadTextInput");
+    return true;
+}
+MOCK_API bool SteamAPI_ISteamUtils_ShowGamepadTextInput(void* self, int mode, int line, const char* description, u32 charMax, const char* existing) {
+    expect(self, &g_utils, "ISteamUtils::ShowGamepadTextInput");
+    record("ShowGamepadTextInput " + std::to_string(mode) + " " + std::to_string(line) + " " + std::string(description ? description : "") + " " +
+           std::to_string(charMax) + " [" + std::string(existing ? existing : "") + "]");
+    return g.modalOffered;
+}
+MOCK_API u32 SteamAPI_ISteamUtils_GetEnteredGamepadTextLength(void* self) {
+    expect(self, &g_utils, "ISteamUtils::GetEnteredGamepadTextLength");
+    return static_cast<u32>(g.enteredText.size() + 1);  // with the terminating zero, as Steam counts it
+}
+MOCK_API bool SteamAPI_ISteamUtils_GetEnteredGamepadTextInput(void* self, char* text, u32 size) {
+    expect(self, &g_utils, "ISteamUtils::GetEnteredGamepadTextInput");
+    if (size == 0) return false;
+    std::snprintf(text, size, "%s", g.enteredText.c_str());
+    return true;
 }
 
 // ISteamApps.
@@ -816,5 +870,12 @@ MOCK_CHECK_SIGNATURE(SteamAPI_InitFlat, int, (char*))
 #else
 MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUserStats_RequestCurrentStats, bool, (void*))
 #endif
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck, bool, (void*))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_IsSteamInBigPictureMode, bool, (void*))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput, bool, (void*, int, int, int, int, int))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput, bool, (void*))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_ShowGamepadTextInput, bool, (void*, int, int, const char*, u32, const char*))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_GetEnteredGamepadTextLength, u32, (void*))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))
 MOCK_CHECK_SIGNATURE(SteamAPI_Init, bool, ())
 MOCK_CHECK_SIGNATURE(SteamAPI_IsSteamRunning, bool, ())

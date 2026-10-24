@@ -141,7 +141,7 @@ TEST_CASE("project.new_plugin: template picks a starting point, an unknown one l
     auto ok = reg.call("project.new_plugin", Json::parse(R"({"name": "store"})"));
     REQUIRE_MESSAGE(ok.ok, ok.error.dump());
     const std::string header = testing::read_all(stdfs::path(dir) / "plugins/store/include/fa_plugin.h");
-    CHECK(header.find("FA_PLUGIN_API_VERSION 2") != std::string::npos);
+    CHECK(header.find("FA_PLUGIN_API_VERSION 3") != std::string::npos);
     CHECK(header.find("add_backend") != std::string::npos);
 }
 
