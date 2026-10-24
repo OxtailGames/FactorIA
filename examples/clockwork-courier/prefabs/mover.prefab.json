@@ -10,7 +10,8 @@
       "Collider3D": {
         "shape": "box",
         "size": [3, 0.3, 3],
-        "friction": 0.9
+        "friction": 0.9,
+        "navWalkable": true
       },
       "Script": {
         "path": "scripts/mover.js"

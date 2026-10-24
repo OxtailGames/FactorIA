@@ -373,6 +373,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers. |
 | `navObstacle` | bool | `false` | true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing. (not released yet, on main after 0.2.0) |
+| `navWalkable` | bool | `false` | true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set. (not released yet, on main after 0.2.0) |
 
 ### Joint3D
 
@@ -427,7 +428,7 @@ A walking character: a kinematic capsule that moves and slides. Move it with phy
 
 Not released yet (on main after 0.2.0).
 
-A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
+A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there; one with Collider3D.navWalkable (a bridge, a lift) adds its top surface while it is there, and NavLink3D entities add off-mesh links. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -442,6 +443,18 @@ A navigation mesh for path finding on 3D ground. It is baked from the STATIC col
 | `enabled` | bool | `true` | false = nav.findPath ignores this mesh (and it is not baked). |
 | `walkableCells` | int | `0` | Runtime: how many cells can be walked on after the last bake (read only). Read-only. Runtime-only (not saved). |
 | `regions` | int | `0` | Runtime: how many separate walkable areas the last bake found; two points in different areas have no path (read only). Read-only. Runtime-only (not saved). |
+
+### NavLink3D
+
+Not released yet (on main after 0.2.0).
+
+An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a drop off a ledge. The walkable cells do not join the two places, so this joins them: the link runs from this entity's world position to `end` (both are moved onto the nearest walkable cell). nav.findPath may take it, and its result lists where in `links` (the index of the point where the link starts and the link's entity), so a script makes the character jump or climb there; the next point is where it ends. See docs/NAVIGATION.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `end` | vec3 | `[0.0,0.0,0.0]` | World position [x, y, z] where the link ends. The entity's own world position is where it starts. Both ends must be within the NavMesh3D box and near walkable ground (agentRadius + two cells horizontally, about stepHeight up and agentHeight down); a link whose end is not is ignored, and nav.info says so. |
+| `bidirectional` | bool | `true` | true (default): the path may also go from `end` to the entity. false: one way only, from the entity to `end` (a drop, a jump that cannot be climbed back). |
+| `cost` | float | `0.0` | Extra path length in meters added to the straight distance between the two ends. 0 = as long as the straight line; raise it so a path prefers walking around when that is not much longer. Range 0.0..1000.0. |
 
 ## Audio
 
@@ -1573,7 +1586,7 @@ Not released yet (on main after 0.2.0).
 
 Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats.
 
-A NavMesh3D component marks a box of the level. Baking voxelizes the static colliders inside it (no RigidBody3D or a static one; triggers and Collider3D.navObstacle colliders are left out) into a grid of walkable cells: not steeper than maxSlope, agentHeight of room above, agentRadius from walls and drops, neighbours joined when they differ by at most stepHeight. It is baked by itself when the scene loads and when the colliders change (autoBake); call this to bake on demand, for example with autoBake off. mesh = id of the entity with the NavMesh3D; omitted = every enabled one. Result: a list of {mesh, cellsX, cellsZ, cells, spans, walkableCells, regions, obstacles}; no timing, so the same level gives the same result. Example: nav.bake {"mesh":"navmesh"}
+A NavMesh3D component marks a box of the level. Baking voxelizes the static colliders inside it (no RigidBody3D or a static one; triggers, Collider3D.navObstacle and Collider3D.navWalkable colliders are left out; navWalkable ones are added as moving cells) into a grid of walkable cells: not steeper than maxSlope, agentHeight of room above, agentRadius from walls and drops, neighbours joined when they differ by at most stepHeight. It is baked by itself when the scene loads and when the colliders change (autoBake); call this to bake on demand, for example with autoBake off. mesh = id of the entity with the NavMesh3D; omitted = every enabled one. Result: a list of {mesh, cellsX, cellsZ, cells, spans, walkableCells, regions, obstacles, links, walkableBodies}; NavLink3D entities add off-mesh links; no timing, so the same level gives the same result. Example: nav.bake {"mesh":"navmesh"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1585,7 +1598,7 @@ Not released yet (on main after 0.2.0).
 
 Find a walkable path between two 3D points on the baked NavMesh3D.
 
-A* over the walkable grid, then string pulling: the result is few corner points from `from` to `to` on the walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, from, to, mesh} or {found:false, reason, message, hint}: reason is start_off_mesh / goal_off_mesh (not on walkable ground; nearest and nearestDistance say where the nearest walkable point is) or disconnected (the two are in different walkable areas, or a moving obstacle blocks the way). A start or goal within `snap` meters of walkable ground is moved onto it. closest=true returns a path to the reachable point nearest the goal (complete=false) instead of failing when disconnected. radius = agent radius of this query; larger than the NavMesh3D.agentRadius it was baked for is an error: bake for the bigger agent (a second NavMesh3D). mesh = id of the NavMesh3D entity; omitted = the first enabled one that contains `from`. Scripts: nav.findPath(from, to, {radius}). Example: nav.find_path {"from":[0,0,0],"to":[10,0,5]}
+A* over the walkable grid, then string pulling: the result is few corner points from `from` to `to` on the walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, links?:[{point, entity}], from, to, mesh} or {found:false, reason, message, hint}: reason is start_off_mesh / goal_off_mesh (not on walkable ground; nearest and nearestDistance say where the nearest walkable point is) or disconnected (the two are in different walkable areas, a moving obstacle blocks the way, or a navWalkable platform is away). A start or goal within `snap` meters of walkable ground is moved onto it. closest=true returns a path to the reachable point nearest the goal (complete=false) instead of failing when disconnected. radius = agent radius of this query; larger than the NavMesh3D.agentRadius it was baked for is an error: bake for the bigger agent (a second NavMesh3D). mesh = id of the NavMesh3D entity; omitted = the first enabled one that contains `from`. Scripts: nav.findPath(from, to, {radius}). Example: nav.find_path {"from":[0,0,0],"to":[10,0,5]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1602,7 +1615,7 @@ Not released yet (on main after 0.2.0).
 
 List the NavMesh3D components with their bounds, agent size, bake state and stats.
 
-Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, autoBake, baked, error?, boundsMin, boundsMax, cellSize, agentRadius, agentHeight, stepHeight, maxSlope, staleSinceBake, stats}. staleSinceBake is true when the colliders changed after the last bake of a mesh with autoBake off (call nav.bake).
+Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, autoBake, baked, error?, boundsMin, boundsMax, cellSize, agentRadius, agentHeight, stepHeight, maxSlope, staleSinceBake, stats} (stats include links and walkableBodies). staleSinceBake is true when the colliders changed after the last bake of a mesh with autoBake off (call nav.bake).
 
 ## project
 
@@ -3256,11 +3269,15 @@ declare module "factoria" {
      */
     complete: boolean;
     /**
+     * Off-mesh links (NavLink3D) the path takes, in order: `point` is the index in `points` where the link starts (points[point + 1] is where it ends: jump or climb from one to the other, do not walk the straight line) and `entity` the id of the entity with the NavLink3D. Absent when the path takes none.
+     */
+    links?: { point: number; entity: string }[];
+    /**
      * Id of the NavMesh3D entity that answered.
      */
     mesh: string;
     /**
-     * Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way.
+     * Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way or a moving platform (Collider3D.navWalkable) is away.
      */
     reason?: "start_off_mesh" | "goal_off_mesh" | "disconnected";
     /**
@@ -4019,17 +4036,17 @@ declare module "factoria" {
   }
 
   /**
-   * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake backend keeps one per period; real stores reject with "unavailable" until M12 maps them to their recurring boards).
+   * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake keeps one per period; Steam makes one board per period, Game Center and Play Games use their own time scopes: docs/PLATFORM.md, "Leaderboard periods"; each store starts a period at its own time).
    */
   export interface PlatformLeaderboardsAPI {
     /**
-     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means.
+     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs.
      */
-    submit(id: string, score: number): Promise<{ id: string; score: number; best: number }>;
+    submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
     /**
-     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10).
+     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs.
      */
-    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[]>;
+    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
   }
 
   /**
@@ -5733,6 +5750,11 @@ declare module "factoria" {
      * @since unreleased
      */
     navObstacle: boolean;
+    /**
+     * true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set.
+     * @since unreleased
+     */
+    navWalkable: boolean;
   }
   /**
    * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
@@ -5912,7 +5934,7 @@ declare module "factoria" {
     readonly groundNormal: Vec3;
   }
   /**
-   * A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
+   * A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there; one with Collider3D.navWalkable (a bridge, a lift) adds its top surface while it is there, and NavLink3D entities add off-mesh links. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
    * 
    * Category: Physics
    * @since unreleased
@@ -5974,6 +5996,30 @@ declare module "factoria" {
      * @since unreleased
      */
     readonly regions: number;
+  }
+  /**
+   * An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a drop off a ledge. The walkable cells do not join the two places, so this joins them: the link runs from this entity's world position to `end` (both are moved onto the nearest walkable cell). nav.findPath may take it, and its result lists where in `links` (the index of the point where the link starts and the link's entity), so a script makes the character jump or climb there; the next point is where it ends. See docs/NAVIGATION.md.
+   * 
+   * Category: Physics
+   * @since unreleased
+   */
+  export interface NavLink3DComponent {
+    /**
+     * World position [x, y, z] where the link ends. The entity's own world position is where it starts. Both ends must be within the NavMesh3D box and near walkable ground (agentRadius + two cells horizontally, about stepHeight up and agentHeight down); a link whose end is not is ignored, and nav.info says so.
+     * @since unreleased
+     */
+    get end(): Vec3;
+    set end(value: Vec3Like);
+    /**
+     * true (default): the path may also go from `end` to the entity. false: one way only, from the entity to `end` (a drop, a jump that cannot be climbed back).
+     * @since unreleased
+     */
+    bidirectional: boolean;
+    /**
+     * Extra path length in meters added to the straight distance between the two ends. 0 = as long as the straight line; raise it so a path prefers walking around when that is not much longer.
+     * @since unreleased
+     */
+    cost: number;
   }
   /**
    * Plays a sound clip from the entity. Set playOnStart to start automatically, or set `playing` from a script to trigger it.
@@ -7216,6 +7262,7 @@ declare module "factoria" {
     Joint3D: Joint3DComponent;
     CharacterController3D: CharacterController3DComponent;
     NavMesh3D: NavMesh3DComponent;
+    NavLink3D: NavLink3DComponent;
     AudioSource: AudioSourceComponent;
     AudioListener: AudioListenerComponent;
     Panel: PanelComponent;
@@ -7250,10 +7297,11 @@ declare module "factoria" {
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
     Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
+    NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };

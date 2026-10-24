@@ -171,7 +171,9 @@ const char* const kCatalog = R"({
   "leaderboards": [
     {"id": "feet_board", "name": "Feet", "ids": {"steam": "Feet Traveled"}},
     {"id": "fastest", "name": "Fastest", "order": "ascending", "ids": {"steam": "Fastest"}},
-    {"id": "ghost_board", "name": "Ghost board", "ids": {"steam": "No Such Board"}}
+    {"id": "ghost_board", "name": "Ghost board", "ids": {"steam": "No Such Board"}},
+    {"id": "daily_run", "name": "Daily run", "order": "ascending", "period": "daily", "ids": {"steam": "Daily Run"}},
+    {"id": "weekly_run", "name": "Weekly run", "period": "weekly", "ids": {"steam": "Weekly Run"}}
   ],
   "products": [
     {"id": "soundtrack", "type": "nonConsumable", "title": "Soundtrack", "ids": {"steam": "480001"}},
@@ -238,6 +240,9 @@ Json run(Engine& engine, const std::string& code) {
 }
 
 void pump(Engine& engine, int frames = 2) { engine.step(frames); }
+
+// The date game.today() answers (what a daily or weekly leaderboard is addressed by); game.setDate is for tests of the script runner.
+void set_date(Engine& engine, const std::string& iso) { CHECK(engine.scripts().set_date(iso).empty()); }
 
 // Starts `expression` (a promise from the platform API), steps frames until it settles, and returns {ok, value} or
 // {ok: false, code, message, hint}.
@@ -484,6 +489,57 @@ TEST_CASE("steam services: stats read, write and add, stored once per frame") {
     Json big = settle(s.engine, "platform.stats.set('wins', 3000000000)");
     CHECK(big["code"] == "failed");
     CHECK(has(text(big, "message"), "32-bit"));
+    expect_clean(s, mock);
+}
+
+TEST_CASE("steam services: a daily or weekly leaderboard is one Steam board per period") {
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    Session s(game);
+
+    // Day one: the board "Daily Run 2026-10-23" is made with the catalog's order (ascending, numeric) and holds the score.
+    set_date(s.engine, "2026-10-23");  // a Friday
+    CHECK(settle(s.engine, "platform.leaderboards.submit('daily_run', 61000)")["value"]["best"] == 61000);
+    CHECK(mock.called("FindOrCreateLeaderboard Daily Run 2026-10-23 1 1"));
+    Json one = settle(s.engine, "platform.leaderboards.entries('daily_run')");
+    REQUIRE(one["value"].size() == 1);
+    CHECK(one["value"][0]["isPlayer"] == true);
+    CHECK(mock.count_calls("FindOrCreateLeaderboard Daily Run 2026-10-23") == 1);  // the handle is kept
+
+    // Day two: another board, empty, and a score worse than yesterday's is this day's best.
+    set_date(s.engine, "2026-10-24");
+    Json two = settle(s.engine, "platform.leaderboards.entries('daily_run')");
+    REQUIRE(two["ok"] == true);
+    CHECK(two["value"].size() == 0);
+    CHECK(mock.called("FindOrCreateLeaderboard Daily Run 2026-10-24 1 1"));
+    CHECK(settle(s.engine, "platform.leaderboards.submit('daily_run', 90000)")["value"]["best"] == 90000);
+    CHECK(mock.state()["boards"]["Daily Run 2026-10-23"]["entries"].size() == 1);
+
+    // Back to day one: its board still has its score.
+    set_date(s.engine, "2026-10-23");
+    CHECK(settle(s.engine, "platform.leaderboards.entries('daily_run')")["value"][0]["score"] == 61000);
+
+    // A weekly board is named after the Monday and keeps its week, Monday to Sunday.
+    set_date(s.engine, "2026-10-21");  // a Wednesday
+    CHECK(settle(s.engine, "platform.leaderboards.submit('weekly_run', 7)")["value"]["best"] == 7);
+    CHECK(mock.called("FindOrCreateLeaderboard Weekly Run 2026-10-19 2 1"));
+    set_date(s.engine, "2026-10-25");  // the Sunday of that week
+    CHECK(settle(s.engine, "platform.leaderboards.entries('weekly_run')")["value"].size() == 1);
+    set_date(s.engine, "2026-10-26");  // the next Monday
+    CHECK(settle(s.engine, "platform.leaderboards.entries('weekly_run')")["value"].size() == 0);
+    CHECK(mock.called("FindOrCreateLeaderboard Weekly Run 2026-10-26 2 1"));
+    CHECK(mock.count_calls("FindOrCreateLeaderboard Weekly Run 2026-10-19") == 1);
+
+    // Weeks of days do not grow the handle cache without bound: every day is one lookup, and the game works on.
+    for (int month = 1; month <= 3; ++month)
+        for (int day = 1; day <= 28; ++day) {
+            char date[16];
+            std::snprintf(date, sizeof date, "2027-%02d-%02d", month, day);
+            set_date(s.engine, date);
+            REQUIRE(settle(s.engine, "platform.leaderboards.entries('daily_run')")["ok"] == true);
+        }
+    CHECK(mock.count_calls("FindOrCreateLeaderboard Daily Run 2027-") == 84);
     expect_clean(s, mock);
 }
 

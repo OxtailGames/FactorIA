@@ -161,11 +161,9 @@ export default class Dog extends Behaviour {
     const p = this.entity.position;
     const d = this.dest;
     const from = [p.x, p.y - this.feet, p.z];
-    let r = nav.findPath(from, [d[0], d[2], d[1]], { radius: this.navRadius, closest: true });
-    // The goal is in the air or beyond the snap (the courier jumped a gap): chase the nearest ground to it instead.
-    if (!r.found && r.reason === "goal_off_mesh" && r.nearest) {
-      r = nav.findPath(from, r.nearest, { radius: this.navRadius, closest: true });
-    }
+    // `closest`: a goal in the air or beyond the snap (the courier jumped a gap) walks to the nearest ground to it, in one
+    // query. Bridges, the seesaw and the platforms are navWalkable, so the mesh follows them as they move.
+    const r = nav.findPath(from, [d[0], d[2], d[1]], { radius: this.navRadius, closest: true });
     // points[0] is where the dog stands: the rest are the corners to walk to.
     this.path = r.found ? r.points.slice(1).map((q) => [q.x, q.z]) : [[d[0], d[1]]];
     if (this.path.length === 0) this.path = [[d[0], d[1]]];
