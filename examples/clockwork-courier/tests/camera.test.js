@@ -171,10 +171,51 @@ describe("orbit", () => {
     expect(cb().yaw).toBeCloseTo(y0, 3);
   });
 
-  test("a mouse drag orbits (orbit() is what the drag calls)", () => {
+  test("a mouse drag with the left button orbits, and only while the button is held", () => {
     const y0 = cb().yaw;
-    cb().orbit(100, 0);
-    expect(Math.abs(cb().yaw - y0)).toBeGreaterThan(10);
+    game.mouseMove([640, 300]);
+    game.step(2);
+    game.mouseDown("left");
+    game.step(2);
+    game.mouseMove([800, 300]);
+    game.step(2);
+    const turned = cb().yaw;
+    expect(Math.abs(turned - y0)).toBeGreaterThan(10);
+    game.mouseUp("left");
+    game.step(2);
+    game.mouseMove([400, 300]); // moving without the button does nothing
+    game.step(2);
+    expect(cb().yaw).toBeCloseTo(turned, 3);
+  });
+
+  test("dragging right and dragging left turn the camera opposite ways, and a vertical drag tilts it", () => {
+    game.mouseMove([640, 300]);
+    game.step(2);
+    game.mouseDown("left");
+    game.step(2);
+    game.mouseMove([700, 300]);
+    game.step(2);
+    const right = cb().yaw;
+    game.mouseMove([580, 300]);
+    game.step(2);
+    expect(cb().yaw).toBeGreaterThan(right);
+    const p0 = cb().pitch;
+    game.mouseMove([580, 380]);
+    game.step(2);
+    game.mouseUp("left");
+    expect(cb().pitch).not.toBeCloseTo(p0, 1);
+  });
+
+  test("the right button does not orbit", () => {
+    const y0 = cb().yaw;
+    game.mouseMove([640, 300]);
+    game.step(2);
+    game.mouseDown("right");
+    game.step(2);
+    game.mouseMove([800, 300]);
+    game.step(2);
+    game.mouseUp("right");
+    expect(cb().yaw).toBeCloseTo(y0, 3);
   });
 
   test("sensitivity scales the drag", () => {
@@ -190,10 +231,19 @@ describe("orbit", () => {
 describe("zoom", () => {
   beforeEach(setup);
 
-  test("the wheel zooms (zoom() is what a wheel notch calls) and is clamped to 3..10 m", () => {
-    cb().zoom(-100);
+  test("the wheel zooms (one notch up zooms in, down zooms out) and is clamped to 3..10 m", () => {
+    const d0 = cb().distance;
+    game.wheel(1);
+    game.step(2);
+    expect(cb().distance).toBeLessThan(d0);
+    game.wheel(-1);
+    game.step(2);
+    expect(cb().distance).toBeCloseTo(d0, 3);
+    game.wheel(50);
+    game.step(2);
     expect(cb().distance).toBe(cb().minDistance);
-    cb().zoom(100);
+    game.wheel(-50);
+    game.step(2);
     expect(cb().distance).toBe(cb().maxDistance);
     expect(cb().minDistance).toBe(3);
     expect(cb().maxDistance).toBe(10);

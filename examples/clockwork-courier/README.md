@@ -218,7 +218,7 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/intro.js` | P6 studio intro (`scenes/intro.scene.json`, the `mainScene`): about 4.8 s, plays once (`introSeen` in storage), ends early on a tap, key, pad button, Skip or Back, then goes to the title. |
 | `store/` | P6 store material: `en/`, `es/`, `ja/` listing texts (`store/check_store.py` checks lengths), `keyart.png` and `trailer/` (director script and generator). The `capsules/` and `screenshots/` (phone, tablet, desktop) are not in git: `store/make_store_images.py` writes them (see SHIPPING.md). Kept out of the shipped game by `export.exclude`. |
 | `perf.json` | P6 performance budget (`factoria call perf.check`): the heaviest level, `market_3`, on the macOS Metal runner. |
-| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js`, P6: `intro.test.js`, `budget.test.js` (entity, mesh, light and emitter budget per level, exact sizes of the icon and of the store images when they are there), the Back-at-title quit question is in `comfort.test.js`, P7: `i18n.test.js` (locale parity, runtime switch, persistence, system language, 200 percent layout in three languages, Japanese glyphs) (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
+| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js`, P6: `intro.test.js`, `budget.test.js` (entity, mesh, light and emitter budget per level, exact sizes of the icon and of the store images when they are there), the Back-at-title quit question is in `comfort.test.js`, P7: `i18n.test.js` (locale parity, runtime switch, persistence, system language, 200 percent layout in three languages, Japanese glyphs) (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test, both `game.resetState`). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
 
 ### Contract: levels (`scripts/levels.js`)
@@ -367,7 +367,7 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - The robot has no land or fall clips; Sitting stands in for landing and Idle for falling.
 - Orbiting the camera sideways inside the covered passage pulls it to 0.3 m from the courier, so it sits close to
   the robot's head.
-- Mouse drag and wheel are tested through `orbit()` and `zoom()` (ENGINE_FEEDBACK FB-0005).
+- Mouse drag and wheel are tested end to end with `game.mouseDown`/`mouseMove`/`mouseUp` and `game.wheel` through `readInput()` in `tests/camera.test.js`.
 
 ## Credits
 
