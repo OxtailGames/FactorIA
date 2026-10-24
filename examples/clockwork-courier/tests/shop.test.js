@@ -16,7 +16,8 @@ const open = () => {
 };
 const status = () => game.find("shop_status").get("Text").text;
 const action = () => game.find("shop_paint_action").get("Button");
-const robotColor = () => game.find("title_robot").get("MeshRenderer").color;
+/** The colour the title robot's body wears (the glTF material the paints replace). */
+const robotColor = () => game.find("title_robot").get("MeshRenderer").materialColors[paints.BODY_MATERIAL];
 /** Looks at the paint with this id: clicks Next until the shop shows it. */
 const look = (id) => {
   for (let i = 0; i < paints.PAINTS.length && shop().paint.id !== id; i++) {
@@ -84,16 +85,16 @@ describe("paints and their unlocks", () => {
     expect(svc.isUnlocked("fresh_paint")).toBe(true);
     expect(paintView(paints.byId("rust")).state).toBe("equipped");
     expect(action().interactable).toBe(false);
-    expect(robotColor()).toEqual(paints.byId("rust").color);
+    expect(robotColor()).toEqual(paints.byId("rust").body);
   });
 
   test("the robot shows the paint being looked at and goes back to the worn one when the shop closes", () => {
     open();
     look("neon");
-    expect(robotColor()).toEqual(paints.byId("neon").color);
+    expect(robotColor()).toEqual(paints.byId("neon").body);
     game.click("shop_back");
     game.step(3);
-    expect(robotColor()).toEqual(paints.byId("factory").color);
+    expect(robotColor()).toEqual(paints.byId("factory").body);
   });
 
   test("the title robot turns while the shop is open and stays still when it is closed", () => {
@@ -114,7 +115,7 @@ describe("paints and their unlocks", () => {
     store.equip("rust");
     loadYard();
     const model = game.find("courier").children.find((c) => c.id === "model");
-    expect(model.get("MeshRenderer").color).toEqual(paints.byId("rust").color);
+    expect(model.get("MeshRenderer").materialColors[paints.BODY_MATERIAL]).toEqual(paints.byId("rust").body);
     fresh();
     expect(store.equippedPaint()).toBe("factory");
   });

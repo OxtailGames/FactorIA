@@ -194,6 +194,35 @@ describe("the chosen language persists", () => {
 });
 
 describe("the system language picks the first language", () => {
+  // The game's real start-up path: game.setSystemLanguages decides what i18n.systemLanguages answers, the main menu applies
+  // the settings (settings.apply) and the language it picks is the one on screen.
+  afterEach(cleanUp);
+
+  test("the first system language the game has is the one a new player starts in", () => {
+    game.setSystemLanguages(["es-ES", "en"]);
+    start("scenes/main.scene.json");
+    expect(i18n.systemLanguages[0]).toBe("es-ES");
+    expect(i18n.language).toBe("es");
+    expect(game.find("play").get("Button").text).toBe("Jugar");
+  });
+
+  test("a system language the game lacks is skipped for the next one; none it has means English", () => {
+    game.setSystemLanguages(["fr-FR", "ja_JP", "en"]);
+    start("scenes/main.scene.json");
+    expect(i18n.language).toBe("ja");
+    cleanUp();
+    game.setSystemLanguages(["fr-FR", "de"]);
+    start("scenes/main.scene.json");
+    expect(i18n.language).toBe("en");
+    expect(game.find("play").get("Button").text).toBe("Play");
+  });
+
+  test("a language the player saved wins over the system's", () => {
+    game.setSystemLanguages(["es-ES"]);
+    start("scenes/main.scene.json", { language: "ja" });
+    expect(i18n.language).toBe("ja");
+  });
+
   test("a match on the whole tag or its first part, in the system's order", () => {
     const supported = ["en", "es", "ja"];
     expect(settings.pickLanguage(["ja"], supported, "en")).toBe("ja");

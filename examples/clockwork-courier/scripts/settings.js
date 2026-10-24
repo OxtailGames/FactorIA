@@ -98,7 +98,7 @@ export function applyScene(s = load()) {
 /**
  * The language a first run starts in: the first of the system's languages (best first, tags like "es-MX" or "ja_JP") the game
  * has, matching the whole tag or its first part; else `fallback`. The engine does the same when a window opens
- * (i18n.systemLanguages); this is the same rule written down so a test can feed it any list (a headless run has no system language).
+ * (i18n.systemLanguages); this is the same rule written down so it can be tested with plain lists (tests/i18n.test.js also drives the real start-up with game.setSystemLanguages).
  * @param {string[]} systemLanguages @param {string[]} supported @param {string} fallback
  */
 export function pickLanguage(systemLanguages, supported, fallback) {

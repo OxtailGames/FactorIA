@@ -61,9 +61,9 @@ describe("states", () => {
   test("the animator parameters follow the courier", () => {
     game.press("move_forward");
     game.step(30);
-    const v = game.find("model").get("Animator").values;
-    expect(v.speed).toBeGreaterThan(4);
-    expect(v.grounded).toBe(true);
+    const model = game.find("model");
+    expect(model.animator.get("speed")).toBeGreaterThan(4);
+    expect(model.animator.get("grounded")).toBe(true);
   });
 
   test("delivering plays the celebrate dance and locks the controls", () => {
