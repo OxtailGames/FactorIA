@@ -9,6 +9,8 @@
 //   select_name       opens the name screen to rename (scripts/profile.js), which returns here
 //   select_back / Esc / gamepad B / Android Back   the title screen
 //
+// The sizes of the texts at big text scales (maxTextScale, autoShrink) are set in the scene file, not here.
+//
 // Opening the screen asks the cloud to settle (cloud_sync.sync): if it brought progress in, the cards are redrawn.
 import { Behaviour, ui, world, scene, session, input, i18n } from "factoria";
 import * as fmt from "./fmt.js";
@@ -90,7 +92,6 @@ export default class LevelSelect extends Behaviour {
 
   /** Redraws every card, the totals and the buttons from the saved progress. */
   refresh() {
-    this.fitTexts();
     for (const l of levels.LEVELS) this.drawCard(l);
     for (const d of levels.DISTRICTS) {
       this.setText("district_" + d.id + "_title", i18n.t(d.nameKey) + (progress.isDistrictUnlocked(d.id) ? "" : "  " + i18n.t("select.districtLocked", { count: d.stars, have: progress.starsBefore(d.id) })));
@@ -102,28 +103,6 @@ export default class LevelSelect extends Behaviour {
     const dailyButton = world.find("select_daily");
     if (dailyButton) dailyButton.get("Button").text = time === null ? i18n.t("select.daily") : i18n.t("select.dailyDone", { time: fmt.decimal(time) });
     this.showCloud(session.cloudStatus?.status ?? "");
-  }
-
-  /**
-   * The cards, headings and district titles sit at fixed places and fit a fixed width, so at a big text size (ui.textScale)
-   * their text would be clipped or overlap. They cap their growth with `maxTextScale` (1.15 for the cards and 1.3 for the
-   * headings), and a card label that is still too long shrinks (`autoShrink`); the other texts of the screen follow the
-   * player's setting. (FB-0042)
-   */
-  fitTexts() {
-    const set = (id, comp, max, shrink) => {
-      const e = world.find(id);
-      if (!e || !e.has(comp)) return;
-      const c = e.get(comp);
-      c.maxTextScale = max;
-      if (shrink) c.autoShrink = true;
-    };
-    set("select_title", "Text", 1.3);
-    set("select_total", "Text", 1.3);
-    set("select_name", "Button", 1.15, true);
-    set("select_cloud", "Text", 1.15);
-    for (const d of levels.DISTRICTS) set("district_" + d.id + "_title", "Text", 1.15);
-    for (const l of levels.LEVELS) set("card_" + l.id, "Button", 1.15, true);
   }
 
   drawCard(l) {
