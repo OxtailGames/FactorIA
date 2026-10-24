@@ -90,8 +90,9 @@ The route comes from the engine's navmesh (docs/NAVIGATION.md): every level scen
 baked from the static colliders: agent radius 0.35 m, height 1.8 m, step 0.4 m, slope 45 degrees) and the dog calls
 `nav.findPath(feet, goal, { radius: 0.32, closest: true })` when it starts a chase and again when the goal has moved
 0.9 m (at most every 0.3 s). Gates and crates are `navObstacle` colliders, so the mesh knows where they are right now and
-the dog goes round a shut gate or a pushed crate; a goal it cannot reach (the baked mesh holds only static colliders, so a
-rope bridge or a seesaw is not on it) sends it to the nearest reachable point. The navmesh serves the dogs and tap-to-move.
+the dog goes round a shut gate or a pushed crate; the rope bridge planks, the seesaw and the moving platforms are `navWalkable`, so their top
+surface is on the mesh wherever they are now and the dog follows the courier across them; a goal it cannot reach sends it to the
+nearest reachable point (`closest`, one query). The navmesh serves the dogs and tap-to-move.
 
 ### Tap to move
 
