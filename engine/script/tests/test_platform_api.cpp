@@ -495,6 +495,18 @@ test("weekly board lasts Monday to Sunday", async () => {
   expect(await platform.leaderboards.entries("weekly_best")).toEqual([]);
 });
 
+test("a store that says when the period runs gives it as properties of the entries array", async () => {
+  game.platform.respond("leaderboards.entries", { result: { entries: [{ rank: 1, name: "A", score: 3, playerId: "a", isPlayer: false }],
+    periodStart: "2026-10-23T07:00:00Z", periodEnd: "2026-10-24T07:00:00Z" } });
+  const rows = await platform.leaderboards.entries("daily_route");
+  expect(Array.isArray(rows)).toBe(true);
+  expect(rows.length).toBe(1);
+  expect(rows[0].name).toBe("A");
+  expect(rows.periodStart).toBe("2026-10-23T07:00:00Z");
+  expect(rows.periodEnd).toBe("2026-10-24T07:00:00Z");
+  expect((await platform.leaderboards.entries("daily_route")).periodEnd).toBe(undefined);
+});
+
 test("an all-time board does not care about the date", async () => {
   await platform.leaderboards.submit("high_score", 5);
   game.setDate("2027-01-01");
@@ -510,5 +522,5 @@ test("the date is the test's again", async () => {
     TestReport rep = h.scripts.run_tests({"tests/periods.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 4);
+    CHECK(rep.passed == 5);
 }

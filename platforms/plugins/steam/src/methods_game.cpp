@@ -178,6 +178,16 @@ void unknown_leaderboard(FaRequest* r, const std::string& id, const std::string&
            "of the leaderboard in factoria.json platform.leaderboards to its name. Valve's test app 480 has \"Feet Traveled\".");
 }
 
+// Steam has no periods: a daily or weekly board is one Steam board per period, named "<store name> <periodKey>" ("Fastest
+// 2026-10-23"). The key is the day, or the Monday of the week, in the game's calendar (the engine sends it).
+std::string board_name(const std::string& name, const Json& a) {
+    const std::string key = a.string_or("periodKey");
+    return key.empty() ? name : name + " " + key;
+}
+
+// Boards of old periods are never read again and a handle is cheap to look up again, so the cache is emptied when it grows.
+constexpr std::size_t kMaxCachedBoards = 64;
+
 // Finds (or creates) the leaderboard and continues with its handle. The handle is cached: it is valid for the session.
 void with_leaderboard(FaRequest* r, const std::string& id, const std::string& name, const std::string& order,
                       std::function<void(u64)> then) {
@@ -189,13 +199,15 @@ void with_leaderboard(FaRequest* r, const std::string& id, const std::string& na
                                                                        order == "ascending" ? kSortAscending : kSortDescending, kDisplayNumeric);
     wait_for<LeaderboardFindResult>(r, call, [=](const LeaderboardFindResult& found) {
         if (!found.found || found.leaderboard == 0) return unknown_leaderboard(r, id, name);
-        backend().leaderboards[name] = found.leaderboard;
+        auto& cache = backend().leaderboards;
+        if (cache.size() >= kMaxCachedBoards) cache.clear();
+        cache[name] = found.leaderboard;
         then(found.leaderboard);
     });
 }
 
 void leaderboards_submit(FaRequest* r, const Json& a) {
-    const std::string id = a.string_or("id"), name = a.string_or("storeId", id), order = a.string_or("order", "descending");
+    const std::string id = a.string_or("id"), name = board_name(a.string_or("storeId", id), a), order = a.string_or("order", "descending");
     const double score = a.number_or("score", 0);
     if (score < kInt32Min || score > kInt32Max) {
         reject(r, "failed", "the score " + std::to_string(static_cast<long long>(score)) + " does not fit a Steam leaderboard: scores are 32-bit whole numbers",
@@ -230,7 +242,7 @@ void leaderboards_submit(FaRequest* r, const Json& a) {
 }
 
 void leaderboards_entries(FaRequest* r, const Json& a) {
-    const std::string id = a.string_or("id"), name = a.string_or("storeId", id), order = a.string_or("order", "descending");
+    const std::string id = a.string_or("id"), name = board_name(a.string_or("storeId", id), a), order = a.string_or("order", "descending");
     const std::string range = a.string_or("range", "top");
     const int count = static_cast<int>(std::min(100.0, std::max(1.0, a.number_or("count", 10))));
     with_leaderboard(r, id, name, order, [=](u64 board) {

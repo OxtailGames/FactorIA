@@ -799,20 +799,6 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         }
         out.id = s.nextId++;
         offered = info->service.empty() || contains(s.services, info->service);
-        // Only the fake keeps boards per period so far: the stores' recurring boards are M12's work.
-        if (offered && prepared.value("period", std::string("allTime")) != "allTime" && s.backendName != "fake") {
-            PlatformAnswer a;
-            a.id = out.id;
-            a.method = method;
-            a.ok = false;
-            a.error = {"unavailable",
-                       "platform." + method + " is not available: the " + in_quotes(s.backendName) + " backend has no " +
-                           prepared.value("period", std::string()) + " leaderboards yet",
-                       "Periods work with the fake backend (development, tests); the stores' recurring boards come with M12 "
-                       "(docs/PLATFORM.md, \"Leaderboard periods\"). Use \"period\": \"allTime\" or handle this rejection."};
-            out.answer = std::move(a);
-            return out;
-        }
         if (offered && method == "ads.setUnderAge") s.underAge = prepared.value("underAge", false);
         // A game for adults and children (audience "mixed") shows no ad before it knows the player's age.
         if (offered && s.catalog.adsAudience == "mixed" && !s.underAge && (method == "ads.available" || method == "ads.showRewarded")) {

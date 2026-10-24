@@ -1551,6 +1551,15 @@
     });
   }
   const noResult = () => undefined;
+  // A backend answers the entries of a daily or weekly board as { entries, periodStart, periodEnd } when its store says when the
+  // period runs; the game still gets the array, with those two as properties of it (ISO 8601 UTC text).
+  function leaderboardEntries(r) {
+    if (Array.isArray(r) || !isObj(r) || !Array.isArray(r.entries)) return r;
+    const list = r.entries.slice();
+    if (r.periodStart) list.periodStart = r.periodStart;
+    if (r.periodEnd) list.periodEnd = r.periodEnd;
+    return list;
+  }
   function deliverPlatformEvent(name, data) {
     const key = "platform." + name;
     const arr = listeners.get(key);
@@ -1628,7 +1637,7 @@
       // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10).
       entries(id, options = {}) {
         const o = isObj(options) ? options : {};
-        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count });
+        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count }, leaderboardEntries);
       },
     },
     cloud: {
