@@ -272,6 +272,88 @@ What the command does, file by file; do it by hand when you want to see each fil
   `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
   uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
 
+## A studio intro: a video that any button skips
+
+A game that opens with a logo film uses a `Video` component and a few lines of script. It is not part of the kit (the
+film is yours); Clockwork Courier's `scenes/intro.scene.json` and `scripts/intro.js` are this recipe running.
+
+1. **The file.** An MPEG-1 video with MP2 sound in a `.mpg` (that is the only format the engine decodes; a clip of a few
+   seconds at 640x360 is well under a megabyte). Bring any other video with
+   `factoria call assets.import '{"source":"C:/art/logo.mp4"}'`: it converts the file with ffmpeg (`factoria setup ffmpeg`
+   installs one) into `assets/video/logo.mpg`, scales it down to at most 1280 pixels wide, and records where it came from.
+2. **The scene.** A camera, a `Video` that fills the screen (`anchor` and `pivot` at the centre, `size` the design size,
+   `fit: "contain"` keeps the picture's shape and shows `color` in the bars), and an entity with the script. A visible
+   Skip button helps touch players; any tap, key or pad button skips too.
+3. **The script.** It loads the next scene when the video ends or when the player presses anything.
+
+```json
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [640, 360, 0] }, "Camera": { "clearColor": [0, 0, 0, 1] } } },
+    { "id": "intro_video",
+      "components": {
+        "Video": { "path": "assets/video/logo.mpg", "size": [1280, 720], "anchor": [0.5, 0.5], "pivot": [0.5, 0.5],
+                   "fit": "contain", "color": [0, 0, 0, 1], "bus": "sfx" } } },
+    { "id": "intro", "components": { "Script": { "path": "scripts/intro.js" } } }
+  ]
+}
+```
+
+```js
+// @ts-check
+// scripts/intro.js: plays scenes/intro.scene.json (the Video plays by itself: autoplay is on) and goes to the menu when
+// the video ends or the player presses anything.
+import { Behaviour, scene, input, world } from "factoria";
+
+const SCENE = "scenes/intro.scene.json";
+const NEXT = "scenes/menu.scene.json";
+
+export default class Intro extends Behaviour {
+  onStart() {
+    this.frames = 0;
+    this.left = false;
+    // "ended" comes once, when the video reaches its end (never for a Video with loop on).
+    this.offEnded = world.find("intro_video")?.video.on("ended", () => this.leave());
+    // Android Back skips the intro instead of quitting the game in the middle of it.
+    this.offBack = input.onBack(() => {
+      this.leave();
+      return true;
+    });
+  }
+
+  onDestroy() {
+    this.offEnded?.();
+    this.offBack?.();
+  }
+
+  /** Loads the next scene once, and only while this intro is the scene that is playing. */
+  leave() {
+    if (this.left || scene.current !== SCENE) return;
+    this.left = true;
+    scene.load(NEXT);
+  }
+
+  onUpdate() {
+    // Any key, tap, click or pad button. The first frame is skipped: the press that started the game must not skip the film.
+    if (this.frames > 0 && input.lastPressed()) this.leave();
+    this.frames += 1;
+  }
+}
+```
+
+- **Once.** To show the intro only on the first launch, `storage.set("introSeen", true)` in `onStart` and call
+  `scene.load(NEXT)` at once when `storage.get("introSeen", false)` is true (Clockwork Courier does).
+- **The check on `scene.current`.** The `ended` event and a press can come in the same frame, or after another script
+  moved to a different scene; `leave()` only acts while this intro is still the current scene, so a late answer never
+  loads the menu over a level.
+- **Time is the game clock.** The film pauses with the game (`time.scale` 0), and a headless test steps it with
+  `game.step`: `game.step(60 * 6)` plays a five-second film to its end, which is how a test checks that the
+  intro ends. `video.time`, `video.duration`, `video.playing` and `video.ended` are readable; `video.seek(s)`,
+  `video.pause()`, `video.play()` and `video.stop()` control it ([SCRIPTING.md](SCRIPTING.md), `entity.video`).
+- **A video with no sound** works (the file just has no audio track); `factoria validate` reports a `.mpg` the engine
+  cannot play (a different codec inside the file, or not an MPEG file) with the ffmpeg command that fixes it.
+
 ## Manual check: hear the speech
 
 Tests cannot hear anything, so once per system run the game (`factoria run <project>` or the exported game), open

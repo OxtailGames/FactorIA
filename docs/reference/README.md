@@ -67,6 +67,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Toggle](components/ui.md#toggle): Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. _Since 0.1.6._
 - [TouchButton](components/ui.md#touchbutton): On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an optional label. _Since 0.2.0._
 - [TouchStick](components/ui.md#touchstick): On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. _Since 0.2.0._
+- [Video](components/ui.md#video): A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. _Not released yet._
 
 ## Commands
 
@@ -96,7 +97,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.generate_sound`](commands/assets.md#assetsgenerate_sound-modifies-state): Generate a sound effect with the sound asset provider and record where it came from. _Since 0.1.6._
 - [`assets.generate_sprite_sheet`](commands/assets.md#assetsgenerate_sprite_sheet-modifies-state): Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator. _Since 0.1.6._
 - [`assets.generate_voice`](commands/assets.md#assetsgenerate_voice-modifies-state): Generate spoken audio from text with the voice asset provider and record where it came from. _Since 0.1.6._
-- [`assets.import`](commands/assets.md#assetsimport-modifies-state): Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from. _Since 0.1.6._
+- [`assets.import`](commands/assets.md#assetsimport-modifies-state): Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from. _Since 0.1.6._
 - [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
 - [`assets.set_provenance`](commands/assets.md#assetsset_provenance-modifies-state): Record where an asset came from (hand-made, imported, or made with AI elsewhere). _Since 0.1.6._

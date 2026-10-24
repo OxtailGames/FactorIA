@@ -744,6 +744,15 @@
         "notes": "preset bark, 0.45 s, seed 1",
         "date": "2026-10-23"
       }
+    },
+    "assets/video/studio_intro.mpg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-24",
+        "source": "store/intro/intro_anim.scene.json",
+        "license": "Original work of the project",
+        "author": "Oxtail Games"
+      }
     }
   }
 }

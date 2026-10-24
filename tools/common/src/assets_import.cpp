@@ -78,6 +78,7 @@ std::string default_folder(const std::string& outExt) {
         case assets::AssetKind::Model: return "assets/models/";
         case assets::AssetKind::Audio: return "assets/audio/";
         case assets::AssetKind::Font: return "assets/fonts/";
+        case assets::AssetKind::Video: return "assets/video/";
         default: return "assets/";
     }
 }
@@ -288,7 +289,11 @@ const std::map<std::string, Route>& routes() {
         {".tga", {"copy", ".tga", import_copy}},              {".bmp", {"copy", ".bmp", import_copy}},
         {".wav", {"copy", ".wav", import_copy}},              {".ogg", {"copy", ".ogg", import_copy}},
         {".mp3", {"copy", ".mp3", import_copy}},              {".ttf", {"copy", ".ttf", import_copy}},
-        {".otf", {"copy", ".otf", import_copy}},              {".qoa", {"copy", ".qoa", import_copy}}};
+        {".otf", {"copy", ".otf", import_copy}},              {".qoa", {"copy", ".qoa", import_copy}},
+        {".mpg", {"video", ".mpg", import_video}},            {".mpeg", {"video", ".mpeg", import_video}},
+        {".mp4", {"video", ".mpg", import_video}},            {".m4v", {"video", ".mpg", import_video}},
+        {".mov", {"video", ".mpg", import_video}},            {".webm", {"video", ".mpg", import_video}},
+        {".mkv", {"video", ".mpg", import_video}},            {".avi", {"video", ".mpg", import_video}}};
     return r;
 }
 
@@ -307,6 +312,7 @@ std::vector<std::string> default_next_steps(const std::string& path) {
         case assets::AssetKind::Model: return {"Show it: a MeshRenderer with \"mesh\": \"" + path + "\"."};
         case assets::AssetKind::Audio: return {"Play it: audio.play(\"" + path + "\") in a script, an AudioSource \"clip\", or SceneSettings \"music\"."};
         case assets::AssetKind::Font: return {"Use it: a Text with \"font\": \"" + path + "\"."};
+        case assets::AssetKind::Video: return {"Show it: a Video component with \"path\": \"" + path + "\" and a \"size\"; entity.video.play() / seek() / on(\"ended\") in a script."};
         default: return {};
     }
 }
@@ -320,6 +326,7 @@ Json import_asset(const std::string& projectDir, const Json& a) {
         std::string hint = "Supported: " + supported_extensions() + ".";
         if (ext == ".blend") hint = "Export the model from Blender as glTF (File > Export > glTF 2.0) and import that. " + hint;
         else if (ext == ".webp" || ext == ".gif" || ext == ".svg" || ext == ".psb") hint = "Convert it to PNG first. " + hint;
+        else if (ext == ".gif" || ext == ".flv" || ext == ".wmv") hint = "Convert it to .mp4 with ffmpeg first (factoria setup ffmpeg). " + hint;
         else if (ext == ".flac" || ext == ".m4a" || ext == ".aac") hint = "Convert it to OGG or WAV first. " + hint;
         fail("invalid_argument", "assets.import cannot read '" + ext + "' files.", hint);
     }
@@ -415,7 +422,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     info.name = "assets.import";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from.";
+    info.summary = "Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from.";
     info.description =
         "Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance "
         "(origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. "
@@ -437,14 +444,19 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "bounds so you can scale it.\n"
         "- .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither "
         "installed the error says where to get them.\n"
-        "Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/ by default) or at `path`, "
+        "- .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, "
+        "the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. "
+        "ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that "
+        "command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and "
+        "duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.\n"
+        "Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, "
         "which must be under assets/. An existing file is an error unless overwrite is true. "
         "Example: {\"source\":\"C:/art/hero.aseprite\",\"license\":\"CC0\",\"author\":\"Ana\"}.";
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["source"],
       "properties":{
         "source":{"type":"string","description":"The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first."},
-        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/ or assets/fonts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX)."},
+        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/ or assets/video/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
         "license":{"type":"string","description":"License or terms of the file, e.g. \"CC0\", \"CC-BY 4.0\", \"bought from itch.io, single project\". Recorded in assets.json."},
         "author":{"type":"string","description":"Who made it. Recorded in assets.json for the credits."},
         "sourceUrl":{"type":"string","description":"Where the file came from (a page URL). Recorded as the provenance source instead of the local path."},
