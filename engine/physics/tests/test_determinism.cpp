@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -64,6 +65,16 @@ void feed(Sha256& h, float v) {
 }
 void feed(Sha256& h, Vec3 v) { feed(h, v.x); feed(h, v.y); feed(h, v.z); }
 
+// FNV-1a over the bits of a few vectors: the per-body digests of the trace below.
+std::uint32_t fnv(std::uint32_t h, Vec3 v) {
+    for (float f : {v.x, v.y, v.z}) {
+        std::uint32_t bits;
+        std::memcpy(&bits, &f, sizeof bits);
+        for (int i = 0; i < 4; ++i) h = (h ^ ((bits >> (8 * i)) & 0xffu)) * 16777619u;
+    }
+    return h;
+}
+
 void add_slab(World& w, const char* id, Vec3 pos, Vec3 size, Vec3 rot = {0, 0, 0}) {
     Entity e = w.create(id, id);
     Transform* t = w.get<Transform>(e);
@@ -77,7 +88,10 @@ void add_slab(World& w, const char* id, Vec3 pos, Vec3 size, Vec3 rot = {0, 0, 0
 struct Replay {
     std::string all, d3, d2;  // first 16 hex digits: everything, the 3D bodies only, the 2D bodies only
 };
-Replay replay_hash() {
+// trace: print one line per step with a digest of each 3D body (position, rotation, velocity, spin). A platform whose hash
+// differs prints it; run the test with FA_PHYSICS_TRACE=1 on a matching machine and diff the two: the first line that
+// differs is the step, and its first differing column the body, where the simulations part.
+Replay replay_hash(bool trace = false) {
     World world;
     Physics physics;
     physics.init(PhysicsSettings{});
@@ -142,11 +156,30 @@ Replay replay_hash() {
 
     Sha256 h, h3, h2;
     const std::vector<Entity> all = world.entities();
+    if (trace) {
+        std::string names;
+        for (Entity e : all)
+            if (world.get<RigidBody3D>(e)) names += " " + world.id_of(e);
+        std::printf("FA_PHYSICS_TRACE bodies%s\n", names.c_str());
+    }
     for (int step = 0; step < 360; ++step) {
         world.events().clear();
         physics.step(world, kDt);
         world.advance_clock(kDt);
         world.flush();
+        if (trace) {
+            std::string line = "FA_PHYSICS_TRACE " + std::to_string(step);
+            for (Entity e : all) {
+                const RigidBody3D* rb = world.get<RigidBody3D>(e);
+                if (!rb) continue;
+                const Transform* t = world.get<Transform>(e);
+                char hex[16];
+                std::snprintf(hex, sizeof hex, " %08x",
+                              fnv(fnv(fnv(fnv(2166136261u, t->position), t->rotation), rb->velocity), rb->angularVelocity));
+                line += hex;
+            }
+            std::printf("%s\n", line.c_str());
+        }
         if (step % 6 == 5) {
             for (Entity e : all) {
                 if (!world.get<RigidBody3D>(e) && !world.get<RigidBody2D>(e)) continue;
@@ -179,6 +212,10 @@ TEST_CASE("physics replay hash matches the committed value of this platform") {
     std::printf("FA_PHYSICS_REPLAY_HASH platform=%s hash=%s expected=%s%s (3d=%s 2d=%s)\n", key.c_str(), got.c_str(),
                 expected.c_str(), override_ ? " (platform-specific)" : " (reference)", replay.d3.c_str(), replay.d2.c_str());
     std::fflush(stdout);
+    if (const char* t = std::getenv("FA_PHYSICS_TRACE"); t && *t == '1') {
+        replay_hash(true);
+        std::fflush(stdout);
+    }
     if (got != expected) {
         const std::string msg =
             "physics replay hash on " + key + " is " + got + ", expected " + expected +
@@ -188,7 +225,10 @@ TEST_CASE("physics replay hash matches the committed value of this platform") {
             "same). If only " + key + " differs, the simulation is not deterministic there: look for a C library call (std::sin, "
             "cos, atan2, asin, acos, pow, exp, hypot; use fa::det:: or sqrt), a sort whose ties are not broken by index, an "
             "iteration over an unordered container, or floating-point contraction (-ffp-contract=off). Run the core test "
-            "\"det math: exact bit patterns\" on this platform too: if it fails, + - * / sqrt rounds differently here.";
+            "\"det math: exact bit patterns\" on this platform too: if it fails, + - * / sqrt rounds differently here. The "
+            "FA_PHYSICS_TRACE lines above show where: diff them with FA_PHYSICS_TRACE=1 on a matching platform.";
+        replay_hash(true);
+        std::fflush(stdout);
         FAIL(msg);
     }
 }
