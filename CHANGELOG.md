@@ -107,8 +107,14 @@ Platform services
   drawn): `game.platform.ad("watched" | "closedEarly" | "noFill" | "consentRefused")` chooses how it ends (command `platform.set_ad`). The real
   networks (Google UMP and AdMob, Apple ATT) are not in yet: the native backends answer `unavailable`.
 - A leaderboard takes `period`: `"allTime"` (default), `"daily"` or `"weekly"`. The fake keeps one board per day or
-  week of `game.today()`, so a daily board is empty again after `game.setDate` moves to the next day; a store backend
-  rejects a daily or weekly board with `unavailable` until its recurring boards are mapped.
+  week of `game.today()`, so a daily board is empty again after `game.setDate` moves to the next day. The store backends
+  map the period too (next bullet).
+- Daily and weekly leaderboards on the stores. Steam keeps one board per period, named `<store name> <periodKey>`; Game
+  Center uses a recurring leaderboard of App Store Connect as it is, at its current occurrence, or reads a classic board
+  with the `.today` / `.week` time scope; Play Games reads the `TIME_SPAN_DAILY` / `TIME_SPAN_WEEKLY` table. These backends
+  no longer reject periods with `unavailable`. Each store starts a period at its own time (table in docs/PLATFORM.md,
+  "Leaderboard periods"); `submit` and `entries` carry `periodStart` and `periodEnd` when the store says them (Game Center's
+  recurring boards), on `entries` as properties of the array (FB-0030).
 - Clockwork Courier uses them instead of its ad stub and its single daily board (FB-0028, FB-0030).
 - The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
   `platform.revoke`) removes it from `restore()` and sends the `purchase` event with `status: "revoked"`.

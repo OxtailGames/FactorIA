@@ -119,7 +119,7 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.stats.get(id)` | The number. |
 | `platform.stats.set(id, value)` | The new value. An int stat needs a whole number. |
 | `platform.stats.add(id, delta)` | The new value (a get, then a set: not atomic). |
-| `platform.leaderboards.submit(id, score)` | `{ id, score, best }`; `best` is the player's best after this (on a daily or weekly board: today's or this week's). The score is a whole number. |
+| `platform.leaderboards.submit(id, score)` | `{ id, score, best }` (and `periodStart`, `periodEnd` when the store says; "Leaderboard periods"); `best` is the player's best after this (on a daily or weekly board: today's or this week's). The score is a whole number. |
 | `platform.leaderboards.entries(id, { range = "top", count = 10 })` | `[{ rank, name, score, playerId, isPlayer }]` (of the current period). `range`: `"top"`, `"around"` (the player's neighbours) or `"friends"`; `count` 1 to 100. |
 | `platform.cloud.save(key, value)` | `{ key, bytes }`. `value` is anything JSON can hold. Keys: `A-Z a-z 0-9 _ . -`, up to 64 characters. |
 | `platform.cloud.load(key)` | The value, or `undefined` when there is no such key. |
@@ -162,9 +162,32 @@ there and every ads call rejects with `unavailable`.
 the current calendar day (or week, Monday to Sunday) of `game.today()` (docs/SCRIPTING.md, "The date"), never of the wall
 clock inside a simulation. The fake keeps one board per day or week, so the board is empty again the day after a
 `game.setDate` in a test. The backend gets the board in the arguments: `period`, `periodKey` (`"2026-10-23"` for a day, the
-Monday's date for a week, `""` for `allTime`) and `date`. **The store backends do not map periods yet** (Steam, Game Center
-and Play Games recurring boards are M12's next packages): a daily or weekly board there rejects with `unavailable`, an
-`allTime` one works as before.
+Monday's date for a week, `""` for `allTime`) and `date`. Every backend maps the period to what its store has:
+
+- **Steam** has no periods. A daily or weekly board is one Steam board per period, named `<store name> <periodKey>`
+  (`Daily Run 2026-10-23`, `Weekly Run 2026-10-19`) and made on first use with the catalog's `order`. The day after, the
+  new board is empty and the old one keeps its scores. A board per period piles up in the Steamworks partner site: that is
+  the price of a store with no periods.
+- **Game Center**: a board whose `ids.apple` names a recurring leaderboard (set up in App Store Connect) is used as it is,
+  at its current occurrence, whatever `period` says. A classic board is read with the `.today` (daily) or `.week` (weekly)
+  time scope of the same board.
+- **Play Games** reads the daily or weekly table of the same board (`TIME_SPAN_DAILY`, `TIME_SPAN_WEEKLY`).
+
+Each store starts a period at its own time, not always at the game's `periodKey`:
+
+| Backend | A day starts | A week starts | `periodStart` / `periodEnd` |
+|---|---|---|---|
+| fake | Midnight of `game.today()` | Monday of `game.today()` | none |
+| Steam | Midnight of `game.today()` (the engine names the board) | Monday of `game.today()` | none |
+| Game Center, classic board | Game Center's own day (`.today`) | Game Center's own week (`.week`) | none |
+| Game Center, recurring board | When App Store Connect says (start date and duration of the occurrence) | the same | the current occurrence |
+| Play Games | Midnight Pacific time | Google's week | none |
+
+A store that says when the current period runs adds `periodStart` and `periodEnd` (ISO 8601 UTC text, for example
+`"2026-10-23T07:00:00Z"`) to the `submit` answer, and to the array `entries` resolves with, as properties of it
+(`rows.periodEnd`). Only Game Center's recurring boards do so today. Do not compute the end of a period from the date when
+they are missing: the stores differ, as the table says. A game that shows "resets in..." shows it only when `periodEnd`
+is there.
 
 **Purchases: grant, then finish.** A store keeps a purchase "unfinished" until the game calls `finish`, and hands it over
 again on the next run. Grant what was bought first, finish after, and remember the `transactionId`s you granted so the
@@ -401,7 +424,7 @@ store and never touch Steam's data, but a running Steam client shows you as play
 | `achievements.list()` | `GetAchievement` for each catalog entry (one Steam does not have shows locked, with a warning). `progress` is 0 or 1. |
 | `achievements.reset()` | `ResetAllStats` including achievements: development only. |
 | `stats.get / set` | Int and float stats. A set is stored by the next frame (several sets in a frame are one `StoreStats`; Steam limits how often it may be called). Int stats are 32-bit. |
-| `leaderboards.submit(id, score)` | Uploads keeping the player's best; `best` is what Steam kept. Scores are 32-bit. |
+| `leaderboards.submit(id, score)` | Uploads keeping the player's best; `best` is what Steam kept. Scores are 32-bit. A daily or weekly board is the Steam board `<name> <periodKey>` ("Leaderboard periods"). |
 | `leaderboards.entries(id, {range, count})` | `top`: ranks 1 to `count`. `around`: the player in the middle. `friends`: the player and friends (Steam gives them all; at most `count` are returned). Names are Steam persona names. |
 | `cloud.save / load / list / remove` | Steam Cloud files named `<key>.json`. Needs Cloud enabled for the app (partner site, App Admin > Cloud) and for the account; otherwise `unavailable`, saying which. A file is up to 100 MB; the app's quota applies. |
 | `purchases.products(ids?)` | Steam's DLC list for the app, by the products' `ids.steam`: `title` is the DLC's name; `price` is `""` (Steam gives a DLC's price on its store page, not here), `priceValue` null. |
@@ -555,8 +578,8 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `achievements.reset` | `{ achievements: [{ id, storeId }] }` | `{}` |
 | `stats.get` | `{ id, storeId, type }` | `{ id, value }` |
 | `stats.set` | `{ id, storeId, type, value }` | `{ id, value }` |
-| `leaderboards.submit` | `{ id, storeId, name, order, period, periodKey, date, score }` | `{ id, score, best }` |
-| `leaderboards.entries` | `{ id, storeId, name, order, period, periodKey, date, range, count }` | `[{ rank, name, score, playerId, isPlayer }]` |
+| `leaderboards.submit` | `{ id, storeId, name, order, period, periodKey, date, score }` | `{ id, score, best, periodStart?, periodEnd? }` |
+| `leaderboards.entries` | `{ id, storeId, name, order, period, periodKey, date, range, count }` | `[{ rank, name, score, playerId, isPlayer }]`, or `{ entries: [...], periodStart, periodEnd }` when the store says when the period runs |
 | `cloud.save` | `{ key, data }` (`data` is JSON text) | `{ key, bytes }` |
 | `cloud.load` | `{ key }` | `{ key, data }`, or `null` when there is no such key |
 | `cloud.list` | `{}` | `["key", ...]` |
@@ -629,7 +652,7 @@ of the App ID, from the Apple Developer portal) signs the app with them ([EXPORT
 | `achievements.unlock(id)`, `.progress(id, fraction)` | Reports to Game Center (`newly` is false when it was unlocked already). An id that App Store Connect does not have is `unknownId`, listing the ids it has. |
 | `achievements.list()` | The catalog's achievements with what the player reached. |
 | `achievements.reset()` | Resets *every* achievement of the player (development). |
-| `leaderboards.submit(id, score)`, `.entries(id, {range, count})` | The all-time board. `range`: `"top"`, `"around"` (empty until the player has a score) or `"friends"`. `best` is the player's best including this score. |
+| `leaderboards.submit(id, score)`, `.entries(id, {range, count})` | The all-time board, or the period's ("Leaderboard periods": a recurring board at its current occurrence, with `periodStart` and `periodEnd`; a classic one with the `.today` / `.week` scope). `range`: `"top"`, `"around"` (empty until the player has a score) or `"friends"`. `best` is the player's best including this score. |
 | `cloud.save/load/list/remove` | One iCloud key-value key per cloud key; the value is stored as JSON text. Over 1 MB or 1024 keys: `failed`. No iCloud account or no entitlement: `unavailable`. Syncing between devices is iCloud's (seconds to minutes); `load` reads what this device has. |
 | `purchases.products(ids?)` | The product's `displayName`, `description`, `displayPrice` (the player's storefront), price value, currency and type. A product the store does not know is left out, with a warning in the log that says how to create it. |
 | `purchases.buy(id)` | Shows the purchase sheet. `purchased` (with `transactionId` and the JWS `receipt`), `cancelled`, or `pending` (Ask to Buy). `notAllowed` when Screen Time forbids purchases. The call waits as long as the player takes with the sheet, but gives up after 30 s when the App Store never shows it. |
@@ -723,7 +746,7 @@ the game by `platform.add_backend`) for **Android on a device with Google Play**
 | `purchases` | Play Billing 9.1 | consumables, non-consumables and subscriptions; pending payments; refunds. Always on. |
 | `overlay` | Play Games / Play Store | `"achievements"` and `"leaderboards"` (Play Games screens) and `"store"` (the game's Play Store page). Always on; `"friends"` is `unavailable`. |
 | `integrity` | Play Integrity 1.6 | a token that vouches for the app and the device: the generic service, this is its Android backend. Always on. |
-| `achievements`, `leaderboards` | Play Games Services v2 22.1 | the sign-in prompt, Google's banners, all-time public / around the player / friends boards. **Only with a Play Games project id** (below). |
+| `achievements`, `leaderboards` | Play Games Services v2 22.1 | the sign-in prompt, Google's banners, all-time, daily and weekly public / around the player / friends boards. **Only with a Play Games project id** (below). |
 | `cloudSave` | Play Games Saved Games | one snapshot per cloud key. **Only with a Play Games project id.** |
 
 Play Games has no stats and no presence: `platform.has("stats")` and `platform.has("presence")` are false and the engine
@@ -783,7 +806,7 @@ Google answers with its own ids: the engine maps the catalog ids to the `ids.goo
 | `achievements.unlock(id)`, `.progress(id, fraction)` | Reports to Play Games (`newly` is false when it was unlocked already). `progress` needs an **incremental** achievement (else `failed`, saying how to make it one); 1 unlocks it. An id that Play Console does not have is `unknownId`, listing the ids it has. |
 | `achievements.list()` | The catalog's achievements with what the player reached (an achievement Play does not have is reported locked, with a warning in the log). |
 | `achievements.reset()` | `unavailable`: a game cannot reset achievements on Google Play. Use a fresh test account, or the Play Games management API from your own tooling. |
-| `leaderboards.submit(id, score)` | The all-time board. `best` is the player's best including this score. |
+| `leaderboards.submit(id, score)` | The all-time board, or the daily or weekly one for a board with a `period` ("Leaderboard periods"). `best` is the player's best in that table including this score. |
 | `leaderboards.entries(id, {range, count})` | `range`: `"top"`, `"around"` or `"friends"` (the player must allow friends in the Play Games app, else `notAllowed`). **At most 25 rows** per call: a larger `count` is cut to 25. The board's sort order is the one set in Play Console; the catalog's `order` is not sent. |
 | `cloud.save(key, data)`, `cloud.load(key)`, `cloud.list()`, `cloud.remove(key)` | One Saved Games snapshot per cloud key, named after it (Play allows letters, digits and `- . _ ~`, up to 100 characters: every key the engine accepts fits). The value is stored as JSON text. `load` of a key that does not exist is `null` (a script gets `undefined`). When two devices saved the same key, the most recently modified save wins. Saved Games not turned on in Play Console: `unavailable`. |
 | `purchases.products(ids?)` | The product's title, description, price text (the player's currency), price value, currency and type. A product Google does not know is left out, with a warning in the log that says how to create it. A subscription shows the price of its base plan's renewing phase. |

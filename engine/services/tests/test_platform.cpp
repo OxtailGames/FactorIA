@@ -1066,7 +1066,7 @@ TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the
     CHECK(g.fake().state()["ads"]["outcome"] == "watched");
 }
 
-TEST_CASE("fake: leaderboards keep one board per day or week of the date source; stores reject periods for now") {
+TEST_CASE("fake: leaderboards keep one board per day or week of the date source; a store backend gets the period too") {
     Game g(R"({"leaderboards": [{"id": "d", "name": "D", "order": "ascending", "period": "daily"},
                                 {"id": "w", "name": "W", "period": "weekly"}, {"id": "a", "name": "A"}]})");
     std::string day = "2026-10-23";  // a Friday
@@ -1088,13 +1088,15 @@ TEST_CASE("fake: leaderboards keep one board per day or week of the date source;
     g.ask("leaderboards.submit", Json::parse(R"({"id": "w", "score": 1})"));
     CHECK(g.fake().state()["calls"].back()["args"]["periodKey"] == "2026-12-28");
 
-    // A backend that is not the fake gets a clean "unavailable" for a period it cannot keep, and still serves allTime.
+    // A store backend is asked for a daily board like for any other: it gets the period and its key.
     struct Real : PlatformBackend {
         int calls = 0;
+        Json last;
         std::string name() const override { return "steam"; }
         std::vector<std::string> services() const override { return {"leaderboards"}; }
-        void request(std::uint64_t id, const std::string&, const Json&, const PlatformSink& sink) override {
+        void request(std::uint64_t id, const std::string&, const Json& args, const PlatformSink& sink) override {
             ++calls;
+            last = args;
             sink.complete(id, Json::object());
         }
     };
@@ -1103,12 +1105,12 @@ TEST_CASE("fake: leaderboards keep one board per day or week of the date source;
     g.ps.set_backend(std::move(real));
     auto daily = g.ps.start("leaderboards.submit", Json::parse(R"({"id": "d", "score": 5})"));
     REQUIRE(daily.ok());
-    REQUIRE(daily->answer.has_value());
-    CHECK(daily->answer->error.code == "unavailable");
-    CHECK(has(daily->answer->error.message, "has no daily leaderboards yet"));
-    CHECK(rp->calls == 0);
-    CHECK(g.ps.start("leaderboards.submit", Json::parse(R"({"id": "a", "score": 5})")).ok());
+    if (daily->answer.has_value()) CHECK(daily->answer->ok);
     CHECK(rp->calls == 1);
+    CHECK(rp->last["period"] == "daily");
+    CHECK(rp->last["periodKey"] == "2027-01-03");
+    CHECK(g.ps.start("leaderboards.submit", Json::parse(R"({"id": "a", "score": 5})")).ok());
+    CHECK(rp->calls == 2);
 }
 
 TEST_CASE("platform: release is a flag of the run, and a backend without the ads service answers unavailable") {
