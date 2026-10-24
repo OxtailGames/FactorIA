@@ -1017,12 +1017,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"nav.bake",
            "Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats.",
            "A NavMesh3D component marks a box of the level. Baking voxelizes the static colliders inside it (no RigidBody3D "
-           "or a static one; triggers and Collider3D.navObstacle colliders are left out) into a grid of walkable cells: not "
+           "or a static one; triggers, Collider3D.navObstacle and Collider3D.navWalkable colliders are left out; navWalkable ones are added as moving cells) into a grid of walkable cells: not "
            "steeper than maxSlope, agentHeight of room above, agentRadius from walls and drops, neighbours joined when they "
            "differ by at most stepHeight. It is baked by itself when the scene loads and when the colliders change "
            "(autoBake); call this to bake on demand, for example with autoBake off. mesh = id of the entity with the "
            "NavMesh3D; omitted = every enabled one. Result: a list of {mesh, cellsX, cellsZ, cells, spans, walkableCells, "
-           "regions, obstacles}; no timing, so the same level gives the same result. Example: nav.bake {\"mesh\":\"navmesh\"}",
+           "regions, obstacles, links, walkableBodies}; NavLink3D entities add off-mesh links; no timing, so the same level gives the same result. Example: nav.bake {\"mesh\":\"navmesh\"}",
            parse_schema(R"({"type":"object","properties":{"mesh":{"type":"string","description":"Id of the entity with the NavMesh3D to bake; omitted = all enabled ones."}}})"),
            true, "physics"},
           [&I](const Json& a) {
@@ -1036,10 +1036,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"nav.find_path",
            "Find a walkable path between two 3D points on the baked NavMesh3D.",
            "A* over the walkable grid, then string pulling: the result is few corner points from `from` to `to` on the "
-           "walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, from, to, mesh} or "
+           "walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, links?:[{point, entity}], from, to, mesh} or "
            "{found:false, reason, message, hint}: reason is start_off_mesh / goal_off_mesh (not on walkable ground; "
            "nearest and nearestDistance say where the nearest walkable point is) or disconnected (the two are in "
-           "different walkable areas, or a moving obstacle blocks the way). A start or goal within `snap` meters of "
+           "different walkable areas, a moving obstacle blocks the way, or a navWalkable platform is away). A start or goal within `snap` meters of "
            "walkable ground is moved onto it. closest=true returns a path to the reachable point nearest the goal "
            "(complete=false) instead of failing when disconnected. radius = agent radius of this query; larger than the "
            "NavMesh3D.agentRadius it was baked for is an error: bake for the bigger agent (a second NavMesh3D). "
@@ -1079,7 +1079,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "List the NavMesh3D components with their bounds, agent size, bake state and stats.",
            "Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, "
            "autoBake, baked, error?, boundsMin, boundsMax, cellSize, agentRadius, agentHeight, stepHeight, maxSlope, "
-           "staleSinceBake, stats}. staleSinceBake is true when the colliders changed after the last bake of a mesh with "
+           "staleSinceBake, stats} (stats include links and walkableBodies). staleSinceBake is true when the colliders changed after the last bake of a mesh with "
            "autoBake off (call nav.bake).",
            parse_schema(R"({"type":"object","properties":{}})"), true, "physics"},
           [&I](const Json&) { return I.physics.nav_info(I.world); });
