@@ -27,9 +27,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.4 (Rigid glTF animation and several skins) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/rigid-animation (M26.4): a mesh that is a child of an animated node, or an animated mesh node with no skin, follows its node through a rigid skin the importer makes (parse_skeleton), so the Animator plays RobotExpressive and the Kenney cube pets as exported; a model with clips that nothing can play logs one warning naming them. The game imports the original robot.glb (hands included) and animal-dog.glb again and tools/skinify.py is gone."
+        "Fixed in c71f1cc (M26.4): a mesh that is a child of an animated node, or an animated mesh node with no skin, follows its node through a rigid skin the importer makes (parse_skeleton), so the Animator plays RobotExpressive and the Kenney cube pets as exported; a model with clips that nothing can play logs one warning naming them. The game imports the original robot.glb (hands included) and animal-dog.glb again and tools/skinify.py is gone."
       ],
-      "engineIssue": "m26/rigid-animation"
+      "engineIssue": "#155"
     },
     {
       "id": "FB-0002",
@@ -53,9 +53,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.4 (Rigid glTF animation and several skins) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/rigid-animation (M26.4): every mesh is drawn with the palette of its own skin (Animator::skinPalettes, one per glTF skin), so the two hand skins of the original robot.glb animate; the 'first skin only' limit and its warning are gone. The game imports the original robot.glb with both hands."
+        "Fixed in c71f1cc (M26.4): every mesh is drawn with the palette of its own skin (Animator::skinPalettes, one per glTF skin), so the two hand skins of the original robot.glb animate; the 'first skin only' limit and its warning are gone. The game imports the original robot.glb with both hands."
       ],
-      "engineIssue": "m26/rigid-animation"
+      "engineIssue": "#155"
     },
     {
       "id": "FB-0003",
@@ -76,8 +76,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.22 (Menu kit command) in feedback/ROADMAP.md.",
-        "2026-10-24: fixed in m26/menu-kit (M26.22): project.add_menu_kit {parts, overwrite} copies the kit of templates/menus/ (main-menu, options, credits, shop, pause, loading, keyboard, dialogue; parts bring what they need) into the game and merges its texts into the locales without replacing a key; a changed file stays unless overwrite is true. docs/MENUS.md, \"Add the kit with a command\"."
-      ]
+        "Fixed in c944641 (M26.22): project.add_menu_kit {parts, overwrite} copies the kit of templates/menus/ (main-menu, options, credits, shop, pause, loading, keyboard, dialogue; parts bring what they need) into the game and merges its texts into the locales without replacing a key; a changed file stays unless overwrite is true. docs/MENUS.md, \"Add the kit with a command\"."
+      ],
+      "engineIssue": "#176"
     },
     {
       "id": "FB-0004",
@@ -101,9 +102,9 @@
       ],
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/model-import (M26.5): validate's loudness warnings use the gain defaults.audio.normalize applies (peak and LUFS after the gain). The project now sets defaults.audio.targetLufs -20, because the peak-limited click_001.ogg cannot reach -16 and the spread of effects was still over 12 LU."
+        "Fixed in 7e0cd19 (M26.5): validate's loudness warnings use the gain defaults.audio.normalize applies (peak and LUFS after the gain). The project now sets defaults.audio.targetLufs -20, because the peak-limited click_001.ogg cannot reach -16 and the spread of effects was still over 12 LU."
       ],
-      "engineIssue": "m26/model-import"
+      "engineIssue": "#153"
     },
     {
       "id": "FB-0005",
@@ -124,9 +125,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/test-api (M26.11): game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) in factoria:test."
+        "Fixed in 1474bc1 (M26.11): game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) in factoria:test."
       ],
-      "engineIssue": "m26/test-api"
+      "engineIssue": "#172"
     },
     {
       "id": "FB-0006",
@@ -147,9 +148,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/test-api (M26.11): checkHooks counts arguments: start(seconds) is a method, start() still warns."
+        "Fixed in 1474bc1 (M26.11): checkHooks counts arguments: start(seconds) is a method, start() still warns."
       ],
-      "engineIssue": "m26/test-api"
+      "engineIssue": "#172"
     },
     {
       "id": "FB-0007",
@@ -169,7 +170,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in e3ab260 (before this report): entity.animator.get(name) returns a parameter's current value (a declared param or a set one; a wrong name throws with a \"did you mean\"), and game.find(id) in a test returns the same entity, so tests/animator.test.js can read game.find(id).animator.get(\"speed\"). docs/ANIMATION.md now shows it (m26/triage)."
+        "Fixed in e3ab260 (before this report): entity.animator.get(name) returns a parameter's current value (a declared param or a set one; a wrong name throws with a \"did you mean\"), and game.find(id) in a test returns the same entity, so tests/animator.test.js can read game.find(id).animator.get(\"speed\"). docs/ANIMATION.md now shows it (#149)."
       ],
       "engineIssue": "e3ab260"
     },
@@ -198,9 +199,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/model-import (M26.5): assets.import of a .glb or .gltf copies the textures and buffers its uris point at (with provenance), shares an identical file already there and warns when a DIFFERENT file of the same name is (import each kit into its own folder); factoria validate reports a model whose texture is missing. The kit folders under assets/models stay: they are the layout the warning recommends."
+        "Fixed in 7e0cd19 (M26.5): assets.import of a .glb or .gltf copies the textures and buffers its uris point at (with provenance), shares an identical file already there and warns when a DIFFERENT file of the same name is (import each kit into its own folder); factoria validate reports a model whose texture is missing. The kit folders under assets/models stay: they are the layout the warning recommends."
       ],
-      "engineIssue": "m26/model-import"
+      "engineIssue": "#153"
     },
     {
       "id": "FB-0009",
@@ -226,9 +227,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.10 (Navmesh and paths for 3D) in feedback/ROADMAP.md (M19's navmesh, taken now that a game needs it).",
-        "2026-10-23: fixed in m26/navmesh (M26.10): a NavMesh3D component baked from the static colliders (agentRadius, agentHeight, stepHeight, maxSlope), nav.findPath(from, to, {radius}) in scripts and the nav.find_path / nav.bake / nav.info commands, Collider3D.navObstacle for gates and crates that move, and \"Show navmesh\" in the editor (docs/NAVIGATION.md). The game's scripts/nav.js, dog.js and tap_move.js still use their own grid: moving them onto the engine API needs the six levels re-tuned and retested, which is a game task."
+        "Fixed in 016421a (M26.10): a NavMesh3D component baked from the static colliders (agentRadius, agentHeight, stepHeight, maxSlope), nav.findPath(from, to, {radius}) in scripts and the nav.find_path / nav.bake / nav.info commands, Collider3D.navObstacle for gates and crates that move, and \"Show navmesh\" in the editor (docs/NAVIGATION.md). The game's scripts/nav.js, dog.js and tap_move.js still use their own grid: moving them onto the engine API needs the six levels re-tuned and retested, which is a game task."
       ],
-      "engineIssue": "m26/navmesh"
+      "engineIssue": "#159"
     },
     {
       "id": "FB-0010",
@@ -253,9 +254,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.2 (Character controller on moving and dynamic bodies) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/character-platforms (M26.2): a character on a kinematic platform is carried with its displacement and turn (CharacterController3D.carriedByPlatforms), so courier.js and mover.js no longer add the platform velocity."
+        "Fixed in 299cd69 (M26.2): a character on a kinematic platform is carried with its displacement and turn (CharacterController3D.carriedByPlatforms), so courier.js and mover.js no longer add the platform velocity."
       ],
-      "engineIssue": "m26/character-platforms"
+      "engineIssue": "#151"
     },
     {
       "id": "FB-0011",
@@ -280,9 +281,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.2 (Character controller on moving and dynamic bodies) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/character-platforms (M26.2): CharacterController3D.applyWeight / mass press on the dynamic body below and pushStrength never shoves a jointed one, so seesaw.js and rope_bridge.js lost their weight workarounds."
+        "Fixed in 299cd69 (M26.2): CharacterController3D.applyWeight / mass press on the dynamic body below and pushStrength never shoves a jointed one, so seesaw.js and rope_bridge.js lost their weight workarounds."
       ],
-      "engineIssue": "m26/character-platforms"
+      "engineIssue": "#151"
     },
     {
       "id": "FB-0012",
@@ -307,9 +308,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.7 (Scene and asset preload with progress) in feedback/ROADMAP.md (M19's scene.loadAsync, taken now that a game needs it).",
-        "2026-10-23: fixed in m26/scene-preload (M26.7): `scene.preload(path)` and `assets.preload(paths)` return a handle with `progress`, `done` and a `promise`; the work is cut into files, four per frame in tests and a few ms per frame in a window; the scene.load that follows reads nothing from the disk. scripts/loading.js now shows the real progress and scripts/intro.js preloads the title screen."
+        "Fixed in d9bfb84 (M26.7): `scene.preload(path)` and `assets.preload(paths)` return a handle with `progress`, `done` and a `promise`; the work is cut into files, four per frame in tests and a few ms per frame in a window; the scene.load that follows reads nothing from the disk. scripts/loading.js now shows the real progress and scripts/intro.js preloads the title screen."
       ],
-      "engineIssue": "m26/scene-preload"
+      "engineIssue": "#161"
     },
     {
       "id": "FB-0013",
@@ -333,9 +334,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/model-import (M26.5): assets.synth_sound {path, preset, seed} makes a deterministic bark, growl, meow and the usual effects offline; the guard dog now plays assets/audio/dog_bark.wav (preset bark) and the borrowed impactPunch_heavy_000.ogg is gone."
+        "Fixed in 7e0cd19 (M26.5): assets.synth_sound {path, preset, seed} makes a deterministic bark, growl, meow and the usual effects offline; the guard dog now plays assets/audio/dog_bark.wav (preset bark) and the borrowed impactPunch_heavy_000.ogg is gone."
       ],
-      "engineIssue": "m26/model-import"
+      "engineIssue": "#153"
     },
     {
       "id": "FB-0014",
@@ -359,9 +360,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/joints (M26.14): gates and joints read `stalled` and `connected: \"\"` means the world."
+        "Fixed in bb13ed0 (M26.14): gates and joints read `stalled` and `connected: \"\"` means the world."
       ],
-      "engineIssue": "m26/joints"
+      "engineIssue": "#167"
     },
     {
       "id": "FB-0015",
@@ -386,9 +387,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; CC/FB-0053 merged here (the same missing warning, met when a body starts inside a static collider); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/joints (M26.14): a body started inside a static collider is logged once and reported by validate."
+        "Fixed in bb13ed0 (M26.14): a body started inside a static collider is logged once and reported by validate."
       ],
-      "engineIssue": "m26/joints"
+      "engineIssue": "#167"
     },
     {
       "id": "FB-0016",
@@ -410,9 +411,9 @@
       "notes": [
         "2026-10-22: Always pass explicit paths; reverted the three files with git and re-applied only the edits.",
         "2026-10-22 triage: confirmed open; work package M26.1 (Commands write only what they change) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/commands-write-only (M26.1): `scene.format` without `paths`, `all` or `check` writes nothing and fails naming `paths` and `all` (the first files it would change)."
+        "Fixed in 7566e5b (M26.1): `scene.format` without `paths`, `all` or `check` writes nothing and fails naming `paths` and `all` (the first files it would change)."
       ],
-      "engineIssue": "m26/commands-write-only"
+      "engineIssue": "#150"
     },
     {
       "id": "FB-0017",
@@ -437,9 +438,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/joints (M26.14): jointed chains sleep as islands and CCD is solved per island."
+        "Fixed in bb13ed0 (M26.14): jointed chains sleep as islands and CCD is solved per island."
       ],
-      "engineIssue": "m26/joints"
+      "engineIssue": "#167"
     },
     {
       "id": "FB-0018",
@@ -463,9 +464,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: scene.load from a test is deferred on purpose (it runs at the start of the next frame, as in a game) and game.load is immediate; what is missing is saying so in SCRIPTING.md, \"Tests\": work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/test-api (M26.11): SCRIPTING.md, \"Tests\", now says scene.load from a test takes effect next frame and game.load is immediate."
+        "Fixed in 1474bc1 (M26.11): SCRIPTING.md, \"Tests\", now says scene.load from a test takes effect next frame and game.load is immediate."
       ],
-      "engineIssue": "m26/test-api"
+      "engineIssue": "#172"
     },
     {
       "id": "FB-0019",
@@ -489,9 +490,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.3 (Calendar date and app lifecycle) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/calendar-lifecycle (M26.3): game.today() gives the real local date in a player, a fixed one in tests and headless runs, the recorded one in a replay; game.setDate and --date choose it."
+        "Fixed in 5f3900a (M26.3): game.today() gives the real local date in a player, a fixed one in tests and headless runs, the recorded one in a replay; game.setDate and --date choose it."
       ],
-      "engineIssue": "m26/calendar-lifecycle"
+      "engineIssue": "#152"
     },
     {
       "id": "FB-0020",
@@ -514,10 +515,11 @@
       "occurrences": 2,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-23: Fixed in M26.17: a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12.",
+        "Fixed in 4832aa4 (M26.17): a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12.",
         "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin.",
         "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks."
-      ]
+      ],
+      "engineIssue": "#171"
     },
     {
       "id": "FB-0021",
@@ -541,9 +543,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; CC/FB-0027 merged here (the same missing keyArgs, met on a Button, plus validate's warning on keys with placeholders); work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/i18n-args (M26.12): Text, Button, Toggle, Slider, TextField and TouchButton take keyArgs (the values of the key's {placeholders}); the engine formats the key with them when the text is localized and after a language switch, so a script sets keyArgs once. The HUD parcel counter, the results heading and time lines and the paint shop's texts use it; the results spring line (several translated lines with marks) stays one string."
+        "Fixed in 7921217 (M26.12): Text, Button, Toggle, Slider, TextField and TouchButton take keyArgs (the values of the key's {placeholders}); the engine formats the key with them when the text is localized and after a language switch, so a script sets keyArgs once. The HUD parcel counter, the results heading and time lines and the paint shop's texts use it; the results spring line (several translated lines with marks) stays one string."
       ],
-      "engineIssue": "m26/i18n-args"
+      "engineIssue": "#162"
     },
     {
       "id": "FB-0022",
@@ -565,9 +567,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed before this report, documented in m26/triage: the built-in DejaVu Sans has ★ (U+2605) and ☆ (U+2606), and ✓ ✗ ♥ ♪ ← →; colour emoji such as ⭐ (U+2B50) are not in it, which is likely the missing glyph seen. docs/TEXT.md now says so. results_view.starText can use ★ and ☆."
+        "Fixed before this report, documented in 07d0251 (#149): the built-in DejaVu Sans has ★ (U+2605) and ☆ (U+2606), and ✓ ✗ ♥ ♪ ← →; colour emoji such as ⭐ (U+2B50) are not in it, which is likely the missing glyph seen. docs/TEXT.md now says so. results_view.starText can use ★ and ☆."
       ],
-      "engineIssue": "m26/triage"
+      "engineIssue": "#149"
     },
     {
       "id": "FB-0023",
@@ -590,9 +592,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: a prefab already shares a panel between scenes (each scene instances it); what is missing is the recipe in MENUS.md and per-instance overrides of a prefab's children: work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/scene-order (M26.20): a prefab reference takes `overrides` (child id, name or path -> name, tags, active, components) and world.spawnPrefab takes `childOverrides`; docs/MENUS.md has the recipe (\"A panel shared between scenes\"). The game's eight level scenes still hold their own copies of the panels: moving them onto one prefab is a game task."
+        "Fixed in 570a112 (M26.20): a prefab reference takes `overrides` (child id, name or path -> name, tags, active, components) and world.spawnPrefab takes `childOverrides`; docs/MENUS.md has the recipe (\"A panel shared between scenes\"). The game's eight level scenes still hold their own copies of the panels: moving them onto one prefab is a game task."
       ],
-      "engineIssue": "m26/scene-order"
+      "engineIssue": "#168"
     },
     {
       "id": "FB-0024",
@@ -617,9 +619,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: the fake answers purchases as scripted, but nothing takes a finished purchase back: work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/store-fake (M26.8): game.platform.revoke(id) (command platform.revoke) takes a purchase back and sends the \"purchase\" event with status \"revoked\"; restore() no longer lists it. shop.test.js drives a real refund and store.listen() takes the product away."
+        "Fixed in 49f77b3 (M26.8): game.platform.revoke(id) (command platform.revoke) takes a purchase back and sends the \"purchase\" event with status \"revoked\"; restore() no longer lists it. shop.test.js drives a real refund and store.listen() takes the product away."
       ],
-      "engineIssue": "m26/store-fake"
+      "engineIssue": "#156"
     },
     {
       "id": "FB-0025",
@@ -643,9 +645,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/store-fake (M26.8): purchases.finish() of an unknown transaction rejects with code unknownId, so store.grant uses .catch() instead of try/await."
+        "Fixed in 49f77b3 (M26.8): purchases.finish() of an unknown transaction rejects with code unknownId, so store.grant uses .catch() instead of try/await."
       ],
-      "engineIssue": "m26/store-fake"
+      "engineIssue": "#156"
     },
     {
       "id": "FB-0026",
@@ -672,9 +674,9 @@
         "2026-10-22: tests/helpers/store.js: fresh() before and cleanup() after every test.",
         "2026-10-22 (clockwork-courier-p5): module state, session, game.paused and the language leak too; tests/comfort.test.js resets them in afterEach.",
         "2026-10-22 triage: holds in part: each test file already starts clean (storage, the platform fake and module state are reset between files); tests in one file share them. A reset between tests is work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/test-api (M26.11): game.resetState({storage, platform}) resets the save data and the fake store between tests of one file."
+        "Fixed in 1474bc1 (M26.11): game.resetState({storage, platform}) resets the save data and the fake store between tests of one file."
       ],
-      "engineIssue": "m26/test-api"
+      "engineIssue": "#172"
     },
     {
       "id": "FB-0027",
@@ -700,9 +702,9 @@
       "notes": [
         "2026-10-22: The dynamic buttons of the shop have no `key`; scripts/ui/shop.js sets the text with i18n.t(key, args) at every refresh.",
         "2026-10-22 triage: duplicate of FB-0021 (keyArgs on localized widgets; its occurrences were merged there); validate's check of placeholders against keyArgs is part of work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/i18n-args (M26.12): keyArgs on Button (see FB-0021) and factoria validate now checks a key's placeholders against the entity's keyArgs: it warns only for a placeholder with no arg or an arg no translation uses. The shop's dynamic buttons use key and keyArgs."
+        "Fixed in 7921217 (M26.12): keyArgs on Button (see FB-0021) and factoria validate now checks a key's placeholders against the entity's keyArgs: it warns only for a placeholder with no arg or an arg no translation uses. The shop's dynamic buttons use key and keyArgs."
       ],
-      "engineIssue": "m26/i18n-args"
+      "engineIssue": "#162"
     },
     {
       "id": "FB-0028",
@@ -728,9 +730,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; the API, the catalog's placements, consent and platform.release with the fake backend are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; the real backends (Google UMP and AdMob, Apple ATT, the GDPR/COPPA screen) are M12's next package.",
-        "2026-10-23: fixed in m26/ads-periods (M26.9): platform.ads (available, showRewarded, consent), the catalog's platform.ads.placements and platform.release; the fake shows a scripted test ad (game.platform.ad). scripts/ad_stub.js is gone, scripts/ads.js and more_time.js sit on platform.ads. The real networks (UMP, AdMob, ATT) are M12's next package."
+        "Fixed in 3669375 (M26.9): platform.ads (available, showRewarded, consent), the catalog's platform.ads.placements and platform.release; the fake shows a scripted test ad (game.platform.ad). scripts/ad_stub.js is gone, scripts/ads.js and more_time.js sit on platform.ads. The real networks (UMP, AdMob, ATT) are M12's next package."
       ],
-      "engineIssue": "m26/ads-periods"
+      "engineIssue": "#163"
     },
     {
       "id": "FB-0029",
@@ -757,9 +759,9 @@
       "notes": [
         "2026-10-22: Board titles are built from the level-name keys of the locale files (board.time, board.daily, board.stars), as in P4.",
         "2026-10-22 triage: holds in part: the catalog is already readable as game.project.platform, but undocumented, and leaderboards have no localizable name: work package M26.8 (Store fake and catalog in scripts) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/store-fake (M26.8): game.project.platform is documented and store.js reads product types from it (no TYPES table); leaderboards take a nameKey, resolved in the current language in the request the backend gets. The board screen keeps its parameterized titles (board.time with the level name), which one key cannot express."
+        "Fixed in 49f77b3 (M26.8): game.project.platform is documented and store.js reads product types from it (no TYPES table); leaderboards take a nameKey, resolved in the current language in the request the backend gets. The board screen keeps its parameterized titles (board.time with the level name), which one key cannot express."
       ],
-      "engineIssue": "m26/store-fake"
+      "engineIssue": "#156"
     },
     {
       "id": "FB-0030",
@@ -784,9 +786,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; periods in the catalog, the API and the fake are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; periods on the real store backends are M12's.",
-        "2026-10-23: fixed in m26/ads-periods (M26.9): a leaderboard takes period allTime, daily or weekly; the fake keeps one board per game.today() day or week. daily_route is now period daily and services.js needs nothing else. Periods on the real stores are M12's."
+        "Fixed in 3669375 (M26.9): a leaderboard takes period allTime, daily or weekly; the fake keeps one board per game.today() day or week. daily_route is now period daily and services.js needs nothing else. Periods on the real stores are M12's."
       ],
-      "engineIssue": "m26/ads-periods"
+      "engineIssue": "#163"
     },
     {
       "id": "FB-0031",
@@ -810,9 +812,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.16 (Per-material colours) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/material-colors (M26.16): MeshRenderer.materialColors {materialName: [r,g,b,a]} replaces the glTF base colour factor of that material (MeshRenderer.color still tints the whole model), and factoria validate checks the names against the model with a did-you-mean. scripts/paints.js can now give the body a real colour and leave the eyes alone; it is not changed yet."
+        "Fixed in c70c58b (M26.16): MeshRenderer.materialColors {materialName: [r,g,b,a]} replaces the glTF base colour factor of that material (MeshRenderer.color still tints the whole model), and factoria validate checks the names against the model with a did-you-mean. scripts/paints.js can now give the body a real colour and leave the eyes alone; it is not changed yet."
       ],
-      "engineIssue": "m26/material-colors"
+      "engineIssue": "#173"
     },
     {
       "id": "FB-0032",
@@ -836,9 +838,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/scene-order (M26.20): world.spawn(json, {parent, index}), world.spawnPrefab(path, {parent, index}), entity.setParent(parent, keepWorld, index) and scene.set_parent {index}. scripts/more_time.js still re-parents the stock buttons: a game task to drop."
+        "Fixed in 570a112 (M26.20): world.spawn(json, {parent, index}), world.spawnPrefab(path, {parent, index}), entity.setParent(parent, keepWorld, index) and scene.set_parent {index}. scripts/more_time.js still re-parents the stock buttons: a game task to drop."
       ],
-      "engineIssue": "m26/scene-order"
+      "engineIssue": "#168"
     },
     {
       "id": "FB-0033",
@@ -890,9 +892,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/export-checks (M26.19): every iOS export whose catalog has products writes Products.storekit, with or without the Apple plugin, with one localization per language of the project from titleKey / descriptionKey."
+        "Fixed in 069466c (M26.19): every iOS export whose catalog has products writes Products.storekit, with or without the Apple plugin, with one localization per language of the project from titleKey / descriptionKey."
       ],
-      "engineIssue": "m26/export-checks"
+      "engineIssue": "#164"
     },
     {
       "id": "FB-0035",
@@ -916,9 +918,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.3 (Calendar date and app lifecycle) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/calendar-lifecycle (M26.3): game.on(\"suspend\"|\"resume\"|\"focus\"|\"blur\"), game.focused, and pauseOnSuspend (default true) pause the game and the music in the background."
+        "Fixed in 5f3900a (M26.3): game.on(\"suspend\"|\"resume\"|\"focus\"|\"blur\"), game.focused, and pauseOnSuspend (default true) pause the game and the music in the background."
       ],
-      "engineIssue": "m26/calendar-lifecycle"
+      "engineIssue": "#152"
     },
     {
       "id": "FB-0036",
@@ -944,9 +946,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/render-quality (M26.15): window.renderScale (0.5..1), window.supports(\"frameCap\" | \"renderScale\" | ...) and game.device {formFactor, gpuBackend, memoryGB, tier} (fixed values headless, game.setDevice in tests). The frame cap still throws on a phone, so the options screen reads window.supports(\"frameCap\"); the presets set renderScale and a new player starts at game.device.tier instead of a screen-size guess."
+        "Fixed in 1ecb685 (M26.15): window.renderScale (0.5..1), window.supports(\"frameCap\" | \"renderScale\" | ...) and game.device {formFactor, gpuBackend, memoryGB, tier} (fixed values headless, game.setDevice in tests). The frame cap still throws on a phone, so the options screen reads window.supports(\"frameCap\"); the presets set renderScale and a new player starts at game.device.tier instead of a screen-size guess."
       ],
-      "engineIssue": "m26/render-quality"
+      "engineIssue": "#166"
     },
     {
       "id": "FB-0037",
@@ -971,9 +973,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/slider-scroll (M26.18): game.setSlider(id, value) in tests drags a slider (ui.set_slider command: clamped, snapped, ui.change); Slider.format (\"{v:1}x\", \"{percent}%\") and Slider.formatKey set the value column text. The options sliders have formats and comfort.test.js drives the camera slider with game.setSlider."
+        "Fixed in f13577d (M26.18): game.setSlider(id, value) in tests drags a slider (ui.set_slider command: clamped, snapped, ui.change); Slider.format (\"{v:1}x\", \"{percent}%\") and Slider.formatKey set the value column text. The options sliders have formats and comfort.test.js drives the camera slider with game.setSlider."
       ],
-      "engineIssue": "m26/slider-scroll"
+      "engineIssue": "#174"
     },
     {
       "id": "FB-0038",
@@ -997,9 +999,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/test-api (M26.11): a quit request in a test sets game.quitRequested instead of stopping the run (cleared for each test); comfort.test.js uses it."
+        "Fixed in 1474bc1 (M26.11): a quit request in a test sets game.quitRequested instead of stopping the run (cleared for each test); comfort.test.js uses it."
       ],
-      "engineIssue": "m26/test-api"
+      "engineIssue": "#172"
     },
     {
       "id": "FB-0039",
@@ -1021,9 +1023,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.13 (Locale-aware numbers) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/numbers (M26.13): i18n.number(v, {decimals}) and i18n.duration(seconds), and {v:number:1} / {t:duration} in keys, write the decimal and group separators and digits of the language from a table in the engine (docs/LOCALIZATION.md, section 5b). scripts/fmt.js now only calls them and the locales no longer carry format.decimal. Ordinals, percent and list formatting are not covered."
+        "Fixed in aae84c3 (M26.13): i18n.number(v, {decimals}) and i18n.duration(seconds), and {v:number:1} / {t:duration} in keys, write the decimal and group separators and digits of the language from a table in the engine (docs/LOCALIZATION.md, section 5b). scripts/fmt.js now only calls them and the locales no longer carry format.decimal. Ordinals, percent and list formatting are not covered."
       ],
-      "engineIssue": "m26/numbers"
+      "engineIssue": "#169"
     },
     {
       "id": "FB-0040",
@@ -1045,9 +1047,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.12 (Localized text with parameters) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/i18n-args (M26.12): TouchButton has key and keyArgs like the other widgets; hud.js sets the key and the engine rewrites the label at every language switch."
+        "Fixed in 7921217 (M26.12): TouchButton has key and keyArgs like the other widgets; hud.js sets the key and the engine rewrites the label at every language switch."
       ],
-      "engineIssue": "m26/i18n-args"
+      "engineIssue": "#162"
     },
     {
       "id": "FB-0041",
@@ -1070,9 +1072,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.6 (Text that fits) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/text-fits (M26.6): Toggle.maxWidth and Slider.maxWidth wrap the label, Slider.labelAbove puts it above the track; options.prefab.json uses them (no name Texts, no fitWidth in options.js)."
+        "Fixed in 060ca42 (M26.6): Toggle.maxWidth and Slider.maxWidth wrap the label, Slider.labelAbove puts it above the track; options.prefab.json uses them (no name Texts, no fitWidth in options.js)."
       ],
-      "engineIssue": "m26/text-fits"
+      "engineIssue": "#154"
     },
     {
       "id": "FB-0042",
@@ -1096,9 +1098,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.6 (Text that fits) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/text-fits (M26.6): Text, Button, Toggle, Slider and TouchButton have autoShrink (minFontSize) and maxTextScale, and ui.overflowed(id) reports a label that still does not fit; level_select.js, hud.js and the touch labels use them instead of rewriting font sizes (toast.js keeps its fit Panel and gets maxTextScale)."
+        "Fixed in 060ca42 (M26.6): Text, Button, Toggle, Slider and TouchButton have autoShrink (minFontSize) and maxTextScale, and ui.overflowed(id) reports a label that still does not fit; level_select.js, hud.js and the touch labels use them instead of rewriting font sizes (toast.js keeps its fit Panel and gets maxTextScale)."
       ],
-      "engineIssue": "m26/text-fits"
+      "engineIssue": "#154"
     },
     {
       "id": "FB-0043",
@@ -1120,9 +1122,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.23 (UI layout check) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/layout-check (M26.23): `ui.check_layout` loads each scene in each language and text scale plus a pseudo-localized pass and lists overflowing, overlapping and off-screen texts. First run on the game found the profile keyboard keys and the intro title and Skip button overflowing at 200 % (fixed with autoShrink); still open in the game: intro_hint leaves the screen at 200 % (safeArea bottom anchor), intro_hint overlaps intro_skip in Spanish at 200 %, select_title overlaps select_total at 200 % in every language, and the pseudo pass shows the main menu title and the Shop, Leaderboards and Credits buttons breaking at 200 % with 40 % longer text."
+        "Fixed in 057a8e6 (M26.23): `ui.check_layout` loads each scene in each language and text scale plus a pseudo-localized pass and lists overflowing, overlapping and off-screen texts. First run on the game found the profile keyboard keys and the intro title and Skip button overflowing at 200 % (fixed with autoShrink); still open in the game: intro_hint leaves the screen at 200 % (safeArea bottom anchor), intro_hint overlaps intro_skip in Spanish at 200 %, select_title overlaps select_total at 200 % in every language, and the pseudo pass shows the main menu title and the Shop, Leaderboards and Credits buttons breaking at 200 % with 40 % longer text."
       ],
-      "engineIssue": "m26/layout-check"
+      "engineIssue": "#170"
     },
     {
       "id": "FB-0044",
@@ -1145,9 +1147,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/test-api (M26.11): game.setSystemLanguages([...]) decides what i18n.systemLanguages answers in a test (cleared for each test)."
+        "Fixed in 1474bc1 (M26.11): game.setSystemLanguages([...]) decides what i18n.systemLanguages answers in a test (cleared for each test)."
       ],
-      "engineIssue": "m26/test-api"
+      "engineIssue": "#172"
     },
     {
       "id": "FB-0045",
@@ -1169,9 +1171,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.5 (Model import and asset tooling) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/model-import (M26.5): assets.set_provenance (every assets.json edit) keeps the order of the file and changes only the entry; a hand-ordered file gets new entries appended, a sorted one stays sorted."
+        "Fixed in 7e0cd19 (M26.5): assets.set_provenance (every assets.json edit) keeps the order of the file and changes only the entry; a hand-ordered file gets new entries appended, a sorted one stays sorted."
       ],
-      "engineIssue": "m26/model-import"
+      "engineIssue": "#153"
     },
     {
       "id": "FB-0046",
@@ -1194,9 +1196,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/slider-scroll (M26.18): ScrollList.shrink makes a list as tall as its content up to the room the other children leave. Courier keeps fill on its lists: the options panel would change height with every tab and the four screens would need a visual pass, so moving to shrink is left to a design change."
+        "Fixed in f13577d (M26.18): ScrollList.shrink makes a list as tall as its content up to the room the other children leave. Courier keeps fill on its lists: the options panel would change height with every tab and the four screens would need a visual pass, so moving to shrink is left to a design change."
       ],
-      "engineIssue": "m26/slider-scroll"
+      "engineIssue": "#174"
     },
     {
       "id": "FB-0047",
@@ -1220,9 +1222,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.1 (Commands write only what they change) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/commands-write-only (M26.1): `platform.add_backend` and `project.new_plugin` patch only `plugins.<name>` in factoria.json (key order and layout kept), take `dryRun`, refuse unknown arguments with a did-you-mean, and plugin templates have a .gitignore."
+        "Fixed in 7566e5b (M26.1): `platform.add_backend` and `project.new_plugin` patch only `plugins.<name>` in factoria.json (key order and layout kept), take `dryRun`, refuse unknown arguments with a did-you-mean, and plugin templates have a .gitignore."
       ],
-      "engineIssue": "m26/commands-write-only"
+      "engineIssue": "#150"
     },
     {
       "id": "FB-0048",
@@ -1246,9 +1248,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/export-checks (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH)."
+        "Fixed in 069466c (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH)."
       ],
-      "engineIssue": "m26/export-checks"
+      "engineIssue": "#164"
     },
     {
       "id": "FB-0049",
@@ -1272,9 +1274,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/export-checks (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway."
+        "Fixed in 069466c (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway."
       ],
-      "engineIssue": "m26/export-checks"
+      "engineIssue": "#164"
     },
     {
       "id": "FB-0050",
@@ -1299,9 +1301,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: game.renderStats exists but stays zero until a frame is drawn, which a headless test may never do, and perf.measure records no triangles or lights: work package M26.15 (Graphics quality and render stats) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/render-quality (M26.15): game.renderStats() in tests draws a frame when none was drawn and adds shadowCasters and textureMB; perf.measure records triangles, lights and textureMB; perf.check takes budgets (maxTriangles...). tests/budget.test.js checks real triangles, lights, shadow casters and draw calls (falling back to scene counts without a GPU) and perf.json holds budgets."
+        "Fixed in 1ecb685 (M26.15): game.renderStats() in tests draws a frame when none was drawn and adds shadowCasters and textureMB; perf.measure records triangles, lights and textureMB; perf.check takes budgets (maxTriangles...). tests/budget.test.js checks real triangles, lights, shadow casters and draw calls (falling back to scene counts without a GPU) and perf.json holds budgets."
       ],
-      "engineIssue": "m26/render-quality"
+      "engineIssue": "#166"
     },
     {
       "id": "FB-0051",
@@ -1327,9 +1329,9 @@
       "status": "open",
       "notes": [
         "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/export-checks (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md)."
+        "Fixed in 069466c (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md)."
       ],
-      "engineIssue": "m26/export-checks"
+      "engineIssue": "#164"
     },
     {
       "id": "FB-0052",
@@ -1352,9 +1354,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-23: Fixed in M26.17: the web player has a hidden input for mobile browsers, TEXT.md and EXPORTING.md describe typing, and the web smoke types into a field (run by CI).",
+        "Fixed in 4832aa4 (M26.17): the web player has a hidden input for mobile browsers, TEXT.md and EXPORTING.md describe typing, and the web smoke types into a field (run by CI).",
         "2026-10-22 triage: holds in part: the web player takes typed text from the browser's keypress events, which a browser pane's synthetic key events may not send, so this is probably not a player bug; the docs, a web autotest and a hidden input for mobile keyboards are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md."
-      ]
+      ],
+      "engineIssue": "#171"
     },
     {
       "id": "FB-0053",
@@ -1379,9 +1382,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: duplicate of FB-0015 (no warning for a body that starts inside a static collider; its occurrences were merged there); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/joints (M26.14): same as FB-0015 (start overlaps are reported)."
+        "Fixed in bb13ed0 (M26.14): same as FB-0015 (start overlaps are reported)."
       ],
-      "engineIssue": "m26/joints"
+      "engineIssue": "#167"
     },
     {
       "id": "FB-0054",
@@ -1404,9 +1407,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open: jointed bodies never sleep and a CCD event far away holds every body of the world (physics3d.cpp); the dependence on earlier tests was CC/FB-0033, fixed in M25. Work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
-        "2026-10-23: fixed in m26/joints (M26.14): Joint3D.damping, chain iterations and drag: the rope bridge needs no heavy damping or wide planks."
+        "Fixed in bb13ed0 (M26.14): Joint3D.damping, chain iterations and drag: the rope bridge needs no heavy damping or wide planks."
       ],
-      "engineIssue": "m26/joints"
+      "engineIssue": "#167"
     },
     {
       "id": "FB-0055",
@@ -1431,9 +1434,10 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: the 3D physics is the engine's own (no Jolt) and is deterministic for one build on one platform, which the docs do not say; work package M26.21 (Physics determinism across platforms) in feedback/ROADMAP.md.",
-        "2026-10-23 M26.21 (branch m26/physics-determinism): the engine builds with no FP contraction and keeps sin/cos as library calls, CI compares a replay hash across the three desktop jobs, docs say what holds, and factoria:test has robust(check, { runs, nudge }); the level test \"the expert shortcut wins too\" uses it.",
+        "Fixed in 34ab785 (M26.21): the engine builds with no FP contraction and keeps sin/cos as library calls, CI compares a replay hash across the three desktop jobs, docs say what holds, and factoria:test has robust(check, { runs, nudge }); the level test \"the expert shortcut wins too\" uses it.",
         "2026-10-24 M26.21: one replay hash now holds on the Linux (GCC), Windows (MSVC) and macOS (Apple Clang) CI jobs; sin/cos/atan2/asin/acos are fa::det:: (fa/core/det_math.h) on the whole simulation path. The last Windows difference was the sign of a zero: det::atan2 took |y| as `y < 0 ? -y : y`, which keeps -0, and MSVC compiles that as fabs, so asin(-0) (the pitch of a plank turned about z only) was +0 with Clang and GCC and -0 with MSVC. It uses std::fabs now, and test_det_math.cpp commits the signs of zero."
-      ]
+      ],
+      "engineIssue": "#175"
     }
   ]
 }
