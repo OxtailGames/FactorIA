@@ -1014,8 +1014,16 @@ Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const Export
                       where + " Nothing is downloaded for you.");
 }
 
-Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env, const std::string& configPath) {
-    return find_machine_tool({"ffmpeg", "ffmpeg", "FACTORIA_FFMPEG", "ffmpeg", {"ffmpeg"}, "https://ffmpeg.org/download.html"}, env, configPath);
+Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env, const std::string& configPath, const std::string& installedPath) {
+    auto found = find_machine_tool({"ffmpeg", "ffmpeg", "FACTORIA_FFMPEG", "ffmpeg", {"ffmpeg"}, "https://ffmpeg.org/download.html"}, env, configPath);
+    if (found.ok() || found.error().message.find("was not found on this computer") == std::string::npos) return found;
+    // Not named anywhere and not on PATH: the copy `factoria setup ffmpeg` installs, when it is there.
+    SetupContext context;
+    context.env = env;
+    std::error_code ec;
+    const stdfs::path installed = stdfs::path(installedPath.empty() ? ffmpeg_install_path(context) : installedPath);
+    if (stdfs::is_regular_file(fs::os_path(installed), ec)) return MachineToolFound{installed.generic_string(), "factoria setup ffmpeg"};
+    return make_error(found.error().message, "Run `factoria setup ffmpeg` to download one (setup.install {\"component\":\"ffmpeg\"}). " + found.error().hint);
 }
 
 namespace {

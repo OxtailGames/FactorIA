@@ -120,10 +120,12 @@
       "suggestion": "Add game.mouse(x, y), game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) to the test API (same as game.input mouse/buttons).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) in factoria:test."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0006",
@@ -141,10 +143,12 @@
       "suggestion": "Only warn for names that differ from a hook by case or prefix (OnStart, onstart, on_start), not for generic verbs like start.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): checkHooks counts arguments: start(seconds) is a method, start() still warns."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0007",
@@ -351,10 +355,12 @@
       "suggestion": "Accept the empty string as the world (as documented), or change the doc to say 'leave the field out'.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): gates and joints read `stalled` and `connected: \"\"` means the world."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0015",
@@ -376,10 +382,12 @@
       "suggestion": "A validate or debug-draw warning when a Joint3D body overlaps a static collider it is not connected to at the start pose, or a `game_state` field listing joints that are stalled against the motor.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; CC/FB-0053 merged here (the same missing warning, met when a body starts inside a static collider); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; CC/FB-0053 merged here (the same missing warning, met when a body starts inside a static collider); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): a body started inside a static collider is logged once and reported by validate."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0016",
@@ -425,10 +433,12 @@
       "suggestion": "A `Rope`/`Chain` component (or solver iterations per joint chain) that is stable by default, or a documented recipe for bridges in the physics guide.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): jointed chains sleep as islands and CCD is solved per island."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0018",
@@ -449,10 +459,12 @@
       "suggestion": "Document the difference in the testing guide, or make scene.load from a test start the scene immediately like game.load.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: scene.load from a test is deferred on purpose (it runs at the start of the next frame, as in a game) and game.load is immediate; what is missing is saying so in SCRIPTING.md, \"Tests\": work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: scene.load from a test is deferred on purpose (it runs at the start of the next frame, as in a game) and game.load is immediate; what is missing is saying so in SCRIPTING.md, \"Tests\": work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): SCRIPTING.md, \"Tests\", now says scene.load from a test takes effect next frame and game.load is immediate."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0019",
@@ -499,8 +511,9 @@
       ],
       "suggestion": "A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
+        "2026-10-23: Fixed in M26.17: a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12.",
         "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin.",
         "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks."
       ]
@@ -573,10 +586,12 @@
       ],
       "suggestion": "Document or support UI prefabs with child overrides, or a scene include, in the menus guide.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: a prefab already shares a panel between scenes (each scene instances it); what is missing is the recipe in MENUS.md and per-instance overrides of a prefab's children: work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: a prefab already shares a panel between scenes (each scene instances it); what is missing is the recipe in MENUS.md and per-instance overrides of a prefab's children: work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/scene-order (M26.20): a prefab reference takes `overrides` (child id, name or path -> name, tags, active, components) and world.spawnPrefab takes `childOverrides`; docs/MENUS.md has the recipe (\"A panel shared between scenes\"). The game's eight level scenes still hold their own copies of the panels: moving them onto one prefab is a game task."
+      ],
+      "engineIssue": "m26/scene-order"
     },
     {
       "id": "FB-0024",
@@ -651,12 +666,14 @@
       "suggestion": "An option (or the default) that clears storage and resets game.platform before each test, or game.resetState().",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-22: tests/helpers/store.js: fresh() before and cleanup() after every test.",
         "2026-10-22 (clockwork-courier-p5): module state, session, game.paused and the language leak too; tests/comfort.test.js resets them in afterEach.",
-        "2026-10-22 triage: holds in part: each test file already starts clean (storage, the platform fake and module state are reset between files); tests in one file share them. A reset between tests is work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: each test file already starts clean (storage, the platform fake and module state are reset between files); tests in one file share them. A reset between tests is work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): game.resetState({storage, platform}) resets the save data and the fake store between tests of one file."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0027",
@@ -815,10 +832,12 @@
       "suggestion": "A `index` (or `before`) option in world.spawn's options and entity.setParent(parent, index).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/scene-order (M26.20): world.spawn(json, {parent, index}), world.spawnPrefab(path, {parent, index}), entity.setParent(parent, keepWorld, index) and scene.set_parent {index}. scripts/more_time.js still re-parents the stock buttons: a game task to drop."
+      ],
+      "engineIssue": "m26/scene-order"
     },
     {
       "id": "FB-0033",
@@ -867,10 +886,12 @@
       "suggestion": "Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): every iOS export whose catalog has products writes Products.storekit, with or without the Apple plugin, with one localization per language of the project from titleKey / descriptionKey."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0035",
@@ -946,10 +967,12 @@
       "suggestion": "Add a test helper game.setSlider(id, value) that behaves like the user, and Slider.format (for example \"{value:0%}\").",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/slider-scroll (M26.18): game.setSlider(id, value) in tests drags a slider (ui.set_slider command: clamped, snapped, ui.change); Slider.format (\"{v:1}x\", \"{percent}%\") and Slider.formatKey set the value column text. The options sliders have formats and comfort.test.js drives the camera slider with game.setSlider."
+      ],
+      "engineIssue": "m26/slider-scroll"
     },
     {
       "id": "FB-0038",
@@ -970,10 +993,12 @@
       "suggestion": "Add game.quitRequested to the test API and make game.quit() only set it in tests.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): a quit request in a test sets game.quitRequested instead of stopping the run (cleared for each test); comfort.test.js uses it."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0039",
@@ -985,18 +1010,19 @@
       "severity": "minor",
       "title": "No locale-aware number formatting",
       "missing": "i18n.t fills {placeholders} with String(value): a decimal always has a point, there are no thousands separators, no ordinals and no locale rule for time or list formatting. Spanish needs 1,5 and 1:15,0.",
-      "workaround": "Each locale file states format.decimal and scripts/fmt.js applies it (decimal, clock) before the value goes into i18n.t.",
+      "workaround": "Each locale file stated format.decimal and scripts/fmt.js applied it (decimal, clock) before the value went into i18n.t; fmt.js now calls i18n.number / i18n.duration.",
       "workaroundFiles": [
-        "scripts/fmt.js",
-        "locales/es.json"
+        "scripts/fmt.js"
       ],
       "suggestion": "Number, percent and duration formatters in i18n (i18n.number(v, {digits}), i18n.duration) following the active language, and {value:number} style placeholders.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.13 (Locale-aware numbers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.13 (Locale-aware numbers) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/numbers (M26.13): i18n.number(v, {decimals}) and i18n.duration(seconds), and {v:number:1} / {t:duration} in keys, write the decimal and group separators and digits of the language from a table in the engine (docs/LOCALIZATION.md, section 5b). scripts/fmt.js now only calls them and the locales no longer carry format.decimal. Ordinals, percent and list formatting are not covered."
+      ],
+      "engineIssue": "m26/numbers"
     },
     {
       "id": "FB-0040",
@@ -1113,10 +1139,12 @@
       "suggestion": "game.setSystemLanguages([...]) in the test API, like setAccessibility, applied by the next scene load.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/test-api (M26.11): game.setSystemLanguages([...]) decides what i18n.systemLanguages answers in a test (cleared for each test)."
+      ],
+      "engineIssue": "m26/test-api"
     },
     {
       "id": "FB-0045",
@@ -1160,10 +1188,12 @@
       "suggestion": "fill should take only the room left (maxHeight = screen minus the other rows), and let the panel shrink below it.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/slider-scroll (M26.18): ScrollList.shrink makes a list as tall as its content up to the room the other children leave. Courier keeps fill on its lists: the options panel would change height with every tab and the four screens would need a visual pass, so moving to shrink is left to a design change."
+      ],
+      "engineIssue": "m26/slider-scroll"
     },
     {
       "id": "FB-0047",
@@ -1210,10 +1240,12 @@
       "suggestion": "Accept any CMake >= the minimum (read from `cmake --version` or `export.android.cmake`), print the cmake.dir / JAVA_HOME / --offline recipe in the error, and let `factoria doctor` list both.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH)."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0049",
@@ -1234,10 +1266,12 @@
       "suggestion": "Print the player path and version in the export report, and warn (or refuse without --allow-player-mismatch) when the player's version or build id differs from the factoria that exports. The Windows export already reads the player's version information; do the same on macOS and Linux (factoria_player --version).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0050",
@@ -1289,8 +1323,10 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/export-checks (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md)."
+      ],
+      "engineIssue": "m26/export-checks"
     },
     {
       "id": "FB-0052",
@@ -1311,8 +1347,9 @@
       "suggestion": "Document how the web player receives text (keydown vs the text input event, hidden input element for mobile keyboards) so a game can test it, and add an autotest page to the web player.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
+        "2026-10-23: Fixed in M26.17: the web player has a hidden input for mobile browsers, TEXT.md and EXPORTING.md describe typing, and the web smoke types into a field (run by CI).",
         "2026-10-22 triage: holds in part: the web player takes typed text from the browser's keypress events, which a browser pane's synthetic key events may not send, so this is probably not a player bug; the docs, a web autotest and a hidden input for mobile keyboards are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md."
       ]
     },
@@ -1336,10 +1373,12 @@
       ],
       "suggestion": "Warn once (entity id, collider it overlaps, depth) when a dynamic body overlaps a static collider on its first physics step, and let project.validate report it for scenes.",
       "occurrences": 1,
-      "status": "duplicate",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: duplicate of FB-0015 (no warning for a body that starts inside a static collider; its occurrences were merged there); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: duplicate of FB-0015 (no warning for a body that starts inside a static collider; its occurrences were merged there); work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): same as FB-0015 (start overlaps are reported)."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0054",
@@ -1359,10 +1398,12 @@
       ],
       "suggestion": "Let jointed bodies sleep as a group once all of them are calm, and solve separate joint islands independently so one island cannot disturb another.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open: jointed bodies never sleep and a CCD event far away holds every body of the world (physics3d.cpp); the dependence on earlier tests was CC/FB-0033, fixed in M25. Work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open: jointed bodies never sleep and a CCD event far away holds every body of the world (physics3d.cpp); the dependence on earlier tests was CC/FB-0033, fixed in M25. Work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/joints (M26.14): Joint3D.damping, chain iterations and drag: the rope bridge needs no heavy damping or wide planks."
+      ],
+      "engineIssue": "m26/joints"
     },
     {
       "id": "FB-0055",

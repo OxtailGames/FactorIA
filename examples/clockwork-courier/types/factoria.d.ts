@@ -66,9 +66,9 @@ declare module "factoria" {
   export type CastShape3D = { shape: "sphere"; radius: number } | { shape: "box"; size: Vec3Like };
 
   /**
-   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
+   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props. index is the place among the parent's children (0 = first, up to their count; omitted = last) and needs parent; a bad index throws.
    */
-  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> };
+  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; index?: number; props?: Record<string, any> };
 
   /**
    * 2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.
@@ -358,7 +358,10 @@ declare module "factoria" {
     destroy(): void;
     readonly parent: Entity | null;
     readonly children: Entity[];
-    setParent(parent: EntityLike, keepWorld?: boolean): void;
+    /**
+     * Moves the entity under another one (null = top level). index is the place among the new parent's OTHER children (0 = first, up to their count; omitted = last), so it also reorders within the same parent. A parent is required for an index; a bad index throws. Layouts follow this order.
+     */
+    setParent(parent: EntityLike, keepWorld?: boolean, index?: number): void;
     hasTag(tag: string): boolean;
     addTag(tag: string): void;
     removeTag(tag: string): void;
@@ -492,9 +495,9 @@ declare module "factoria" {
      */
     spawn(entityJson: Json, opts?: SpawnOptions): Entity;
     /**
-     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge).
+     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge). `childOverrides` patches the prefab's descendants: key = a child's id, name or path like "Panel/Title", value = { name?, tags?, active?, components? }; an unknown child or field throws with a suggestion.
      */
-    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity;
+    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json; childOverrides?: Record<string, Json> }): Entity;
     /**
      * Queue a game event; delivered to onEvent and world.on listeners.
      */
@@ -1718,6 +1721,14 @@ declare module "factoria" {
      */
     t(key: string, args?: { count?: number; [name: string]: unknown }): string;
     /**
+     * `value` written the way the current language writes numbers: decimal and group separators and digits from the engine's table (en "1,234.5", es "1234,5" and "12.345,5", de "1.234,5", fr "1 234,5" with a narrow no-break space, ar Arabic-Indic digits "١٬٢٣٤٫٥"). `decimals` (0 to 9) fixes the digits after the separator; without it the number keeps the digits it has. A language the table does not know writes like English; a game without localization is English. Same as the `{v:number:1}` placeholder of a string table. Throws for a value that is not a number or decimals out of range.
+     */
+    number(value: number, options?: { decimals?: number }): string;
+    /**
+     * `seconds` as a time in the current language: "1:23.4" for 83.4 (minutes:seconds), "1:02:03.4" from one hour on. `decimals` (0 to 3, default 1) are the digits of the second; the decimal separator and the digits follow the language (es "1:23,4", ar "١:٢٣٫٤"). Rounded as a whole, so 59.96 is "1:00.0". Same as the `{t:duration}` placeholder of a string table.
+     */
+    duration(seconds: number, options?: { decimals?: number }): string;
+    /**
      * True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one.
      */
     has(key: string): boolean;
@@ -1866,7 +1877,7 @@ declare module "factoria" {
   export const platform: PlatformAPI;
 
   /**
-   * Localization: t(key, args), language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
+   * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
    */
   export const i18n: I18nAPI;
 
@@ -3024,7 +3035,7 @@ declare module "factoria" {
      */
     type: "revolute" | "distance" | "prismatic" | "weld";
     /**
-     * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     * Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position.
      * @since 0.2.0
      */
     get connected(): Entity | null;
@@ -3233,7 +3244,7 @@ declare module "factoria" {
     navObstacle: boolean;
   }
   /**
-   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
    * 
    * Category: Physics
    * @since 0.2.0
@@ -3245,7 +3256,7 @@ declare module "factoria" {
      */
     type: "hinge" | "ball" | "fixed";
     /**
-     * The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D.
+     * The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D.
      * @since 0.2.0
      */
     get connected(): Entity | null;
@@ -3309,10 +3320,20 @@ declare module "factoria" {
      */
     collideConnected: boolean;
     /**
+     * Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it.
+     * @since unreleased
+     */
+    damping: number;
+    /**
      * Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only.
      * @since 0.2.0
      */
     readonly angle: number;
+    /**
+     * Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only.
+     * @since unreleased
+     */
+    readonly stalled: boolean;
   }
   /**
    * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, is carried by the kinematic platform it stands on (carriedByPlatforms), weighs on the dynamic body below it (applyWeight, mass: a seesaw tips) and pushes the free dynamic bodies it walks into (pushStrength). Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
@@ -4074,10 +4095,20 @@ declare module "factoria" {
      */
     step: number;
     /**
-     * Draw the value at the right: "60%" when min is 0 and max is 1, else the number with up to 2 decimals.
+     * Draw the value at the right. Without `format`: "60%" when min is 0 and max is 1, else the number with up to 2 decimals.
      * @since 0.1.6
      */
     showValue: boolean;
+    /**
+     * Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language.
+     * @since unreleased
+     */
+    format: string;
+    /**
+     * Localization key whose translation is the pattern, written into `format` like `key` writes the label ("slider.percent": "{v} %" in French). "" = none. A key no table has is reported once and `format` stays as it is.
+     * @since unreleased
+     */
+    formatKey: string;
   }
   /**
    * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
@@ -4292,6 +4323,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     fill: boolean;
+    /**
+     * true: like `fill`, but the list is only as tall as its content (padding, children and gaps) when that is less than the room the other children leave, so inside a `fit` Panel a short list makes a short panel and a long one stops at the screen height and scrolls. The room is computed as for `fill` (it needs a parent Panel with layout column; ignored otherwise; never below 64 px). `fill` and `shrink` together: `fill` wins. Several shrink lists share the room: each takes what it needs, and a list that needs more than an equal share takes what the shorter ones leave. `size.x` is yours.
+     * @since unreleased
+     */
+    shrink: boolean;
   }
   /**
    * On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. A finger that lands on it moves a stick of the TOUCH PAD, a virtual gamepad the action bindings read like a real one, so actions bound to GamepadLeftStickLeft/Right/Up/Down (or the right stick) work with no change to the game; the default ui_* actions include the left stick, so it also walks menus. Full tilt is the edge of the disc (half the shorter side); the pad deadzone (input.deadzone) applies like on a real stick. That finger is the stick's until it lifts, even outside the disc: it is not in input.touches, the Touch binding or the mouse. Several fingers work at once (a stick and buttons). Defaults: 200 x 200, inside the safe area, shown only while the player uses touch (touchOnly).
@@ -4724,7 +4760,7 @@ declare module "factoria" {
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
     Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean };
-    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
+    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
@@ -4732,9 +4768,9 @@ declare module "factoria" {
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
     TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
-    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
@@ -5061,6 +5097,10 @@ declare module "factoria:test" {
      */
     typeText(text: string): void;
     /**
+     * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable.
+     */
+    setSlider(id: string, value: number): void;
+    /**
      * Presses the system Back button of Android. The input.onBack handlers run at the next step(); when none consumes it the game asks to quit (game.quitRequested in game.state()).
      */
     pressBack(): void;
@@ -5092,6 +5132,30 @@ declare module "factoria:test" {
      * Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad.
      */
     gamepad(index?: number): TestGamepad;
+    /**
+     * Holds a mouse button (default left) until mouseUp(): input.mouse.down(button) follows. With mouseMove() it tests a drag.
+     */
+    mouseDown(button?: "left" | "right" | "middle"): void;
+    /**
+     * Releases a mouse button held with mouseDown().
+     */
+    mouseUp(button?: "left" | "right" | "middle"): void;
+    /**
+     * Turns the mouse wheel by dy notches for the next frame (input.mouse.wheel); a non-number throws.
+     */
+    wheel(dy: number): void;
+    /**
+     * True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test run never stops because of it. Cleared before each test.
+     */
+    readonly quitRequested: boolean;
+    /**
+     * Pretends the device has these languages (BCP 47 tags, best first): i18n.systemLanguages answers them so a first-run language choice can be tested. An empty list means no system language. Reset (empty) before each test. Example: game.setSystemLanguages(["es-ES", "en"]).
+     */
+    setSystemLanguages(languages: string[]): void;
+    /**
+     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers. Both default to true; an unknown key throws with a suggestion.
+     */
+    resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
      * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).

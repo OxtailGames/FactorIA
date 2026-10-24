@@ -140,8 +140,8 @@ Conventions of the locale files:
 
 - Plurals are objects (`one`, `other`) selected by `count`: `select.districtLocked`, `shop.state.stars`, `ads.moreTimeAd`.
   Japanese has `other` only.
-- Numbers and times go through `scripts/fmt.js` (`decimal`, `clock`), which reads `format.decimal` of the locale (`.` or
-  `,`), because `i18n.t` has no number formatting (FB-0039).
+- Numbers and times go through `scripts/fmt.js` (`decimal`, `clock`), thin wrappers over the engine's `i18n.number` and
+  `i18n.duration`, which write the decimal separator of the language (FB-0039).
 - Text that scripts write (the options menu values, the results panel, the cards) is written again in an `i18n.on("change")`
   listener; texts with a `key` are rewritten by the engine. `touch.jump` and `touch.action` label the on-screen buttons
   (TouchButton has no `key`, FB-0040).
@@ -354,7 +354,6 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - The robot has no bark or animal sounds in the kits: the dog's bark is a pitched impact (ENGINE_FEEDBACK).
 - Characters do not weigh on dynamic bodies and kinematic platforms do not carry a `CharacterController3D`; the
   seesaw, the bridge and the moving platforms emulate both in script (ENGINE_FEEDBACK).
-- The rope bridge needs heavy damping to stop ringing; narrower planks than 2 m are unstable.
 - Quality presets only change what scripts own (shadows, fog, particles, lights): the engine has no render scale or GPU
   info API (FB-0036).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,

@@ -1,7 +1,6 @@
 // @ts-check
-// Numbers for the player's eyes. The engine's i18n.t() fills {placeholders} with String(value) and has no number formatting
-// (FB-0039), so a decimal arrives with a point in every language. Each locale file
-// states its own separator in `format.decimal` ("." en and ja, "," es) and these helpers apply it.
+// Numbers for the player's eyes, in the language's own form: the engine's i18n.number / i18n.duration know the decimal
+// and group separators (FB-0039 asked for them), these two helpers only fix the digits the game shows.
 //
 //   decimal(12.34)       "12.3" in en and ja, "12,3" in es
 //   decimal(12.34, 2)    "12.34" / "12,34"
@@ -13,14 +12,10 @@ import { i18n } from "factoria";
  * @param {number} [digits] digits after the separator
  */
 export function decimal(value, digits = 1) {
-  const text = value.toFixed(digits);
-  const separator = i18n.t("format.decimal");
-  return separator === "." || separator === "format.decimal" ? text : text.replace(".", separator);
+  return i18n.number(value, { decimals: digits });
 }
 
 /** @param {number} seconds minutes and seconds with one decimal: m:ss.s */
 export function clock(seconds) {
-  const m = Math.floor(seconds / 60);
-  const rest = decimal(seconds - m * 60, 1);
-  return `${m}:${rest.padStart(4, "0")}`;
+  return i18n.duration(seconds);
 }

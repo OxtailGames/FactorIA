@@ -414,7 +414,8 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         }
         if (videoExt == ".mp4" && options.ffmpegPath.empty()) {
             report["error"] = "Recording an .mp4 needs ffmpeg, and it was not found (looked at: the FACTORIA_FFMPEG environment "
-                              "variable, \"publish\": {\"ffmpeg\": \"<path>\"} in ~/.factoria/export.json, and PATH). Install ffmpeg "
+                              "variable, \"publish\": {\"ffmpeg\": \"<path>\"} in ~/.factoria/export.json, PATH, and the copy `factoria setup "
+                              "ffmpeg` installs). Run `factoria setup ffmpeg`, or install ffmpeg "
                               "(https://ffmpeg.org/download.html; Windows: winget install ffmpeg, macOS: brew install ffmpeg, Linux: "
                               "apt install ffmpeg) or record an .avi, which needs nothing, and convert it later with: ffmpeg -i "
                               "trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4";

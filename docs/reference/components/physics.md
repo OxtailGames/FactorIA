@@ -72,7 +72,7 @@ A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle),
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | enum: revolute \\| distance \\| prismatic \\| weld | `"revolute"` | revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0). |
-| `connected` | entity |  | Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position. |
+| `connected` | entity |  | Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position. |
 | `anchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin. |
 | `connectedAnchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created. |
 | `axis` | vec2 | `[1.0,0.0]` | Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x. |
@@ -96,12 +96,12 @@ A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle),
 
 Since 0.2.0.
 
-Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | enum: hinge \\| ball \\| fixed | `"hinge"` | hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all. |
-| `connected` | entity |  | The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D. |
+| `connected` | entity |  | The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D. |
 | `anchor` | vec3 | `[0.0,0.0,0.0]` | Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge. |
 | `connectedAnchor` | vec3 | `[0.0,0.0,0.0]` | Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true. |
 | `autoAnchor` | bool | `true` | true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together). |
@@ -113,7 +113,9 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 | `motorSpeed` | float | `0.0` | hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis. |
 | `maxMotorTorque` | float | `10.0` | hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more. Range 0.0..1000000.0. |
 | `collideConnected` | bool | `false` | false (default): the two joined bodies do not collide with each other. true: they do. |
+| `damping` | float | `0.0` | Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it. Range 0.0..1000.0. (not released yet, on main after 0.2.0) |
 | `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
+| `stalled` | bool | `false` | Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only. Runtime-only (not saved). (not released yet, on main after 0.2.0) |
 
 ## NavMesh3D
 

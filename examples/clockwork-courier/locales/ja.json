@@ -328,9 +328,6 @@
     "stay": "やめない",
     "yes": "やめる"
   },
-  "format": {
-    "decimal": "."
-  },
   "touch": {
     "jump": "ジャンプ",
     "action": "アクション"

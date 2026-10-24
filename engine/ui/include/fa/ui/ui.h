@@ -54,6 +54,11 @@ public:
     bool set_focus(World& world, Entity e);
     Entity hovered() const { return hover_; }
 
+    // Sets a Slider as a drag would: focuses it, clamps `value` to [min, max], snaps it to `step`, and sends ui.change when the
+    // number changed. Returns the value the slider now has. `e` must be an alive, active, interactable Slider (checked by the
+    // ui.set_slider command, which is what tests call).
+    float set_slider(World& world, Entity e, float value);
+
     // The ui.state command: {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed,
     // interactable, visible, value?, text?, overflowed?}]} in reading order (top, then left). `visible` is false when a ScrollList
     // clips the widget away entirely, or for a TouchStick / TouchButton that is not shown.
@@ -79,6 +84,7 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
+    bool keyboardRaised_ = false;  // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then

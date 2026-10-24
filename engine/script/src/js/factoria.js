@@ -473,8 +473,8 @@
     destroy() { if (N.alive(this.$h)) N.destroy(this.$h); }
     get parent() { return entityOf(N.parent(this.$h)); }
     get children() { return N.children(this.$h).map(entityOf); }
-    setParent(parent, keepWorld = false) {
-      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld);
+    setParent(parent, keepWorld = false, index = undefined) {
+      N.setParent(this.$h, parent === null || parent === undefined ? null : entityHandle(parent, "setParent"), keepWorld, index);
     }
     hasTag(t) { return N.hasTag(this.$h, t); }
     addTag(t) { N.addTag(this.$h, t); }
@@ -775,16 +775,22 @@
   // The lifecycle methods the engine calls by name (script_behaviours.cpp, script_system.cpp).
   const HOOKS = ["onStart", "onEnable", "onDisable", "onUpdate", "onFixedUpdate", "onLateUpdate", "onDestroy",
     "onCollisionEnter", "onCollisionExit", "onTriggerEnter", "onTriggerExit", "onEvent"];
+  const HOOK_ARGS = { onStart: 0, onEnable: 0, onDisable: 0, onUpdate: 1, onFixedUpdate: 1, onLateUpdate: 1, onDestroy: 0,
+    onCollisionEnter: 2, onCollisionExit: 1, onTriggerEnter: 1, onTriggerExit: 1, onEvent: 3 };
   // Methods that were meant to be hooks but are never called: a hook without its `on` (update, fixedUpdate, Start) or a
   // near-miss of a name that starts with `on` (onupdate, onStrat). Helpers (loadLevel, clickCell) are not near a hook.
   function checkHooks(Cls) {
     if (!isBehaviourClass(Cls)) return [];
     const out = [];
     for (const m of Object.getOwnPropertyNames(Cls.prototype)) {
-      if (HOOKS.includes(m) || typeof Object.getOwnPropertyDescriptor(Cls.prototype, m).value !== "function") continue;
-      const hook = HOOKS.find((h) => h.toLowerCase() === "on" + m.toLowerCase()) ||
-        (/^on/i.test(m) ? closest(m, HOOKS) : "");
-      if (hook) out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
+      const fn = Object.getOwnPropertyDescriptor(Cls.prototype, m).value;
+      if (HOOKS.includes(m) || typeof fn !== "function") continue;
+      const bare = HOOKS.find((h) => h.toLowerCase() === "on" + m.toLowerCase());
+      const hook = bare || (/^on/i.test(m) ? closest(m, HOOKS) : "");
+      // A hook-without-`on` is only a lookalike when it takes no more arguments than the hook: start(seconds) is a method of
+      // the game (onStart takes none), update(dt) is a misspelt onUpdate(dt).
+      if (!hook || (bare && fn.length > HOOK_ARGS[bare])) continue;
+      out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
         `(did you mean '${hook}()'?). Rename it to ${hook}, or give a helper a name that is not close to a hook.`);
     }
     return out;
@@ -856,12 +862,13 @@
     spawn(entityJson, opts = {}) {
       const parent = opts && opts.parent ? entityHandle(opts.parent, "world.spawn parent") : null;
       const j = applySpawnOptions(entityPlain(entityJson), opts || {}, "world.spawn");
-      return entityOf(N.spawn(j, parent));
+      return entityOf(N.spawn(j, parent, opts && opts.index));
     },
     spawnPrefab(path, opts = {}) {
       const ov = applySpawnOptions(opts.overrides ? entityPlain(opts.overrides) : {}, opts, "world.spawnPrefab");
+      if (opts.childOverrides !== undefined) ov.overrides = plain(opts.childOverrides);
       const parent = opts.parent ? entityHandle(opts.parent, "world.spawnPrefab parent") : null;
-      return entityOf(N.spawnPrefab(path, parent, ov));
+      return entityOf(N.spawnPrefab(path, parent, ov, opts.index));
     },
     emit(name, data, source) { N.emit(name, data === undefined ? null : plain(data), source instanceof Entity ? source.$h : null); },
     on(name, fn) { return addListener(name, fn, null); },
@@ -1680,6 +1687,29 @@
         throw new Error(`i18n.t("${key}", args): args must be an object like { count: 3, name: "Ana" }, but got ${platformArg(args)}`);
       return N.i18nT(key, args === undefined ? {} : plain(args));
     },
+    // number(value, { decimals? }): the number written the way the current language writes it ("1,234.5", "1.234,5", "١٬٢٣٤٫٥"):
+    // `decimals` digits after the separator (0-9; default: as many as the number has).
+    number(value, options) {
+      if (typeof value !== "number")
+        throw new Error(`i18n.number(value, { decimals }): value must be a number like 1234.5, but got ${platformArg(value)}`);
+      if (options !== undefined && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`i18n.number(${value}, options): options must be an object like { decimals: 1 }, but got ${platformArg(options)}`);
+      const decimals = options && options.decimals !== undefined ? options.decimals : -1;
+      if (decimals !== -1 && (!Number.isInteger(decimals) || decimals < 0 || decimals > 9))
+        throw new Error(`i18n.number(${value}, { decimals }): decimals must be a whole number from 0 to 9, but got ${platformArg(decimals)}`);
+      return N.i18nNumber(value, decimals);
+    },
+    // duration(seconds, { decimals? }): seconds as a time, "1:23.4" ("h:mm:ss.d" from an hour), `decimals` 0-3 (default 1).
+    duration(seconds, options) {
+      if (typeof seconds !== "number")
+        throw new Error(`i18n.duration(seconds, { decimals }): seconds must be a number like 83.4, but got ${platformArg(seconds)}`);
+      if (options !== undefined && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`i18n.duration(${seconds}, options): options must be an object like { decimals: 0 }, but got ${platformArg(options)}`);
+      const decimals = options && options.decimals !== undefined ? options.decimals : 1;
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 3)
+        throw new Error(`i18n.duration(${seconds}, { decimals }): decimals must be a whole number from 0 to 3, but got ${platformArg(decimals)}`);
+      return N.i18nDuration(seconds, decimals);
+    },
     // Is `key` in some table of the current language's fallback chain? (t never throws; has tells a real string from the key.)
     has(key) { return N.i18nHas(String(key)); },
     // The current language: one of `languages` ("" when the game has no localization).
@@ -1989,6 +2019,13 @@
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
+    // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change
+    // {id, value} is sent when the number changed (to ui.on listeners at the next step). Writing Slider.value from a script
+    // sends nothing; this does. Throws when the entity is no Slider, or is inactive or not interactable.
+    setSlider(id, value) {
+      if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`game.setSlider(id, value) expects a number, but got ${inspect(value)}`);
+      fa.call("ui.set_slider", { id: typeof id === "string" ? id : (id && id.id) || String(id), value });
+    },
     // Types text as a keyboard would: input.text shows it until the next step. Control characters are skipped, like the
     // real keyboard does; send Enter and Backspace with keyDown/keyUp.
     typeText(text) { for (const ch of String(text)) { const cp = ch.codePointAt(0); if (cp >= 32 && cp !== 127) N.testText(cp); } },
@@ -2011,6 +2048,36 @@
     // Presses the system Back button (Android). The input.onBack handlers run at the next step(); when none consumes it the
     // game asks to quit (game.quitRequested in game.state()).
     pressBack() { N.testBack(); },
+    // True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test
+    // run never stops because of it; the flag is cleared before each test.
+    get quitRequested() { return N.testQuit(false); },
+    // Pretends the device's languages are these (BCP 47 tags, best first): i18n.systemLanguages answers them, so the game's
+    // first-run language choice can be tested. Empty list = no system language. Reset (empty) before every test.
+    setSystemLanguages(list) {
+      if (!Array.isArray(list) || list.some((t) => typeof t !== "string" || !t))
+        throw new Error(`game.setSystemLanguages(list) expects an array of language tags like ["es-ES", "en"], but got ${inspect(list)}`);
+      N.testSystemLanguages(list.slice());
+    },
+    // Resets what tests of one file share: { storage = true, platform = true }. storage clears the save data (what storage.get
+    // sees) and any game.setStorageText text; platform runs platform.reset (nothing bought, unlocked or scripted, signed in, no
+    // leaderboard scores) and puts the test ad and consent answers back. Each test file already starts clean.
+    resetState(options) {
+      const o = options === undefined ? {} : options;
+      if (!isObj(o)) throw new Error(`game.resetState(options) expects { storage?: boolean, platform?: boolean }, but got ${inspect(options)}`);
+      for (const k of Object.keys(o)) {
+        if (k === "storage" || k === "platform") {
+          if (typeof o[k] !== "boolean") throw new Error(`game.resetState: ${k} must be true or false, but got ${inspect(o[k])}`);
+          continue;
+        }
+        const sug = closest(k, ["storage", "platform"]);
+        throw new Error(`game.resetState: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use storage and platform.`);
+      }
+      if (o.storage !== false) { N.testStorageText(null); N.storageClear(); }
+      if (o.platform !== false) {
+        try { fa.call("platform.reset"); fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); }
+        catch (e) { /* a real backend: nothing to reset */ }
+      }
+    },
     // Pretends the player's system has these accessibility settings: game.accessibility follows. Keys left out keep their
     // default (textScale 1, the others false). textScale is clamped to 0.5 - 4. Reset to the defaults before every test.
     setAccessibility(settings) {
@@ -2046,6 +2113,14 @@
     // The pulses input.vibrate() asked for since the test started (cleared before each test), in seconds, oldest first.
     vibrations() { return N.testVibrations(); },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },
+    // Holds a mouse button ("left", "right" or "middle") until mouseUp: input.mouse.down(button) follows.
+    mouseDown(button = "left") { N.inMouseEvent(button, true); },
+    mouseUp(button = "left") { N.inMouseEvent(button, false); },
+    // Turns the wheel by dy for the next frame (input.mouse.wheel; positive = away from the player), like a real notch.
+    wheel(dy) {
+      if (typeof dy !== "number" || !Number.isFinite(dy)) throw new Error(`game.wheel(dy) expects a number of wheel notches, e.g. game.wheel(1), but got ${inspect(dy)}`);
+      N.inWheel(dy);
+    },
     click(p, button = "left") {
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
@@ -2159,6 +2234,8 @@
       N.spokenLog(true);
       N.captionClear();
       N.testAccessibility();
+      N.testQuit(true);
+      N.testSystemLanguages();
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
       N.setTimeScale(1); pausedScale = null;
