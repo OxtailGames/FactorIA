@@ -389,6 +389,33 @@ describe("rope bridge", () => {
     expect(c.position.y).toBeGreaterThan(1.5);
   });
 
+  test("the planks are on the navmesh (navWalkable): a path and a chasing dog follow the courier across", () => {
+    const c = arena();
+    const r = nav.findPath([20, 3, -22], [20, 3, -48], { radius: 0.3 });
+    expect(r.found).toBe(true);
+    expect(r.complete).toBe(true);
+    expect(r.length).toBeLessThan(32); // along the bridge (about 26 m), not round anything
+    // dog_1 stands at the near end of the bridge, the courier is on the far side
+    const dog = game.find("dog_1");
+    const d = dog.behaviour;
+    c.position = [20, 3.3, -47];
+    dog.position = [20, 1.8, -23];
+    d.home = [20, -23];
+    d.baseY = 1.8;
+    game.step(20);
+    d.enter("chase");
+    d.lastSeen = [20, 3.3, -47];
+    let farthest = 0;
+    let lowest = 99;
+    for (let i = 0; i < 400 && d.state === "chase"; i++) {
+      game.step(1);
+      farthest = Math.max(farthest, -dog.position.z);
+      if (dog.position.z < -30 && dog.position.z > -40) lowest = Math.min(lowest, dog.position.y);
+    }
+    expect(farthest).toBeGreaterThan(38); // across the planks
+    expect(lowest).toBeGreaterThan(2.3); // on them, not in the gap below
+  });
+
   test("the planks hang in a calm curve below their ends", () => {
     arena();
     game.step(400);

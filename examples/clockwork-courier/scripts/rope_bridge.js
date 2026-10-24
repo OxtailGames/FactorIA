@@ -56,7 +56,7 @@ export default class RopeBridge extends Behaviour {
           components: {
             Transform: { position: mid, rotation: [pitch, yaw, 0], scale: [this.width, this.thickness, plank] },
             ...visual,
-            Collider3D: { shape: "box", friction: 0.8 },
+            Collider3D: { shape: "box", friction: 0.8, navWalkable: true },
             // No damping here: the engine settles a chain of three or more jointed bodies by itself (more solver
             // iterations, a little drag) and lets it fall asleep once it hangs still.
             RigidBody3D: { type: "dynamic", mass: this.mass },
