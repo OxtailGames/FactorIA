@@ -83,6 +83,28 @@ int second_store_init(const FaPluginApi* api) {
     return api->add_backend(api, &d);
 }
 
+// Two ads plugins (a backend whose only service is "ads", like admob): they echo the request, so a test sees what the engine sent.
+const FaPluginApi* g_ads = nullptr;
+std::vector<std::string> g_adsSeen;  // "<backend> <method> <args>"
+
+void ads_request_for(const char* backend, FaRequest* req, const char* method, const char* args) {
+    g_adsSeen.push_back(std::string(backend) + " " + method + " " + args);
+    g_ads->resolve(req, (std::string(R"({"by":")") + backend + R"(","args":)" + args + "}").c_str());
+}
+void ads_request(FaRequest* req, const char* method, const char* args, void*) { ads_request_for("adsnet", req, method, args); }
+void ads_request2(FaRequest* req, const char* method, const char* args, void*) { ads_request_for("adsnet2", req, method, args); }
+
+int ads_init(const FaPluginApi* api) {
+    g_ads = api;
+    FaBackendDesc d = {"adsnet", R"(["ads"])", ads_request, nullptr, nullptr};
+    return api->add_backend(api, &d);
+}
+int ads2_init(const FaPluginApi* api) {
+    g_ads = api;
+    FaBackendDesc d = {"adsnet2", R"(["ads"])", ads_request2, nullptr, nullptr};
+    return api->add_backend(api, &d);
+}
+
 // ABI refusals: each is logged with the reason and returns non-zero; the plugin itself still loads.
 const FaPluginApi* g_late = nullptr;
 int g_refusals = 0;
@@ -145,6 +167,8 @@ void register_test_plugins() {
     fa_register_static_plugin("pstore2", second_store_init);
     fa_register_static_plugin("refuser", refusing_init);
     fa_register_static_plugin("oldplugin", v1_init);
+    fa_register_static_plugin("padsnet", ads_init);
+    fa_register_static_plugin("padsnet2", ads2_init);
 }
 
 Json run(Engine& engine, const std::string& code) {
@@ -446,4 +470,141 @@ TEST_CASE("platform plugin: a version 1 plugin keeps working next to the new API
     REQUIRE(engine.init(game.cfg(), nullptr, &err));
     CHECK(run(engine, "typeof plugins.oldplugin.hello") == "function");
     CHECK(run(engine, "platform.backend") == "fake");  // no backend plugin: the development fallback
+}
+
+// ------------------------------------------------------------------------------------------------- the ads backend --
+TEST_CASE("platform backend choice: a plugin that offers only ads is the ads backend, apart from the store's") {
+    PlatformCatalog catalog;
+    auto store = [](const std::string& plugin) {
+        return PluginBackend{plugin, plugin, {"achievements", "purchases"}, [] { return make_none_backend(); }};
+    };
+    auto ads = [](const std::string& plugin) {
+        return PluginBackend{plugin, plugin, {"ads"}, [] { return make_none_backend(); }};
+    };
+
+    // An ads plugin is not "several store backends": the store plugin stays the only one, and no warning is raised.
+    PluginInstall both;
+    both.backends = {store("steam"), ads("admob")};
+    BackendChoice c = choose_platform_backend("", "none", catalog, both, "android");
+    CHECK(c.warnings.empty());
+    CHECK(has(c.why, "'steam' registered it"));
+    REQUIRE(c.adsBackend);
+    CHECK(has(c.adsWhy, "'admob' registered it"));
+    CHECK(has(c.adsWhy, "only ads plugin"));
+
+    // Only an ads plugin: the store is the fallback, the ads plugin still serves ads (a shipped game, no store plugin).
+    PluginInstall onlyAds;
+    onlyAds.backends = {ads("admob")};
+    BackendChoice shipped = choose_platform_backend("", "none", catalog, onlyAds, "android");
+    CHECK(shipped.backend->name() == "none");
+    CHECK(has(shipped.reason, "no store backend on android"));
+    CHECK(shipped.adsBackend);
+
+    // Development runs use the fake, which serves ads itself: a real ad network is never reached by a test or `factoria run`.
+    BackendChoice dev = choose_platform_backend("", "fake", catalog, onlyAds, "android");
+    CHECK(dev.backend->name() == "fake");
+    CHECK_FALSE(dev.adsBackend);
+    CHECK(has(dev.adsWhy, "the fake backend serves ads in development runs"));
+    CHECK(has(dev.adsWhy, "'admob' only runs in shipped games"));
+    CHECK_FALSE(choose_platform_backend("fake", "none", catalog, both, "android").adsBackend);
+
+    // Several ads plugins: platform.ads.backend chooses; without it the first by name and a warning.
+    PluginInstall two;
+    two.backends = {ads("net2"), ads("net1")};
+    BackendChoice unclear = choose_platform_backend("", "none", catalog, two, "android");
+    REQUIRE(unclear.warnings.size() == 1);
+    CHECK(has(unclear.warnings[0], "several plugins offer an ads backend on android: net1, net2"));
+    CHECK(has(unclear.warnings[0], "\"ads\": {\"backend\": \"net1\"}"));
+    CHECK(has(unclear.adsWhy, "'net1' registered it"));
+    catalog.adsBackend = "net2";
+    BackendChoice picked = choose_platform_backend("", "none", catalog, two, "android");
+    CHECK(picked.warnings.empty());
+    CHECK(has(picked.adsWhy, "'net2' registered it"));
+    CHECK(has(picked.adsWhy, "platform.ads.backend names it"));
+
+    // Mistakes: a typo, a plugin that did not load, a store plugin named as the ads backend.
+    catalog.adsBackend = "net3";
+    BackendChoice typo = choose_platform_backend("", "none", catalog, two, "android");
+    CHECK_FALSE(typo.adsBackend);
+    REQUIRE(typo.warnings.size() == 1);
+    CHECK(has(typo.warnings[0], "platform.ads.backend names 'net3', but no plugin of that name offers an ads backend on android"));
+    CHECK(has(typo.warnings[0], "Did you mean"));
+    PluginInstall failed;
+    failed.failed = {"admob"};
+    catalog.adsBackend = "admob";
+    BackendChoice broken = choose_platform_backend("", "none", catalog, failed, "android");
+    CHECK(has(broken.adsWhy, "names the plugin 'admob', which did not load"));
+    PluginInstall storeOnly;
+    storeOnly.backends = {store("steam")};
+    catalog.adsBackend = "steam";
+    BackendChoice wrongKind = choose_platform_backend("", "none", catalog, storeOnly, "windows");
+    REQUIRE(wrongKind.warnings.size() == 1);
+    CHECK(has(wrongKind.warnings[0], "'steam', which is a store backend, not an ads plugin"));
+
+    // The other way round: platform.backend names an ads plugin.
+    catalog.adsBackend.clear();
+    catalog.backend = "admob";
+    BackendChoice misplaced = choose_platform_backend("", "none", catalog, both, "android");
+    REQUIRE_FALSE(misplaced.warnings.empty());
+    CHECK(has(misplaced.warnings[0], "which offers only ads: set it as \"backend\" in the \"ads\" part of the \"platform\" section"));
+}
+
+TEST_CASE("platform plugin: an ads plugin gets ads.*, the store plugin the rest, and the age reaches it") {
+    register_test_plugins();
+    StoreGame game(R"({"pstore": {"path": "native/pstore"}, "padsnet": {"path": "native/padsnet"}})",
+                   R"({"achievements": [{"id": "first_win", "name": "First win"}],
+                       "ads": {"audience": "mixed", "placements": [{"id": "more_time", "ids": {"adsnet": "unit-9"}}]}})");
+    EngineConfig shipped = game.cfg();
+    shipped.platformFallback = "none";  // a shipped game: the fake and its test ads are not used
+    Engine engine;
+    std::string err;
+    REQUIRE(engine.init(shipped, nullptr, &err));
+    g_adsSeen.clear();
+    CHECK(run(engine, "platform.backend") == "teststore");
+    CHECK(run(engine, "platform.adsBackend") == "adsnet");
+    CHECK(run(engine, "platform.release") == true);
+    CHECK(run(engine, "platform.has('ads') && platform.has('achievements')") == true);
+    CHECK(run(engine, "platform.ads.audience") == "mixed");
+    CHECK(run(engine, "platform.ads.underAge").is_null());
+    Json state = engine.commands().call("platform.state").result;
+    CHECK(state["adsBackend"] == "adsnet");
+    CHECK(has(state["adsWhy"].get<std::string>(), "only ads plugin"));
+
+    // Mixed audience and age unknown: nothing reaches the ad network.
+    CHECK(run(engine, "(async () => await platform.ads.available('more_time'))()") == false);
+    CHECK(g_adsSeen.empty());
+
+    run(engine, "(async () => { await platform.ads.setUnderAge(true); })()");
+    REQUIRE(g_adsSeen.size() == 1);
+    CHECK(g_adsSeen[0] == R"(adsnet ads.setUnderAge {"underAge":true,"audience":"mixed","release":true})");
+    Json shown = run(engine, "(async () => await platform.ads.showRewarded('more_time'))()");
+    CHECK(shown["by"] == "adsnet");
+    CHECK(shown["args"]["adUnitId"] == "unit-9");
+    CHECK(shown["args"]["underAge"] == true);
+    CHECK(shown["args"]["audience"] == "mixed");
+    CHECK(shown["args"]["release"] == true);
+    CHECK(run(engine, "platform.ads.underAge") == true);
+
+    // The rest goes to the store plugin, which never hears about ads.
+    const std::size_t adsCalls = g_adsSeen.size();
+    g_unlockArgs.clear();
+    run(engine, "platform.achievements.unlock('first_win').catch(() => 0); 0");
+    CHECK_FALSE(g_unlockArgs.empty());
+    CHECK(g_adsSeen.size() == adsCalls);
+    engine.shutdown();
+}
+
+TEST_CASE("platform plugin: development runs keep the fake even when the game has an ads plugin") {
+    register_test_plugins();
+    StoreGame game(R"({"padsnet": {"path": "native/padsnet"}})", R"({"ads": {"placements": [{"id": "more_time"}]}})");
+    Engine engine;
+    std::string err;
+    g_adsSeen.clear();
+    REQUIRE(engine.init(game.cfg(), nullptr, &err));
+    CHECK(run(engine, "platform.backend") == "fake");
+    CHECK(run(engine, "platform.adsBackend") == "fake");
+    CHECK(run(engine, "(async () => await platform.ads.available('more_time'))()") == true);
+    CHECK(g_adsSeen.empty());
+    CHECK(has(engine.commands().call("platform.state").result["adsWhy"].get<std::string>(), "only runs in shipped games"));
+    engine.shutdown();
 }

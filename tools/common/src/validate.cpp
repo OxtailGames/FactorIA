@@ -20,6 +20,7 @@
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
 #include "fa/services/platform.h"
+#include "fa/tooling/ads_release.h"
 #include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
@@ -468,6 +469,8 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     for (const auto& e : publish.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
     for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
+    if (platform.ok())
+        for (const AdsIssue& i : check_ads(c.dir)) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
     c.catalogKeys = platform.catalog.textKeyRefs;
     check_localization(c, localization);
     c.projectFileRead = true;

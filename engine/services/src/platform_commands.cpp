@@ -32,17 +32,21 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
     commands.add(
         {"platform.state",
          "Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.",
-         "Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
+         "Returns {backend, why, adsBackend, adsWhy, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
          "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the "
          "backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, "
          "leaderboards: {id: best} (a daily or weekly board: \"id@periodKey\"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], "
          "presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, "
          "scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids "
-         "included) and how it was answered: assert on it after game.step. Example: platform.state {}",
+         "included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads "
+         "plugin such as admob, the store backend when it offers ads, or \"none\") and `adsWhy` says why; `audience` is factoria.json "
+         "platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). "
+         "Example: platform.state {}",
          schema(R"({"type":"object","properties":{}})"), true, "platform"},
         [&platform](const Json&) {
             Json out = platform.info();
             out["why"] = platform.backend_why();
+            out["adsWhy"] = platform.ads_why();
             out["catalog"] = platform.catalog().ids_json();
             if (FakeBackend* fake = platform.fake()) out["fake"] = fake->state();
             return out;
@@ -51,12 +55,14 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
     commands.add(
         {"platform.reset",
          "Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.",
-         "Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again. Pending requests are not cancelled. Fails when the game runs a real store "
+         "Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again, and forgets the answer of "
+         "platform.ads.setUnderAge (the game asks the age again). Pending requests are not cancelled. Fails when the game runs a real store "
          "backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that "
          "share state. Example: platform.reset {}",
          schema(R"({"type":"object","properties":{}})"), false, "platform"},
         [&platform](const Json&) {
             need_fake(platform, "platform.reset").reset();
+            platform.forget_under_age();
             platform.refresh_backend();
             return Json::object();
         });
@@ -126,22 +132,26 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
          "false and showRewarded gives reason \"noFill\") or \"consentRefused\" (also sets gdpr and tracking to \"denied\"; "
          "reason \"consentRefused\"). `gdpr` (\"granted\", \"denied\", \"notRequired\", \"unknown\") and `tracking` "
          "(\"authorized\", \"denied\", \"notDetermined\", \"restricted\", \"notRequired\") are what ads.consent() answers; a "
-         "denied gdpr stops every ad. Give any of them. platform.state's fake.ads counts the ads shown and rewarded. Fails when "
+         "denied gdpr stops every ad. `privacyOptions` (\"required\", \"notRequired\", \"unknown\") is what ads.consent() answers for the "
+         "privacy options form: with \"required\", platform.ads.privacyOptions() \"shows\" the form. Give any of them. platform.state's "
+         "fake.ads counts the ads shown and rewarded and the privacy forms shown. Fails when "
          "the game runs a real store backend. Example: platform.set_ad {\"outcome\":\"closedEarly\"}",
          schema(R"({"type":"object","properties":{
              "outcome":{"type":"string","enum":["watched","closedEarly","noFill","consentRefused"],"description":"How the next ads end."},
              "gdpr":{"type":"string","enum":["granted","denied","notRequired","unknown"],"description":"What the GDPR (UMP) sheet answered."},
-             "tracking":{"type":"string","enum":["authorized","denied","notDetermined","restricted","notRequired"],"description":"What the tracking (ATT) sheet answered."}}})"),
+             "tracking":{"type":"string","enum":["authorized","denied","notDetermined","restricted","notRequired"],"description":"What the tracking (ATT) sheet answered."},
+             "privacyOptions":{"type":"string","enum":["required","notRequired","unknown"],"description":"Whether the consent form for changing ad choices is required (ads.consent privacyOptions)."}}})"),
          false, "platform"},
         [&platform](const Json& a) {
             FakeBackend& fake = need_fake(platform, "platform.set_ad");
-            static const std::vector<std::string> known = {"outcome", "gdpr", "tracking"};
+            static const std::vector<std::string> known = {"outcome", "gdpr", "tracking", "privacyOptions"};
             for (const auto& [key, value] : a.items()) {
                 if (std::find(known.begin(), known.end(), key) != known.end()) continue;
                 throw CommandError("invalid_argument", "platform.set_ad has no option " + Json(key).dump() + ".",
-                                   did_you_mean(key, known) + " Options: outcome, gdpr, tracking.");
+                                   did_you_mean(key, known) + " Options: outcome, gdpr, tracking, privacyOptions.");
             }
-            auto r = fake.set_ad(a.value("outcome", std::string()), a.value("gdpr", std::string()), a.value("tracking", std::string()));
+            auto r = fake.set_ad(a.value("outcome", std::string()), a.value("gdpr", std::string()), a.value("tracking", std::string()),
+                                   a.value("privacyOptions", std::string()));
             if (!r.ok()) rethrow(r.error());
             return fake.state()["ads"];
         });

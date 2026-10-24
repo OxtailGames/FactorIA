@@ -64,6 +64,7 @@
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"
@@ -92,5 +93,13 @@
     "space": "Space",
     "delete": "Delete",
     "done": "Done"
+  },
+  "ageGate": {
+    "title": "Before you play",
+    "question": "In which year were you born?",
+    "why": "We only use this to choose which ads can be shown. We keep whether you are a child, not your birth year.",
+    "year": "Birth year",
+    "continue": "Continue",
+    "skip": "I would rather not say"
   }
 }

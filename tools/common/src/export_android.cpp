@@ -16,6 +16,7 @@
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
+#include "fa/tooling/ads_release.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/setup_parse.h"
 
@@ -288,6 +289,10 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
         warnings.insert(warnings.end(), a.toolchain.warnings.begin(), a.toolchain.warnings.end());
     }
 
+    // ---- ads: a release export that would carry Google's sample ids (only when the game has the admob plugin) ----
+    if (o.release)
+        for (const AdsIssue& i : check_ads(generic(p.dir))) warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
+
     // ---- release signing ----
     if (!s.signing.keystore.empty() && !s.signing.alias.empty()) {
         a.keystore = resolve_keystore(p, s.signing.keystore);
@@ -348,6 +353,14 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
                             "factoria.signing.keystore=" + properties_escape(a.keystore) + "\n"
                             "factoria.signing.alias=" + properties_escape(a.alias) + "\n";
 
+    // The AdMob plugin's manifest placeholders (platforms/android/app/build.gradle): always written, the plugin may be added later.
+    const AdsExportSettings ads = ads_export_settings(generic(p.dir), a.release);
+    const std::string adsProperties = "# The AdMob plugin (platform.add_backend admob): a development export carries Google's sample app id and shows test ads;\n"
+                                      "# a release export carries platform.ads.appIds.android of factoria.json.\n"
+                                      "factoria.ads.appId=" + properties_escape(ads.appId) + "\n"
+                                      "factoria.ads.test=" + (ads.test ? "true" : "false") + "\n"
+                                      "factoria.ads.audience=" + properties_escape(ads.audience) + "\n";
+
     auto plugins = export_plugins(p, outRoot);
     if (!plugins.ok()) return plugins.error();
 
@@ -364,6 +377,7 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         {"TARGET_SDK", std::to_string(s.targetSdk)},  // compileSdk = targetSdk
         {"APP_ICON_ATTRS", a.hasIcon ? "\n        android:icon=\"@mipmap/ic_launcher\"\n        android:roundIcon=\"@mipmap/ic_launcher_round\"" : ""},
         {"USES_PERMISSIONS", indent_lines(permissions)},
+        {"ADS_PROPERTIES", adsProperties},
         {"SIGNING_PROPERTIES", signingProperties},
         {"PLUGIN_PROJECTS", plugins->projects},
         {"PLUGIN_DEPENDENCIES", plugins->dependencies},

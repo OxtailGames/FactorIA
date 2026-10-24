@@ -60,7 +60,12 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
          "Show a rewarded ad at a placement (args: placement; result: rewarded, and reason when it is false: closedEarly, noFill or "
          "consentRefused)."},
         {"ads.consent", "ads",
-         "Read what the player answered to the consent sheets (result: gdpr, tracking, canShowAds)."},
+         "Read what the player answered to the consent sheets (result: gdpr, tracking, canShowAds, privacyOptions)."},
+        {"ads.setUnderAge", "ads",
+         "Tell the ad network whether the player is under the age of consent, after the game asked their age (args: underAge)."},
+        {"ads.privacyOptions", "ads",
+         "Open the consent form where the player changes their ad choices, when ads.consent says privacyOptions is \"required\" "
+         "(result: shown)."},
     };
     return v;
 }
@@ -169,6 +174,8 @@ struct PrepareContext {
     const std::map<std::string, std::string>& transactions;  // transactionId -> product id
     const PlatformServices::Translator& translator;
     CalendarDate today;
+    std::optional<bool> underAge;  // what the game told ads.setUnderAge, if it did
+    bool release = false;
 };
 
 // The key of the board a score belongs to: "" for allTime, the day for daily, the Monday of the week for weekly.
@@ -347,13 +354,31 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         return out;
     }
 
-    if (method == "ads.available" || method == "ads.showRewarded") {
-        const auto& pl = lookup(cat.placements, need_string(in, "placement", "the id of an ad placement"), "an ad placement", "ads.placements",
-                                "{\"id\": \"more_time\"}");
-        Json out = Json::object({{"placement", pl.id}, {"adUnitId", pl.store_id(be)}, {"type", pl.type}});
+    if (method.rfind("ads.", 0) == 0) {
+        // What every ads request carries for the network: who plays and whether the game is shipped. A game for children
+        // counts every player as under age; "mixed" and "general" games pass what ads.setUnderAge said (null: not asked).
+        const bool children = cat.adsAudience == "children";
+        Json out = Json::object();
+        if (method == "ads.available" || method == "ads.showRewarded") {
+            const auto& pl = lookup(cat.placements, need_string(in, "placement", "the id of an ad placement"), "an ad placement",
+                                    "ads.placements", "{\"id\": \"more_time\"}");
+            out = Json::object({{"placement", pl.id}, {"adUnitId", pl.store_id(be)}, {"type", pl.type}});
+        } else if (method == "ads.setUnderAge") {
+            const Json& v = need(in, "underAge", "true when the player is under the age of consent");
+            if (!v.is_boolean())
+                throw Bad{"\"underAge\" must be true or false, got " + describe_json_value(v),
+                          "Ask the player's age with a neutral screen (the menu kit's ageGate part) and pass the answer: "
+                          "platform.ads.setUnderAge(age < 16)."};
+            if (children && !v.get<bool>())
+                throw Bad{"platform.ads.audience is \"children\": every player counts as a child, so underAge cannot be false",
+                          "Remove the setUnderAge(false) call, or set \"audience\" to \"mixed\" in factoria.json platform.ads if adults play too."};
+            out = Json::object({{"underAge", v.get<bool>()}});
+        }
+        out["audience"] = cat.adsAudience;
+        if (method != "ads.setUnderAge") out["underAge"] = children ? Json(true) : c.underAge ? Json(*c.underAge) : Json(nullptr);
+        out["release"] = c.release;
         return out;
     }
-    if (method == "ads.consent") return Json::object();
 
     if (method == "overlay.open") {
         const std::string& page = need_string(in, "page", "\"achievements\", \"leaderboards\", \"friends\" or \"store\"");
@@ -434,7 +459,15 @@ struct PlatformSink::State {
     PlatformServices::DateSource dateSource;
     bool release = false;
     std::string backendName = "none";
-    std::vector<std::string> services;
+    std::string adsBackendName;  // the ads backend, "" when there is none (the store backend then serves ads, if it offers them)
+    std::vector<std::string> storeServices, adsServices, services;  // `services`: both together
+    std::optional<bool> underAge;  // the answer of ads.setUnderAge
+
+    void rebuild_services() {
+        services = storeServices;
+        for (const std::string& s : adsServices)
+            if (!contains(services, s)) services.push_back(s);
+    }
 
     struct Pending {
         std::string method;
@@ -675,11 +708,35 @@ void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend, std
         state_->answers.clear();
         state_->transactions.clear();
         state_->backendName = backend->name();
-        state_->services = backend->services();
+        state_->storeServices = backend->services();
+        state_->rebuild_services();
     }
     backend_ = std::move(backend);
     why_ = std::move(why);
     backend_->attach(sink());
+    if (adsBackend_) adsBackend_->attach(sink());  // a new generation: the ads backend needs the new sink
+}
+
+void PlatformServices::set_ads_backend(std::unique_ptr<PlatformBackend> backend, std::string why) {
+    {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        state_->adsBackendName = backend ? backend->name() : std::string();
+        state_->adsServices = backend ? backend->services() : std::vector<std::string>{};
+        state_->rebuild_services();
+    }
+    adsBackend_ = std::move(backend);
+    adsWhy_ = std::move(why);
+    if (adsBackend_) adsBackend_->attach(sink());
+}
+
+PlatformBackend* PlatformServices::ads_backend() const { return adsBackend_.get(); }
+
+std::string PlatformServices::ads_why() const {
+    if (adsBackend_ || !adsWhy_.empty()) return adsWhy_;  // without a backend, the reason the engine gave for using none
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (contains(state_->storeServices, "ads"))
+        return "the " + in_quotes(state_->backendName) + " backend serves ads itself (no ads plugin is in use)";
+    return "no backend offers the ads service: the game has no ads plugin on this platform (docs/PLATFORM.md, \"Ads\")";
 }
 
 PlatformBackend& PlatformServices::backend() const { return *backend_; }
@@ -687,7 +744,9 @@ PlatformBackend& PlatformServices::backend() const { return *backend_; }
 void PlatformServices::refresh_backend() {
     std::lock_guard<std::mutex> lock(state_->mutex);
     state_->backendName = backend_->name();
-    state_->services = backend_->services();
+    state_->storeServices = backend_->services();
+    if (adsBackend_) state_->adsServices = adsBackend_->services();
+    state_->rebuild_services();
 }
 
 FakeBackend* PlatformServices::fake() const { return dynamic_cast<FakeBackend*>(backend_.get()); }
@@ -715,14 +774,17 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
     Json prepared;
     std::string backendName;
     bool offered = true;
+    // Ads go to the ads backend when there is one (a plugin that offers nothing else); everything else to the store backend.
+    bool viaAds = false;
     {
         std::lock_guard<std::mutex> lock(s.mutex);
-        backendName = s.backendName;
+        viaAds = info->service == "ads" && !s.adsBackendName.empty() && contains(s.adsServices, "ads");
+        backendName = viaAds ? s.adsBackendName : s.backendName;
         try {
             CalendarDate today;
             if (s.dateSource) today = s.dateSource();
             else if (auto d = parse_calendar_date(kDefaultDate); d.ok()) today = d.value();
-            prepared = prepare(method, args, {s.catalog, s.backendName, s.transactions, s.translator, today});
+            prepared = prepare(method, args, {s.catalog, backendName, s.transactions, s.translator, today, s.underAge, s.release});
         } catch (const Bad& b) {
             return make_error(b.message, b.hint);
         } catch (const Reject& r) {
@@ -751,6 +813,17 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             out.answer = std::move(a);
             return out;
         }
+        if (offered && method == "ads.setUnderAge") s.underAge = prepared.value("underAge", false);
+        // A game for adults and children (audience "mixed") shows no ad before it knows the player's age.
+        if (offered && s.catalog.adsAudience == "mixed" && !s.underAge && (method == "ads.available" || method == "ads.showRewarded")) {
+            PlatformAnswer a;
+            a.id = out.id;
+            a.method = method;
+            a.result = method == "ads.available" ? Json::object({{"available", false}})
+                                                  : Json::object({{"rewarded", false}, {"reason", "consentRefused"}});
+            out.answer = std::move(a);
+            return out;
+        }
         if (offered) {
             s.pending[out.id] = {method, prepared};
             s.startingId = out.id;
@@ -776,7 +849,7 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
 
     const PlatformSink handle = sink();
     try {
-        backend_->request(out.id, method, prepared, handle);
+        (viaAds ? adsBackend_ : backend_)->request(out.id, method, prepared, handle);
     } catch (const std::exception& e) {  // a backend must not throw; the game still gets an answer
         handle.fail(out.id, {"failed", std::string("the ") + in_quotes(backendName) + " backend threw while handling " + method + ": " + e.what(), {}});
     }
@@ -789,7 +862,10 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
     return out;
 }
 
-void PlatformServices::frame() { backend_->frame(); }
+void PlatformServices::frame() {
+    backend_->frame();
+    if (adsBackend_) adsBackend_->frame();
+}
 
 std::vector<PlatformAnswer> PlatformServices::take_answers() {
     std::lock_guard<std::mutex> lock(state_->mutex);
@@ -815,7 +891,18 @@ Json PlatformServices::info() const {
     std::lock_guard<std::mutex> lock(state_->mutex);
     Json services = Json::array();
     for (const std::string& s : state_->services) services.push_back(s);
-    return Json::object({{"backend", state_->backendName}, {"release", state_->release}, {"services", services}, {"player", state_->player}, {"pending", state_->pending.size()}});
+    // The backend that answers ads.*: the ads plugin, else the store backend when it offers ads, else "none".
+    const std::string adsBackend = !state_->adsBackendName.empty() ? state_->adsBackendName
+                                   : contains(state_->storeServices, "ads") ? state_->backendName : std::string("none");
+    return Json::object({{"backend", state_->backendName}, {"adsBackend", adsBackend}, {"release", state_->release}, {"services", services},
+                         {"audience", state_->catalog.adsAudience},
+                         {"underAge", state_->catalog.adsAudience == "children" ? Json(true) : state_->underAge ? Json(*state_->underAge) : Json(nullptr)},
+                         {"player", state_->player}, {"pending", state_->pending.size()}});
+}
+
+void PlatformServices::forget_under_age() {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->underAge.reset();
 }
 
 void PlatformServices::reset_session() {
@@ -826,6 +913,7 @@ void PlatformServices::reset_session() {
         state_->events.clear();
         state_->transactions.clear();
         state_->player = unknown_player();
+        state_->underAge.reset();
     }
     if (FakeBackend* f = fake()) f->reset();
     refresh_backend();
