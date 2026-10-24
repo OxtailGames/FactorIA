@@ -45,7 +45,7 @@ struct AppleGame {
         std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Store","plugins":{"apple":{"path":")" << FA_APPLE_PLUGIN_DIR
                                              << R"(","platforms":["macos"]}},"platform":{
           "achievements": [{"id": "first_win", "name": "First win"}],
-          "leaderboards": [{"id": "high_score", "name": "High score"}],
+          "leaderboards": [{"id": "high_score", "name": "High score"}, {"id": "daily_route", "name": "Daily route", "order": "ascending", "period": "daily"}, {"id": "weekly_best", "name": "Weekly best", "period": "weekly"}],
           "products": [{"id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99, "ids": {"apple": "com.example.gems100"}}]}})";
         std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[]})";
     }
@@ -155,6 +155,9 @@ TEST_CASE("apple backend: every request is answered once and in time, and each r
     check_teaches(outcome(engine, "reset", "platform.achievements.reset()"), {"notSignedIn"});
     check_teaches(outcome(engine, "submit", "platform.leaderboards.submit('high_score', 10)"), {"notSignedIn"});
     check_teaches(outcome(engine, "entries", "platform.leaderboards.entries('high_score', {range: 'friends', count: 5})"), {"notSignedIn"});
+    // A daily or weekly board is a Game Center board like another: signed out, it says so (it is not "unavailable").
+    check_teaches(outcome(engine, "dailySubmit", "platform.leaderboards.submit('daily_route', 61000)"), {"notSignedIn"});
+    check_teaches(outcome(engine, "weeklyEntries", "platform.leaderboards.entries('weekly_best')"), {"notSignedIn"});
     check_teaches(outcome(engine, "overlay", "platform.overlay.open('achievements')"), {"notSignedIn"});
     // The App Store has no overlay for the app's own products.
     check_teaches(outcome(engine, "store", "platform.overlay.open('store')"), {"unavailable"}, "platform.purchases.buy");

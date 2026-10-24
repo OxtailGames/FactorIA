@@ -62,10 +62,10 @@ final class ApplePlugin: @unchecked Sendable {
         case "achievements.reset":
             return try await gameCenter.resetAchievements()
         case "leaderboards.submit":
-            return try await gameCenter.submit(id: a.catalogId, storeId: a.storeId, order: a.string("order") ?? "descending",
+            return try await gameCenter.submit(id: a.catalogId, storeId: a.storeId, order: a.string("order") ?? "descending", period: a.string("period") ?? "allTime",
                                                score: a.int("score") ?? 0)
         case "leaderboards.entries":
-            return try await gameCenter.entries(id: a.catalogId, storeId: a.storeId, range: a.string("range") ?? "top",
+            return try await gameCenter.entries(id: a.catalogId, storeId: a.storeId, range: a.string("range") ?? "top", period: a.string("period") ?? "allTime",
                                                 count: min(100, max(1, a.int("count") ?? 10)))
         case "cloud.save":
             return try cloud.save(key: a.string("key") ?? "", data: a.string("data") ?? "null")
