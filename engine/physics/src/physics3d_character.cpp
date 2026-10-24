@@ -17,7 +17,7 @@ constexpr float kGroundProbe = 0.04f;  // grounded when the ground is closer tha
 
 CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 delta) {
     CharacterMoveResult out;
-    const float walk = std::cos(radians(b.slopeLimit));
+    const float walk = det::cos(radians(b.slopeLimit));
     const float skin = b.skin;
     const std::size_t self = std::size_t(&b - bodies_.data());
     const Vec3 startCenter = b.center;

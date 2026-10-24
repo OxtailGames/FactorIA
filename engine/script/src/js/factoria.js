@@ -1976,6 +1976,54 @@
   const beforeEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].beforeEach.push(fn); else throw new Error("beforeEach must be called inside describe()"); };
   const afterEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].afterEach.push(fn); else throw new Error("afterEach must be called inside describe()"); };
 
+  // robust(check, { runs = 5, nudge = 0.005 }): runs `check(p)` `runs` times, each with its own small, repeatable offsets, and
+  // fails when any run fails. Run 0 is not perturbed. `p.nudge(...targets)` moves entities (Entity or id) by up to `nudge`
+  // metres on each axis; `p.nudgeBodies()` does it for every entity with a RigidBody2D/3D. The offsets come from a hash of
+  // the run, the entity id and the axis (no RNG: the same test nudges the same way everywhere). The check loads its own
+  // scene, so every run starts fresh.
+  function robust(check, options = {}) {
+    if (typeof check !== "function") throw new Error("robust(check, options): the first argument must be a function (p) => void");
+    const known = ["runs", "nudge"];
+    for (const k of Object.keys(options)) {
+      if (!known.includes(k)) {
+        const sug = closest(k, known);
+        throw new Error(`robust(): unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Options: ${known.join(", ")}`);
+      }
+    }
+    const runs = options.runs ?? 5, amount = options.nudge ?? 0.005;
+    if (!Number.isInteger(runs) || runs < 1) throw new Error(`robust(): runs must be an integer >= 1 (got ${runs})`);
+    if (!(amount >= 0)) throw new Error(`robust(): nudge must be a number of metres >= 0 (got ${amount})`);
+    const unit = (run, id, axis) => {  // FNV-1a of "run:id:axis" -> [-1, 1]
+      let h = 2166136261;
+      const str = `${run}:${id}:${axis}`;
+      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+      return (h / 4294967295) * 2 - 1;
+    };
+    for (let run = 0; run < runs; run++) {
+      const p = {
+        run, runs,
+        nudge(...targets) {
+          for (const t of targets.flat()) {
+            const e = t instanceof Entity ? t : world.find(t);
+            if (!e) throw new Error(`robust(): nudge target '${t}' was not found in the scene`);
+            if (run === 0) continue;
+            const q = e.position;
+            e.position = { x: q.x + unit(run, e.id, "x") * amount, y: q.y + unit(run, e.id, "y") * amount, z: q.z + unit(run, e.id, "z") * amount };
+          }
+        },
+        nudgeBodies() { this.nudge(world.entities().filter((e) => e.has("RigidBody3D") || e.has("RigidBody2D"))); },
+      };
+      try { check(p); } catch (err) {
+        const msg = err && err.message !== undefined ? err.message : String(err);
+        const wrapped = new Error(`robust(): run ${run} of ${runs} failed${run === 0 ? " (not perturbed)" : ` (positions nudged by up to ${amount} m)`}: ${msg}\n` +
+          `  A check that fails only under nudges depends on rounding, so it can differ per platform: assert what holds for every run ` +
+          `(reached / delivered / a range), not an exact frame count or position.`);
+        if (err && err.stack) wrapped.stack = `${wrapped.message}\n${err.stack}`;
+        throw wrapped;
+      }
+    }
+  }
+
   const stepN = (n) => N.testStep(n);
   // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
   // game.step after game.setSafeArea).
@@ -2218,7 +2266,7 @@
       throw new Error(`the test game object has no member '${k}'${sug ? `; did you mean '${sug}'?` : ""} Members: ${Object.keys(t).join(", ")}`);
     },
   });
-  const testApi = { test, describe, expect, game: gameApi, beforeEach, afterEach };
+  const testApi = { test, describe, expect, robust, game: gameApi, beforeEach, afterEach };
 
   function testBegin(file) { currentFile = file; tests = []; suiteStack = []; testCurrentName = ""; }
   function testCurrent() { return testCurrentName; }

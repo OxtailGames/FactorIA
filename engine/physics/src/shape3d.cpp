@@ -86,7 +86,7 @@ std::vector<Vec3> reduce_cloud(const std::vector<Vec3>& pts) {
     for (int i = 0; i < dirs; ++i) {  // Fibonacci sphere
         const float y = 1.0f - 2.0f * (float(i) + 0.5f) / float(dirs), r = std::sqrt(std::max(0.0f, 1.0f - y * y));
         const float phi = float(i) * 2.39996323f;
-        extreme({std::cos(phi) * r, y, std::sin(phi) * r});
+        extreme({det::cos(phi) * r, y, det::sin(phi) * r});
     }
     std::vector<Vec3> out;
     for (std::size_t i = 0; i < unique.size(); ++i)

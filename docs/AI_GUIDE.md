@@ -1435,11 +1435,22 @@ Patterns that work:
 - Reach behaviour fields through the entity: `game.find("enemy_1").behaviour.dir`.
 - Test behaviour, not implementation: positions, component values, whether an entity still exists (`game.find(id) === null`).
 - Use `toBeCloseTo(n, digits)` for floats, and `toBeGreaterThan` for "moved far enough".
+- Physics is exact for one build on one platform, not across them (next section). Where a level test depends on a chaotic setup (a rope bridge, a stack, a seesaw), wrap it in `robust(check, { runs, nudge })`: the check runs under small, repeatable nudges of the bodies, so it asserts what survives rounding (reached, delivered, a range) instead of an exact frame count.
 - `game.load` gives a test a known starting state. Within one file, anything else (variables, `session`, behaviour fields) carries over between tests unless the test loads or resets it.
 - Storage is an empty in-memory store for each test file, so tests never read or write the real save. `session` is also reset per file.
 - Keep tests fast: headless steps do not draw, so `game.step(600)` costs little. Take a screenshot only where you need to see something, and avoid `--render-all`, which draws every frame in software and is much slower.
 - `console.log`, `console.warn` and `console.error` in scripts are log lines with category `script`. `factoria test` shows what each test printed, indented under the test (and under `logs` with `--json`). Use `console.log` while you debug, and remove it before you finish.
 - Import JSON data in tests the same way as in scripts (`import levels from "../data/levels.json";`).
+
+### Physics and platforms
+
+What holds: the same source, seed and input give the same physics, bit for bit, on Linux, Windows and macOS (and Debug and Release agree). The engine gets there in three ways. It is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise` on MSVC), so `a * b + c` is never fused into one rounding on arm64 or on CPUs with FMA. The simulation never calls the C library's `sin`, `cos`, `atan2`, `asin` or `acos`, whose last bit differs between glibc, Apple's libm and the MSVC CRT: it uses `fa::det::` (`fa/core/det_math.h`), which is built only from `+ - * / sqrt` on doubles, and those IEEE 754 rounds the same everywhere. Ties in sorts are broken by index or entity id, never by the standard library's own order. Box2D (2D) has its own cosine, sine and atan2 and is built with the same flags.
+
+CI runs a physics replay on its Linux, Windows and macOS jobs, prints its hash (`FA_PHYSICS_REPLAY_HASH`) and compares it with the ONE value committed in `engine/physics/tests/test_determinism.cpp`; a platform that differs fails the job.
+
+What is not promised: the same engine version only. A change to the physics code, or to a game's own scene, moves the result (and so the committed hash) on every platform together. The exact numbers of `Math.sin` and friends in game scripts, and of rendering, are not part of this: scripts that feed such numbers into physics (an angle computed with `Math.atan2`) get the JavaScript engine's own result, which may differ by a bit between platforms; keep gameplay-critical angles to the transform and physics APIs.
+
+For your game: do not assert an exact frame count or an exact position after a long physics run. Use `robust()` (SCRIPTING.md, "Tests") and give chaotic setups a margin (bridges that settle before the player arrives, ledges wider than the worst nudge).
 
 ## 11. Debugging, live sessions and replays
 
