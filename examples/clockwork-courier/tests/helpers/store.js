@@ -1,15 +1,11 @@
 // Helpers of the store tests (services, shop, leaderboards, ads): a clean save and a clean fake store, events sent by hand,
-// and short readers of what the platform and the save hold. `storage` keeps its data across the tests of a run and the fake
-// store keeps its state until it is reset (FB-0026), so every test starts with fresh().
+// and short readers of what the platform and the save hold. The tests of one file share storage and the fake store, so every
+// test starts with fresh() (game.resetState).
 import { game } from "factoria:test";
-import { storage } from "factoria";
-
-export const SAVE_KEYS = ["progress", "store", "services"];
 
 /** Forgets the saves of the game and resets the fake store (signed in again by the services at the next scene). */
 export function fresh() {
-  for (const k of SAVE_KEYS) storage.remove(k);
-  game.platform.reset();
+  game.resetState({ storage: true, platform: true });
 }
 
 /** Sends a game event by hand (events.js has the names and payloads) and lets the listeners and the platform answer. */
@@ -60,6 +56,5 @@ export function runDown() {
 
 /** For afterEach: leaves nothing of the test behind (saves, the fake store) for the files that run next. */
 export function cleanup() {
-  for (const k of SAVE_KEYS) storage.remove(k);
-  game.platform.reset();
+  game.resetState({ storage: true, platform: true });
 }

@@ -14,10 +14,9 @@ const ARENA = "scenes/test_arena.scene.json";
 const ROOFS = "scenes/rooftops_1.scene.json";
 const DOGS = "scenes/rooftops_3.scene.json";
 
-// Storage and the session outlive a test (and a test file): leave no saved option behind for the other files.
+// The session and the language outlive a test: put them back. The saved options and progress go with game.resetState().
 function cleanUp() {
-  storage.remove("settings");
-  storage.remove("progress");
+  game.resetState({ storage: true, platform: false });
   session.settingsApplied = false;
   if (i18n.language !== "en") i18n.setLanguage("en");
 }

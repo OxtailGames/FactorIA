@@ -45,18 +45,22 @@ require a real privacy policy URL, even for a game that collects nothing (`store
 
 Problems found while exporting (each is in `ENGINE_FEEDBACK.json`; the ids are in the entries, not here):
 
-- Android source mode needs a CMake 3.24+ and a JDK 17+. The export uses the SDK's CMake (3.31.6, else the newest 3.24+
-  there) or one of the computer, and writes `cmake.dir` and `factoria.cmakeVersion` into the exported project by itself;
-  on a machine with no network run `./gradlew assembleDebug --offline` in the exported project (JDK: `JAVA_HOME` or the
-  one `factoria setup android` installs).
+- Android source mode needs NDK r27+, a CMake 3.24+ and a JDK 17+. The export finds the CMake by itself: the SDK's
+  3.31.6, else the newest 3.24+ in the SDK, else one of the computer (PATH, Homebrew, `factoria setup cmake`); it writes
+  `cmake.dir` into `local.properties` and `factoria.cmakeVersion` into `gradle.properties` of the exported project and a
+  warning says which it took. The JDK is `JAVA_HOME`, Android Studio's or the `java` on `PATH`. When no CMake is found the
+  error says what to install and how to build offline. With no network (the apk here was built that way) install CMake and
+  a `ninja` first and run `./gradlew assembleDebug --offline` in the exported project.
 - The first launch on a fresh emulator may show "System UI isn't responding": tap Wait. Launch with
   `adb shell am start -n com.factoria.examples.clockworkcourier/android.app.NativeActivity` (the activity is the engine's
   `android.app.NativeActivity`, not a `MainActivity`).
-- Desktop: the export bundles the `factoria_player` next to the `factoria` binary and stops with an error when it was
-  built from another commit than `factoria` (an older player once stopped the `--release` app with "no factoria.json in
-  '/'" and did not know `Text.key`, `Text.safeArea` or `Button`). Rebuild the engine so both match (`cmake --build
-  <build dir>`, or pass `--player <build dir>/player/factoria_player`) and export again; check with
-  `"Clockwork Courier.app/Contents/MacOS/clockwork-courier" --frames 200` or `open -n "Clockwork Courier.app" --stderr err.log`.
+- Desktop: the export bundles the `factoria_player` next to the `factoria` binary and stops with an error naming both
+  builds when the player comes from another build than `factoria` (both carry a build fingerprint; an older player once
+  stopped the `--release` app with "no factoria.json in '/'" and did not know `Text.key`, `Text.safeArea` or `Button`).
+  Build both from one checkout (`cmake --build <build dir>`, or pass `--player <build dir>/player/factoria_player`), or use
+  the release's players (`factoria setup players`), and export again. `--allow-player-mismatch` bundles the player anyway
+  and only warns. Check the result with `"Clockwork Courier.app/Contents/MacOS/clockwork-courier" --frames 200` or
+  `open -n "Clockwork Courier.app" --stderr err.log`.
 
 ## App Store (iOS and Mac App Store)
 
@@ -110,12 +114,13 @@ cd examples/clockwork-courier
 python3 store/trailer/make_trailer.py
 factoria run --headless --scene store/trailer/scenes/shot_1.scene.json \
   --input .factoria/tmp/trailer_input.json --frames 2615 --render-scale 1 \
-  --record-video clockwork_courier_trailer.avi
+  --record-video clockwork_courier_trailer.mp4
 ```
 
-  The AVI is large (183 MB for 43.6 s, so it is not in the repository). For the stores run `factoria setup ffmpeg` once and
-  record `--record-video clockwork_courier_trailer.mp4` instead (H.264 + AAC), or convert the AVI with an ffmpeg:
-  `ffmpeg -i clockwork_courier_trailer.avi -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac clockwork_courier_trailer.mp4`.
+  Run `factoria setup ffmpeg` once (it installs a pinned ffmpeg under `$FACTORIA_HOME/tools/ffmpeg/`, no manual step
+  after that): the engine records the replay and converts it to H.264 + AAC, `yuv420p`, `+faststart`, 1280x720. Without
+  ffmpeg the run stops before the replay with that advice. With `.avi` instead of `.mp4` the file is large (183 MB for
+  43.6 s, so no video is in the repository) and every store needs it converted.
   Check that it has sound before uploading.
 - The recorded input of `rooftops_3` and `market_3` drifts after about 700 frames, and level replays need a 10 frame
   offset (`SETTLE` in `make_trailer.py`). The shots are cut before the drift matters; watch the video once before every
@@ -128,6 +133,9 @@ factoria run --headless --scene store/trailer/scenes/shot_1.scene.json \
 `scenes/intro.scene.json` and `scripts/intro.js` are the `mainScene`: about 4.8 s, shown once (`introSeen` in storage),
 skippable (tap, click, key, pad button, Skip, Android Back). `tests/intro.test.js` covers it. To bring it back in a test
 or on a device, clear the `introSeen` key (or the app data).
+
+The intro is an animated scene, not a video file: the engine cannot play a video in a game yet (only record one), so a studio
+logo film or an in-game cutscene as a video file is not possible. The trailer is the only video, and it is recorded, not played.
 
 ## Budget
 
