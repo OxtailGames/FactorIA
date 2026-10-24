@@ -15,6 +15,7 @@
 #include "fa/platform/input.h"
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
+#include "fa/scene/mesh_geometry.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
@@ -173,6 +174,46 @@ void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer
     }
 }
 
+// MeshRenderer.materialColors: each key must be a material name of the entity's glTF model, each value [r, g, b] or
+// [r, g, b, a]. The VFS root is the project (the model is read through fa::fs).
+void check_material_colors(Ctx& c, const std::string& file, const std::string& pointer, const Json& fields) {
+    if (!fields.is_object() || !fields.contains("materialColors")) return;
+    const Json& colors = fields["materialColors"];
+    const std::string base = pointer + "/materialColors";
+    if (!colors.is_object()) {
+        c.error(file, base, "materialColors must be an object keyed by glTF material name.",
+                "Write {\"Body\": [0.2, 0.8, 0.7, 1]}.");
+        return;
+    }
+    for (auto it = colors.begin(); it != colors.end(); ++it) {
+        const Json& v = it.value();
+        bool ok = v.is_array() && (v.size() == 3 || v.size() == 4);
+        if (ok)
+            for (const Json& n : v) ok = ok && n.is_number();
+        if (!ok)
+            c.error(file, base + "/" + it.key(), "The colour of material '" + it.key() + "' must be [r, g, b] or [r, g, b, a] numbers.",
+                    "Example: [0.2, 0.8, 0.7, 1].");
+    }
+    if (colors.empty()) return;
+    const std::string mesh = fields.contains("mesh") && fields["mesh"].is_string() ? fields["mesh"].get<std::string>() : "cube";
+    const std::string lower = to_lower(mesh);
+    if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
+        c.warn(file, base, "materialColors only applies to a glTF model, and mesh '" + mesh + "' is a built-in shape: it is ignored.",
+               "Use `color` to tint a built-in shape.");
+        return;
+    }
+    if (!stdfs::exists(stdfs::path(c.dir) / mesh)) return;  // reported as a missing asset
+    auto names = gltf_material_names(mesh);
+    if (!names.ok()) return;  // the model itself is not valid; the mesh asset check and the renderer say why
+    for (auto it = colors.begin(); it != colors.end(); ++it) {
+        if (std::find(names->begin(), names->end(), it.key()) != names->end()) continue;
+        c.error(file, base + "/" + it.key(),
+                "Model '" + mesh + "' has no material named '" + it.key() + "'.",
+                names->empty() ? "The model's materials have no names; give them names in the modelling tool."
+                               : did_you_mean(it.key(), *names));
+    }
+}
+
 // A Panel with `fit` that is larger than the screen at the design size (text size 100 %, texts measured by the approximation
 // the engine uses without a renderer): part of the menu would be off screen. The runtime logs the same at the player's text size.
 void check_fit_panels(Ctx& c, const std::string& file, World& world) {
@@ -219,6 +260,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
             if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
                 !it.value()["texture"].get<std::string>().empty())
                 c.spriteTextures.insert(it.value()["texture"].get<std::string>());
+            if (it.key() == "MeshRenderer") check_material_colors(c, file, pointer + "/components/MeshRenderer", it.value());
             if (it.key() == "Tilemap") check_tilemap_tileset(c, file, pointer + "/components/Tilemap", it.value());
             if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
                 scripts.insert(it.value()["path"].get<std::string>());

@@ -26,6 +26,10 @@ struct MeshGeometry {
 // close one.
 Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string& mesh);
 
+// The names of the materials a .gltf/.glb model uses on its triangle meshes (the names MeshRenderer.materialColors is keyed
+// by), in file order, without duplicates; materials without a name are left out. Read through fa::fs.
+Result<std::vector<std::string>> gltf_material_names(const std::string& path);
+
 // The name a mesh is cached under: primitive names lower-cased, paths as written. Use it as a key for per-mesh data.
 std::string mesh_key(const std::string& mesh);
 

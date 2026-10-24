@@ -534,7 +534,14 @@ void register_builtin_components(TypeRegistry& r) {
                "Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the "
                "material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths "
                "for textures. Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
-               "material's defaults. An entity without overrides batches with the others that share the material.");
+               "material's defaults. An entity without overrides batches with the others that share the material.")
+        .field("materialColors", &MeshRenderer::materialColors,
+               "Per-material colours of a glTF model, an object keyed by glTF material name: {\"Body\": [0.2, 0.8, 0.7, 1]}. "
+               "The colour REPLACES that material's baseColorFactor on its sub-meshes (the texture still multiplies it) and "
+               "`color` still multiplies the result, so `color` stays the tint of the whole model. Materials not named keep "
+               "their own colour. Names come from the model (the sub-mesh keeps its material name from import); `factoria "
+               "validate` checks them and suggests the right one for a typo. Ignored by built-in shapes. Entities that differ "
+               "only in materialColors are drawn in separate batches.");
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
