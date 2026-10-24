@@ -13,7 +13,8 @@
       "Collider3D": {
         "shape": "box",
         "size": [1, 1, 1],
-        "friction": 0.5
+        "friction": 0.5,
+        "navObstacle": true
       },
       "Script": {
         "path": "scripts/crate.js"

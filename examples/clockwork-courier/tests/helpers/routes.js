@@ -189,12 +189,19 @@ export const ROUTES = {
       { "x": 16.5, "z": -83.5, "radius": 0.8 },
       { "x": 15.05, "z": -86.65, "radius": 0.3, "jump": true },
       { "x": 15.05, "z": -90.5, "radius": 0.7 },
-      { "x": 13.5, "z": -93.5, "radius": 1.2 },
+      // dog_2 patrols x = 12 from z -110 to -105 and its parcel lies at the top end. The dog now follows the courier
+      // properly (the navmesh), so the bot does what a player does: jump onto the roof while the dog is at the far end,
+      // sneak along the east edge (out of its sight range), take the parcel while the dog walks away from it, and
+      // slip along the edge to the door.
+      { "x": 13.5, "z": -93.5, "radius": 1.2, "hold": { "id": "dog_2", "pos": [12.0, 0.47, -110.0], "radius": 0.6 } },
       { "x": 15.0, "z": -97.15, "radius": 0.3, "jump": true },
-      { "x": 15.0, "z": -101.0, "radius": 0.7 },
-      { "x": 15.0, "z": -107.0, "radius": 1.2 },
-      { "x": 13.0, "z": -105.0, "radius": 0.8 },
-      { "x": 16.0, "z": -112.0, "radius": 1.1 },
+      { "x": 16.5, "z": -101.0, "radius": 0.7 },
+      { "x": 17.8, "z": -103.5, "radius": 0.6, "walk": true },
+      { "x": 17.8, "z": -104.5, "radius": 0.4, "walk": true, "hold": { "id": "dog_2", "pos": [12.0, 0.47, -105.0], "radius": 0.6 } },
+      { "x": 13.3, "z": -105.0, "radius": 0.5, "walk": true },
+      { "x": 17.8, "z": -109.0, "radius": 0.6, "walk": true, "hold": { "id": "dog_2", "pos": [12.0, 0.47, -106.8], "radius": 0.6 } },
+      { "x": 16.0, "z": -112.0, "radius": 1.5, "walk": true },
+      { "x": 16.0, "z": -112.0, "radius": 1.2 },
     ],
     shortcut: [
       { "x": 0.0, "z": -2.65, "radius": 0.3, "jump": true },
@@ -221,12 +228,19 @@ export const ROUTES = {
       { "x": 16.5, "z": -83.5, "radius": 0.8 },
       { "x": 15.05, "z": -86.65, "radius": 0.3, "jump": true },
       { "x": 15.05, "z": -90.5, "radius": 0.7 },
-      { "x": 13.5, "z": -93.5, "radius": 1.2 },
+      // dog_2 patrols x = 12 from z -110 to -105 and its parcel lies at the top end. The dog now follows the courier
+      // properly (the navmesh), so the bot does what a player does: jump onto the roof while the dog is at the far end,
+      // sneak along the east edge (out of its sight range), take the parcel while the dog walks away from it, and
+      // slip along the edge to the door.
+      { "x": 13.5, "z": -93.5, "radius": 1.2, "hold": { "id": "dog_2", "pos": [12.0, 0.47, -110.0], "radius": 0.6 } },
       { "x": 15.0, "z": -97.15, "radius": 0.3, "jump": true },
-      { "x": 15.0, "z": -101.0, "radius": 0.7 },
-      { "x": 15.0, "z": -107.0, "radius": 1.2 },
-      { "x": 13.0, "z": -105.0, "radius": 0.8 },
-      { "x": 16.0, "z": -112.0, "radius": 1.1 },
+      { "x": 16.5, "z": -101.0, "radius": 0.7 },
+      { "x": 17.8, "z": -103.5, "radius": 0.6, "walk": true },
+      { "x": 17.8, "z": -104.5, "radius": 0.4, "walk": true, "hold": { "id": "dog_2", "pos": [12.0, 0.47, -105.0], "radius": 0.6 } },
+      { "x": 13.3, "z": -105.0, "radius": 0.5, "walk": true },
+      { "x": 17.8, "z": -109.0, "radius": 0.6, "walk": true, "hold": { "id": "dog_2", "pos": [12.0, 0.47, -106.8], "radius": 0.6 } },
+      { "x": 16.0, "z": -112.0, "radius": 1.5, "walk": true },
+      { "x": 16.0, "z": -112.0, "radius": 1.2 },
     ],
   },
   market_1: {
