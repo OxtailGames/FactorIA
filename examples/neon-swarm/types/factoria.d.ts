@@ -1528,17 +1528,17 @@ declare module "factoria" {
   }
 
   /**
-   * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake backend keeps one per period; real stores reject with "unavailable" until M12 maps them to their recurring boards).
+   * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake keeps one per period; Steam makes one board per period, Game Center and Play Games use their own time scopes: docs/PLATFORM.md, "Leaderboard periods"; each store starts a period at its own time).
    */
   export interface PlatformLeaderboardsAPI {
     /**
-     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means.
+     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs.
      */
-    submit(id: string, score: number): Promise<{ id: string; score: number; best: number }>;
+    submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
     /**
-     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10).
+     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs.
      */
-    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[]>;
+    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
   }
 
   /**

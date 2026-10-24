@@ -36,7 +36,6 @@ import java.util.Map;
 final class Games {
     private Games() {}
 
-    private static final int TIME_SPAN = LeaderboardVariant.TIME_SPAN_ALL_TIME;
     private static final int PUBLIC = LeaderboardVariant.COLLECTION_PUBLIC;
     private static final int POLICY = SnapshotsClient.RESOLUTION_POLICY_MOST_RECENTLY_MODIFIED;
     /** Play Games answers at most this many leaderboard rows per call. */
@@ -188,17 +187,30 @@ final class Games {
     }
 
     // ---------------------------------------------------------------------------------------------- leaderboards ----
+    /**
+     * The time span of the board's period: Play Games keeps a daily, a weekly and an all-time table for every leaderboard. Its
+     * days and weeks start at its own times (midnight Pacific time), not at the player's midnight, and the API does not say
+     * when the current one began, so the answers carry no periodStart or periodEnd (docs/PLATFORM.md, "Leaderboard periods").
+     */
+    static int timeSpan(Request r) {
+        String period = r.args.optString("period", "allTime");
+        if ("daily".equals(period)) return LeaderboardVariant.TIME_SPAN_DAILY;
+        if ("weekly".equals(period)) return LeaderboardVariant.TIME_SPAN_WEEKLY;
+        return LeaderboardVariant.TIME_SPAN_ALL_TIME;
+    }
+
     static void submit(Request r) {
         String sid = storeId(r);
+        int timeSpan = timeSpan(r);
         long score = r.args.optLong("score");
         LeaderboardsClient c = PlayGames.getLeaderboardsClient(activity());
         r.await(c.submitScoreImmediate(sid, score), r.doing(), sent -> {
-            ScoreSubmissionData.Result result = sent.getScoreResult(TIME_SPAN);
+            ScoreSubmissionData.Result result = sent.getScoreResult(timeSpan);
             if (result != null && result.newBest) {
                 r.resolve(Json.obj("id", sid, "score", score, "best", score));
                 return;
             }
-            r.await(c.loadCurrentPlayerLeaderboardScore(sid, TIME_SPAN, PUBLIC), r.doing(), mine -> {
+            r.await(c.loadCurrentPlayerLeaderboardScore(sid, timeSpan, PUBLIC), r.doing(), mine -> {
                 LeaderboardScore best = mine == null ? null : mine.get();
                 r.resolve(Json.obj("id", sid, "score", score, "best", best == null ? score : best.getRawScore()));
             });
@@ -208,12 +220,13 @@ final class Games {
     static void entries(Request r) {
         String sid = storeId(r);
         String range = r.args.optString("range", "top");
+        int timeSpan = timeSpan(r);
         int count = Math.max(1, Math.min(MAX_ROWS, r.args.optInt("count", 10))); // ponytail: no paging past one call of 25 rows
         LeaderboardsClient c = PlayGames.getLeaderboardsClient(activity());
         r.await(PlayGames.getPlayersClient(activity()).getCurrentPlayerId(), r.doing(), me -> {
             Task<AnnotatedData<LeaderboardsClient.LeaderboardScores>> rows = "around".equals(range)
-                    ? c.loadPlayerCenteredScores(sid, TIME_SPAN, PUBLIC, count)
-                    : c.loadTopScores(sid, TIME_SPAN, "friends".equals(range) ? LeaderboardVariant.COLLECTION_FRIENDS : PUBLIC, count);
+                    ? c.loadPlayerCenteredScores(sid, timeSpan, PUBLIC, count)
+                    : c.loadTopScores(sid, timeSpan, "friends".equals(range) ? LeaderboardVariant.COLLECTION_FRIENDS : PUBLIC, count);
             r.await(rows, r.doing(), data -> {
                 JSONArray out = new JSONArray();
                 LeaderboardsClient.LeaderboardScores scores = data.get();
