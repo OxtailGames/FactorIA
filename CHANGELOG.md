@@ -30,6 +30,14 @@ A 3D example game for phones
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
 
+Sliders and lists
+
+- `Slider.format` shows the value as a pattern: `"{v:1}x"`, `"{percent}%"` (the value times 100); `Slider.formatKey` takes the
+  pattern from a string table, so it can differ per language. `game.setSlider(id, value)` in a test drags a slider like a
+  player: clamped, snapped to `step`, `ui.change` sent (the `ui.set_slider` command); writing `Slider.value` from a script
+  still sends nothing. `ScrollList.shrink` makes a list as tall as its content up to the room the other children leave, so a
+  short list in a `fit` panel makes a short panel.
+
 Tests
 
 - `factoria:test` can hold a mouse button and turn the wheel (`game.mouseDown`, `mouseUp`, `wheel`), so a drag orbit and a
@@ -88,6 +96,11 @@ Platform services
 
 Localization
 
+- Numbers and times follow the language: `{v:number:1}` and `{t:duration}` in a string table and `i18n.number(v, {decimals})`
+  and `i18n.duration(seconds)` in scripts write 1234.5 as "1,234.5", "1234,5" (Spanish; "12.345,5" from five digits),
+  "1.234,5" (German), "1 234,5" (French, narrow no-break space) or "١٬٢٣٤٫٥" (Arabic digits), and 83.4 seconds as "1:23.4".
+  A small table in the engine, no ICU; a language it does not know is written like English (docs/LOCALIZATION.md).
+  Clockwork Courier uses it instead of its own helper (FB-0039).
 - `keyArgs` on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: the values of a key's `{placeholders}`
   (and the `count` of a plural entry), so a script sets them once instead of rewriting `text` every frame, and a language
   switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
