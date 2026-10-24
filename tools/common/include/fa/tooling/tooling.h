@@ -12,6 +12,7 @@
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/menu_kit.h"
 #include "fa/tooling/mcp_config.h"
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/publish.h"

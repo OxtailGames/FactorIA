@@ -1528,6 +1528,10 @@ Acceptance: the replay hash matches across CI's Linux, Windows and macOS jobs, o
 
 ### M26.22 Menu kit command (M) — CC/FB-0003
 
+Done (branch `m26/menu-kit`): `project.add_menu_kit` (tools/common/src/menu_kit.cpp), the kit in `templates/menus/` with
+`kit.json` listing its parts; the menus fixture keeps a copy of every kit file that the `cli` test "the menus fixture holds
+exactly the kit's files" keeps identical.
+
 After M26.1 (the kit is formatted on write). The menus recipe moves to `templates/menus/` (scenes, prefabs, scripts and
 locale keys), MENUS.md shows it from there, and `project.add_menu_kit {parts, overwrite}` copies the parts asked for
 into a game and merges their keys into its locale files.
@@ -1536,6 +1540,9 @@ Acceptance: a tooling test adds the kit to a new project, which then validates a
 twice changes nothing.
 
 ### M26.23 UI layout check (M) — CC/FB-0043
+
+Done (branch `m26/layout-check`): `ui.check_layout` (engine/runtime/src/ui_check.cpp), `I18n::set_pseudo`; Courier's
+intro and profile keys shrink; its remaining findings are in its ENGINE_FEEDBACK.json notes.
 
 After M26.6. `ui.check_layout {scenes, languages, textScales, pseudo}` loads each screen in each language and text scale
 (and a pseudo-localized one that lengthens every string), and lists every text that overflows or overlaps, with the
