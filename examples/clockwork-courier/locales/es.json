@@ -169,10 +169,8 @@
   },
   "profile": {
     "title": "¿Quién reparte?",
-    "hint": "Escribe un nombre o elige las letras.",
+    "hint": "Escribe un nombre.",
     "anonymous": "Mensajero",
-    "space": "Espacio",
-    "delete": "Borrar",
     "done": "Hecho",
     "empty": "Elige un nombre con al menos una letra o cifra.",
     "placeholder": "Tu nombre"
@@ -336,5 +334,10 @@
   "touch": {
     "jump": "Saltar",
     "action": "Acción"
+  },
+  "keyboard": {
+    "space": "Espacio",
+    "delete": "Borrar",
+    "done": "Hecho"
   }
 }

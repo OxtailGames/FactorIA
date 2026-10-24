@@ -1,0 +1,152 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "HUD",
+    "components": {
+      "Script": {
+        "path": "scripts/hud.js"
+      }
+    },
+    "children": [
+      {
+        "id": "spring_bg",
+        "components": {
+          "Transform": {
+            "position": [24, 24, 0]
+          },
+          "Shape2D": {
+            "anchor": [0, 0],
+            "safeArea": true,
+            "space": "screen",
+            "size": [308, 26],
+            "color": [0, 0, 0, 0.55],
+            "pivot": [0, 1],
+            "layer": 90
+          }
+        }
+      },
+      {
+        "id": "spring_fill",
+        "components": {
+          "Transform": {
+            "position": [28, 28, 0]
+          },
+          "Shape2D": {
+            "anchor": [0, 0],
+            "safeArea": true,
+            "space": "screen",
+            "size": [300, 18],
+            "color": [1, 0.76, 0.2, 1],
+            "pivot": [0, 1],
+            "layer": 91
+          }
+        }
+      },
+      {
+        "id": "spring_label",
+        "components": {
+          "Transform": {
+            "position": [24, 56, 0]
+          },
+          "Text": {
+            "anchor": [0, 0],
+            "safeArea": true,
+            "space": "screen",
+            "text": "Spring",
+            "key": "hud.spring",
+            "fontSize": 20,
+            "color": [1, 1, 1, 0.85],
+            "layer": 100
+          }
+        }
+      },
+      {
+        "id": "spring_text",
+        "components": {
+          "Transform": {
+            "position": [342, 24, 0]
+          },
+          "Text": {
+            "anchor": [0, 0],
+            "safeArea": true,
+            "space": "screen",
+            "text": "60",
+            "fontSize": 28,
+            "layer": 100
+          }
+        }
+      },
+      {
+        "id": "parcel_text",
+        "components": {
+          "Transform": {
+            "position": [24, 84, 0]
+          },
+          "Text": {
+            "anchor": [0, 0],
+            "safeArea": true,
+            "space": "screen",
+            "text": "Parcels 0 / 1",
+            "fontSize": 24,
+            "layer": 100
+          }
+        }
+      },
+      {
+        "id": "touch_stick",
+        "components": {
+          "Transform": {
+            "position": [150, -150, 0]
+          },
+          "TouchStick": {
+            "anchor": [0, 1],
+            "size": [220, 220],
+            "color": [1, 1, 1, 0.18]
+          }
+        }
+      },
+      {
+        "id": "touch_jump",
+        "components": {
+          "Transform": {
+            "position": [-130, -130, 0]
+          },
+          "TouchButton": {
+            "anchor": [1, 1],
+            "button": "A",
+            "text": "Jump",
+            "size": [110, 110]
+          }
+        }
+      },
+      {
+        "id": "touch_action",
+        "components": {
+          "Transform": {
+            "position": [-270, -80, 0]
+          },
+          "TouchButton": {
+            "anchor": [1, 1],
+            "button": "X",
+            "text": "Act",
+            "size": [84, 84]
+          }
+        }
+      },
+      {
+        "id": "touch_pause",
+        "components": {
+          "Transform": {
+            "position": [-56, 56, 0]
+          },
+          "TouchButton": {
+            "anchor": [1, 0],
+            "button": "Start",
+            "text": "II",
+            "size": [64, 64]
+          }
+        }
+      }
+    ]
+  }
+}

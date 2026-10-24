@@ -1,6 +1,7 @@
 // @ts-check
 // The in-level HUD: the spring bar (draining, amber then red), the seconds left and the parcel counter. The widgets
-// are plain screen-space Shape2D / Text entities of the scene; this script only sets their size, colour and text.
+// are plain screen-space Shape2D / Text entities of prefabs/ui/hud.prefab.json (one `hud` entity per level scene holds this
+// script and the prefab's children); this script only sets their size, colour and text.
 import { Behaviour, ui, world } from "factoria";
 import { EVENTS } from "./events.js";
 import * as progress from "./progress.js";
@@ -59,7 +60,7 @@ export default class Hud extends Behaviour {
     }
   }
 
-  /** The courier's name (P3 profile) under the parcel counter; a Text spawned here so the level scenes stay as they are. */
+  /** The courier's name (P3 profile) under the parcel counter; a Text spawned here, because the name comes from the save. */
   showName() {
     const name = progress.name();
     if (!name) return;
@@ -74,7 +75,7 @@ export default class Hud extends Behaviour {
 
   /**
    * The low-spring warning, readable without colour: a triangle with "!" and the word "Low", beside the seconds. They are
-   * spawned here (every level has the HUD script) and shown while the spring is under lowFraction.
+   * spawned here (not in the prefab: they only exist for the warning) and shown while the spring is under lowFraction.
    */
   spawnWarning() {
     const base = { anchor: [0, 0], safeArea: true, space: "screen" };

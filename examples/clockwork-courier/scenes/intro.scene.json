@@ -134,7 +134,8 @@
           "space": "screen",
           "safeArea": true,
           "anchor": [0.5, 1],
-          "pivot": [0.5, 1]
+          "pivot": [0.5, 0],
+          "maxWidth": 760
         }
       }
     },
