@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
+#include <ios>
 
 #include "fa/core/det_math.h"
 
@@ -13,15 +15,6 @@ std::uint32_t bits_of(float f) {
     std::uint32_t u;
     std::memcpy(&u, &f, sizeof u);
     return u;
-}
-// Distance in float steps (ulps) between two finite floats.
-std::int64_t ulps(float a, float b) {
-    auto key = [](float f) {
-        const std::int64_t u = bits_of(f);
-        return (u & 0x80000000) ? -(u & 0x7fffffff) : u;
-    };
-    const std::int64_t d = key(a) - key(b);
-    return d < 0 ? -d : d;
 }
 }  // namespace
 
