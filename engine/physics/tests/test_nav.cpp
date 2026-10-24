@@ -1,7 +1,9 @@
 // NavMesh3D: bake of the static colliders into a walkable grid, paths around walls, up ramps, never up a high step.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <format>
 #include <string>
 
 #include "fa/physics/physics.h"
@@ -216,4 +218,249 @@ TEST_CASE("nav: a moving obstacle blocks the cells it covers and frees them when
     auto again = p.nav_find_path(w, {-3, 0, 0}, {3, 0, 0});
     REQUIRE(again.ok());
     CHECK_FALSE(again.value().found);
+}
+
+// ---------------------------------------------------------------- off-mesh links ----
+namespace {
+
+// Two islands (top y = 0): x -10..-4 and x 4..10, z -5..5, with a 8 m gap between them, and a NavMesh3D over both.
+void build_islands(World& w) {
+    add_box(w, "west", {-7, -0.5f, 0}, {6, 1, 10});
+    add_box(w, "east", {7, -0.5f, 0}, {6, 1, 10});
+    add_navmesh(w, {0, 2, 0}, {30, 6, 20});
+}
+
+Entity add_link(World& w, const char* id, Vec3 from, Vec3 to, bool bidirectional = true, float cost = 0.0f) {
+    Entity e = w.create(id, id);
+    w.get<Transform>(e)->position = from;
+    NavLink3D& l = w.add<NavLink3D>(e);
+    l.end = to;
+    l.bidirectional = bidirectional;
+    l.cost = cost;
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("nav: a link joins two islands and a one-way link refuses the way back") {
+    World w;
+    Physics p;
+    p.init(PhysicsSettings{});
+    build_islands(w);
+    add_link(w, "jump", {-5, 0, 0}, {5, 0, 0}, false);
+    p.sync(w);
+    auto bake = p.nav_bake(w);
+    REQUIRE(bake.ok());
+    CHECK(bake.value()[0].links == 1);
+    CHECK(bake.value()[0].regions == 1);  // the link joins the two areas
+    auto there = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(there.ok());
+    const NavPath& path = there.value();
+    REQUIRE(path.found);
+    REQUIRE(path.links.size() == 1);
+    CHECK(path.links[0].entity == "jump");
+    const int at = path.links[0].point;
+    REQUIRE(at >= 0);
+    REQUIRE(std::size_t(at) + 1 < path.points.size());
+    CHECK(path.points[std::size_t(at)].x == doctest::Approx(-5.0f).epsilon(0.2));      // starts at the entity
+    CHECK(path.points[std::size_t(at) + 1].x == doctest::Approx(5.0f).epsilon(0.2));  // ends at `end`
+    auto back = p.nav_find_path(w, {8, 0, 0}, {-8, 0, 0});
+    REQUIRE(back.ok());
+    CHECK_FALSE(back.value().found);
+    CHECK(back.value().reason == "disconnected");
+    // The result names the links in JSON too (scripts read it).
+    CHECK(there.value().to_json()["links"][0]["entity"] == "jump");
+}
+
+TEST_CASE("nav: a two-way link works both ways, and cost makes a path prefer walking") {
+    World w;
+    Physics p;
+    p.init(PhysicsSettings{});
+    build_islands(w);
+    add_box(w, "bridge", {0, -0.5f, 4}, {8, 1, 2});  // a real walkway along z 3..5, 8 m long
+    add_link(w, "shortcut", {-5, 0, 0}, {5, 0, 0}, true, 100.0f);
+    p.sync(w);
+    REQUIRE(p.nav_bake(w).ok());
+    auto r = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(r.ok());
+    REQUIRE(r.value().found);
+    CHECK(r.value().links.empty());  // the walkway is cheaper than the link's cost
+    // Without the walkway the link is the only way, in both directions.
+    World w2;
+    Physics p2;
+    p2.init(PhysicsSettings{});
+    build_islands(w2);
+    add_link(w2, "shortcut", {-5, 0, 0}, {5, 0, 0});
+    p2.sync(w2);
+    REQUIRE(p2.nav_bake(w2).ok());
+    auto a = p2.nav_find_path(w2, {-8, 0, 0}, {8, 0, 0}), b = p2.nav_find_path(w2, {8, 0, 0}, {-8, 0, 0});
+    REQUIRE(a.ok());
+    REQUIRE(b.ok());
+    CHECK(a.value().found);
+    CHECK(b.value().found);
+    CHECK(b.value().links.size() == 1);
+    // moving the link's end re-resolves it without a bake
+    w2.get<NavLink3D>(w2.find_by_id("shortcut"))->end = {5, 0, 40};  // outside the mesh
+    p2.step(w2, 1.0f / 60.0f);
+    auto gone = p2.nav_find_path(w2, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(gone.ok());
+    CHECK_FALSE(gone.value().found);
+}
+
+// ---------------------------------------------------------------- walkable bodies ----
+namespace {
+
+Entity add_kinematic(World& w, const char* id, Vec3 pos, Vec3 size, bool walkable = true, Vec3 rot = {0, 0, 0}) {
+    Entity e = add_box(w, id, pos, size, rot);
+    w.add<RigidBody3D>(e).type = BodyType::Kinematic;
+    w.get<Collider3D>(e)->navWalkable = walkable;
+    return e;
+}
+
+// The two islands and a 8 m gap with a bridge of kinematic planks across it.
+void build_bridge(World& w, bool walkable) {
+    build_islands(w);
+    for (int i = 0; i < 8; ++i) {
+        const std::string id = "plank" + std::to_string(i);
+        add_kinematic(w, id.c_str(), {-3.5f + float(i), -0.1f, 0}, {0.95f, 0.2f, 1.6f}, walkable);
+    }
+}
+
+}  // namespace
+
+TEST_CASE("nav: a path crosses a walkable plank bridge") {
+    World w;
+    Physics p;
+    p.init(PhysicsSettings{});
+    build_bridge(w, true);
+    p.sync(w);
+    auto bake = p.nav_bake(w);
+    REQUIRE(bake.ok());
+    CHECK(bake.value()[0].regions == 2);  // the bridge is not part of the static bake
+    CHECK(bake.value()[0].walkableBodies == 8);
+    auto r = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(r.ok());
+    REQUIRE(r.value().found);
+    // it walks along the bridge, not around anything
+    for (const Vec3& pt : r.value().points) CHECK(std::fabs(pt.z) < 1.0f);
+    CHECK(r.value().length == doctest::Approx(16.0f).epsilon(0.05));
+    // the cells of the planks are drawn as moving ones
+    int moving = 0;
+    for (const NavCell& c : p.nav_cells(w))
+        if (c.moving) ++moving;
+    CHECK(moving > 20);
+}
+
+TEST_CASE("nav: planks that are not navWalkable leave the gap open") {
+    World w;
+    Physics p;
+    p.init(PhysicsSettings{});
+    build_bridge(w, false);
+    p.sync(w);
+    REQUIRE(p.nav_bake(w).ok());
+    auto r = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(r.ok());
+    CHECK_FALSE(r.value().found);
+    CHECK(r.value().reason == "disconnected");
+}
+
+TEST_CASE("nav: a moving platform joins the path when it docks and is disconnected when it is away") {
+    World w;
+    Physics p;
+    p.init(PhysicsSettings{});
+    build_islands(w);
+    Entity plat = add_kinematic(w, "lift", {0, -0.1f, 8}, {8, 0.2f, 4});  // away: beside the gap
+    p.sync(w);
+    REQUIRE(p.nav_bake(w).ok());
+    auto away = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(away.ok());
+    CHECK_FALSE(away.value().found);
+    CHECK(away.value().reason == "disconnected");
+    CHECK(away.value().message.find("navWalkable") != std::string::npos);
+    w.get<Transform>(plat)->position = {0, -0.1f, 0};  // docks between the islands
+    p.step(w, 1.0f / 60.0f);
+    auto docked = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(docked.ok());
+    CHECK(docked.value().found);
+    // standing on the platform works too, and leaving it breaks the way again
+    auto onIt = p.nav_find_path(w, {0, 0, 0}, {8, 0, 0});
+    REQUIRE(onIt.ok());
+    CHECK(onIt.value().found);
+    w.get<Transform>(plat)->position = {0, -0.1f, 8};
+    p.step(w, 1.0f / 60.0f);
+    auto left = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(left.ok());
+    CHECK_FALSE(left.value().found);
+    // slides in from the side a few steps at a time, as a platform does
+    for (int i = 0; i < 40; ++i) {
+        w.get<Transform>(plat)->position = {0, -0.1f, 8.0f - 0.2f * float(i + 1)};
+        p.step(w, 1.0f / 60.0f);
+    }
+    auto docked2 = p.nav_find_path(w, {-8, 0, 0}, {8, 0, 0});
+    REQUIRE(docked2.ok());
+    CHECK(docked2.value().found);
+    CHECK(docked2.value().to_json().dump() == docked.value().to_json().dump());
+}
+
+TEST_CASE("nav: the same path twice gives the same bits, with walkable bodies and links") {
+    auto run = [] {
+        World w;
+        Physics p;
+        p.init(PhysicsSettings{});
+        build_bridge(w, true);
+        Entity plat = add_kinematic(w, "lift", {0, -0.1f, 12}, {2, 0.2f, 2});
+        add_link(w, "hop", {8, 0, 4}, {8, 0, 9});
+        p.sync(w);
+        REQUIRE(p.nav_bake(w).ok());
+        std::string out;
+        for (int i = 0; i < 30; ++i) {
+            w.get<Transform>(plat)->position = {-6.0f + 0.4f * float(i), -0.1f, 3.0f};
+            p.step(w, 1.0f / 60.0f);
+            auto r = p.nav_find_path(w, {-8, 0, 3}, {8, 0, 3});
+            REQUIRE(r.ok());
+            out += r.value().to_json().dump();
+        }
+        auto cells = p.nav_cells(w);
+        out += std::to_string(cells.size());
+        for (const NavCell& c : cells) out += std::to_string(c.center.x + c.center.y + c.center.z) + (c.moving ? "m" : "s");
+        return out;
+    };
+    const std::string a = run(), b = run();
+    CHECK(a == b);
+    CHECK(a.size() > 100);
+}
+
+TEST_CASE("nav: re-marking a moved body gives the cells a fresh bake would") {
+    World w;
+    Physics p;
+    p.init(PhysicsSettings{});
+    build_islands(w);
+    Entity plat = add_kinematic(w, "lift", {0, -0.1f, 0}, {8, 0.2f, 4});
+    p.sync(w);
+    REQUIRE(p.nav_bake(w).ok());
+    auto describe = [&](Physics& ph, World& wd) {
+        std::vector<std::string> v;
+        for (const NavCell& c : ph.nav_cells(wd))
+            v.push_back(std::format("{:.3f},{:.3f},{:.3f},{}", c.center.x, c.center.y, c.center.z, c.moving ? 1 : 0));
+        std::sort(v.begin(), v.end());  // the dynamic cells may be listed in another order
+        return v;
+    };
+    // wander around, and come back to the dock
+    const Vec3 route[] = {{0, -0.1f, 3}, {2, -0.1f, 6}, {-1, -0.05f, 2}, {0, -0.1f, 0}};
+    for (const Vec3& at : route) {
+        w.get<Transform>(plat)->position = at;
+        p.step(w, 1.0f / 60.0f);
+    }
+    const auto incremental = describe(p, w);
+    // a world made with the platform already there, then baked
+    World w2;
+    Physics p2;
+    p2.init(PhysicsSettings{});
+    build_islands(w2);
+    add_kinematic(w2, "lift", {0, -0.1f, 0}, {8, 0.2f, 4});
+    p2.sync(w2);
+    REQUIRE(p2.nav_bake(w2).ok());
+    const auto fresh = describe(p2, w2);
+    CHECK(!fresh.empty());
+    CHECK(incremental == fresh);
 }

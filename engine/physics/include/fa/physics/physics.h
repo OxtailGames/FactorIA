@@ -94,6 +94,10 @@
 //     missed. Baked by sync()/step() when a mesh has none or its static colliders changed (autoBake), or by nav_bake.
 //     Colliders with navObstacle are not baked: wherever they are now (checked every sync/step with a pose signature, only
 //     the cells they covered and cover are re-marked) they block the spans in reach of their footprint plus the radius.
+//     Colliders with navWalkable on a kinematic or jointed body are left out of the static bake too: their top surface
+//     is added as walkable cells that are re-marked incrementally (only the cells left and entered) and join the ground
+//     within stepHeight. NavLink3D entities add off-mesh edges (position -> end, optional cost, one- or two-way) that A*
+//     may take; NavPath.links names where each link starts.
 //     Searches are A* with total tie-breaks and string pulling: same input, same path.
 //   * 3D CHARACTER CONTROLLER (CharacterController3D): a kinematic capsule (radius, height, centre, stepOffset,
 //     slopeLimit degrees, skin) moved by Physics::move_character (script: physics.moveCharacter) or by its `velocity`
@@ -310,6 +314,8 @@ public:
     // The walkable cells of every baked, enabled NavMesh3D (at most maxCells), for debug drawing. Bakes a mesh that has
     // none yet (autoBake) or whose static colliders changed.
     std::vector<NavCell> nav_cells(World& world, std::size_t maxCells = 200000);
+    // The NavLink3D of the scene as lines (debug drawing); `connected` is false for a link with an end off the mesh.
+    std::vector<NavLinkDraw> nav_links(World& world);
     // Meshes and their state: bounds, parameters, baked stats, whether the static colliders changed since the bake.
     Json nav_info(World& world);
 
