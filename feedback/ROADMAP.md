@@ -1363,6 +1363,11 @@ test where a guard reaches the player around a wall; the bake is the same on eve
 
 ### M26.11 Test API gaps (M) — CC/FB-0005, CC/FB-0006, CC/FB-0018, CC/FB-0026, CC/FB-0038, CC/FB-0044
 
+Done (branch `m26/test-api`): `game.mouseDown/mouseUp/wheel`, `game.resetState`, `game.quitRequested` (a quit in a test
+only sets it; Back that nobody consumes too), `game.setSystemLanguages`, `checkHooks` counts arguments (`start(seconds)`
+is a method, `update(dt)` still warns), SCRIPTING.md on `scene.load` vs `game.load`; tests in
+`engine/script/tests/test_test_api.cpp`.
+
 Not at the same time as M26.3 (the same `factoria:test` object in factoria.js).
 - `game.mouseDown(button)`, `game.mouseUp(button)` and `game.wheel(dy)` (the natives exist), so drag and zoom can be
   tested.
@@ -1390,6 +1395,9 @@ Acceptance: `fa_test_scene` cases: a score label with `keyArgs` in two languages
 with a key; validate warns only for a placeholder with no arg.
 
 ### M26.13 Locale-aware numbers (M) — CC/FB-0039
+
+Done (branch `m26/numbers`): `fa/core/number_format.h` (table of separators and digits), placeholders `{v:number:N}` and
+`{t:duration:N}`, `i18n.number` / `i18n.duration`, section 5b of LOCALIZATION.md; Courier's `fmt.js` calls them.
 
 After M26.12 (same localize code). `{v:number:1}` and `{t:duration}` in keys, `i18n.number(v, {decimals})` and
 `i18n.duration(seconds)` in scripts: decimal and group separators and digit forms per language from a small table in
@@ -1459,11 +1467,16 @@ the web autotest fills a field.
 
 ### M26.18 Slider and ScrollList (S-M) — CC/FB-0037, CC/FB-0046
 
+Done (branch `m26/slider-scroll`): `ui.set_slider` / `game.setSlider`, `Slider.format` and `formatKey`, `ScrollList.shrink`;
+Courier's slider formats and its comfort test use them (its lists keep `fill`).
+
 After M26.6 (the same widgets).
 - `game.setSlider(id, value)` in tests sends `ui.change` like a drag; a value set from a script does not (as today) and
   this is documented. `Slider.format` shows the value as `"{v}%"` or through a key.
 - `ScrollList.shrink`: inside a `fit` parent a list is as tall as its content up to the space left, instead of the
   whole screen.
+- Details: `format` takes `{v}`, `{v:N}` and `{percent}` (value x 100); `formatKey` is a key whose translation is the
+  pattern. Several `shrink` lists share the room by water-filling; `fill` wins over `shrink`.
 
 Acceptance: `fa_test_ui` cases for each.
 
@@ -1485,6 +1498,11 @@ Acceptance: tooling tests for each export check and for the storekit file with t
 ffmpeg component is listed by `setup.status`.
 
 ### M26.20 Scene tree: sibling order and shared panels (S-M) — CC/FB-0032, CC/FB-0023
+
+Done (branch `m26/scene-order`): `World::set_parent(..., index)`, `scene.set_parent {index}`, `scene.spawn {index, overrides}`,
+`entity.setParent(parent, keepWorld, index)`, `world.spawn(json, {parent, index})` (an index outside 0..number of the
+parent's other children is an error; a root takes no index); prefab references take `overrides` for the prefab's
+descendants (by id, name or path) and `world.spawnPrefab(path, {childOverrides})` the same; docs/MENUS.md.
 
 - A child can be put at a place among its siblings: `World::set_parent` with an index, `scene.set_parent {index}`,
   `entity.setParent(parent, keepWorld, index)` and `spawn({parent, index})`.

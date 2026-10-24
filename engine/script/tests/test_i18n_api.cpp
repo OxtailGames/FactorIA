@@ -218,3 +218,65 @@ test("a TouchButton with a key follows the language, and a spawned label takes i
     CHECK(rep.ok());
     CHECK(rep.passed == 2);
 }
+
+TEST_CASE("i18n api: number and duration follow the language, and {v:number:1} / {t:duration} do the same in a key") {
+    TestHost h("i18n_numbers", Json::parse(R"({ "localization": { "defaultLanguage": "en", "languages": ["en", "es", "de", "fr", "ar", "xx"] } })"));
+    h.file("locales/en.json", R"json({ "best": "Best: {t:duration} ({v:number:1} m, {n:number})" })json");
+    for (const char* lang : {"es", "fr", "ar", "xx"}) h.file(std::string("locales/") + lang + ".json", R"({ "x": "x" })");
+    h.file("locales/de.json", R"json({ "best": "Beste: {t:duration} ({v:number:1} m)" })json");
+    h.file("tests/numbers.test.js", R"js(
+import { test, expect } from "factoria:test";
+import { i18n } from "factoria";
+
+test("1234.5 in English, Spanish, German, French and Arabic", () => {
+  expect(i18n.number(1234.5)).toBe("1,234.5");
+  i18n.setLanguage("es");
+  expect(i18n.number(1234.5)).toBe("1234,5");
+  expect(i18n.number(12345.5)).toBe("12.345,5");
+  i18n.setLanguage("de");
+  expect(i18n.number(1234.5)).toBe("1.234,5");
+  i18n.setLanguage("fr");
+  expect(i18n.number(1234.5)).toBe("1 234,5");
+  i18n.setLanguage("ar");
+  expect(i18n.number(1234.5)).toBe("١٬٢٣٤٫٥");
+  i18n.setLanguage("xx");
+  expect(i18n.number(1234.5)).toBe("1,234.5"); // unknown language: English
+  i18n.setLanguage("en");
+});
+
+test("decimals", () => {
+  expect(i18n.number(2, { decimals: 2 })).toBe("2.00");
+  expect(i18n.number(1234.567, { decimals: 1 })).toBe("1,234.6");
+  expect(i18n.number(-0.04, { decimals: 1 })).toBe("0.0");
+  expect(i18n.number(1000000, { decimals: 0 })).toBe("1,000,000");
+  expect(() => i18n.number("3")).toThrow("must be a number");
+  expect(() => i18n.number(3, { decimals: 12 })).toThrow("0 to 9");
+  expect(() => i18n.duration(3, { decimals: 5 })).toThrow("0 to 3");
+});
+
+test("a time of 83.4 seconds", () => {
+  expect(i18n.duration(83.4)).toBe("1:23.4");
+  expect(i18n.duration(83.4, { decimals: 0 })).toBe("1:23");
+  expect(i18n.duration(59.96)).toBe("1:00.0");
+  expect(i18n.duration(3723.4)).toBe("1:02:03.4");
+  expect(i18n.duration(5)).toBe("0:05.0");
+  i18n.setLanguage("es");
+  expect(i18n.duration(83.4)).toBe("1:23,4");
+  i18n.setLanguage("ar");
+  expect(i18n.duration(83.4)).toBe("١:٢٣٫٤");
+  i18n.setLanguage("en");
+});
+
+test("placeholders in a key", () => {
+  expect(i18n.t("best", { t: 83.4, v: 1234.56, n: 1234.5 })).toBe("Best: 1:23.4 (1,234.6 m, 1,234.5)");
+  i18n.setLanguage("de");
+  expect(i18n.t("best", { t: 83.4, v: 1234.56, n: 1234.5 })).toBe("Beste: 1:23,4 (1.234,6 m)");
+  i18n.setLanguage("en");
+});
+)js");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/numbers.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 4);
+}

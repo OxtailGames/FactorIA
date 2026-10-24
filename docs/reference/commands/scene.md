@@ -153,13 +153,14 @@ Since 0.2.0.
 
 Move an entity under another entity, or to the top level of the scene.
 
-`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name) to move. |
 | `parent` | any | no | New parent's id (or name); null or empty = top level. |
 | `keepWorldTransform` | boolean | no | true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform. Default true. |
+| `index` | integer | no | Place among the new parent's other children (0 = first). Omitted = last. Needs a parent. |
 
 ## `scene.spawn` (modifies state)
 
@@ -173,6 +174,8 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 | `position` | array | no | [x, y] or [x, y, z] world position (Transform.position). |
 | `entity` | object | no | Entity JSON; alternatively put its fields (name, components...) at top level. |
 | `parent` | string | no | Parent entity id. |
+| `index` | integer | no | Place among the parent's children (0 = first, up to their count). Omitted = last. Needs parent. |
+| `overrides` | object | no | With prefab: patches for the prefab's children, keyed by child id, name or path (see docs/MENUS.md). |
 | `name` | string | no |  |
 | `id` | string | no |  |
 | `tags` | array | no |  |
