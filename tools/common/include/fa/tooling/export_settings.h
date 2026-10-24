@@ -229,8 +229,10 @@ struct MachineToolFound {
 // A variable or a config entry that points at nothing is an error that says so (no fall-through to PATH); so is a tool
 // found nowhere: the message names the download page, the variable and the key. `configPath` "" = machine_export_config_path(env).
 Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
-// The ffmpeg that turns a recorded .avi into an .mp4 (`factoria run --record-video x.mp4`): FACTORIA_FFMPEG, "ffmpeg" in "publish".
-Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
+// The ffmpeg that turns a recorded .avi into an .mp4 (`factoria run --record-video x.mp4`): FACTORIA_FFMPEG, "ffmpeg" in "publish",
+// PATH, then the copy `factoria setup ffmpeg` installs (`installedPath`; "" = <factoria home>/tools/ffmpeg/<release>/ffmpeg).
+Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {},
+                                     const std::string& installedPath = {});
 
 // A missing file is not an error (defaults come back). Unreadable JSON, a wrong "format" or a value of the wrong
 // type is, naming the file and the key. `path` "" = machine_export_config_path().

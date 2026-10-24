@@ -157,6 +157,17 @@ bool UiSystem::Repeat::tick(bool pressed, bool down, float dt) {
     return true;
 }
 
+float UiSystem::set_slider(World& w, Entity e, float value) {
+    Slider& s = *w.get<Slider>(e);
+    set_focus(w, e);
+    const float v = snap_slider(s, value);
+    if (v != s.value) {
+        s.value = v;
+        emit(w, "ui.change", e, to_json(s.value));
+    }
+    return s.value;
+}
+
 void UiSystem::reset() {
     focus_ = hover_ = press_ = kNullEntity;
     scrollToFocus_ = false;
@@ -364,6 +375,15 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         c->pressed = it.e == press_;
         if (TextField* tf = w.get<TextField>(it.e))
             tf->caret = it.e == focus_ && std::fmod(clock_ - caretStart_, 1.0f) < 0.5f;
+    }
+
+    // ---- the phone's keyboard follows a TextField's focus: up when one gets it, down when it goes. Only the changes
+    // count, so a script's input.showKeyboard() in between still works. A pad player gets the game's on-screen keyboard
+    // instead (docs/MENUS.md), not the phone's.
+    const bool wantKeyboard = focus_ && w.get<TextField>(focus_) && in.last_device() != InputDevice::Gamepad;
+    if (wantKeyboard != keyboardRaised_) {
+        keyboardRaised_ = wantKeyboard;
+        in.set_keyboard_shown(wantKeyboard);
     }
 }
 

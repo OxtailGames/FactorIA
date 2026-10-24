@@ -1061,7 +1061,7 @@ void Editor::at_build_tools_script() {
         const SetupStatus& st = setupStatus_.status();
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
-        at_check(ids == "android players cmake xcode appimage shaders vscode ", "the window lists the seven components, in order (" + ids + ")");
+        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg ", "the window lists the eight components, in order (" + ids + ")");
         at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(), "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)
             if (setup_action_for_component(c, st.home))

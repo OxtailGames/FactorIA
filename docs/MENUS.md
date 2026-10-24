@@ -27,13 +27,16 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
    ([PLATFORM.md](PLATFORM.md)). Without a store (the exported game before a store plugin is added) the button stays
    hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
    `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
-8. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
+8. **On-screen keyboard (only for a game with a TextField).** `prefabs/ui/keyboard.prefab.json` and
+   `scripts/ui/keyboard.js`, and one entity with that script in every scene that has a TextField (`keyboard_host` in
+   `scenes/name.scene.json`). See "On-screen keyboard" below.
+9. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
    Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
    texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
    `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
-9. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
+10. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
-   and a test that drives the menus with the pad, such as `tests/recipe.test.js` at the end. `ui.state` lists every
+   and a test that drives the menus with the pad, such as `tests/recipe.test.js` and `tests/keyboard.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.
 
 ## How it works, and what to change
@@ -44,7 +47,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   with its buttons. A long label can wrap with `maxWidth` on the button, and a two-line label (`
 `) is centred line by
   line. A column that holds a `ScrollList` (a list of saves, achievements) gives it `"fill": true`: the list takes the
-  height the other children leave and the column stays inside the screen. A `fit` panel that is still bigger than the
+  height the other children leave and the column stays inside the screen. `"shrink": true` instead makes the list only as
+  tall as its content when that is less than the room left, so a short list makes a short, centred panel and a long one
+  stops at the screen height and scrolls. A `fit` panel that is still bigger than the
   screen logs a warning, and `factoria validate` reports it for the design size.
 - **Fixed places.** A widget that must keep its size (a card, a round touch button) uses `"autoShrink": true` (with
   `minFontSize`) instead: its label shrinks until it fits, at any text size and in any language. `maxTextScale` stops a
@@ -99,8 +104,31 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **One options panel in two places.** The menu scene places the prefab as an inactive entity; the pause menu spawns it,
   and the pause panel, when the level starts. A level needs only the `pause_menu` entity, even a level that
   `scene.import_ascii` rebuilds.
-- **Loading screen.** Scene loads are synchronous: the loading scene is drawn once, then loads `session.nextScene`
-  (`session` outlives scene loads).
+- **A panel shared between scenes.** Put the panel in a prefab (like `options.prefab.json`) and give each scene a
+  `{ "prefab": ... }` entity. An `overrides` object next to `prefab` changes the prefab's own children for that
+  instance: each key is a child's `id`, its `name` or a path of them like `"Panel/Title"`, each value holds `name`,
+  `tags`, `active` and `components` (components deep-merge, so `{ "Text": { "text": "You won" } }` keeps the font and
+  layer the prefab set). Fields next to `prefab` still change the root, and `children` there are appended after the
+  prefab's. In a script, `world.spawnPrefab(path, { childOverrides: { Title: { components: { Text: { text: "You won" } } } } })`
+  does the same. A `Text` with a `key` shows its key's text, so override `key` (not `text`) to change it. A key that
+  names no child, or a field that does not exist, is an error with a "did you mean". Only the
+  prefab's own descendants can be named; a child that is itself a prefab reference takes the same keys as that reference.
+  Example, two scenes sharing `prefabs/ui/result.prefab.json`:
+
+  ```json
+  { "id": "result", "active": false, "prefab": "prefabs/ui/result.prefab.json",
+    "overrides": { "title": { "components": { "Text": { "text": "Level complete" } } },
+                   "next_button": { "components": { "Button": { "text": "Next level" } } } } }
+  ```
+
+- **Order of a panel's children.** A layout (`column`, `row`) follows the order of the children. `world.spawn(json,
+  { parent, index })`, `world.spawnPrefab(path, { parent, index })`, `entity.setParent(parent, keepWorld, index)` and
+  `scene.set_parent {id, parent, index}` put a child at a place (0 = first); a button added at run time can go on top
+  without touching the others. The order is saved with the scene. An index counts the parent's other children and must
+  be between 0 and their number, otherwise it is an error that says the range.
+- **Loading screen.** `scene.load` blocks the frame it runs in, so the loading scene first reads the next scene's files
+  ahead with `scene.preload(session.nextScene)`, a few files per frame, and shows `job.progress` (0..1) while it runs; when
+  the Promise resolves the `scene.load` that follows reads nothing from the disk (`session` outlives scene loads).
 - **Quit** has no place on phones and tablets, where the system closes apps: `main_menu.js` hides it when
   `game.platform` is `"ios"` or `"android"`.
 - **Credits.** `game.notices()` lists the software inside the runtime with its license; the full texts ship next to the
@@ -159,6 +187,25 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   says so once. In `factoria:test`, `game.captions()` returns `[{ text, speaker, key, source }]` (fixture
   `tests/captions.test.js`: a sound and a line, in English, Spanish and Arabic, and the toggle). The speaker name is plain
   text written when the line starts (use `i18n.t`).
+- **On-screen keyboard (gamepad players).** A `TextField` takes typed text from a keyboard, and a phone raises its own
+  keyboard when one gets the focus (the engine does that, not the game: docs/MOBILE.md). A player with only a pad has
+  neither, so `scripts/ui/keyboard.js` (a behaviour: put it on one entity of the scene) opens
+  `prefabs/ui/keyboard.prefab.json` over the game when a `TextField` takes the focus *and the last input was a gamepad*
+  (`input.lastDevice`), or when A is pressed on a focused `TextField` (after B closed it). It is made of plain `Panel`
+  and `Button` widgets: the d-pad walks the keys like any menu, A types the key, and the bottom row has Shift (upper
+  case), Space, Delete and Done. The widgets behind it stop taking focus while it is open. Typing writes the field's
+  `text` and sends `ui.change`, exactly as a real keyboard does, so the game's code is the same on every device; Done
+  closes it and sends `ui.submit` (what Enter does), B (`ui.cancel`) closes it and keeps the text. It respects
+  `maxLength`, and it closes by itself when the player touches the screen or presses a keyboard key. A game's own
+  `ui.cancel` handler should do nothing while `OnScreenKeyboard.isOpen` is true
+  (`import OnScreenKeyboard from "./ui/keyboard.js"`). The Steam Deck's own keyboard is not used (that is the Steamworks backend's job).
+  *Layout and languages.* The keys follow `i18n.language`: Latin (a-z, the digits and the accented letters of Spanish,
+  French, German, Portuguese, Italian, Polish, Turkish, Swedish, Danish, Norwegian and Czech: `EXTRA`), Cyrillic
+  (Russian, Ukrainian, Bulgarian, Serbian, Macedonian) and Greek. Every other language (Arabic, Hebrew, Chinese,
+  Japanese, Korean, Thai, Hindi...) gets the **Latin keys**: a pad cannot compose those scripts, so on a PC or phone the
+  player uses the system keyboard and IME, and a game that must take a name in such a script on a pad adds a layout:
+  `LAYOUTS.ja = "..."` and `SCRIPT_OF.ja = "ja"` (one character per key, lower case first). The labels of Space,
+  Delete and Done are the strings `keyboard.space`, `keyboard.delete` and `keyboard.done` of the locale tables.
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
   `options.js`, and keep it in `settings.js` (`defaults()` and `apply`). The colour filter of the Video tab is such an
   option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
@@ -433,7 +480,7 @@ export default class MainMenu extends Behaviour {
     if (platform.has("purchases")) this.world.find("shop_button").active = true;
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
-      session.nextScene = this.firstScene; // scenes/loading.scene.json shows "Loading" for a frame, then loads it
+      session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
@@ -965,15 +1012,30 @@ export default class Options extends Behaviour {
 
 ```js scripts/loading.js
 // @ts-check
-// scenes/loading.scene.json: scene loads are synchronous, so "Loading..." only has to be drawn once before
-// scene.load. It waits two frames, then loads the scene the main menu put in session.nextScene.
+// scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
+// frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
+// A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
 import { Behaviour, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
-  frames = 0;
+  onStart() {
+    this.job = scene.preload(session.nextScene);
+    // A scene that could not be read ahead still loads: scene.load reports what is wrong with it.
+    const go = () => {
+      if (this.gone) return; // this scene was left first (a test that moved on): the Promise must not load a scene now
+      this.loading = true;
+      scene.load(session.nextScene);
+    };
+    this.job.promise.then(go, go);
+  }
+
+  onDestroy() {
+    this.gone = true;
+    if (!this.loading) this.job.release(); // left before the files were in: give them back
+  }
 
   onUpdate() {
-    if (++this.frames === 2) scene.load(session.nextScene);
+    this.entity.get("Text").text = `Loading... ${Math.round(this.job.progress * 100)}%`;
   }
 }
 ```
@@ -1067,6 +1129,411 @@ export default class PauseMenu extends Behaviour {
 }
 ```
 
+### `prefabs/ui/keyboard.prefab.json`
+
+```json prefabs/ui/keyboard.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Keyboard",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 390,
+        "color": [0, 0, 0, 0.6],
+        "layout": "column",
+        "justify": "center"
+      }
+    },
+    "children": [
+      {
+        "id": "keyboard_box",
+        "components": {
+          "Panel": {
+            "layer": 400,
+            "layout": "column",
+            "spacing": 12,
+            "padding": [28, 20, 28, 28],
+            "fit": true,
+            "color": [0.05, 0.07, 0.12, 0.96]
+          }
+        },
+        "children": [
+          {
+            "id": "keyboard_preview",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 36,
+                "layer": 401,
+                "space": "screen",
+                "color": [1, 0.85, 0.3, 1]
+              }
+            }
+          },
+          {
+            "id": "keyboard_keys",
+            "components": {
+              "Panel": {
+                "layer": 401,
+                "layout": "grid",
+                "columns": 10,
+                "fit": true,
+                "spacing": 6,
+                "color": [0, 0, 0, 0]
+              }
+            }
+          },
+          {
+            "id": "keyboard_actions",
+            "components": {
+              "Panel": {
+                "layer": 401,
+                "layout": "row",
+                "fit": true,
+                "spacing": 10,
+                "color": [0, 0, 0, 0]
+              }
+            },
+            "children": [
+              {
+                "id": "osk_shift",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [96, 52],
+                    "text": "Aa",
+                    "layer": 402
+                  }
+                }
+              },
+              {
+                "id": "osk_space",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [150, 52],
+                    "text": "Space",
+                    "key": "keyboard.space",
+                    "layer": 402
+                  }
+                }
+              },
+              {
+                "id": "osk_delete",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [150, 52],
+                    "text": "Delete",
+                    "key": "keyboard.delete",
+                    "layer": 402
+                  }
+                }
+              },
+              {
+                "id": "osk_done",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [150, 52],
+                    "text": "Done",
+                    "key": "keyboard.done",
+                    "layer": 402
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### `scripts/ui/keyboard.js`
+
+```js scripts/ui/keyboard.js
+// @ts-check
+// An on-screen keyboard for players with only a gamepad. Put this behaviour on one entity of every scene that has a
+// TextField. When a TextField takes the focus because the player used the pad (input.lastDevice is "gamepad"), or when
+// the player presses A on a focused TextField, the keyboard (prefabs/ui/keyboard.prefab.json) opens over the game: the
+// d-pad walks the keys, A types one, "Delete" removes the last character, "Done" closes it and sends ui.submit for the
+// field (what Enter does), B closes it and keeps the text. Typing goes through the same events a real keyboard sends
+// (ui.change), so the game's code does not know the difference. Phones and keyboards use their own keyboard: the engine
+// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad.
+//
+// The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
+import { Behaviour, ui, input, world, i18n } from "factoria";
+
+/** Lowercase letters of each script, then the digits are added. A game can add its own: LAYOUTS.ja = "...". */
+export const LAYOUTS = {
+  latin: "abcdefghijklmnopqrstuvwxyz",
+  cyrillic: "абвгдежзийклмнопрстуфхцчшщъыьэюя",
+  greek: "αβγδεζηθικλμνξοπρστυφχψω",
+};
+/** Language code -> script of LAYOUTS (languages not listed use "latin"). */
+export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek" };
+/** Extra letters a Latin language needs, after the digits. */
+export const EXTRA = {
+  es: "ñáéíóúü", fr: "àâçèéêëîïôùûœ", de: "äöüß", pt: "ãõçáéíóúâê", it: "àèéìòù", pl: "ąćęłńóśźż",
+  tr: "çğıişöü", sv: "åäö", da: "åæø", nb: "åæø", no: "åæø", cs: "áčďéěíňóřšťúůýž",
+};
+const DIGITS = "0123456789";
+
+/** The characters of the keyboard for a language such as "es" or "pt-BR". */
+export function keysFor(language) {
+  const base = String(language || "en").toLowerCase().split(/[-_]/)[0];
+  const script = SCRIPT_OF[base] ?? "latin";
+  return Array.from(LAYOUTS[script] + DIGITS + (script === "latin" ? (EXTRA[base] ?? "") : ""));
+}
+
+export default class OnScreenKeyboard extends Behaviour {
+  runWhilePaused = true;
+
+  /** True while a keyboard is open: a game's own ui.cancel handler should do nothing then (B closes the keyboard). */
+  static isOpen = false;
+
+  onStart() {
+    OnScreenKeyboard.isOpen = false;
+    this.panel = world.spawnPrefab("prefabs/ui/keyboard.prefab.json");
+    this.panel.id = "keyboard";
+    this.panel.active = false;
+    this.field = null; // the TextField being edited while the keyboard is open
+    this.shift = false;
+    this.built = ""; // the characters of the keys that exist now
+    this.lastKey = null;
+    this.ignore = null; // the field that just got the focus back from us: it must not reopen the keyboard
+    this.ignoreAge = 0;
+    ui.on("focus", (e) => this.onFocus(e.entity));
+    ui.on("click", (e) => e.entity.hasTag("osk") && this.onClick(e.entity));
+    ui.on("cancel", () => this.field && this.close(false));
+  }
+
+  onDestroy() {
+    OnScreenKeyboard.isOpen = false;
+  }
+
+  onUpdate() {
+    if (this.ignore && ++this.ignoreAge > 2) this.ignore = null;
+    if (this.field) {
+      if (!this.field.alive || !this.field.activeInHierarchy) return this.close(false);
+      // Somebody picked up a keyboard or touched the screen: the field takes their typing, the pad keyboard goes away.
+      if (input.lastDevice === "keyboard" || input.lastDevice === "touch") this.close(false);
+      return;
+    }
+    // A on a focused field opens the keyboard again after B closed it.
+    const f = ui.focused;
+    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && input.pressed("ui_submit")) this.open(f);
+  }
+
+  onFocus(entity) {
+    if (this.field) {
+      // The d-pad left the keys (the widgets behind the keyboard are still focusable): bring the focus back.
+      if (!entity.hasTag("osk") && this.lastKey?.alive) ui.focus(this.lastKey);
+      else if (entity.hasTag("osk")) this.lastKey = entity;
+      return;
+    }
+    if (this.ignore === entity.id) return; // the focus we gave back ourselves (onUpdate forgets it two frames later)
+    if (entity.has("TextField") && input.lastDevice === "gamepad") this.open(entity);
+  }
+
+  open(field) {
+    this.field = field;
+    this.shift = false;
+    OnScreenKeyboard.isOpen = true;
+    this.build(keysFor(i18n.language));
+    this.holdOthers();
+    this.panel.active = true;
+    this.showText();
+    ui.layout();
+    const first = world.find("osk_key_0");
+    this.lastKey = first;
+    ui.focus(first);
+  }
+
+  /** Closes the keyboard and gives the focus back to the field. done = the player pressed "Done": send ui.submit. */
+  close(done) {
+    const field = this.field;
+    this.field = null;
+    OnScreenKeyboard.isOpen = false;
+    this.panel.active = false;
+    this.releaseOthers();
+    if (!field?.alive) return;
+    this.ignore = field.id;
+    this.ignoreAge = 0;
+    if (field.activeInHierarchy && input.lastDevice === "gamepad") ui.focus(field);
+    else this.ignore = null;
+    if (done) world.emit("ui.submit", { id: field.id, value: field.get("TextField").text }, field);
+  }
+
+  /**
+   * The d-pad picks the nearest widget in its direction, and the menu behind the keyboard has widgets too: while the
+   * keyboard is open they stop taking focus (interactable = false), and close() gives them back.
+   */
+  holdOthers() {
+    this.held = [];
+    for (const e of world.entities()) {
+      if (e.hasTag("osk") || !e.activeInHierarchy) continue;
+      for (const kind of ["Button", "Toggle", "Slider", "TextField"]) {
+        if (!e.has(kind) || !e.get(kind).interactable) continue;
+        e.get(kind).interactable = false;
+        this.held.push([e, kind]);
+      }
+    }
+  }
+
+  releaseOthers() {
+    for (const [e, kind] of this.held ?? []) if (e.alive) e.get(kind).interactable = true;
+    this.held = [];
+  }
+
+  /** Makes one Button per character (not again when the characters are the same as last time). */
+  build(chars) {
+    const key = chars.join("");
+    if (key === this.built) {
+      this.relabel();
+      return;
+    }
+    const grid = world.find("keyboard_keys");
+    for (const child of grid.children) child.destroy();
+    chars.forEach((ch, i) => {
+      world.spawn(
+        { id: "osk_key_" + i, tags: ["osk"], components: { Button: { size: [64, 56], text: ch, layer: 402, fontSize: 28, color: [0.24, 0.27, 0.36, 0.95] } } },
+        { parent: grid },
+      );
+    });
+    this.built = key;
+    this.base = chars;
+    this.relabel();
+  }
+
+  /** Letters in upper case while shift is on. A letter with no upper-case form of one character (the German ß) stays. */
+  relabel() {
+    this.base.forEach((ch, i) => {
+      const up = ch.toUpperCase();
+      world.find("osk_key_" + i).get("Button").text = this.shift && Array.from(up).length === 1 ? up : ch;
+    });
+  }
+
+  onClick(entity) {
+    if (!this.field) return;
+    const text = this.field.get("TextField").text;
+    switch (entity.id) {
+      case "osk_done": return this.close(true);
+      case "osk_space": return this.type(" ");
+      case "osk_delete": return this.set(Array.from(text).slice(0, -1).join(""));
+      case "osk_shift":
+        this.shift = !this.shift;
+        return this.relabel();
+      default:
+        if (entity.id.startsWith("osk_key_")) this.type(entity.get("Button").text);
+    }
+  }
+
+  /** Adds one character, within the field's maxLength. */
+  type(ch) {
+    const f = this.field.get("TextField");
+    if (f.maxLength > 0 && Array.from(f.text).length >= f.maxLength) return;
+    this.set(f.text + ch);
+  }
+
+  /** Writes the field's text and sends ui.change, as a real keyboard's typing does. */
+  set(text) {
+    this.field.get("TextField").text = text;
+    world.emit("ui.change", { id: this.field.id, value: text }, this.field);
+    this.showText();
+  }
+
+  showText() {
+    world.find("keyboard_preview").get("Text").text = this.field.get("TextField").text + "_";
+  }
+}
+```
+
+### `scenes/name.scene.json`
+
+```json scenes/name.scene.json
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.1, 0.12, 0.18, 1]
+        }
+      }
+    },
+    {
+      "id": "name_box",
+      "components": {
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 14,
+          "fit": true
+        }
+      },
+      "children": [
+        {
+          "id": "name_title",
+          "components": {
+            "Text": {
+              "text": "Your name",
+              "key": "name.title",
+              "fontSize": 40,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "name_field",
+          "components": {
+            "TextField": {
+              "size": [420, 56],
+              "placeholder": "Name",
+              "key": "name.placeholder",
+              "maxLength": 12,
+              "fontSize": 28,
+              "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "name_next",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Continue",
+              "key": "name.next"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyboard_host",
+      "components": {
+        "Script": {
+          "path": "scripts/ui/keyboard.js"
+        }
+      }
+    }
+  ]
+}
+```
+
 ### `locales/en.json`
 
 The strings of the default language; `locales/es.json` below has the same keys in Spanish. `{name}` is replaced by
@@ -1130,7 +1597,9 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "restored": "Your purchases were restored.",
     "nothingToRestore": "There was nothing to restore.",
     "unreachable": "The store could not be reached ({code}). {detail}"
-  }
+  },
+  "keyboard": { "space": "Space", "delete": "Delete", "done": "Done" },
+  "name": { "title": "Your name", "placeholder": "Name", "next": "Continue" }
 }
 ```
 
@@ -1197,7 +1666,9 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "restored": "Tus compras se han restaurado.",
     "nothingToRestore": "No había nada que restaurar.",
     "unreachable": "No se pudo contactar con la tienda ({code}). {detail}"
-  }
+  },
+  "keyboard": { "space": "Espacio", "delete": "Borrar", "done": "Hecho" },
+  "name": { "title": "Tu nombre", "placeholder": "Nombre", "next": "Continuar" }
 }
 ```
 
@@ -1222,5 +1693,96 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
   expect(ui.focused.id).toBe("options_button");
   expect(audio.getVolume("music")).toBeCloseTo(0.7);
   expect(storage.get("settings").volume.music).toBeCloseTo(0.7);
+});
+```
+
+### `tests/keyboard.test.js`
+
+```js tests/keyboard.test.js
+import { test, expect, game } from "factoria:test";
+import { ui } from "factoria";
+import { keysFor } from "../scripts/ui/keyboard.js";
+
+// A player with only a gamepad types a name through the on-screen keyboard (scripts/ui/keyboard.js).
+const pad = game.gamepad(0);
+const field = () => game.find("name_field").get("TextField");
+const open = () => game.find("keyboard").activeInHierarchy;
+
+/** Walks the d-pad to the key that shows `ch` (the keys are a grid of 10 columns) and presses A. */
+function typeKey(ch, chars) {
+  const target = chars.indexOf(ch);
+  const at = Number(ui.focused.id.slice("osk_key_".length));
+  const dx = (target % 10) - (at % 10);
+  const dy = Math.floor(target / 10) - Math.floor(at / 10);
+  for (let i = 0; i < Math.abs(dx); i++) pad.tap(dx > 0 ? "DpadRight" : "DpadLeft");
+  for (let i = 0; i < Math.abs(dy); i++) pad.tap(dy > 0 ? "DpadDown" : "DpadUp");
+  expect(ui.focused.get("Button").text).toBe(ch);
+  pad.tap("A");
+}
+
+/** Moves the focus from a key down to the row of Shift, Space, Delete and Done, then along it to `id`. */
+function toAction(id) {
+  for (let i = 0; i < 8 && ui.focused.id.startsWith("osk_key_"); i++) pad.tap("DpadDown");
+  const order = ["osk_shift", "osk_space", "osk_delete", "osk_done"];
+  for (let i = 0; i < 4 && ui.focused.id !== id; i++) pad.tap(order.indexOf(id) > order.indexOf(ui.focused.id) ? "DpadRight" : "DpadLeft");
+  expect(ui.focused.id).toBe(id);
+}
+
+test("the keyboard stays closed until a pad is used, then types a name with the pad alone", () => {
+  game.load("scenes/name.scene.json");
+  game.step(2);
+  expect(ui.focused.id).toBe("name_field"); // autoFocus at the start: the last input was not a pad
+  expect(open()).toBe(false);
+  pad.tap("DpadDown"); // to the button ...
+  pad.tap("DpadUp"); // ... and back to the field with the pad: the keyboard opens
+  expect(open()).toBe(true);
+  expect(ui.focused.id).toBe("osk_key_0");
+
+  const chars = keysFor("en");
+  const changes = [];
+  const stop = ui.on("change", "name_field", (e) => changes.push(e.value));
+  pad.tap("A"); // "a", the first key
+  typeKey("m", chars);
+  pad.tap("A"); // another m
+  toAction("osk_shift");
+  pad.tap("A"); // upper case from now on
+  pad.tap("DpadUp"); // back to the keys
+  typeKey("Z", chars.map((c) => c.toUpperCase()));
+  expect(field().text).toBe("ammZ");
+  stop();
+  expect(changes).toEqual(["a", "am", "amm", "ammZ"]);
+
+  // Done closes the keyboard, sends ui.submit like Enter, and the focus goes back to the field without reopening it.
+  const submitted = [];
+  ui.on("submit", "name_field", (e) => submitted.push(e.value));
+  toAction("osk_done");
+  pad.tap("A");
+  game.step(3);
+  expect(submitted).toEqual(["ammZ"]);
+  expect(open()).toBe(false);
+  expect(ui.focused.id).toBe("name_field");
+  expect(game.find("name_next").get("Button").interactable).toBe(true); // the menu behind the keyboard is back
+
+  // A on the field opens it again; B closes it and keeps the text.
+  pad.tap("A");
+  expect(open()).toBe(true);
+  pad.tap("B");
+  expect(open()).toBe(false);
+  expect(field().text).toBe("ammZ");
+});
+
+test("the keys follow the language and the field's maxLength", () => {
+  expect(keysFor("es")).toContain("ñ");
+  expect(keysFor("pt-BR")).toContain("ã");
+  expect(keysFor("ru")[0]).toBe("а");
+  expect(keysFor("el")[0]).toBe("α");
+  expect(keysFor("ar")).toEqual(keysFor("en")); // a script with no keys of its own gets the Latin ones
+  game.load("scenes/name.scene.json");
+  game.step(2);
+  field().text = "123456789012"; // maxLength 12: full
+  pad.tap("DpadDown");
+  pad.tap("DpadUp");
+  pad.tap("A"); // "a" does not fit
+  expect(field().text).toBe("123456789012");
 });
 ```

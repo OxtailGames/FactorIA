@@ -301,6 +301,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "position":{"type":"array","description":"[x, y] or [x, y, z] world position (Transform.position)."},
                "entity":{"type":"object","description":"Entity JSON; alternatively put its fields (name, components...) at top level."},
                "parent":{"type":"string","description":"Parent entity id."},
+               "index":{"type":"integer","minimum":0,"description":"Place among the parent's children (0 = first, up to their count). Omitted = last. Needs parent."},
+               "overrides":{"type":"object","description":"With prefab: patches for the prefab's children, keyed by child id, name or path (see docs/MENUS.md)."},
                "name":{"type":"string"},"id":{"type":"string"},
                "tags":{"type":"array","items":{"type":"string"}},
                "components":{"type":"object","description":"Component name -> field object."}}})"),
@@ -308,9 +310,16 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine, &I](const Json& a) {
               Entity parent = kNullEntity;
               if (a.contains("parent")) parent = need_entity(I.world, a, "parent");
+              int index = -1;
+              if (a.contains("index") && !a["index"].is_null()) {
+                  if (!a["index"].is_number()) throw CommandError("invalid_argument", "'index' must be a whole number.", "Example: \"index\": 0 puts the entity first.");
+                  std::string bad = I.world.check_child_index(parent, kNullEntity, a["index"].get<double>());
+                  if (!bad.empty()) throw CommandError("invalid_argument", bad, "scene.get_entity on the parent lists its children in order.");
+                  index = a["index"].get<int>();
+              }
               Json spec = a.contains("entity") && a["entity"].is_object() ? a["entity"] : Json::object();
               if (!a.contains("entity"))
-                  for (const char* k : {"name", "id", "tags", "components", "active", "children"})
+                  for (const char* k : {"name", "id", "tags", "components", "active", "children", "overrides"})
                       if (a.contains(k)) spec[k] = a[k];
               if (a.contains("position")) {
                   Json pos = a["position"];
@@ -320,12 +329,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               LoadReport report;
               Entity e;
               if (a.contains("prefab") && a["prefab"].is_string()) {
-                  e = instantiate_prefab(I.world, a["prefab"].get<std::string>(), parent, report, spec);
+                  e = instantiate_prefab(I.world, a["prefab"].get<std::string>(), parent, report, spec, index);
               } else {
                   if (!spec.contains("components") && !spec.contains("name") && !spec.contains("prefab") && !spec.contains("id"))
                       throw CommandError("invalid_argument", "Nothing to spawn: pass 'prefab' or entity JSON.",
                                          "Example: {\"name\":\"Box\",\"components\":{\"Shape2D\":{\"size\":[50,50]}}}");
-                  e = entity_from_json(I.world, spec, parent, report, "scene.spawn", "");
+                  e = entity_from_json(I.world, spec, parent, report, "scene.spawn", "", index);
               }
               if (!e || !I.world.alive(e))
                   throw CommandError("invalid_argument", "Spawn failed:\n" + report.summary(),
@@ -363,12 +372,16 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"scene.set_parent", "Move an entity under another entity, or to the top level of the scene.",
            "`parent` null or \"\" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on "
            "screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the "
-           "entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the "
+           "entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says "
+           "where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the "
+           "last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a "
+           "parent (top-level order is creation order). Scene files keep the order. A parent that is the "
            "entity itself or one of its children is refused (a cycle). Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
            parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Entity id (or name) to move."},
                "parent":{"type":["string","null"],"description":"New parent's id (or name); null or empty = top level."},
-               "keepWorldTransform":{"type":"boolean","default":true,"description":"true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform."}}})"),
+               "keepWorldTransform":{"type":"boolean","default":true,"description":"true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform."},
+               "index":{"type":"integer","minimum":0,"description":"Place among the new parent's other children (0 = first). Omitted = last. Needs a parent."}}})"),
            false, "scene"},
           [&I](const Json& a) {
               Entity e = need_entity(I.world, a);
@@ -385,9 +398,21 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                          "Cannot make '" + I.world.id_of(e) + "' a child of '" + I.world.id_of(parent) +
                                              "': that would put an entity inside itself (a cycle).",
                                          "Pick a parent that is not the entity or one of its children, or move the other entity first.");
-              I.world.set_parent(e, parent, a.value("keepWorldTransform", true));
+              int index = -1;
+              if (a.contains("index") && !a["index"].is_null()) {
+                  if (!a["index"].is_number()) throw CommandError("invalid_argument", "'index' must be a whole number.", "Example: \"index\": 0 puts the entity first.");
+                  std::string bad = I.world.check_child_index(parent, e, a["index"].get<double>());
+                  if (!bad.empty()) throw CommandError("invalid_argument", bad, "scene.get_entity on the parent lists its children in order.");
+                  index = a["index"].get<int>();
+              }
+              I.world.set_parent(e, parent, a.value("keepWorldTransform", true), index);
               Entity now = I.world.parent(e);
-              return Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+              Json out = Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+              if (now) {
+                  const auto& sib = I.world.children(now);
+                  out["index"] = std::find(sib.begin(), sib.end(), e) - sib.begin();
+              }
+              return out;
           });
 
     I.commands.add({"scene.set_component", "Add a component to an entity (if missing) and set the given fields.",
@@ -607,6 +632,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            true, "game"},
           [&engine, &I](const Json& a) { return engine.state(a); });
 
+    I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
+           "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "
+           "drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, "
+           "triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. "
+           "width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() "
+           "in tests. Needs graphics. Example: game.render_stats {}",
+           parse_schema(R"({"type":"object","properties":{}})"),
+           true, "game"},
+          [&engine](const Json&) {
+              Json j = engine.render_stats_now();
+              if (j.is_null())
+                  throw CommandError("unavailable", "This run has no renderer, so nothing is drawn and there are no render stats.",
+                                     "Run with graphics (headless needs Mesa/EGL on Linux) and not graphics=false.");
+              return j;
+          });
+
     I.commands.add({"game.logs", "Read recent log lines (engine, scripts, assets...).",
            "Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
            parse_schema(R"({"type":"object","properties":{
@@ -643,6 +684,29 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               Json state = I.ui.state(I.world, I.design_size(), I.measure());
               state["textScale"] = engine.text_scale();
               return state;
+          });
+
+    I.commands.add({"ui.set_slider", "Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.",
+           "For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to "
+           "[min, max] and snapped to `step` exactly as dragging the track does, and the \"ui.change\" event {id, value} is sent "
+           "when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that "
+           "is the difference. Needs an active, interactable Slider. Returns {id, value, changed}. Example: ui.set_slider "
+           "{\"id\":\"music_volume\",\"value\":0.5}",
+           parse_schema(R"({"type":"object","required":["id","value"],"properties":{
+               "id":{"type":"string","description":"Entity id (or name) of the Slider."},
+               "value":{"type":"number","description":"The wanted value; clamped to [min, max] and snapped to step."}}})"),
+           false, "ui"},
+          [&I](const Json& a) {
+              const Entity e = need_entity(I.world, a, "id");
+              const std::string id = I.world.id_of(e);
+              const Slider* s = I.world.get<Slider>(e);
+              if (!s) throw CommandError("invalid_argument", "'" + id + "' has no Slider component.", "Use the id of a Slider (ui.state lists them).");
+              if (!I.world.active_in_hierarchy(e) || !s->interactable)
+                  throw CommandError("invalid_argument", "Slider '" + id + "' cannot be dragged: it is " + (s->interactable ? "inactive" : "not interactable") + ".",
+                                     "A player cannot drag it either; activate it or set interactable true first.");
+              const float before = s->value;
+              const float now = I.ui.set_slider(I.world, e, a.at("value").get<float>());
+              return Json::object({{"id", id}, {"value", now}, {"changed", now != before}});
           });
 
     I.commands.add({"ui.set_text_scale", "Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.",

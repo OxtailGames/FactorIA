@@ -955,3 +955,84 @@ TEST_CASE("android export: the wrapper files are part of what factoria embeds, b
     CHECK(jar.rfind("PK", 0) == 0);
     CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradlew.bat").find("\r\n") != std::string::npos);
 }
+
+#if !defined(_WIN32)  // make_fake_engine's gradlew is a shell script
+
+TEST_CASE("android export: source mode uses the SDK's CMake, else a CMake 3.24+ of this computer through cmake.dir") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    FakeToolchain tc(tmp);
+    ScopedEnv noMode("FAKE_GRADLE", nullptr);
+    ExportOptions o = options(game, tmp, "gradle");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+    const auto gradle_properties = [](const std::string& dir) { return testing::read_all(stdfs::path(dir) / "gradle.properties"); };
+    const auto sdk_cmake = [&](const std::string& version) {
+        testing::write_all(stdfs::path(tc.sdk) / "cmake" / version / "bin" / "cmake", "");
+    };
+
+    SUBCASE("the pinned version in the SDK: no note, no cmake.dir") {
+        sdk_cmake("3.31.6");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(gradle_properties(r->outputDir).find("factoria.cmakeVersion=3.31.6\n") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "local.properties").find("cmake.dir") == std::string::npos);
+        CHECK_FALSE(any_contains(r->warnings, "CMake"));
+    }
+    SUBCASE("another 3.24+ in the SDK: its version is read instead of requiring 3.31.6") {
+        sdk_cmake("3.22.1");  // too old
+        sdk_cmake("3.28.3");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(gradle_properties(r->outputDir).find("factoria.cmakeVersion=3.28.3\n") != std::string::npos);
+        CHECK(any_contains(r->warnings, "SDK's CMake 3.28.3"));
+    }
+    SUBCASE("none in the SDK: a system CMake is used through cmake.dir") {
+        const stdfs::path sys = tmp.sub("system-cmake");
+        testing::write_all(sys / "bin" / "cmake", "");
+        SetupContext sc;
+        sc.host = "linux";
+        sc.home = tmp.sub("fa_home");
+        sc.env = [&](const std::string& name) { return name == "PATH" ? (sys / "bin").string() : std::string(); };
+        sc.run = [&](const ProcessOptions& po) -> Result<ProcessResult> {
+            ProcessResult pr;
+            pr.exitCode = 0;
+            pr.stdoutText = po.argv.size() > 1 && po.argv[1] == "--version" ? "cmake version 3.28.3\n\nCMake suite maintained by Kitware\n" : "";
+            return pr;
+        };
+        o.setup = &sc;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(gradle_properties(r->outputDir).find("factoria.cmakeVersion=3.28.3\n") != std::string::npos);
+        const std::string local = testing::read_all(stdfs::path(r->outputDir) / "local.properties");
+        CHECK(local.find("cmake.dir=") != std::string::npos);
+        CHECK(local.find("system-cmake") != std::string::npos);
+        CHECK(any_contains(r->warnings, "CMake 3.28.3 of this computer"));
+    }
+    SUBCASE("nothing anywhere: the pinned version, as before") {
+        SetupContext sc;
+        sc.host = "linux";
+        sc.home = tmp.sub("fa_home");
+        sc.env = [&](const std::string&) { return std::string(); };
+        sc.run = [&](const ProcessOptions&) -> Result<ProcessResult> { return Error{"no process", ""}; };
+        o.setup = &sc;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(gradle_properties(r->outputDir).find("factoria.cmakeVersion=3.31.6\n") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "local.properties").find("cmake.dir") == std::string::npos);
+    }
+}
+
+#endif  // !_WIN32
+
+TEST_CASE("android export: prebuilt mode never mentions CMake") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    FakeToolchain tc(tmp);
+    ExportOptions o = options(game, tmp, "gradle");
+    o.androidSearch = &tc.search;
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK_FALSE(any_contains(r->warnings, "CMake"));
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "local.properties").find("cmake.dir") == std::string::npos);
+}

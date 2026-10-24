@@ -11,7 +11,7 @@ import * as haptics from "../haptics.js";
 import { MenuStack } from "./menu_stack.js";
 
 const TABS = ["video", "audio", "play", "touch", "controls", "language"];
-/** Slider ranges of the touch options: [min, max] (the slider shows the real value as a plain number, 1 = the normal size or speed: no format option, FB-0037). */
+/** Slider ranges of the touch options: [min, max] (each slider has a `format` in the prefab: "1.4x" for size and sensitivity, "60%" for opacity). */
 const RANGES = { controlSize: [0.8, 1.4], controlOpacity: [0.3, 1], cameraSensitivity: [0.4, 2.5] };
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
@@ -60,8 +60,8 @@ export default class Options extends Behaviour {
     fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
     fullscreen.interactable = vsync.interactable = has;
-    // A phone refuses a frame cap (the platform picks the rate): the button stays, greyed out, showing the value kept.
-    world.find("frame_cap").get("Button").interactable = has && !settings.onPhone();
+    // A phone cannot cap the frame rate (the platform picks it): the button stays, greyed out, showing the value kept.
+    world.find("frame_cap").get("Button").interactable = window.supports("frameCap");
     this.refreshVideo();
 
     ui.on("click", "quality", () => {

@@ -111,6 +111,7 @@ public:
 
 private:
     bool expand_prefab(const Json& j, const std::string& ptr, Json& out);
+    bool apply_child_overrides(Json& root, const Json& overrides, const std::string& ptr, const std::string& prefabPath);
     void resolve_one(const PendingRef& ref);
 
     World& world_;
@@ -204,7 +205,8 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fields,
             continue;
         }
         if (f->kind == FieldKind::Entity) {
-            if (it.value().is_null()) {
+            // null and "" both mean "no entity" (Joint3D.connected: "" = the world, as the field doc says).
+            if (it.value().is_null() || (it.value().is_string() && it.value().get_ref<const std::string&>().empty())) {
                 *static_cast<Entity*>(f->ptr(obj)) = kNullEntity;
             } else if (deferEntities) {
                 pending_.push_back({e, &type, f, it.value(), fptr});
@@ -244,6 +246,100 @@ void Loader::resolve_pending() {
     pending_.clear();
 }
 
+namespace {
+// Collects every descendant of `node` as (path of ids-or-names, pointer to the JSON), pre-order.
+void collect_descendants(Json& node, const std::string& prefix, std::vector<std::pair<std::string, Json*>>& out) {
+    if (!node.contains("children") || !node["children"].is_array()) return;
+    for (Json& c : node["children"]) {
+        if (!c.is_object()) continue;
+        std::string label;
+        if (c.contains("id") && c["id"].is_string()) label = c["id"].get<std::string>();
+        else if (c.contains("name") && c["name"].is_string()) label = c["name"].get<std::string>();
+        else label = "#" + std::to_string(&c - &node["children"][0]);
+        std::string path = prefix.empty() ? label : prefix + "/" + label;
+        out.emplace_back(path, &c);
+        collect_descendants(c, path, out);
+    }
+}
+bool json_names(const Json& c, const std::string& seg) {
+    return (c.contains("id") && c["id"].is_string() && c["id"].get<std::string>() == seg) ||
+           (c.contains("name") && c["name"].is_string() && c["name"].get<std::string>() == seg);
+}
+}  // namespace
+
+// Applies {"<child id|name|path>": {name, tags, active, components}} to the descendants of a prefab's entity JSON.
+bool Loader::apply_child_overrides(Json& root, const Json& overrides, const std::string& ptr, const std::string& prefabPath) {
+    if (!overrides.is_object()) {
+        error(ptr, "'overrides' must be an object mapping a child of the prefab to the fields to change, got " + describe_json_value(overrides),
+              "Example: \"overrides\": {\"Title\": {\"components\": {\"Text\": {\"text\": \"You won\"}}}}.");
+        return false;
+    }
+    std::vector<std::pair<std::string, Json*>> all;
+    collect_descendants(root, "", all);
+    bool ok = true;
+    static const std::vector<std::string> allowed = {"name", "tags", "active", "components"};
+    for (auto it = overrides.begin(); it != overrides.end(); ++it) {
+        const std::string key = it.key();
+        const std::string kptr = ptr + "/" + escape_token(key);
+        Json* target = nullptr;
+        if (key.find('/') == std::string::npos) {
+            for (auto& [path, node] : all)
+                if (json_names(*node, key)) { target = node; break; }
+        } else {
+            // A path: each segment is the id or the name of a child of the previous one.
+            Json* cur = &root;
+            std::size_t pos = 0;
+            while (cur && pos <= key.size()) {
+                std::size_t slash = key.find('/', pos);
+                const std::string seg = key.substr(pos, slash == std::string::npos ? std::string::npos : slash - pos);
+                Json* next = nullptr;
+                if (cur->contains("children") && (*cur)["children"].is_array())
+                    for (Json& c : (*cur)["children"])
+                        if (c.is_object() && json_names(c, seg)) { next = &c; break; }
+                cur = next;
+                if (slash == std::string::npos) break;
+                pos = slash + 1;
+            }
+            target = cur;
+        }
+        if (!target) {
+            std::vector<std::string> cands;
+            auto add = [&](const std::string& c) {
+                if (std::find(cands.begin(), cands.end(), c) == cands.end()) cands.push_back(c);
+            };
+            for (auto& [path, node] : all) {
+                add(path);
+                for (const char* k : {"id", "name"})
+                    if (node->contains(k) && (*node)[k].is_string()) add((*node)[k].get<std::string>());
+            }
+            error(kptr, "Prefab '" + prefabPath + "' has no child '" + key + "' to override",
+                  cands.empty() ? "The prefab has no children; to change its root put the fields next to \"prefab\"."
+                                : did_you_mean(key, cands, 20) + " A child is named by its id, its name or a path like \"Panel/Title\".");
+            ok = false;
+            continue;
+        }
+        if (!it->is_object()) {
+            error(kptr, "The override of '" + key + "' must be an object, got " + describe_json_value(*it),
+                  "Example: {\"components\": {\"Text\": {\"text\": \"Hello\"}}}.");
+            ok = false;
+            continue;
+        }
+        for (auto f = it->begin(); f != it->end(); ++f) {
+            if (std::find(allowed.begin(), allowed.end(), f.key()) == allowed.end()) {
+                error(kptr + "/" + escape_token(f.key()), "Unknown key '" + f.key() + "' in the override of '" + key + "'",
+                      did_you_mean(f.key(), allowed) + " An override changes name, tags, active and components.");
+                ok = false;
+            } else if (f.key() == "components" && f->is_object()) {
+                if (!target->contains("components") || !(*target)["components"].is_object()) (*target)["components"] = Json::object();
+                json_merge((*target)["components"], *f);
+            } else {
+                (*target)[f.key()] = *f;
+            }
+        }
+    }
+    return ok;
+}
+
 // Replaces {"prefab": path, ...overrides} by the merged entity JSON. Returns true if expanded.
 bool Loader::expand_prefab(const Json& j, const std::string& ptr, Json& out) {
     const Json& pv = j["prefab"];
@@ -269,9 +365,12 @@ bool Loader::expand_prefab(const Json& j, const std::string& ptr, Json& out) {
         return false;
     }
     Json merged = pj["entity"];
+    if (j.contains("overrides") && !apply_child_overrides(merged, j["overrides"], ptr + "/overrides", path)) {
+        // errors are reported; keep expanding so every problem of the file shows up at once
+    }
     for (auto it = j.begin(); it != j.end(); ++it) {
         const std::string& k = it.key();
-        if (k == "prefab") continue;
+        if (k == "prefab" || k == "overrides") continue;
         if (k == "components" && it->is_object()) {
             if (!merged.contains("components") || !merged["components"].is_object()) merged["components"] = Json::object();
             json_merge(merged["components"], *it);
@@ -496,9 +595,10 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
 }
 
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report, std::string_view sourceName,
-                        std::string_view pointer) {
+                        std::string_view pointer, int index) {
     Loader loader(world, report, std::string(sourceName));
     Entity e = loader.load_entity(entity, parent, std::string(pointer), false);
+    if (!e.is_null() && !parent.is_null() && index >= 0) world.set_parent(e, parent, false, index);
     loader.resolve_pending();
     return e;
 }
@@ -690,7 +790,7 @@ Result<void> save_scene_file(const World& world, std::string_view path) {
 }
 
 // ---------------------------------------------------------------- prefabs --
-Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity parent, LoadReport& report, const Json& overrides) {
+Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity parent, LoadReport& report, const Json& overrides, int index) {
     std::string path(prefabPath);
     Json holder = Json::object({{"prefab", path}});
     if (overrides.is_object())
@@ -700,6 +800,7 @@ Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity pare
                                    "Example: {\"name\": \"Boss\", \"components\": {\"Transform\": {\"position\": [0, 0, 0]}}}."});
     Loader loader(world, report, path);
     Entity e = loader.load_entity(holder, parent, "", true);
+    if (!e.is_null() && !parent.is_null() && index >= 0) world.set_parent(e, parent, false, index);
     loader.resolve_pending();
     return e;
 }
@@ -729,6 +830,10 @@ Json entity_schema() {
     props["active"] = Json::object({{"type", "boolean"}, {"default", true}, {"description", "false disables the entity and its children."}});
     props["prefab"] = Json::object({{"type", "string"}, {"x-assetType", "prefab"},
                                     {"description", "Optional prefab file to start from; the keys below are applied as overrides (components deep-merge, children are appended)."}});
+    props["overrides"] = Json::object({{"type", "object"}, {"additionalProperties", Json::object({{"type", "object"}})},
+                                       {"description", "Only with \"prefab\": patches for the prefab's own descendants. Each key is a child's id or name, "
+                                                       "or a path of ids/names like \"Panel/Title\"; each value holds name, tags, active and components "
+                                                       "(components deep-merge). A key that matches no child is an error."}});
     props["components"] = Json::object({{"type", "object"}, {"properties", compProps}, {"additionalProperties", false},
                                         {"description", "Component name -> (partial) field object. Missing fields keep their defaults."}});
     props["children"] = Json::object({{"type", "array"}, {"items", Json::object({{"$ref", "#/$defs/Entity"}})},

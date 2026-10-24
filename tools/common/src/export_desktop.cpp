@@ -8,6 +8,7 @@
 #include <cctype>
 
 #include "export_internal.h"
+#include "fa/core/build_info.h"
 #include "fa/core/pack.h"
 #include "fa/script/bytecode.h"
 #include "fa/tooling/icons.h"
@@ -40,6 +41,48 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
         if (stdfs::is_regular_file(c, ec)) return c;
     return err("export: factoria_player not found next to the factoria binary (" + generic(dir) + ")",
                "build it with `cmake --build <build dir> --target factoria_player`, or pass --player <path>");
+}
+
+namespace {
+
+// True for the first bytes of a Windows (MZ), Linux (ELF) or macOS (Mach-O, fat) executable.
+bool looks_like_executable(const std::string& head) {
+    if (head.size() < 4) return false;
+    const auto b = [&](std::size_t i) { return static_cast<unsigned char>(head[i]); };
+    if (b(0) == 'M' && b(1) == 'Z') return true;
+    if (b(0) == 0x7f && b(1) == 'E' && b(2) == 'L' && b(3) == 'F') return true;
+    const std::uint32_t magic = static_cast<std::uint32_t>(b(0)) << 24 | b(1) << 16 | b(2) << 8 | b(3);
+    return magic == 0xFEEDFACEu || magic == 0xFEEDFACFu || magic == 0xCEFAEDFEu || magic == 0xCFFAEDFEu || magic == 0xCAFEBABEu;
+}
+
+}  // namespace
+
+Result<void> check_player_build(const ExportOptions& o, const stdfs::path& player, const std::string& platform,
+                                std::vector<std::string>& warnings) {
+    const std::string mine = build_fingerprint();
+    if (mine == "unknown") return {};
+    auto data = read_file(player);
+    if (!data || !looks_like_executable(std::string(data->substr(0, 4)))) return {};
+    const std::string theirs = find_build_fingerprint(*data);
+    if (theirs == mine || theirs == "unknown") return {};
+    // The same commit, with uncommitted edits on one side only: the player may be stale, so this warns but does not stop.
+    const auto commit = [](const std::string& f) { return f.substr(0, f.find("-dirty")); };
+    if (!theirs.empty() && commit(theirs) == commit(mine)) {
+        warnings.push_back("export: the " + platform + " player '" + generic(player) + "' was built from " + theirs + " and this factoria from " +
+                           mine + ": the same commit, but one of them had uncommitted changes; rebuild both if you edited the engine");
+        return {};
+    }
+    const std::string what = theirs.empty() ? "has no build fingerprint (it is older than this check)" : "was built from " + theirs;
+    const std::string message = "export: the " + platform + " player '" + generic(player) + "' " + what + ", but this factoria was built from " + mine +
+                                ": a player of another build may lack what the game uses (components, script API) or fail to start";
+    if (o.allowPlayerMismatch) {
+        warnings.push_back(message + " (exported anyway because allowPlayerMismatch / --allow-player-mismatch is on)");
+        return {};
+    }
+    return err(message,
+               "Build both from the same checkout (`cmake --build <build dir> --target factoria factoria_player`), or for another OS run "
+               "`factoria setup players` (the player of this FactorIA version), or pass the matching player with --player <path>. To bundle this "
+               "player anyway: factoria export --allow-player-mismatch (export command: \"allowPlayerMismatch\": true).");
 }
 
 namespace {
