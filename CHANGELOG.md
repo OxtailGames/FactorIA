@@ -13,6 +13,17 @@ Steam Deck keyboard
 - The Steam plugin uses it: on a Steam Deck or in Big Picture it opens Steam's floating keyboard over the field, or the
   full-screen one where the floating one is not offered. Real-Deck check steps are in `docs/PLATFORM.md`.
 
+Navigation: off-mesh links and walkable moving bodies
+
+- `NavLink3D` (an entity's position to `end`, `bidirectional`, `cost`) is an off-mesh link: `nav.findPath` may take it to
+  cross a gap, and the result's `links` lists `{point, entity}` where each link starts. A one-way link refuses the way
+  back; a link whose end is off the mesh is ignored.
+- `Collider3D.navWalkable` on a kinematic or jointed body (a rope bridge, a seesaw, a moving platform) leaves it out of
+  the static bake and adds its top surface as walkable cells wherever it is now, joined to the ground within
+  `stepHeight`; only the cells it left and entered are re-marked. `nav.info`, `nav.bake` and the editor's "Show navmesh"
+  show links and these cells (`links`, `walkableBodies`). Clockwork Courier marks its bridges, seesaw and platforms, and
+  `dog.js` needs one query instead of two (CC/FB-0056).
+
 Physics across platforms
 
 - The engine is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`), and the simulation no longer

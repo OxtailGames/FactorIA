@@ -2,7 +2,7 @@
 // `nav.findPath` in scripts). docs/NAVIGATION.md is the guide.
 //
 // The NavMesh3D component marks a box of the level. It is baked from the STATIC colliders inside the box (no RigidBody3D,
-// or a static one; triggers and Collider3D.navObstacle ones are left out) into a 2.5D grid of spans: every cell of
+// or a static one; triggers, Collider3D.navObstacle and Collider3D.navWalkable ones are left out) into a 2.5D grid of spans: every cell of
 // NavMesh3D.cellSize holds the walkable surfaces in its column. A surface is walkable when it is not steeper than
 // maxSlope, has agentHeight of free space above it and is at least agentRadius from a wall or a drop. Neighbouring
 // cells connect when their surfaces differ by at most stepHeight. A polygon mesh can replace the grid later without
@@ -29,6 +29,8 @@ struct NavBakeStats {
     int walkableCells = 0;        // surfaces the agent can stand on (after erosion)
     int regions = 0;              // separate walkable areas (no path between two of them)
     int obstacles = 0;            // moving obstacles (Collider3D.navObstacle) blocking cells right now
+    int links = 0;                // NavLink3D joined to walkable cells on both ends
+    int walkableBodies = 0;       // moving bodies (Collider3D.navWalkable) whose top surface is part of the mesh right now
     Json to_json() const;
 };
 
@@ -39,10 +41,17 @@ struct NavPathOptions {
     std::string mesh;       // id of the entity with the NavMesh3D to use; empty = the first enabled one that fits
 };
 
+// An off-mesh link (NavLink3D) a path takes: points[point] is where it starts, points[point + 1] where it ends.
+struct NavPathLink {
+    int point = 0;
+    std::string entity;
+};
+
 struct NavPath {
     bool found = false;      // points holds a path
     bool complete = true;    // false: only a path to the reachable point nearest the goal (options.closest)
     std::vector<Vec3> points;  // from the start to the goal on the walkable surface; few corners (string pulled)
+    std::vector<NavPathLink> links;  // the off-mesh links the path takes, in order
     float length = 0.0f;     // meters along the points
     Vec3 from, to;           // the start and goal as snapped onto the walkable surface
     std::string mesh;        // id of the NavMesh3D entity used
@@ -60,7 +69,16 @@ struct NavCell {
     Vec3 center;          // on the walkable surface
     float size = 0.25f;   // cell width
     bool blocked = false; // covered by a moving obstacle right now
+    bool moving = false;  // top surface of a walkable moving body (Collider3D.navWalkable)
     int region = 0;
+};
+
+// One NavLink3D, for debug drawing.
+struct NavLinkDraw {
+    Vec3 from, to;
+    bool bidirectional = true;
+    bool connected = true;  // both ends found walkable cells
+    std::string entity;
 };
 
 }  // namespace fa
