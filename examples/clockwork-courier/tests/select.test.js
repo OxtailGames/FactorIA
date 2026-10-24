@@ -56,7 +56,7 @@ describe("level select", () => {
     progress.setName("Ana");
     win("rooftops_1", 2, 41.5);
     open();
-    expect(card("rooftops_1").get("Button").text).toContain("**-");
+    expect(card("rooftops_1").get("Button").text).toContain("\u2605\u2605\u2606");
     expect(card("rooftops_1").get("Button").text).toContain("41.5 s");
     expect(game.find("select_total").get("Text").text).toBe("Stars 2 / 18");
   });

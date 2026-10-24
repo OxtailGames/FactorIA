@@ -12,7 +12,7 @@ world: six levels in two districts, guard dogs, physics props, music and particl
 factoria validate
 factoria run                      # windowed
 factoria run --headless --frames 120 --screenshot-at 119 --json
-factoria test                     # 444 headless tests (the six levels are played by a bot)
+factoria test                     # 458 headless tests (the six levels are played by a bot)
 ```
 
 The title screen (`scenes/main.scene.json`) goes through Play and `scenes/loading.scene.json` to the first level of the
@@ -80,20 +80,25 @@ The levels are scenes of prefab instances: edit them like any scene (`factoria c
 ### Guard dogs
 
 A dog patrols its route, notices the courier inside its view cone (with a clear line-of-sight ray) or very close when
-the courier runs, barks for 0.7 s (`dog_alerted`), then chases at 4.6 m/s (the courier runs at 5) along a path found by
-`scripts/nav.js`, and gives up after 5 s without seeing it (`dog_gave_up`) or when it strays 18 m from home. A catch
+the courier runs, barks for 0.7 s (`dog_alerted`), then chases at 4.6 m/s (the courier runs at 5) along a route from the
+engine's navmesh, and gives up after 5 s without seeing it (`dog_gave_up`) or when it strays 18 m from home. A catch
 calls `courier.caught("dog")`: the courier lies down for 1.4 s, pays 5 s of spring, and gets up at the last checkpoint with
 1.5 s of safety (`courier.grace`). Walking (Shift or a half-tilted stick, below 2.3 m/s) shortens the sight range to 60
 percent and the dog does not hear it: sneaking past a dog is how the levels teach it.
 
-The engine has no navmesh, so `scripts/nav.js` is a lazy grid A* over the physics world (a downward ray for the ground
-height, `physics.overlapSphere` for obstacles, step height limit). It serves the dogs and tap-to-move.
+The route comes from the engine's navmesh (docs/NAVIGATION.md): every level scene has one `navmesh` entity (a `NavMesh3D`
+baked from the static colliders: agent radius 0.35 m, height 1.8 m, step 0.4 m, slope 45 degrees) and the dog calls
+`nav.findPath(feet, goal, { radius: 0.32, closest: true })` when it starts a chase and again when the goal has moved
+0.9 m (at most every 0.3 s). Gates and crates are `navObstacle` colliders, so the mesh knows where they are right now and
+the dog goes round a shut gate or a pushed crate; a goal it cannot reach (the baked mesh holds only static colliders, so a
+rope bridge or a seesaw is not on it) sends it to the nearest reachable point. The navmesh serves the dogs and tap-to-move.
 
 ### Tap to move
 
-`scripts/tap_move.js` (one `tap_move` entity per level): tap the ground and the courier walks there around obstacles.
-Off by default; it is the `tapToMove` field of `settings.load()` and the "Tap to move" switch of Options > Play. The
-stick or a jump cancels the walk.
+`scripts/tap_move.js` (one `tap_move` entity per level): tap the ground and the courier walks there around obstacles
+(`nav.findPath` over the level's navmesh: round walls and ledges, up ramps, round shut gates and crates; a tap on a wall
+or on an island goes to the nearest ground that can be reached). Off by default; it is the `tapToMove` field of
+`settings.load()` and the "Tap to move" switch of Options > Play. The stick or a jump cancels the walk.
 
 ### Comfort and accessibility (P5)
 
@@ -163,9 +168,10 @@ it at 400). `factoria validate` errors on any character of a locale that no font
 character, and `tests/i18n.test.js` measures every Japanese character to catch the same in a run.
 
 **Layout.** Menus use `fit` Panels with `fallbackLayout` (a row becomes a column or a grid when it would leave the screen),
-buttons use `autoSize` with `maxWidth` (the label wraps), and lists are ScrollLists with `fill`. The level select, the HUD and
-the touch buttons have fixed places, so they stop their text at 1.15 to 1.3 times the design size (`capSizes`,
-`layoutHud`; FB-0042). At 200 percent, in each language, `tests/i18n.test.js` checks that every button of the title, the
+buttons use `autoSize` with `maxWidth` (the label wraps), and lists are ScrollLists with `shrink` (as tall as their content, up to the screen; the options tab list keeps `fill`
+because its height would change with each tab). The level select, the title, the HUD and the touch buttons have fixed
+places, so they stop their text at 1.15 to 1.5 times the design size (`maxTextScale` and `autoShrink` in the scene files;
+the HUD rows also move down with `layoutHud`). `ui.check_layout` reports no issue in any scene, language or text size. At 200 percent, in each language, `tests/i18n.test.js` checks that every button of the title, the
 credits, the shop, the achievements, the leaderboards, every options tab, the pause menu, and the results and retry screens
 is on the screen. Toggle and Slider labels do not wrap (FB-0041), so the options list gets wider with the text size and the
 slider names are Texts above the sliders.
@@ -202,7 +208,7 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/spring.js` | Seconds of spring left; `fill(s)`, `wind(s)`, `stop()`, `fraction`; sends `spring_empty` once. |
 | `scripts/level_flow.js` | Starts a level from `levels.js`, scores it, saves progress, shows the results and retry screens. |
 | `scripts/pause_menu.js` | Pause (key, Start, touch button, Android Back) with Resume, Options, Restart, Quit to title. |
-| `scripts/dog.js`, `nav.js`, `tap_move.js` | Guard dogs, the grid path finder, tap-to-move. |
+| `scripts/dog.js`, `tap_move.js` | Guard dogs and tap-to-move (both walk the routes of the engine's `nav.findPath`; the `navmesh` entity of each level scene is the `NavMesh3D`). |
 | `scripts/gate.js`, `lever.js`, `seesaw.js`, `rope_bridge.js`, `mover.js`, `crate.js` | Physics props (joints, kinematic platforms, dynamic bodies). |
 | `scripts/wind_key.js`, `checkpoint.js`, `stars.js`, `loading.js`, `music.js`, `fx.js` | Keys, checkpoints, star rules, loading screen, music director, particles. |
 | `scripts/main_menu.js`, `scripts/ui/` | Title screen (Play and Continue go to the level select or the name screen) and the menu kit (menu stack, options, interface sounds). The title asks before quitting on Android Back. |
@@ -218,7 +224,7 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/intro.js` | P6 studio intro (`scenes/intro.scene.json`, the `mainScene`): about 4.8 s, plays once (`introSeen` in storage), ends early on a tap, key, pad button, Skip or Back, then goes to the title. |
 | `store/` | P6 store material: `en/`, `es/`, `ja/` listing texts (`store/check_store.py` checks lengths), `keyart.png` and `trailer/` (director script and generator). The `capsules/` and `screenshots/` (phone, tablet, desktop) are not in git: `store/make_store_images.py` writes them (see SHIPPING.md). Kept out of the shipped game by `export.exclude`. |
 | `perf.json` | P6 performance budget (`factoria call perf.check`): the heaviest level, `market_3`, on the macOS Metal runner. |
-| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js`, P6: `intro.test.js`, `budget.test.js` (entity, mesh, light and emitter budget per level, exact sizes of the icon and of the store images when they are there), the Back-at-title quit question is in `comfort.test.js`, P7: `i18n.test.js` (locale parity, runtime switch, persistence, system language, 200 percent layout in three languages, Japanese glyphs) (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test). |
+| `tests/` | movement, animator and footsteps, camera, touch, flow, contracts, `levels.test.js` (the bot plays all six levels, main route and shortcut), `mechanics.test.js` (keys, checkpoints, dogs, nav, tap-to-move, gate and lever, seesaw, bridge, platform, crates, particles, stars, music, loading), P4: `services.test.js`, `board.test.js`, `shop.test.js`, `ads.test.js`, P6: `intro.test.js`, `budget.test.js` (entity, mesh, light and emitter budget per level, exact sizes of the icon and of the store images when they are there), the Back-at-title quit question is in `comfort.test.js`, P7: `i18n.test.js` (locale parity, runtime switch, persistence, system language, 200 percent layout in three languages, Japanese glyphs) (helpers in `tests/helpers/store.js`: `fresh()` before and `cleanup()` after each test, both `game.resetState`). |
 | `tests/helpers/routes.js` | The bot's waypoints for every level (main and shortcut). Generated with the levels; edit by hand when a level changes. |
 
 ### Contract: levels (`scripts/levels.js`)
@@ -226,8 +232,9 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 `LEVELS` is the ordered list; each entry is
 `{ id, name, nameKey, district, scene, spring, parTime, parcels, optionalParcels, music }` (`spring` and `parTime` in seconds; `music` is the district track). `TEST_LEVELS` holds the yard and the arena (found by `byId`/`byScene`, never listed). Helpers:
 `byId(id)`, `byScene(path)`, `next(id)`, `first()`, `inDistrict(district)`. A level scene needs the entities
-`courier`, `camera`, `spring`, `level` (script `level_flow.js`, prop `levelId`), `pause_menu` and `hud`, plus the
-result and retry panels of the yard. The title's Play button goes to `levels.first()` through the loading screen. P3 and later: show the stars of a level with `progress.resultFor(id)` (`goals` says which bonus goals were met) and `stars.evaluate(level, result)` / `stars.maxStars()`; the star counter belongs on the results panel and the level select.
+`courier`, `camera`, `spring`, `level` (script `level_flow.js`, prop `levelId`) and `pause_menu`, plus three entities
+that instance the shared panels: `hud` (`prefabs/ui/hud.prefab.json`: spring bar, parcel counter, touch controls),
+`results_panel` and `retry_panel` (`prefabs/ui/results.prefab.json`, `retry.prefab.json`, both inactive). The title's Play button goes to `levels.first()` through the loading screen. P3 and later: show the stars of a level with `progress.resultFor(id)` (`goals` says which bonus goals were met) and `stars.evaluate(level, result)` / `stars.maxStars()`; the star counter belongs on the results panel and the level select.
 
 ### Contract: progress (`scripts/progress.js`)
 
@@ -311,7 +318,7 @@ and `scripts/store.js`. Every platform call is a Promise and every one can fail,
 |---|---|
 | `services.js` | A behaviour `store_services` that `level_flow.js` and `main_menu.js` spawn with `services.ensure()` (the eight level scenes are not edited). It signs in, restores purchases (`store.reconcile()`), flushes the outbox, listens to the events and unlocks, counts and submits. Helpers: `isUnlocked(id)`, `stat(id)`, `timeBoard(levelId)`, `current()`; its field `toasts` shows "Achievement unlocked" toasts. |
 | `store.js` | The wallet (`owned`, `seen` transaction ids, worn `paint`, `tips`). `buy(id)` resolves `{ status: purchased, pending, cancelled or failed, key }`; `restore()`; `reconcile({ authoritative })` (a store that stops listing a product revokes it, only on a real store); `listen()` for purchases that arrive outside `buy()`; `owns`, `noAds`, `paintUnlocked`, `equippedPaint`, `equip`. Grant first (save), then `finish`, `seen` makes a transaction count once. |
-| `paints.js` | Seven robot paints: Factory orange (free), Rust (3 stars), Mint (8), Midnight (13), Gold (18), Copper and Neon (products). `apply(entity, id)` sets `MeshRenderer.color` and `emissive`. The courier's `model` and the title robot wear the worn paint. |
+| `paints.js` | Seven robot paints: Factory orange (free), Rust (3 stars), Mint (8), Midnight (13), Gold (18), Copper and Neon (products). `apply(entity, id)` sets `MeshRenderer.materialColors` to the paint's colour for the body material "Main" of `robot.glb`; the eyes and the metal keep their own colours. The courier's `model` and the title robot wear the worn paint. |
 | `shortcuts.js` | Six zones (rooftops 1 and 2, market 1 and 2 have a spatial shortcut; rooftops 3 and market 3 do not): `inside(levelId, position)`, `all()`, `total()`. |
 | `ads.js` | `moreTimeOffer()` is `{ mode: "free" | "ad" | "none" }`, `requestMoreTime()` runs it through `platform.ads.showRewarded("more_time")`. |
 
@@ -358,7 +365,8 @@ products, their types (NonConsumable, Consumable), prices and English titles com
   info API (FB-0036).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
   FB-0033); the level tests allow 10 percent between the main route and the shortcut.
-- The profile keyboard has the letters A to Z only: a Japanese name is typed with the system keyboard (FB-0020).
+- The on-screen keyboard of the name screen (the menu kit's, for gamepad players) has Latin keys for Japanese too: a
+  Japanese name is typed with the system keyboard.
 - Leaderboard titles are built from the level-name keys; the catalog's `name` has no key (FB-0029).
 - Control size and camera speed sliders show the plain multiplier (1), not a percentage (FB-0037).
 
@@ -367,7 +375,7 @@ products, their types (NonConsumable, Consumable), prices and English titles com
 - The robot has no land or fall clips; Sitting stands in for landing and Idle for falling.
 - Orbiting the camera sideways inside the covered passage pulls it to 0.3 m from the courier, so it sits close to
   the robot's head.
-- Mouse drag and wheel are tested through `orbit()` and `zoom()` (ENGINE_FEEDBACK FB-0005).
+- Mouse drag and wheel are tested end to end with `game.mouseDown`/`mouseMove`/`mouseUp` and `game.wheel` through `readInput()` in `tests/camera.test.js`.
 
 ## Credits
 

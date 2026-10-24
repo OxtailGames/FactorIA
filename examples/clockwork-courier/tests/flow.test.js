@@ -292,7 +292,7 @@ describe("parcel and door", () => {
     expect(game.find("retry_panel").active).toBe(false);
     expect(game.find("results_time").get("Text").text).toMatch(/^Time: \d+\.\d s   /); // P3: the best time follows
     expect(game.find("results_spring").get("Text").text).toMatch(/^Spring left: \d+ s\n/);
-    expect(game.find("results_stars").get("Text").text).toMatch(/^\*+-*$/);
+    expect(game.find("results_stars").get("Text").text).toMatch(/^\u2605+\u2606*$/);
     // saved
     const saved = progress.resultFor("test_yard");
     expect(saved).not.toBeNull();

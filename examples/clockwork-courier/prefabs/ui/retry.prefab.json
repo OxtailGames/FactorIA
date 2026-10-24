@@ -1,0 +1,98 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Retry",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.6],
+        "layout": "column",
+        "justify": "center"
+      }
+    },
+    "children": [
+      {
+        "id": "retry_panel_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "layout": "column",
+            "spacing": 12,
+            "padding": [40, 28, 40, 36],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "retry_heading",
+            "components": {
+              "Text": {
+                "text": "The spring ran down",
+                "fontSize": 44,
+                "layer": 301,
+                "space": "screen",
+                "key": "retry.title",
+                "color": [1, 0.45, 0.35, 1]
+              }
+            }
+          },
+          {
+            "id": "retry_hint",
+            "components": {
+              "Text": {
+                "text": "Be quicker.",
+                "fontSize": 26,
+                "layer": 301,
+                "space": "screen",
+                "key": "retry.hint",
+                "maxWidth": 900
+              }
+            }
+          },
+          {
+            "id": "retry_buttons",
+            "components": {
+              "Panel": {
+                "layer": 300,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 12,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "uniformSize": true,
+                "fallbackLayout": "row"
+              }
+            },
+            "children": [
+              {
+                "id": "retry_retry",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Try again",
+                    "key": "retry.retry",
+                    "layer": 302,
+                    "autoFocus": true
+                  }
+                }
+              },
+              {
+                "id": "retry_title",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Quit to title",
+                    "key": "retry.toTitle",
+                    "layer": 302
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

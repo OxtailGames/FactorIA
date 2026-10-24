@@ -1,0 +1,123 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Keyboard",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 390,
+        "color": [0, 0, 0, 0.6],
+        "layout": "column",
+        "justify": "center"
+      }
+    },
+    "children": [
+      {
+        "id": "keyboard_box",
+        "components": {
+          "Panel": {
+            "layer": 400,
+            "layout": "column",
+            "spacing": 12,
+            "padding": [28, 20, 28, 28],
+            "fit": true,
+            "color": [0.05, 0.07, 0.12, 0.96]
+          }
+        },
+        "children": [
+          {
+            "id": "keyboard_preview",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 36,
+                "layer": 401,
+                "space": "screen",
+                "color": [1, 0.85, 0.3, 1]
+              }
+            }
+          },
+          {
+            "id": "keyboard_keys",
+            "components": {
+              "Panel": {
+                "layer": 401,
+                "layout": "grid",
+                "columns": 10,
+                "fit": true,
+                "spacing": 6,
+                "color": [0, 0, 0, 0]
+              }
+            }
+          },
+          {
+            "id": "keyboard_actions",
+            "components": {
+              "Panel": {
+                "layer": 401,
+                "layout": "row",
+                "fit": true,
+                "spacing": 10,
+                "color": [0, 0, 0, 0]
+              }
+            },
+            "children": [
+              {
+                "id": "osk_shift",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [96, 52],
+                    "text": "Aa",
+                    "layer": 402
+                  }
+                }
+              },
+              {
+                "id": "osk_space",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [150, 52],
+                    "text": "Space",
+                    "key": "keyboard.space",
+                    "layer": 402
+                  }
+                }
+              },
+              {
+                "id": "osk_delete",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [150, 52],
+                    "text": "Delete",
+                    "key": "keyboard.delete",
+                    "layer": 402
+                  }
+                }
+              },
+              {
+                "id": "osk_done",
+                "tags": ["osk"],
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "size": [150, 52],
+                    "text": "Done",
+                    "key": "keyboard.done",
+                    "layer": 402
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

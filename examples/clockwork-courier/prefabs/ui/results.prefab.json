@@ -1,0 +1,135 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Results",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.6],
+        "layout": "column",
+        "justify": "center"
+      }
+    },
+    "children": [
+      {
+        "id": "results_panel_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "layout": "column",
+            "spacing": 8,
+            "padding": [24, 16, 24, 20],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "results_heading",
+            "components": {
+              "Text": {
+                "text": "Delivered!",
+                "fontSize": 40,
+                "layer": 301,
+                "space": "screen",
+                "key": "results.title",
+                "color": [1, 0.85, 0.3, 1]
+              }
+            }
+          },
+          {
+            "id": "results_stars",
+            "components": {
+              "Text": {
+                "text": "☆☆☆",
+                "fontSize": 34,
+                "layer": 301,
+                "space": "screen",
+                "color": [1, 0.85, 0.3, 1]
+              }
+            }
+          },
+          {
+            "id": "results_time",
+            "components": {
+              "Text": {
+                "text": "Time",
+                "fontSize": 28,
+                "layer": 301,
+                "space": "screen",
+                "maxWidth": 1180
+              }
+            }
+          },
+          {
+            "id": "results_spring",
+            "components": {
+              "Text": {
+                "text": "Spring",
+                "fontSize": 28,
+                "layer": 301,
+                "space": "screen",
+                "maxWidth": 1180
+              }
+            }
+          },
+          {
+            "id": "results_buttons",
+            "components": {
+              "Panel": {
+                "layer": 300,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 12,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "uniformSize": true,
+                "fallbackLayout": "row"
+              }
+            },
+            "children": [
+              {
+                "id": "results_next",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Next level",
+                    "key": "results.next",
+                    "layer": 302,
+                    "autoFocus": true,
+                    "maxWidth": 340
+                  }
+                }
+              },
+              {
+                "id": "results_retry",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Play again",
+                    "key": "results.retry",
+                    "layer": 302,
+                    "maxWidth": 340
+                  }
+                }
+              },
+              {
+                "id": "results_title",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Quit to title",
+                    "key": "results.toTitle",
+                    "layer": 302,
+                    "maxWidth": 340
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
