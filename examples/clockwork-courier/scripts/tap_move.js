@@ -4,16 +4,21 @@
 // per level scene.
 //
 // A tap becomes a ray through the camera (camera.screenToWorld at two depths), the ray hits the world, and the hit point
-// goes to the path finder (scripts/nav.js: a grid A*), whose waypoints Courier.walkTo() follows. Moving with the stick or
-// the keys, or jumping, cancels the walk. Taps on the UI (the pause button) and on the on-screen stick or buttons do not
-// count: those fingers never reach input.touches / the mouse.
-import { Behaviour, input, camera, physics, ui, world } from "factoria";
-import { NavGrid } from "./nav.js";
+// goes to the engine's path finder (nav.findPath over the level's NavMesh3D, docs/NAVIGATION.md: it walks round walls,
+// up ramps and stairs, never up a ledge the courier cannot climb, and round gates and crates, which are navObstacles),
+// whose corner points Courier.walkTo() follows. Moving with the stick or the keys, or jumping, cancels the walk. Taps on
+// the UI (the pause button) and on the on-screen stick or buttons do not count: those fingers never reach input.touches /
+// the mouse.
+import { Behaviour, input, camera, physics, ui, world, nav } from "factoria";
 import * as settings from "./settings.js";
 
 export default class TapMove extends Behaviour {
-  /** Height above the courier's feet from which the path finder looks down for ground, metres. */
-  navUp = 3;
+  /** Height of the courier's centre above its feet (half the CharacterController3D height), metres: paths start at the feet. */
+  feet = 0.55;
+  /** Radius of the courier for path finding, metres (at most the NavMesh3D's agentRadius). */
+  navRadius = 0.3;
+  /** A tap this far (metres) from walkable ground, on the side of a wall, say, goes to the nearest ground instead. */
+  snap = 1.5;
   /** Farthest a tap is followed, metres (a tap beyond it is ignored). */
   maxDistance = 45;
   courierId = "courier";
@@ -38,7 +43,6 @@ export default class TapMove extends Behaviour {
 
   /** Sends the courier to the ground under the screen point (what a tap does). Returns true when a walk started. */
   tapAt(screen) {
-    const cb = this.courier.behaviour;
     const near = camera.screenToWorld(screen, 1);
     const far = camera.screenToWorld(screen, 80);
     const d = [far.x - near.x, far.y - near.y, far.z - near.z];
@@ -47,17 +51,25 @@ export default class TapMove extends Behaviour {
     const hit = physics.raycast3d([near.x, near.y, near.z], [d[0] / len, d[1] / len, d[2] / len], 200, { ignore: this.courier });
     if (!hit) return false;
     this.taps++;
+    return this.goTo([hit.point.x, hit.point.y, hit.point.z]);
+  }
+
+  /** Sends the courier to a world point on the ground ([x, y, z]); the tap does it with the point under the finger.
+   *  Returns true when a walk started. */
+  goTo(to) {
+    const cb = this.courier.behaviour;
     const from = this.courier.position;
-    const to = hit.point;
-    if (Math.hypot(to.x - from.x, to.z - from.z) > this.maxDistance) return false;
-    this.lastTarget = [to.x, to.y, to.z];
-    // A fresh grid per tap: crates and gates move, and a tap is rare.
-    const nav = new NavGrid({ ceilY: from.y + this.navUp, radius: 0.32, clearance: 0.5, depth: this.navUp + 1.5 });
-    const r = nav.findPath([from.x, from.z], [to.x, to.z]);
-    if (!r || r.path.length === 0) return false;
-    this.lastPath = r.path;
+    if (Math.hypot(to[0] - from.x, to[2] - from.z) > this.maxDistance) return false;
+    this.lastTarget = [to[0], to[1], to[2]];
+    // Gates and crates are navObstacles: the mesh knows where they are right now. `closest`: a goal that cannot be reached
+    // (an island, a ledge too high) walks to the reachable point nearest to it.
+    const r = nav.findPath([from.x, from.y - this.feet, from.z], to, { radius: this.navRadius, snap: this.snap, closest: true });
+    if (!r.found || r.points.length === 0) return false;
+    // points[0] is where the courier stands: walk to the corners after it.
+    const corners = r.points.length > 1 ? r.points.slice(1) : r.points;
+    this.lastPath = corners.map((p) => [p.x, p.z, p.y]);
     this.lastComplete = r.complete;
-    cb.walkTo(r.path.map((p) => [p[0], p[1]]));
+    cb.walkTo(corners.map((p) => [p.x, p.z]));
     return true;
   }
 }

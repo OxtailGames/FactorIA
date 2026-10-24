@@ -80,20 +80,25 @@ The levels are scenes of prefab instances: edit them like any scene (`factoria c
 ### Guard dogs
 
 A dog patrols its route, notices the courier inside its view cone (with a clear line-of-sight ray) or very close when
-the courier runs, barks for 0.7 s (`dog_alerted`), then chases at 4.6 m/s (the courier runs at 5) along a path found by
-`scripts/nav.js`, and gives up after 5 s without seeing it (`dog_gave_up`) or when it strays 18 m from home. A catch
+the courier runs, barks for 0.7 s (`dog_alerted`), then chases at 4.6 m/s (the courier runs at 5) along a route from the
+engine's navmesh, and gives up after 5 s without seeing it (`dog_gave_up`) or when it strays 18 m from home. A catch
 calls `courier.caught("dog")`: the courier lies down for 1.4 s, pays 5 s of spring, and gets up at the last checkpoint with
 1.5 s of safety (`courier.grace`). Walking (Shift or a half-tilted stick, below 2.3 m/s) shortens the sight range to 60
 percent and the dog does not hear it: sneaking past a dog is how the levels teach it.
 
-The engine has no navmesh, so `scripts/nav.js` is a lazy grid A* over the physics world (a downward ray for the ground
-height, `physics.overlapSphere` for obstacles, step height limit). It serves the dogs and tap-to-move.
+The route comes from the engine's navmesh (docs/NAVIGATION.md): every level scene has one `navmesh` entity (a `NavMesh3D`
+baked from the static colliders: agent radius 0.35 m, height 1.8 m, step 0.4 m, slope 45 degrees) and the dog calls
+`nav.findPath(feet, goal, { radius: 0.32, closest: true })` when it starts a chase and again when the goal has moved
+0.9 m (at most every 0.3 s). Gates and crates are `navObstacle` colliders, so the mesh knows where they are right now and
+the dog goes round a shut gate or a pushed crate; a goal it cannot reach (the baked mesh holds only static colliders, so a
+rope bridge or a seesaw is not on it) sends it to the nearest reachable point. The navmesh serves the dogs and tap-to-move.
 
 ### Tap to move
 
-`scripts/tap_move.js` (one `tap_move` entity per level): tap the ground and the courier walks there around obstacles.
-Off by default; it is the `tapToMove` field of `settings.load()` and the "Tap to move" switch of Options > Play. The
-stick or a jump cancels the walk.
+`scripts/tap_move.js` (one `tap_move` entity per level): tap the ground and the courier walks there around obstacles
+(`nav.findPath` over the level's navmesh: round walls and ledges, up ramps, round shut gates and crates; a tap on a wall
+or on an island goes to the nearest ground that can be reached). Off by default; it is the `tapToMove` field of
+`settings.load()` and the "Tap to move" switch of Options > Play. The stick or a jump cancels the walk.
 
 ### Comfort and accessibility (P5)
 
@@ -202,7 +207,7 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 | `scripts/spring.js` | Seconds of spring left; `fill(s)`, `wind(s)`, `stop()`, `fraction`; sends `spring_empty` once. |
 | `scripts/level_flow.js` | Starts a level from `levels.js`, scores it, saves progress, shows the results and retry screens. |
 | `scripts/pause_menu.js` | Pause (key, Start, touch button, Android Back) with Resume, Options, Restart, Quit to title. |
-| `scripts/dog.js`, `nav.js`, `tap_move.js` | Guard dogs, the grid path finder, tap-to-move. |
+| `scripts/dog.js`, `tap_move.js` | Guard dogs and tap-to-move (both walk the routes of the engine's `nav.findPath`; the `navmesh` entity of each level scene is the `NavMesh3D`). |
 | `scripts/gate.js`, `lever.js`, `seesaw.js`, `rope_bridge.js`, `mover.js`, `crate.js` | Physics props (joints, kinematic platforms, dynamic bodies). |
 | `scripts/wind_key.js`, `checkpoint.js`, `stars.js`, `loading.js`, `music.js`, `fx.js` | Keys, checkpoints, star rules, loading screen, music director, particles. |
 | `scripts/main_menu.js`, `scripts/ui/` | Title screen (Play and Continue go to the level select or the name screen) and the menu kit (menu stack, options, interface sounds). The title asks before quitting on Android Back. |
