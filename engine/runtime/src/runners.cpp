@@ -176,10 +176,11 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         }
         apply_expand(st->engine, app_framebuffer_width(), app_framebuffer_height());
         // The rectangle of a TextField for the platform's keyboard (a plugin's text input handler) is in window pixels.
-        st->engine.set_design_to_window([st](Vec2 p) {
-            Renderer* r = st->engine.renderer();
+        // A raw pointer: the engine keeps this function and `st` owns the engine (a shared_ptr would never be freed).
+        st->engine.set_design_to_window([s = st.get()](Vec2 p) {
+            Renderer* r = s->engine.renderer();
             if (!r) return p;
-            return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(), st->engine.project().scaleMode);
+            return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(), s->engine.project().scaleMode);
         });
         // A phone is played by touch from the start: touch-only on-screen controls are drawn before the first finger.
         if (app_is_mobile()) st->engine.input().set_last_device(InputDevice::Touch);
