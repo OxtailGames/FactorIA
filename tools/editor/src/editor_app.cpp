@@ -1287,7 +1287,7 @@ void Editor::draw_main_menu() {
         ImGui::Separator();
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::MenuItem("Show navmesh", nullptr, &showNav_);
-        ImGui::SetItemTooltip("Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks), the ground nav.findPath walks on");
+        ImGui::SetItemTooltip("Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on");
         ImGui::MenuItem("Selection overlay", nullptr, &showOverlay_);
         if (ImGui::MenuItem("Reset layout")) resetLayout_ = true;
         ImGui::MenuItem("ImGui demo", nullptr, &showDemo_);
