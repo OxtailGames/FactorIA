@@ -72,13 +72,13 @@ Vec3 euler_of(const Vec3* ax) {
     const float sp = clamp(-ax[2].y, -1.0f, 1.0f);
     float yaw, roll;
     if (std::fabs(sp) < 0.9999f) {
-        yaw = std::atan2(ax[2].x, ax[2].z);
-        roll = std::atan2(ax[0].y, ax[1].y);
+        yaw = det::atan2(ax[2].x, ax[2].z);
+        roll = det::atan2(ax[0].y, ax[1].y);
     } else {  // gimbal lock: fold the roll into the yaw
-        yaw = std::atan2(-ax[0].z, ax[0].x);
+        yaw = det::atan2(-ax[0].z, ax[0].x);
         roll = 0.0f;
     }
-    return {degrees(std::asin(sp)), degrees(yaw), degrees(roll)};
+    return {degrees(det::asin(sp)), degrees(yaw), degrees(roll)};
 }
 
 // True when the unit basis is not the identity (beyond float noise): the box then takes the oriented code paths.
@@ -154,8 +154,8 @@ Vec3 gyroscopic_step(Vec3 w0, Vec3 inertia, float h) {
 Quat turned(Quat q, Vec3 w, float seconds) {
     const float len = length(w);
     if (!(len > 0.0f)) return q;
-    const float half = 0.5f * len * seconds, s = std::sin(half) / len;
-    return normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * q);
+    const float half = 0.5f * len * seconds, s = det::sin(half) / len;
+    return normalize(Quat{w.x * s, w.y * s, w.z * s, det::cos(half)} * q);
 }
 
 }  // namespace
@@ -1220,8 +1220,8 @@ void Physics3D::step(World& world, float dt) {
                     const float ang = length(w);
                     if (ang > 1e-9f) {  // Rodrigues rotation of the offset about the platform's turning axis
                         const Vec3 ax = w * (1.0f / ang);
-                        const Vec3 turned = rel * std::cos(ang) + cross(ax, rel) * std::sin(ang) +
-                                            ax * (dot(ax, rel) * (1.0f - std::cos(ang)));
+                        const Vec3 turned = rel * det::cos(ang) + cross(ax, rel) * det::sin(ang) +
+                                            ax * (dot(ax, rel) * (1.0f - det::cos(ang)));
                         c.center += turned - rel;
                     }
                     c.pendingTurn += p.angVel.y * h;

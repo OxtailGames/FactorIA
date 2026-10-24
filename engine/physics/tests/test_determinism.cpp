@@ -2,13 +2,15 @@
 // 2D pile) is hashed bit for bit, and the hash is compared with a COMMITTED expected value on every CI platform: each job
 // runs this test, prints its hash ("FA_PHYSICS_REPLAY_HASH ..."), and a mismatch fails naming the platforms that are known
 // to agree and what to do. The same build on the same platform always gives the same hash (the first test case); another
-// compiler or CPU may not, mostly through the C library's sin / cos / atan2 / asin (physics3d.cpp, shape3d.cpp,
-// physics3d_joints.cpp, scene/world.cpp: see docs/AI_GUIDE.md, "Physics and platforms").
+// compiler or CPU used to differ through the C library's sin / cos / atan2 / asin: the simulation now calls fa::det::
+// (fa/core/det_math.h, built from + - * / sqrt only), so ONE hash must hold on every platform (docs/AI_GUIDE.md, "Physics
+// and platforms").
 //
 // When this test fails on a platform you did not expect to differ:
 //   1. Run `ctest -R physics_determinism -V` there and read the printed hash.
 //   2. If a code change moved ALL platforms together (same new hash everywhere), update kReferenceHash.
-//   3. If only this platform differs, add a kPlatformHashes entry for it and list the platform in docs/AI_GUIDE.md.
+//   3. If only this platform differs, that is a determinism bug, not drift to record: find the libm call, tie-breaking sort,
+//      unordered iteration or FP contraction behind it (fa::det:: replaces sin / cos / atan2 / asin / acos), and fix it.
 #include <doctest.h>
 
 #include <array>
@@ -27,13 +29,14 @@ namespace {
 constexpr float kDt = 1.0f / 60.0f;
 
 // The hash every platform is expected to produce (SHA-256 of the replay, first 16 hex digits).
-constexpr const char* kReferenceHash = "9221e6b395dd3232";
+constexpr const char* kReferenceHash = "715653aeded84bc8";
 
 struct PlatformHash {
     const char* key;   // "<platform>-<arch>", see platform_key()
     const char* hash;  // what that platform produces when it differs from kReferenceHash
 };
-// Platforms that are known NOT to match the reference. Empty while every platform matches.
+// Must stay empty: one hash holds on every platform. (An entry would hide a determinism bug, and every physics change would
+// then have to refresh hashes from CI logs of machines nobody has locally.)
 constexpr std::array<PlatformHash, 0> kPlatformHashes{};
 
 // Platforms whose result is known to equal kReferenceHash (updated from CI logs; the failure message lists them).
@@ -179,10 +182,11 @@ TEST_CASE("physics replay hash matches the committed value of this platform") {
             "physics replay hash on " + key + " is " + got + ", expected " + expected +
             (override_ ? " (this platform's own value).\n" : " (the reference value).\n") +
             "Platforms known to produce the reference: " + kKnownMatching + ".\n" +
-            "If " + key + " is a new platform or a compiler/CPU that rounds differently, this is expected drift: add {\"" + key +
-            "\", \"" + got + "\"} to kPlatformHashes in engine/physics/tests/test_determinism.cpp and list " + key +
-            " under \"Physics and platforms\" in docs/AI_GUIDE.md. If a physics change moved every platform, update " +
-            "kReferenceHash instead (every job prints its hash: they should all print the same).";
+            "If a physics change moved every platform, update kReferenceHash (every job prints its hash: they should all print the "
+            "same). If only " + key + " differs, the simulation is not deterministic there: look for a C library call (std::sin, "
+            "cos, atan2, asin, acos, pow, exp, hypot; use fa::det:: or sqrt), a sort whose ties are not broken by index, an "
+            "iteration over an unordered container, or floating-point contraction (-ffp-contract=off). Run the core test "
+            "\"det math: exact bit patterns\" on this platform too: if it fails, + - * / sqrt rounds differently here.";
         FAIL(msg);
     }
 }

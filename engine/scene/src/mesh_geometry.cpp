@@ -26,7 +26,7 @@ void revolve(MeshGeometry& g, int seg, const std::vector<Vec2>& profile) {
     for (const Vec2& p : profile)
         for (int s = 0; s < seg; ++s) {
             const float a = float(s) / float(seg) * 2.0f * kPi;
-            g.positions.push_back({p.x * std::cos(a), p.y, p.x * std::sin(a)});
+            g.positions.push_back({p.x * det::cos(a), p.y, p.x * det::sin(a)});
         }
     for (std::uint32_t r = 0; r + 1 < rows; ++r)
         for (std::uint32_t s = 0; s < std::uint32_t(seg); ++s) {
@@ -43,7 +43,7 @@ void disc(MeshGeometry& g, int seg, float radius, float y) {
     g.positions.push_back({0, y, 0});
     for (int s = 0; s < seg; ++s) {
         const float a = float(s) / float(seg) * 2.0f * kPi;
-        g.positions.push_back({radius * std::cos(a), y, radius * std::sin(a)});
+        g.positions.push_back({radius * det::cos(a), y, radius * det::sin(a)});
     }
     for (int s = 0; s < seg; ++s)
         g.indices.insert(g.indices.end(), {centre, centre + 1 + std::uint32_t(s), centre + 1 + std::uint32_t((s + 1) % seg)});
@@ -65,7 +65,7 @@ bool build_primitive_geometry(const std::string& name, MeshGeometry& g) {
         std::vector<Vec2> profile;
         for (int i = 0; i <= 16; ++i) {
             const float t = float(i) / 16.0f * kPi;
-            profile.push_back({std::sin(t) * h, std::cos(t) * h});
+            profile.push_back({det::sin(t) * h, det::cos(t) * h});
         }
         revolve(g, 32, profile);
     } else if (name == "cylinder") {
@@ -76,11 +76,11 @@ bool build_primitive_geometry(const std::string& name, MeshGeometry& g) {
         std::vector<Vec2> profile;
         for (int i = 0; i <= 8; ++i) {
             const float t = float(i) / 8.0f * (kPi * 0.5f);
-            profile.push_back({std::sin(t) * h, std::cos(t) * h + 0.5f});
+            profile.push_back({det::sin(t) * h, det::cos(t) * h + 0.5f});
         }
         for (int i = 0; i <= 8; ++i) {
             const float t = kPi * 0.5f + float(i) / 8.0f * (kPi * 0.5f);
-            profile.push_back({std::sin(t) * h, std::cos(t) * h - 0.5f});
+            profile.push_back({det::sin(t) * h, det::cos(t) * h - 0.5f});
         }
         revolve(g, 32, profile);
     } else if (name == "cone") {

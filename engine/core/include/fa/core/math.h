@@ -16,6 +16,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include "fa/core/det_math.h"
+
 namespace fa {
 
 inline constexpr float kPi = 3.14159265358979323846f;
@@ -84,11 +86,11 @@ inline Vec2 normalize(Vec2 v) { float l = length(v); return l > kEpsilon ? v / l
 inline Vec2 lerp(Vec2 a, Vec2 b, float t) { return a + (b - a) * t; }
 inline Vec2 perp(Vec2 v) { return {-v.y, v.x}; }  // 90 deg counter-clockwise
 inline Vec2 rotate_deg(Vec2 v, float deg) {
-    float c = std::cos(radians(deg)), s = std::sin(radians(deg));
+    float c = det::cos(radians(deg)), s = det::sin(radians(deg));
     return {v.x * c - v.y * s, v.x * s + v.y * c};
 }
-inline Vec2 from_angle_deg(float deg) { return {std::cos(radians(deg)), std::sin(radians(deg))}; }
-inline float angle_deg(Vec2 v) { return degrees(std::atan2(v.y, v.x)); }
+inline Vec2 from_angle_deg(float deg) { return {det::cos(radians(deg)), det::sin(radians(deg))}; }
+inline float angle_deg(Vec2 v) { return degrees(det::atan2(v.y, v.x)); }
 inline Vec2 min(Vec2 a, Vec2 b) { return {std::min(a.x, b.x), std::min(a.y, b.y)}; }
 inline Vec2 max(Vec2 a, Vec2 b) { return {std::max(a.x, b.x), std::max(a.y, b.y)}; }
 inline Vec2 clamp_length(Vec2 v, float maxLen) {
@@ -249,8 +251,8 @@ struct Quat {
 
     static Quat axis_angle_deg(Vec3 axis, float deg) {
         Vec3 a = normalize(axis);
-        float h = radians(deg) * 0.5f, s = std::sin(h);
-        return {a.x * s, a.y * s, a.z * s, std::cos(h)};
+        float h = radians(deg) * 0.5f, s = det::sin(h);
+        return {a.x * s, a.y * s, a.z * s, det::cos(h)};
     }
     Quat operator*(const Quat& q) const {
         return {w * q.x + x * q.w + y * q.z - z * q.y,
@@ -281,20 +283,20 @@ inline Quat slerp(Quat a, Quat b, float t) {
     if (d > 0.9995f) {
         return normalize(Quat{lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.z, b.z, t), lerp(a.w, b.w, t)});
     }
-    float th = std::acos(d), s = std::sin(th);
-    float wa = std::sin((1.0f - t) * th) / s, wb = std::sin(t * th) / s;
+    float th = det::acos(d), s = det::sin(th);
+    float wa = det::sin((1.0f - t) * th) / s, wb = det::sin(t * th) / s;
     return {a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb, a.w * wa + b.w * wb};
 }
 inline Vec3 Quat::to_euler_deg() const {
     // Inverse of R = Ry * Rx * Rz.
     float sinPitch = clamp(2.0f * (w * x - y * z), -1.0f, 1.0f);
-    float pitch = std::asin(sinPitch);
+    float pitch = det::asin(sinPitch);
     float yaw, roll;
     if (std::fabs(sinPitch) < 0.9999f) {
-        yaw = std::atan2(2.0f * (x * z + w * y), 1.0f - 2.0f * (x * x + y * y));
-        roll = std::atan2(2.0f * (x * y + w * z), 1.0f - 2.0f * (x * x + z * z));
+        yaw = det::atan2(2.0f * (x * z + w * y), 1.0f - 2.0f * (x * x + y * y));
+        roll = det::atan2(2.0f * (x * y + w * z), 1.0f - 2.0f * (x * x + z * z));
     } else {  // gimbal lock: fold roll into yaw
-        yaw = std::atan2(-2.0f * (x * z - w * y), 1.0f - 2.0f * (y * y + z * z));
+        yaw = det::atan2(-2.0f * (x * z - w * y), 1.0f - 2.0f * (y * y + z * z));
         roll = 0.0f;
     }
     return {degrees(pitch), degrees(yaw), degrees(roll)};
@@ -345,19 +347,19 @@ struct Mat4 {
         return r;
     }
     static Mat4 rotate_x_deg(float deg) {
-        float c = std::cos(radians(deg)), s = std::sin(radians(deg));
+        float c = det::cos(radians(deg)), s = det::sin(radians(deg));
         Mat4 r;
         r.at(1, 1) = c; r.at(1, 2) = s; r.at(2, 1) = -s; r.at(2, 2) = c;
         return r;
     }
     static Mat4 rotate_y_deg(float deg) {
-        float c = std::cos(radians(deg)), s = std::sin(radians(deg));
+        float c = det::cos(radians(deg)), s = det::sin(radians(deg));
         Mat4 r;
         r.at(0, 0) = c; r.at(0, 2) = -s; r.at(2, 0) = s; r.at(2, 2) = c;
         return r;
     }
     static Mat4 rotate_z_deg(float deg) {
-        float c = std::cos(radians(deg)), s = std::sin(radians(deg));
+        float c = det::cos(radians(deg)), s = det::sin(radians(deg));
         Mat4 r;
         r.at(0, 0) = c; r.at(0, 1) = s; r.at(1, 0) = -s; r.at(1, 1) = c;
         return r;
