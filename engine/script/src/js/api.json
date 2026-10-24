@@ -1115,12 +1115,16 @@
        "doc": "false when only a path to the reachable point nearest the goal was returned (opts.closest)."
       },
       {
+       "sig": "links?: { point: number; entity: string }[]",
+       "doc": "Off-mesh links (NavLink3D) the path takes, in order: `point` is the index in `points` where the link starts (points[point + 1] is where it ends: jump or climb from one to the other, do not walk the straight line) and `entity` the id of the entity with the NavLink3D. Absent when the path takes none."
+      },
+      {
        "sig": "mesh: string",
        "doc": "Id of the NavMesh3D entity that answered."
       },
       {
        "sig": "reason?: \"start_off_mesh\" | \"goal_off_mesh\" | \"disconnected\"",
-       "doc": "Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way."
+       "doc": "Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way or a moving platform (Collider3D.navWalkable) is away."
       },
       {
        "sig": "message?: string",
