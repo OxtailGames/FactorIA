@@ -17,7 +17,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <string>
+#include <vector>
 
 #include "fa/core/hash.h"
 #include "fa/physics/physics.h"
