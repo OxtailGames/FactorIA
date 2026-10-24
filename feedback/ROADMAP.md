@@ -1441,6 +1441,10 @@ Done (branch `m26/render-quality`): `window.renderScale`, `window.supports`, `ga
 
 ### M26.16 Per-material colours (M) — CC/FB-0031
 
+Done (branch `m26/material-colors`): `MeshRenderer.materialColors` (replaces the glTF base colour factor of the named
+material, `color` still tints the whole model, part of the batch key) and the `factoria validate` check with a "did you
+mean"; Courier's `paints.js` can drop its dark-tint-plus-emissive trick (not changed in this package).
+
 After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF
 material name, `{"Body": [0.2, 0.8, 0.7, 1]}`, applied per sub-mesh (the sub-mesh keeps its material name) and part of
 the batch key; `factoria validate` checks the names against the model with a "did you mean".
@@ -1537,6 +1541,10 @@ only by CI; FB-0055 stays open until they match.
 
 ### M26.22 Menu kit command (M) — CC/FB-0003
 
+Done (branch `m26/menu-kit`): `project.add_menu_kit` (tools/common/src/menu_kit.cpp), the kit in `templates/menus/` with
+`kit.json` listing its parts; the menus fixture keeps a copy of every kit file that the `cli` test "the menus fixture holds
+exactly the kit's files" keeps identical.
+
 After M26.1 (the kit is formatted on write). The menus recipe moves to `templates/menus/` (scenes, prefabs, scripts and
 locale keys), MENUS.md shows it from there, and `project.add_menu_kit {parts, overwrite}` copies the parts asked for
 into a game and merges their keys into its locale files.
@@ -1545,6 +1553,9 @@ Acceptance: a tooling test adds the kit to a new project, which then validates a
 twice changes nothing.
 
 ### M26.23 UI layout check (M) — CC/FB-0043
+
+Done (branch `m26/layout-check`): `ui.check_layout` (engine/runtime/src/ui_check.cpp), `I18n::set_pseudo`; Courier's
+intro and profile keys shrink; its remaining findings are in its ENGINE_FEEDBACK.json notes.
 
 After M26.6. `ui.check_layout {scenes, languages, textScales, pseudo}` loads each screen in each language and text scale
 (and a pseudo-localized one that lengthens every string), and lists every text that overflows or overlaps, with the

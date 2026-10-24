@@ -134,6 +134,7 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
+    this.actions = this.actions.filter((action) => input.actions().includes(action)); // an action the game does not have gets no row
     for (const action of this.actions) {
       const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {

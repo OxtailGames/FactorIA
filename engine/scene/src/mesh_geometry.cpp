@@ -2,6 +2,7 @@
 
 #include <cgltf.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -172,6 +173,31 @@ bool is_primitive_mesh(const std::string& name) {
 }  // namespace
 
 std::string mesh_key(const std::string& mesh) { return is_primitive_mesh(mesh) ? to_lower(mesh) : mesh; }
+
+Result<std::vector<std::string>> gltf_material_names(const std::string& path) {
+    auto bytes = fs::read_bytes(path);
+    if (!bytes) return make_error(std::format("cannot read model '{}': {}", path, bytes.error().message),
+                                  "Use a project-relative .gltf/.glb path.");
+    cgltf_options opts{};
+    gltf_use_fs(opts);
+    cgltf_data* data = nullptr;
+    if (cgltf_parse(&opts, bytes->data(), bytes->size(), &data) != cgltf_result_success)
+        return make_error(std::format("cgltf could not parse '{}'", path), "The file must be a valid glTF 2.0 (.gltf or .glb) file.");
+    struct Guard {
+        cgltf_data* d;
+        ~Guard() { cgltf_free(d); }
+    } guard{data};
+    std::vector<std::string> names;
+    for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
+        if (!data->nodes[ni].mesh) continue;
+        const cgltf_mesh& mesh = *data->nodes[ni].mesh;
+        for (cgltf_size pi = 0; pi < mesh.primitives_count; ++pi) {
+            const cgltf_material* m = mesh.primitives[pi].material;
+            if (m && m->name && *m->name && std::find(names.begin(), names.end(), m->name) == names.end()) names.push_back(m->name);
+        }
+    }
+    return names;
+}
 
 Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string& mesh) {
     static std::map<std::string, std::shared_ptr<const MeshGeometry>> cache;

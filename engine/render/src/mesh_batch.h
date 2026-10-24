@@ -18,6 +18,7 @@ struct MeshItem {
     float dist = 0;                     // distance to the camera (blended meshes are drawn far to near)
     MaterialAsset* material = nullptr;  // MeshRenderer.material (null = none); a failed one is drawn with the error material
     std::size_t paramsHash = 0;         // hash of MeshRenderer.materialParams (0 = no overrides): different overrides never share a draw
+    std::size_t colorsHash = 0;         // hash of MeshRenderer.materialColors (0 = none): different colours never share a draw
     const Animator* anim = nullptr;     // set when the mesh is drawn skinned by this Animator's palette: never batched with another
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // model-space bounds used for culling (the mesh's, or the skinned ones)
     bool visible = true;                // inside the camera frustum: drawn in the main pass

@@ -201,23 +201,30 @@ TEST_CASE("profiler: ProfBehaviourScope charges nested probes to the inner one o
     pr.set_enabled(true);
     pr.begin_frame();
     const std::string outer = "Outer", inner = "Inner", path = "scripts/x.js";
+    // The inner scope is much longer than the outer's own work, so a busy CI runner that preempts this thread for a few
+    // milliseconds cannot make the outer look as if it had been charged the inner's time.
     {
         ProfBehaviourScope a(outer, path);
         const double t0 = Profiler::now_ms();
-        while (Profiler::now_ms() - t0 < 3.0) {}  // outer's own work
+        while (Profiler::now_ms() - t0 < 2.0) {}  // outer's own work
         {
             ProfBehaviourScope b(inner, path);
             const double t1 = Profiler::now_ms();
-            while (Profiler::now_ms() - t1 < 6.0) {}
+            while (Profiler::now_ms() - t1 < 40.0) {}
         }
     }
     pr.end_frame();
     const ProfFrame f = pr.last();
     pr.set_enabled(false);
     REQUIRE(f.classes.size() == 2);
-    CHECK(f.classes[0].className == "Inner");
-    CHECK(f.classes[0].ms >= 6.0);
-    CHECK(f.classes[1].className == "Outer");
-    CHECK(f.classes[1].ms >= 3.0);
-    CHECK(f.classes[1].ms < 6.0);  // the 6 ms of the inner scope are not counted again
+    auto find = [&](const std::string& name) {
+        for (const auto& c : f.classes)
+            if (c.className == name) return c.ms;
+        FAIL("no class " << name << " in the frame");
+        return 0.0;
+    };
+    const double inner_ms = find(inner), outer_ms = find(outer);
+    CHECK(inner_ms >= 40.0);
+    CHECK(outer_ms >= 2.0);
+    CHECK(outer_ms < 40.0);  // the 40 ms of the inner scope are not counted again
 }

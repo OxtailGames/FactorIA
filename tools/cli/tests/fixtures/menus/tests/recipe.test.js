@@ -1,8 +1,11 @@
+// The test that ships with the menu kit (project.add_menu_kit): it opens the kit's main menu itself, so it passes whatever the
+// game's mainScene is, and drives the menus with a gamepad only.
 import { test, expect, game } from "factoria:test";
-import { ui, storage, audio } from "factoria";
+import { ui, storage, audio, scene } from "factoria";
 
-// Each test file starts on the project's mainScene (the main menu) with empty storage.
+// Each test file starts on the project's mainScene with empty storage.
 test("gamepad only: main menu -> options -> music volume -> back, and the volume is saved", () => {
+  scene.load("scenes/menu.scene.json");
   const pad = game.gamepad(0);
   game.step(2);
   pad.tap("DpadDown"); // Options
