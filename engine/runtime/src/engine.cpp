@@ -13,6 +13,7 @@
 #include "fa/runtime/plugins.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/video.h"
 
 namespace fa {
 
@@ -316,6 +317,11 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             }
             ProfSystemScope prof(ProfSystem::Animation);
             update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
+        }
+        {
+            // Videos follow the game clock: they stop with time.scale 0, and a play / pause / seek a script made still applies.
+            ProfSystemScope prof(ProfSystem::Animation);
+            update_videos(world, float(fixedDt * scale));
         }
         {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);

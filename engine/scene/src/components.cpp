@@ -14,7 +14,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
                "Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
-               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel "
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel "
                "with fit = true recomputes it every frame.")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
@@ -1194,6 +1194,51 @@ void register_builtin_components(TypeRegistry& r) {
             .field("lines", &Captions::lines,
                    "Runtime: what is drawn now, [{text, speaker}] oldest first, at most `maxLines`. Written by the engine every frame "
                    "from the caption list; do not edit it.")
+            .runtime_only().read_only();
+    }
+
+    {
+        auto video = r.add<Video>("Video",
+                  "A video on the screen (docs/MENUS.md, \"Studio intro\"): plays an .mpg file (MPEG-1 video with MP2 sound, the same "
+                  "decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with "
+                  "`factoria call assets.import '{\"source\":\"intro.mp4\"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays "
+                  "on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a "
+                  "headless run shows the same pictures at the same times as a windowed one. Control it from a script with "
+                  "`entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches "
+                  "its end the game event `video.ended` ({id, path}) fires once (`entity.video.on(\"ended\", fn)`). The picture is "
+                  "decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars "
+                  "where the picture does not fill the rectangle), starts playing at once.",
+                  "UI");
+        ui_box_fields(video)
+            .asset_field("path", &Video::path, "video",
+                         "Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A "
+                         "file that is missing or is not MPEG-1 video is logged once and the entity draws only its background.")
+            .field("autoplay", &Video::autoplay,
+                   "true (default): `playing` becomes true as soon as the file is open. false: it waits for `entity.video.play()` or "
+                   "`playing = true`, showing the first picture.")
+            .field("loop", &Video::loop,
+                   "true: at the end the video starts over from the beginning, picture and sound (no `video.ended` event). false: it stops "
+                   "on its last picture and fires `video.ended`.")
+            .field("volume", &Video::volume, "Loudness of the sound, 0 (silent) to 1 (full), before the bus volume.").range(0, 1)
+            .field("bus", &Video::bus,
+                   "Mixer bus of the sound: \"sfx\" (default), \"music\" or \"ui\". The bus volumes of a Settings menu apply to it "
+                   "like to any other sound. Any other name plays on sfx.")
+            .enum_field("fit", &Video::fit, {"contain", "cover", "stretch"},
+                        "How the picture fills the rectangle: contain (default) shows all of it, with bars of `color` where the shapes "
+                        "differ; cover fills the rectangle and cuts off what overflows; stretch fills it and distorts the picture.")
+            .field("tint", &Video::tint,
+                   "Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the video over what is "
+                   "behind it. `color` (the background) is a separate colour.")
+            .field("playing", &Video::playing,
+                   "Runtime: true while the video advances. Set true to play (from the start when it had ended), false to pause. "
+                   "Becomes false when the video ends.").runtime_only()
+            .field("ended", &Video::ended,
+                   "Runtime: true once the video reached its end (never while `loop`); false again after a seek or a restart.")
+            .runtime_only().read_only()
+            .field("time", &Video::time,
+                   "Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there).")
+            .runtime_only().range(0, 1000000)
+            .field("duration", &Video::duration, "Runtime: length of the video in seconds; 0 while the file is not open.")
             .runtime_only().read_only();
     }
 

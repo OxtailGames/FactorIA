@@ -625,6 +625,10 @@
       {
        "sig": "readonly animator: AnimatorAPI",
        "doc": "Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get(\"Animator\") answers null instead."
+      },
+      {
+       "sig": "readonly video: VideoAPI",
+       "doc": "Playback of this entity's Video component (play, pause, stop, seek, time, duration, the \"ended\" event). Throws if the entity has no Video; entity.get(\"Video\") answers null instead."
       }
      ]
     },
@@ -2532,6 +2536,61 @@
       {
        "sig": "readonly component: Components[\"Animator\"]",
        "doc": "The Animator component view (model, params, states, transitions, events...)."
+      }
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "VideoAPI",
+     "doc": "Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on(\"ended\", () => scene.load(\"scenes/menu.scene.json\"))`; `intro.video.seek(10)`.",
+     "members": [
+      {
+       "sig": "play(): void",
+       "doc": "Plays, or resumes after pause(). After the end it starts over from the first picture."
+      },
+      {
+       "sig": "pause(): void",
+       "doc": "Stops advancing and keeps the picture; the sound goes silent."
+      },
+      {
+       "sig": "stop(): void",
+       "doc": "Pauses and returns to the first picture."
+      },
+      {
+       "sig": "seek(seconds: number): void",
+       "doc": "Jumps to `seconds` (clamped to the length) and shows the picture there. Keeps playing if it was playing; no \"ended\" event comes from a seek."
+      },
+      {
+       "sig": "on(event: \"ended\", fn: (data: { id: string; path: string }, source: Entity | null) => void): () => void",
+       "doc": "Listens to the \"ended\" event of THIS entity's video: a video that does not loop reached its end (once per play). Returns the unsubscribe function. world.on(\"video.ended\", fn) hears every Video."
+      },
+      {
+       "sig": "readonly time: number",
+       "doc": "Seconds into the video."
+      },
+      {
+       "sig": "readonly duration: number",
+       "doc": "Length in seconds; 0 until the file is open (the first fixed step after the scene loads)."
+      },
+      {
+       "sig": "readonly playing: boolean",
+       "doc": "True while it advances."
+      },
+      {
+       "sig": "readonly ended: boolean",
+       "doc": "True after it reached its end, until a seek or play() starts it again."
+      },
+      {
+       "sig": "loop: boolean",
+       "doc": "Wrap to the first picture at the end instead of ending."
+      },
+      {
+       "sig": "volume: number",
+       "doc": "Loudness of the sound, 0..1."
+      },
+      {
+       "sig": "readonly component: Components[\"Video\"]",
+       "doc": "The Video component view (path, autoplay, fit, tint, bus...)."
       }
      ]
     },
