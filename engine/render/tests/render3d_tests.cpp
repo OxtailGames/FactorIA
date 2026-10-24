@@ -312,6 +312,73 @@ TEST_CASE("glTF materials: emissiveFactor lights a black surface") {
     CHECK(c.g < 0.2f);
 }
 
+TEST_CASE("materialColors: one material of a two-material model changes colour, the other does not") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // Two triangles side by side: "Left" (grey) on x in [-1, 0], "Right" (grey) on x in [0, 1], one material each.
+    const char* gltf = R"({
+      "asset":{"version":"2.0"},
+      "scene":0,"scenes":[{"nodes":[0]}],
+      "nodes":[{"mesh":0}],
+      "meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0},{"attributes":{"POSITION":1},"material":1}]}],
+      "materials":[{"name":"Left","pbrMetallicRoughness":{"baseColorFactor":[0.5,0.5,0.5,1],"metallicFactor":0},"doubleSided":true},
+                   {"name":"Right","pbrMetallicRoughness":{"baseColorFactor":[0.5,0.5,0.5,1],"metallicFactor":0},"doubleSided":true}],
+      "buffers":[{"byteLength":72,"uri":"data:application/octet-stream;base64,AACAvwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAPwAAgD8AAAAA"}],
+      "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":36}],
+      "accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-1,0,0],"max":[0,1,0]},
+                   {"bufferView":1,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}]
+    })";
+    REQUIRE(fs::write_text("assets/two_materials.gltf", gltf).ok());
+    auto frame = [&](const char* colors) {
+        World w;
+        add_camera(w, {0, 0.4f, 4}, {0, 0.4f, 0});
+        Entity e = make(w, "model", {0, 0, 0});
+        auto& mr = w.add<MeshRenderer>(e);
+        mr.mesh = "assets/two_materials.gltf";
+        if (colors) mr.materialColors = Json::parse(colors);
+        add_light(w, LightType::Directional, {0, 5, 0}, {-30, 0, 0}, 1.0f);
+        clear_recent_logs();
+        Image img = g.render(w);
+        CHECK(error_count() == 0);
+        return img;
+    };
+    // The camera sees 4.6 m across the 200 px height: the centroids of the two triangles are at these pixels.
+    const int lx = 139, ly = 103, rx = 181, ry = 103;
+    Image base = frame(nullptr);
+    Image red = frame(R"({"Right": [1, 0, 0, 1]})");
+    const Color l0 = base.pixel(lx, ly), l1 = red.pixel(lx, ly);
+    const Color r0 = base.pixel(rx, ry), r1 = red.pixel(rx, ry);
+    CHECK(l1.r == doctest::Approx(l0.r).epsilon(0.01));  // "Left" is not named: unchanged
+    CHECK(l1.g == doctest::Approx(l0.g).epsilon(0.01));
+    CHECK(r1.r > r1.g * 3.0f);                            // red after
+    CHECK(r1.r > r0.r);
+    CHECK(r0.r < r0.g * 2.0f);                            // not red before
+
+    // A name that is not in the model changes nothing.
+    Image typo = frame(R"({"Rite": [1, 0, 0, 1]})");
+    CHECK(typo.pixel(rx, ry).g == doctest::Approx(r0.g).epsilon(0.01));
+}
+
+TEST_CASE("materialColors: entities that differ only in materialColors do not share a batch") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    std::vector<render::MeshItem> items(2);
+    MeshRenderer a, b;
+    b.materialColors = Json::parse(R"({"Body": [1, 0, 0, 1]})");
+    for (auto& it : items) it.visible = true;
+    items[0].mr = &a;
+    items[1].mr = &b;
+    items[1].colorsHash = std::hash<std::string>{}(b.materialColors.dump());
+    std::vector<render::MeshBatch> batches;
+    std::vector<Mat4> mainMats, shadowMats;
+    render::build_batches(items, true, batches, mainMats, shadowMats);
+    CHECK(batches.size() == 2);
+    items[1].colorsHash = 0;
+    batches.clear(); mainMats.clear(); shadowMats.clear();
+    render::build_batches(items, true, batches, mainMats, shadowMats);
+    CHECK(batches.size() == 1);
+}
+
 TEST_CASE("3D PBR: metal and rough spheres, sky reflections and a normal-mapped floor") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

@@ -59,6 +59,14 @@ Graphics quality
   they pass the baseline (only for baselines that have them) or the new `budgets` (`maxTriangles`, `maxLights`,
   `maxTextureMB`, `maxDrawCalls`, `maxEntities`).
 
+Rendering
+
+- `MeshRenderer.materialColors` colours one material of a glTF model: `{"Body": [0.2, 0.8, 0.7, 1]}` replaces the
+  base colour factor of the material named "Body" on its sub-meshes (its texture still multiplies it), while
+  `color` keeps tinting the whole model and the other materials keep their own colour. Entities that differ only in
+  `materialColors` are drawn in separate batches. `factoria validate` checks the names against the model and suggests
+  the right one for a typo (FB-0031).
+
 Scripts
 
 - `scene.preload(path)` and `assets.preload(paths)` read a scene's files (or a list of assets) ahead of time, a few per

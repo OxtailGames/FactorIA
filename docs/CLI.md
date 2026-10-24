@@ -57,7 +57,7 @@ canonical layout (a hand-written scene) is valid: it gives ONE note listing the 
 error, not a warning), and `factoria call scene.format '{"paths":[...]}'` is the optional fix that keeps later diffs small. `scene.format` with `check` and
 `strict` is the CI gate if you want the layout enforced.
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
-warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (docs/ASSETS.md, "Checks"), and loudness warnings use the gain that `defaults.audio.normalize` applies. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
+warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (docs/ASSETS.md, "Checks"), a `MeshRenderer.materialColors` key that is not a material of its model is an error with a "did you mean", and loudness warnings use the gain that `defaults.audio.normalize` applies. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
 ### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
