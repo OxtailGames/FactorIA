@@ -17,6 +17,17 @@ Video player
 - `docs/MENUS.md` has a studio-intro recipe where any button skips the video. Clockwork Courier's intro is now a 4.8 second
   video of half a megabyte (FB-0051), recorded from an animated scene kept in `store/intro/`.
 
+Navigation: off-mesh links and walkable moving bodies
+
+- `NavLink3D` (an entity's position to `end`, `bidirectional`, `cost`) is an off-mesh link: `nav.findPath` may take it to
+  cross a gap, and the result's `links` lists `{point, entity}` where each link starts. A one-way link refuses the way
+  back; a link whose end is off the mesh is ignored.
+- `Collider3D.navWalkable` on a kinematic or jointed body (a rope bridge, a seesaw, a moving platform) leaves it out of
+  the static bake and adds its top surface as walkable cells wherever it is now, joined to the ground within
+  `stepHeight`; only the cells it left and entered are re-marked. `nav.info`, `nav.bake` and the editor's "Show navmesh"
+  show links and these cells (`links`, `walkableBodies`). Clockwork Courier marks its bridges, seesaw and platforms, and
+  `dog.js` needs one query instead of two (CC/FB-0056).
+
 Physics across platforms
 
 - The engine is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`), and the simulation no longer
@@ -120,8 +131,14 @@ Platform services
   drawn): `game.platform.ad("watched" | "closedEarly" | "noFill" | "consentRefused")` chooses how it ends (command `platform.set_ad`). The real
   networks (Google UMP and AdMob, Apple ATT) are not in yet: the native backends answer `unavailable`.
 - A leaderboard takes `period`: `"allTime"` (default), `"daily"` or `"weekly"`. The fake keeps one board per day or
-  week of `game.today()`, so a daily board is empty again after `game.setDate` moves to the next day; a store backend
-  rejects a daily or weekly board with `unavailable` until its recurring boards are mapped.
+  week of `game.today()`, so a daily board is empty again after `game.setDate` moves to the next day. The store backends
+  map the period too (next bullet).
+- Daily and weekly leaderboards on the stores. Steam keeps one board per period, named `<store name> <periodKey>`; Game
+  Center uses a recurring leaderboard of App Store Connect as it is, at its current occurrence, or reads a classic board
+  with the `.today` / `.week` time scope; Play Games reads the `TIME_SPAN_DAILY` / `TIME_SPAN_WEEKLY` table. These backends
+  no longer reject periods with `unavailable`. Each store starts a period at its own time (table in docs/PLATFORM.md,
+  "Leaderboard periods"); `submit` and `entries` carry `periodStart` and `periodEnd` when the store says them (Game Center's
+  recurring boards), on `entries` as properties of the array (FB-0030).
 - Clockwork Courier uses them instead of its ad stub and its single daily board (FB-0028, FB-0030).
 - The fake store can take a purchase back, as a refund does: `game.platform.revoke(productId)` in tests (command
   `platform.revoke`) removes it from `restore()` and sends the `purchase` event with `status: "revoked"`.

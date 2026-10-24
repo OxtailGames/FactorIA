@@ -1119,12 +1119,16 @@
        "doc": "false when only a path to the reachable point nearest the goal was returned (opts.closest)."
       },
       {
+       "sig": "links?: { point: number; entity: string }[]",
+       "doc": "Off-mesh links (NavLink3D) the path takes, in order: `point` is the index in `points` where the link starts (points[point + 1] is where it ends: jump or climb from one to the other, do not walk the straight line) and `entity` the id of the entity with the NavLink3D. Absent when the path takes none."
+      },
+      {
        "sig": "mesh: string",
        "doc": "Id of the NavMesh3D entity that answered."
       },
       {
        "sig": "reason?: \"start_off_mesh\" | \"goal_off_mesh\" | \"disconnected\"",
-       "doc": "Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way."
+       "doc": "Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way or a moving platform (Collider3D.navWalkable) is away."
       },
       {
        "sig": "message?: string",
@@ -2060,15 +2064,15 @@
     {
      "kind": "interface",
      "name": "PlatformLeaderboardsAPI",
-     "doc": "Leaderboards of factoria.json platform.leaderboards. A board with \"period\": \"daily\" or \"weekly\" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake backend keeps one per period; real stores reject with \"unavailable\" until M12 maps them to their recurring boards).",
+     "doc": "Leaderboards of factoria.json platform.leaderboards. A board with \"period\": \"daily\" or \"weekly\" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake keeps one per period; Steam makes one board per period, Game Center and Play Games use their own time scopes: docs/PLATFORM.md, \"Leaderboard periods\"; each store starts a period at its own time).",
      "members": [
       {
-       "sig": "submit(id: string, score: number): Promise<{ id: string; score: number; best: number }>",
-       "doc": "Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means."
+       "sig": "submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>",
+       "doc": "Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs."
       },
       {
-       "sig": "entries(id: string, options?: { range?: \"top\" | \"around\" | \"friends\"; count?: number }): Promise<PlatformLeaderboardEntry[]>",
-       "doc": "Reads entries: the best (\"top\", default), the ones around the player, or the player's friends; count 1..100 (default 10)."
+       "sig": "entries(id: string, options?: { range?: \"top\" | \"around\" | \"friends\"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>",
+       "doc": "Reads entries: the best (\"top\", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs."
       }
      ]
     },

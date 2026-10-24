@@ -382,6 +382,7 @@ public:
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
     bool showNav_ = false;                 // draw the NavMesh3D walkable cells (Window > Show navmesh)
+    std::vector<NavLinkDraw> navLinks_;    // last links drawn (same rule as navCells_)
     std::vector<NavCell> navCells_;        // last cells drawn; kept while the mouse is down so a drag does not rebake each frame
     // gizmos (viewport_gizmo.cpp)
     GizmoMode gizmoMode_ = GizmoMode::Move;

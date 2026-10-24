@@ -611,6 +611,7 @@ struct Collider3D {
     std::int32_t layer = 0;
     std::int32_t mask = -1;
     bool navObstacle = false;         // left out of the NavMesh3D bake; blocks the cells it covers while it is there
+    bool navWalkable = false;         // left out of the NavMesh3D bake; its top surface is walkable wherever it is NOW
 };
 
 // Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body
@@ -672,6 +673,15 @@ struct NavMesh3D {
     bool enabled = true;              // false: ignored by nav.find_path
     std::int32_t walkableCells = 0;   // runtime: walkable cells after the last bake (read only)
     std::int32_t regions = 0;         // runtime: separate walkable areas after the last bake (read only)
+};
+
+// An off-mesh link of the NavMesh3D: a jump, a climb, a ladder or a drop that the walkable cells do not join. The link
+// goes from the entity's world position to `end`; both ends must be on (or near) walkable cells. nav.findPath may take
+// it and says where (NavPath.links), so a script makes the character jump or climb there.
+struct NavLink3D {
+    Vec3 end{0, 0, 0};                // world position where the link ends
+    bool bidirectional = true;        // false: only from the entity's position to `end` (a drop, a one-way jump)
+    float cost = 0.0f;                // extra path length in meters added to the straight distance: raise it to make a path prefer walking
 };
 
 // ---------------------------------------------------------------- audio ---

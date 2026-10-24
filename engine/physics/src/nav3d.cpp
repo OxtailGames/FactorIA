@@ -26,6 +26,8 @@ Json NavBakeStats::to_json() const {
     j["walkableCells"] = walkableCells;
     j["regions"] = regions;
     j["obstacles"] = obstacles;
+    j["links"] = links;
+    j["walkableBodies"] = walkableBodies;
     return j;
 }
 
@@ -37,6 +39,16 @@ Json NavPath::to_json() const {
         Json pts = Json::array();
         for (const Vec3& p : points) pts.push_back(vec_json(p));
         j["points"] = pts;
+        if (!links.empty()) {
+            Json ls = Json::array();
+            for (const NavPathLink& l : links) {
+                Json o = Json::object();
+                o["point"] = l.point;
+                o["entity"] = l.entity;
+                ls.push_back(o);
+            }
+            j["links"] = ls;
+        }
         j["length"] = length;
         j["from"] = vec_json(from);
         j["to"] = vec_json(to);
@@ -73,6 +85,10 @@ struct Hasher {
         std::uint32_t bits = 0;
         std::memcpy(&bits, &v, sizeof bits);
         u64(bits);
+    }
+    void str(const std::string& v) {
+        u64(v.size());
+        for (char ch : v) u64(std::uint64_t(static_cast<unsigned char>(ch)));
     }
     void v3(Vec3 v) {
         f(v.x);
@@ -223,6 +239,7 @@ std::uint64_t Physics3D::nav_obstacle_signature(const Body& b) {
     Hasher h;
     h.u64(std::uint64_t(b.kind));
     h.u64(b.enabled ? 1 : 0);
+    h.u64(b.navWalkable ? 1 : 0);
     h.v3(b.center);
     for (int i = 0; i < 3; ++i) h.v3(b.ax[i]);
     h.v3(b.half);
@@ -292,6 +309,8 @@ bool Physics3D::nav_bake_one(World& world, NavState& n, std::string& error) {
     n.stats.spans = n.grid.span_count();
     n.stats.walkableCells = n.grid.walkable_count();
     n.stats.regions = n.grid.region_count();
+    n.linksResolved = false;
+    nav_apply_links(world, n);
     nav_apply_obstacles(n);
     if (NavMesh3D* m = world.get<NavMesh3D>(n.e)) {
         m->walkableCells = n.stats.walkableCells;
@@ -300,13 +319,81 @@ bool Physics3D::nav_bake_one(World& world, NavState& n, std::string& error) {
     return true;
 }
 
+void Physics3D::nav_apply_links(World& world, NavState& n) {
+    std::vector<NavState::Link> links;
+    world.each<NavLink3D>([&](Entity e, NavLink3D& l) {
+        if (world.pending_destroy(e) || !world.active_in_hierarchy(e)) return;
+        NavState::Link k;
+        k.e = e;
+        k.id = world.id_of(e);
+        k.from = world.world_position(e);
+        k.to = l.end;
+        k.bidirectional = l.bidirectional;
+        k.cost = std::max(l.cost, 0.0f);
+        links.push_back(std::move(k));
+    });
+    std::sort(links.begin(), links.end(), [](const NavState::Link& a, const NavState::Link& b) {
+        return a.id != b.id ? a.id < b.id : a.e.bits() < b.e.bits();
+    });
+    Hasher h;
+    for (const NavState::Link& k : links) {
+        h.str(k.id);
+        h.v3(k.from);
+        h.v3(k.to);
+        h.u64(k.bidirectional ? 1 : 0);
+        h.f(k.cost);
+    }
+    if (n.linksResolved && h.h == n.linkSig) return;
+    n.linkSig = h.h;
+    n.linksResolved = true;
+    const NavParams& p = n.grid.params();
+    const float down = p.height, up = p.step + p.cellHeight, snap = p.radius + 2.0f * p.cell;
+    auto resolve = [&](Vec3 pt) {
+        int s = n.grid.find_span(pt, down, up, true);
+        if (s < 0) s = n.grid.nearest_span(pt, down, up, snap, nullptr, true);
+        return s;
+    };
+    std::vector<NavGrid::LinkEdge> edges;
+    int connected = 0;
+    for (std::size_t i = 0; i < links.size(); ++i) {
+        NavState::Link& k = links[i];
+        const int a = resolve(k.from), b = resolve(k.to);
+        k.connected = a >= 0 && b >= 0 && a != b;
+        if (!k.connected) continue;
+        ++connected;
+        edges.push_back({int(i), a, b, k.cost});
+        if (k.bidirectional) edges.push_back({int(i), b, a, k.cost});
+    }
+    n.links = std::move(links);
+    n.grid.set_links(std::move(edges));
+    n.stats.links = connected;
+    n.stats.regions = n.grid.region_count();
+    if (NavMesh3D* m = world.get<NavMesh3D>(n.e)) m->regions = n.stats.regions;
+}
+
 void Physics3D::nav_apply_obstacles(NavState& n) {
     const NavParams& p = n.grid.params();
     std::set<std::uint64_t> seen;
     std::vector<NavEntry> entries;
     std::vector<NavGrid::Footprint> footprint;
     for (const Body& b : bodies_) {
-        if (!b.navObstacle || !b.enabled || !b.hasShape || b.trigger || b.character) continue;
+        if (!b.navWalkable || !b.enabled || !b.hasShape || b.trigger || b.character) continue;
+        Vec3 lo, hi;
+        aabb(b, lo, hi);
+        if (hi.y < p.yMin || lo.y > p.yMax || hi.x < p.origin.x || lo.x > p.origin.x + float(p.nx) * p.cell ||
+            hi.z < p.origin.z || lo.z > p.origin.z + float(p.nz) * p.cell)
+            continue;
+        const std::uint64_t key = b.e.bits(), sig = nav_obstacle_signature(b);
+        seen.insert(key);
+        auto it = n.obstacleSig.find(key);
+        if (it != n.obstacleSig.end() && it->second == sig) continue;
+        entries.clear();
+        nav_raster(b, p, entries);
+        n.grid.set_walkable(key, entries);
+        n.obstacleSig[key] = sig;
+    }
+    for (const Body& b : bodies_) {
+        if (!b.navObstacle || b.navWalkable || !b.enabled || !b.hasShape || b.trigger || b.character) continue;
         Vec3 lo, hi;
         aabb(b, lo, hi);
         if (hi.y < p.yMin || lo.y > p.yMax || hi.x < p.origin.x - 1.0f || lo.x > p.origin.x + float(p.nx) * p.cell + 1.0f ||
@@ -326,12 +413,15 @@ void Physics3D::nav_apply_obstacles(NavState& n) {
     for (auto it = n.obstacleSig.begin(); it != n.obstacleSig.end();) {
         if (!seen.count(it->first)) {
             n.grid.clear_obstacle(it->first);
+            n.grid.clear_walkable(it->first);
             it = n.obstacleSig.erase(it);
         } else {
             ++it;
         }
     }
+    n.grid.refresh();
     n.stats.obstacles = int(n.grid.obstacle_count());
+    n.stats.walkableBodies = int(n.grid.walkable_body_count());
 }
 
 void Physics3D::nav_update(World& world, bool allowBake) {
@@ -375,7 +465,10 @@ void Physics3D::nav_update(World& world, bool allowBake) {
         } else if (n.baked) {
             n.stale = sig != n.sig;
         }
-        if (n.baked) nav_apply_obstacles(n);
+        if (n.baked) {
+            nav_apply_links(world, n);
+            nav_apply_obstacles(n);
+        }
     }
     for (auto it = navs_.begin(); it != navs_.end();) {
         if (!alive.count(it->first)) it = navs_.erase(it);
@@ -526,38 +619,60 @@ Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const
     if (!resolve(to, "goal", gs, gd)) return res;
 
     int closest = ss;
-    std::vector<int> chain;
+    std::vector<int> chain, via;
     if (ss == gs) {
         chain = {ss};
+        via = {-1};
     } else {
-        chain = g.search(ss, gs, &closest);
+        chain = g.search(ss, gs, &closest, &via);
     }
     if (chain.empty()) {
         if (options.closest) {
-            chain = closest == ss ? std::vector<int>{ss} : g.search(ss, closest);
+            if (closest == ss) {
+                chain = {ss};
+                via = {-1};
+            } else {
+                chain = g.search(ss, closest, nullptr, &via);
+            }
             res.complete = false;
         } else {
             const int rs = g.span(ss).region, rg = g.span(gs).region;
             res.found = false;
             res.reason = "disconnected";
-            if (rs != rg)
+            const bool moving = rs == 0 || rg == 0;  // a start or goal on the top of a walkable moving body
+            const std::string bodies =
+                g.walkable_body_count() > 0
+                    ? std::format(" A moving platform or bridge (Collider3D.navWalkable; {} body(ies), {} cells now) may be away.",
+                                  int(g.walkable_body_count()), g.dynamic_count())
+                    : std::string();
+            if (moving)
+                res.message = std::format("No route from {} to {} right now: one of them is on a moving body (Collider3D.navWalkable) that "
+                                          "does not join the other right now.", fmt3(g.center(ss)), fmt3(g.center(gs))) + bodies;
+            else if (rs != rg)
                 res.message = std::format("No route from {} to {}: they are in different walkable areas (area {} and area {} of {}). "
                                           "Between them is a wall, a drop, a step higher than stepHeight ({:.2f} m), a slope "
                                           "steeper than maxSlope ({:.0f} degrees) or a gap narrower than 2 x agentRadius ({:.2f} m).",
                                           fmt3(g.center(ss)), fmt3(g.center(gs)), rs, rg, g.region_count(), p.step, p.maxSlopeDeg,
                                           2.0f * p.radius);
             else
-                res.message = std::format("No route from {} to {} right now: both are in walkable area {}, but a moving obstacle "
-                                          "(Collider3D.navObstacle) blocks the way ({} obstacle(s) active).", fmt3(g.center(ss)),
+                res.message = std::format("No route from {} to {} right now: both are in walkable area {}, but the way is closed: a moving obstacle "
+                                          "(Collider3D.navObstacle; {} active) blocks it, or a NavLink3D on the way is one-way.", fmt3(g.center(ss)),
                                           fmt3(g.center(gs)), rs, int(g.obstacle_count()));
+            if (rs != rg && !moving) res.message += bodies;
             res.hint = "Look at the walkable cells (the editor's Show navmesh, or nav.info), widen the gap or add a ramp; "
                        "or pass {closest: true} to walk to the reachable point nearest the goal.";
             return res;
         }
     }
-    const std::vector<int> corners = g.pull(chain);
+    std::vector<int> cornerLink;
+    const std::vector<int> corners = g.pull(chain, &via, &cornerLink);
     res.found = true;
-    for (int s : corners) res.points.push_back(g.center(s));
+    for (std::size_t i = 0; i < corners.size(); ++i) {
+        // a link starts at the point before the corner it leads to
+        if (cornerLink[i] >= 0 && i > 0)
+            res.links.push_back({int(i) - 1, mesh->links[std::size_t(cornerLink[i])].id});
+        res.points.push_back(g.center(corners[i]));
+    }
     // The ends are the points asked for, on the surface, when they were on a walkable cell themselves.
     if (sd == 0.0f) res.points.front() = {from.x, res.points.front().y, from.z};
     if (gd == 0.0f && res.complete) {
@@ -577,16 +692,28 @@ std::vector<NavCell> Physics3D::nav_cells(World& world, std::size_t maxCells) {
     for (std::uint64_t k : navOrder_) {
         const NavState& n = navs_[k];
         if (!n.baked || !n.cfg.enabled) continue;
-        for (int s = 0; s < n.grid.span_count() && out.size() < maxCells; ++s) {
+        for (int s = 0; s < n.grid.total_count() && out.size() < maxCells; ++s) {
             const NavGrid::Span& sp = n.grid.span(s);
-            if (sp.eroded) continue;
+            if (sp.eroded || !sp.alive) continue;
             NavCell c;
             c.center = n.grid.center(s);
             c.size = n.grid.params().cell;
             c.blocked = sp.block > 0;
+            c.moving = sp.dynamic;
             c.region = sp.region;
             out.push_back(c);
         }
+    }
+    return out;
+}
+
+std::vector<NavLinkDraw> Physics3D::nav_links(World& world) {
+    nav_update(world, true);
+    std::vector<NavLinkDraw> out;
+    for (std::uint64_t k : navOrder_) {
+        const NavState& n = navs_[k];
+        if (!n.baked || !n.cfg.enabled) continue;
+        for (const NavState::Link& l : n.links) out.push_back({l.from, l.to, l.bidirectional, l.connected, l.id});
     }
     return out;
 }
@@ -614,6 +741,28 @@ Json Physics3D::nav_info(World& world) {
         if (n.baked) {
             j["staleSinceBake"] = n.stale;
             j["stats"] = n.stats.to_json();
+            Json links = Json::array();
+            for (const NavState::Link& l : n.links) {
+                Json o = Json::object();
+                o["entity"] = l.id;
+                o["from"] = vec_json(l.from);
+                o["to"] = vec_json(l.to);
+                o["bidirectional"] = l.bidirectional;
+                o["cost"] = l.cost;
+                o["connected"] = l.connected;
+                links.push_back(o);
+            }
+            j["links"] = links;
+            Json bodies = Json::array();
+            for (const Body& b : bodies_) {
+                if (!b.navWalkable || !b.enabled || !b.hasShape || b.trigger || b.character) continue;
+                if (n.obstacleSig.find(b.e.bits()) == n.obstacleSig.end()) continue;
+                Json o = Json::object();
+                o["entity"] = b.id;
+                o["position"] = vec_json(b.center);
+                bodies.push_back(o);
+            }
+            j["walkableBodies"] = bodies;
         }
         out.push_back(j);
     }
