@@ -399,6 +399,52 @@ struct Captions : UiBox {
     }
 };
 
+// How a Video fills its rectangle: contain = all of the picture, bars of `color` where the shapes differ; cover = fills the
+// rectangle, the overflowing edge of the picture is cut off; stretch = fills it by distorting the picture.
+enum class VideoFit : std::int32_t { Contain, Cover, Stretch };
+
+class VideoDecoder;  // fa/core/video.h
+
+// What the video system (video.h) keeps per Video at run time. Never serialized. Copying it gives an EMPTY state (a decoder
+// cannot be shared by two entities: the copy opens the file again), moving it keeps the state.
+struct VideoRuntime {
+    VideoRuntime() = default;
+    VideoRuntime(const VideoRuntime&) {}
+    VideoRuntime& operator=(const VideoRuntime& o) {
+        if (this != &o) *this = VideoRuntime();
+        return *this;
+    }
+    VideoRuntime(VideoRuntime&&) noexcept = default;
+    VideoRuntime& operator=(VideoRuntime&&) noexcept = default;
+
+    std::shared_ptr<VideoDecoder> decoder;  // null until the file is opened (and after it failed to open)
+    std::string openedPath;                 // the `path` the decoder was opened from (a different `path` reopens)
+    bool tried = false;                     // openedPath was tried (a failed open is not retried every step)
+    double lastTime = 0.0;                  // value `time` had after the last step (a different value means a script seeked)
+};
+
+// A video on the screen: the picture of an .mpg (MPEG-1 video, MP2 audio) drawn in the rectangle of the UiBox, its sound
+// played on a mixer bus. Time follows the game clock: it pauses with the game and a headless run decodes exactly what a
+// windowed one does.
+struct Video : UiBox {
+    std::string path;                         // project path of the .mpg
+    bool autoplay = true;                     // start playing as soon as the file is open (also after `path` changes)
+    bool loop = false;                        // wrap to the start at the end instead of stopping
+    float volume = 1.0f;                      // 0..1 loudness of the sound
+    std::string bus = "sfx";                  // mixer bus of the sound: "sfx", "music" or "ui"
+    VideoFit fit = VideoFit::Contain;
+    Color tint{1, 1, 1, 1};                   // multiplied with the picture (alpha < 1 fades the video over what is below)
+    bool playing = false;                     // runtime: advancing; set true to play (or restart after the end), false to pause
+    bool ended = false;                       // runtime: reached the end of the file (never while `loop`)
+    float time = 0.0f;                        // runtime: seconds into the video (assignable: seek)
+    float duration = 0.0f;                    // runtime: length in seconds; 0 until the file is open
+    VideoRuntime rt;
+    Video() {
+        size = {640, 360};
+        color = {0, 0, 0, 1};
+    }
+};
+
 // ------------------------------------------------------------------- 3D ---
 // mesh: "cube" | "sphere" | "plane" | "cylinder" | "capsule" | "cone" | "quad"
 //       or an asset path to a .gltf/.glb file ("assets/models/ship.glb").

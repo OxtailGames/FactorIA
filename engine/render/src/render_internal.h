@@ -15,6 +15,7 @@
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/video.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/world.h"
 
@@ -361,6 +362,12 @@ public:
     // Makes a texture from CPU pixels (RGBA8) with an optional mip chain.
     TextureAsset* make_texture(const std::string& name, const Image& img, bool mips);
 
+    // The texture that shows the current picture of a Video's decoder: made on first use and uploaded again whenever the decoder
+    // has a new picture (the image is recreated; the TextureAsset pointer stays valid). Never null. end_video_frame() frees the
+    // textures of decoders no video_texture() asked for since the last call (call it once per drawn frame).
+    TextureAsset* video_texture(const std::shared_ptr<VideoDecoder>& decoder);
+    void end_video_frame();
+
 private:
     friend class MeshLoader;
     struct Failure { std::string kind, path, message, hint; };
@@ -379,6 +386,14 @@ private:
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
+    struct VideoTexture {
+        std::weak_ptr<VideoDecoder> decoder;
+        std::unique_ptr<TextureAsset> tex;
+        std::uint64_t serial = 0;  // picture_serial() of the picture the image holds
+        bool uploaded = false;
+        bool seen = false;
+    };
+    std::unordered_map<const VideoDecoder*, VideoTexture> videoTextures_;
     std::unique_ptr<TextureAsset> white_;
     std::unique_ptr<TextureAsset> placeholderTex_;
     std::unique_ptr<MeshAsset> placeholderMesh_;

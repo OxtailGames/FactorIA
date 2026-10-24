@@ -11,6 +11,7 @@
 #include "fa/scene/animation.h"
 #include "fa/scene/localize.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/video.h"
 #include "fa/script/script.h"
 #include "fa/services/fake_platform.h"
 #include "fa/services/platform_commands.h"
@@ -123,6 +124,7 @@ struct TestHost : ScriptHost {
             scripts.fixed_update(dt);
             ph.step(w, dt);
             update_animators(w, dt);
+            update_videos(w, dt);
             scripts.dispatch_events();
             scripts.update(dt);
             au.update(w, dt);

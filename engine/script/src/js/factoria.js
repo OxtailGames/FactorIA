@@ -494,6 +494,11 @@
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
       return new AnimatorApi(this.$h);
     }
+    get video() {
+      if (!N.hasComp(this.$h, "Video"))
+        throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
+      return new VideoApi(this.$h);
+    }
     toJSON() { return N.entityJson(this.$h, true, false); }
     toString() { return `Entity(${this.id})`; }
   }
@@ -536,6 +541,35 @@
     set loop(v) { this.component.loop = v; }
     get playing() { return this.component.playing; }
     set playing(v) { this.component.playing = v; }
+  }
+
+  // ========================================================================================================== video
+  // entity.video: a Video component (an .mpg on a UI rectangle). The component holds the state and the engine advances it with
+  // the game clock; everything here is a thin wrapper over its fields.
+  class VideoApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("Video")); }
+    play() { this.component.playing = true; }
+    pause() { this.component.playing = false; }
+    stop() { const c = this.component; c.playing = false; c.time = 0; }
+    seek(seconds) {
+      if (typeof seconds !== "number" || !Number.isFinite(seconds)) throw new Error(`video.seek(seconds) expects a number of seconds, got ${seconds}`);
+      this.component.time = Math.max(0, seconds);
+    }
+    on(name, fn) {
+      if (name !== "ended")
+        throw new Error(`video.on: unknown event '${name}'${closest(name, ["ended"]) ? `; did you mean 'ended'?` : ""}; the only event is "ended" (a video that does not loop reached its end)`);
+      const id = N.idOf(this.$h);
+      return addListener("video.ended", (data, source) => { if (data && data.id === id) fn(data, source); }, null);
+    }
+    get time() { return this.component.time; }
+    get duration() { return this.component.duration; }
+    get playing() { return this.component.playing; }
+    get ended() { return this.component.ended; }
+    get loop() { return this.component.loop; }
+    set loop(v) { this.component.loop = v; }
+    get volume() { return this.component.volume; }
+    set volume(v) { this.component.volume = v; }
   }
 
   // ========================================================================================================= tween
