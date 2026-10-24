@@ -695,6 +695,8 @@ void Renderer::Impl::render(World& world, float dt) {
         mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
         if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
             mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
+        if (mr.materialColors.is_object() && !mr.materialColors.empty())
+            mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
         mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         mi.dist = length(mi.model.translation() - fr.cam.position);
         mi.bmin = mi.mesh->bmin;
@@ -892,6 +894,21 @@ void Renderer::Impl::render(World& world, float dt) {
         d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
         return d;
     };
+    // The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
+    auto part_base_color = [](const MeshRenderer& mr, const SubMesh& part) {
+        if (!part.materialName.empty() && mr.materialColors.is_object()) {
+            auto it = mr.materialColors.find(part.materialName);
+            if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
+                float v[4] = {1, 1, 1, 1};
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
+                    v[i] = (*it)[i].get<float>();
+                }
+                return Color{v[0], v[1], v[2], v[3]};
+            }
+        }
+        return part.baseColor;
+    };
     // The fragment parameters (fa_mesh_fs_params) of one part.
     auto fill_fs = [&](const MeshItem& mi, const SubMesh& part, const PartDraw& d) {
         const MeshRenderer& mr = *mi.mr;
@@ -900,7 +917,7 @@ void Renderer::Impl::render(World& world, float dt) {
         if (!d.error) { fu.fa_emissive[0] = mr.emissive.r; fu.fa_emissive[1] = mr.emissive.g; fu.fa_emissive[2] = mr.emissive.b; }
         fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
         fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
-        const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part.baseColor;
+        const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part_base_color(mr, part);
         fu.fa_base_color[0] = base.r; fu.fa_base_color[1] = base.g; fu.fa_base_color[2] = base.b; fu.fa_base_color[3] = base.a;
         // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.
         fu.fa_pbr[0] = part.hasPbr ? saturate(part.metallic) : saturate(mr.metallic);

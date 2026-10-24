@@ -366,9 +366,10 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
     fa::fs::set_project_root(oldRoot);
 }
 
-// docs/MENUS.md gives every file of the menu kit, and tools/cli/tests/fixtures/menus is that kit, run by ctest
-// (fixture_menus_validate, fixture_menus_test). A code block whose info string names a file ("```js scripts/settings.js")
-// must be the fixture's file: the same text for scripts, the same JSON for scenes and prefabs (the fixture keeps the
+// docs/MENUS.md gives every file of the menu kit (templates/menus/), and tools/cli/tests/fixtures/menus holds the kit's files
+// (menu_kit_test.cpp keeps them identical) and the demo's own, run by ctest (fixture_menus_validate, fixture_menus_test). A
+// code block whose info string names a file ("```js scripts/settings.js") must be the kit's file, or the fixture's when the kit
+// has no such file: the same text for scripts, the same JSON for scenes and prefabs (the fixture keeps the
 // canonical layout, the doc a shorter one).
 TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
     const stdfs::path repo = FA_REPO_ROOT;
@@ -395,8 +396,9 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
             body.clear();
         } else if (!path.empty()) {
             CAPTURE(path);
-            const std::string file = read(repo / "tools/cli/tests/fixtures/menus" / path);
-            REQUIRE_MESSAGE(!file.empty(), "the fixture has no " << path);
+            const bool inKit = stdfs::exists(repo / "templates/menus" / path) && path.rfind("locales/", 0) != 0;
+            const std::string file = read(repo / (inKit ? "templates/menus" : "tools/cli/tests/fixtures/menus") / path);
+            REQUIRE_MESSAGE(!file.empty(), "neither the kit nor the fixture has " << path);
             if (lang == "json")
                 CHECK(fa::Json::parse(body, nullptr, false) == fa::Json::parse(file, nullptr, false));
             else

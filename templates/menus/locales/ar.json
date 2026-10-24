@@ -1,0 +1,96 @@
+{
+  "$name": "العربية",
+  "menu": {
+    "title": "لعبتي",
+    "play": "العب",
+    "options": "الخيارات",
+    "credits": "الشكر",
+    "shop": "المتجر",
+    "quit": "خروج",
+    "back": "رجوع"
+  },
+  "loading": {
+    "text": "جارٍ التحميل..."
+  },
+  "captions": {
+    "welcome": "مرحبًا أيها المسافر.",
+    "hint": "احذر من الحافة!",
+    "guide": "المرشدة"
+  },
+  "pause": {
+    "title": "إيقاف مؤقت",
+    "resume": "متابعة",
+    "mainMenu": "القائمة الرئيسية"
+  },
+  "options": {
+    "title": "الخيارات",
+    "tab": {
+      "video": "الفيديو",
+      "audio": "الصوت",
+      "controls": "التحكم",
+      "language": "اللغة"
+    },
+    "fullscreen": "ملء الشاشة",
+    "vsync": "VSync",
+    "windowSize": "حجم النافذة: {width} x {height}",
+    "windowSizeFullscreen": "حجم النافذة: ملء الشاشة",
+    "frameCap": "حد الإطارات: {fps} إطار/ث",
+    "frameCapOff": "حد الإطارات: متوقف",
+    "colorFilter": "فلتر الألوان: {filter}",
+    "filter": {
+      "none": "متوقف",
+      "greyscale": "تدرج رمادي",
+      "highContrast": "تباين عالٍ",
+      "protanopia": "عمى اللون الأحمر",
+      "deuteranopia": "عمى اللون الأخضر",
+      "tritanopia": "عمى اللون الأزرق"
+    },
+    "videoNote": "تُطبَّق إعدادات الفيديو عندما تعمل اللعبة في نافذتها الخاصة.",
+    "volume": {
+      "master": "العام",
+      "music": "الموسيقى",
+      "effects": "المؤثرات",
+      "interface": "الواجهة"
+    },
+    "action": {
+      "move_left": "تحرك يسارًا",
+      "move_right": "تحرك يمينًا",
+      "jump": "اقفز",
+      "pause": "إيقاف مؤقت"
+    },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: اضغط مفتاحًا أو زرًا (Esc للإلغاء)",
+    "resetControls": "استعادة الإعدادات الافتراضية",
+    "language": "اللغة: {language}",
+    "readAloud": "قراءة القوائم بصوت عالٍ",
+    "subtitles": "الترجمة النصية",
+    "on": "مفعّل",
+    "off": "معطّل",
+    "percent": "{value} بالمئة"
+  },
+  "credits": {
+    "madeWith": "صُنعت باستخدام FactorIA",
+    "software": "تستخدم هذه اللعبة البرامج التالية:",
+    "licenses": "نصوص التراخيص الكاملة في الملف FACTORIA_NOTICES.txt المرفق مع اللعبة."
+  },
+  "shop": {
+    "title": "المتجر",
+    "gems": "الجواهر: {count}",
+    "gemsNoAds": "الجواهر: {count}   (بلا إعلانات)",
+    "restore": "استعادة المشتريات",
+    "waiting": "بانتظار المتجر...",
+    "asking": "جارٍ سؤال المتجر...",
+    "thanks": "شكرًا لك!",
+    "arrived": "وصلت مشترياتك.",
+    "pending": "بانتظار الموافقة. تصل المشتريات عند الموافقة عليها.",
+    "cancelled": "أُلغيت عملية الشراء. لم يُخصم أي مبلغ.",
+    "restored": "تمت استعادة مشترياتك.",
+    "nothingToRestore": "لم يكن هناك ما يُستعاد.",
+    "unreachable": "تعذّر الوصول إلى المتجر ({code}). {detail}"
+  },
+  "keyboard": {
+    "space": "مسافة",
+    "delete": "حذف",
+    "done": "تم"
+  }
+}

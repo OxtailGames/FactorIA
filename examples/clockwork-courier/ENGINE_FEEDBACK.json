@@ -73,9 +73,10 @@
       "suggestion": "Add a command (and MCP tool) that writes the kit into the project, optionally with a choice of parts (pause only, settings only).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.22 (Menu kit command) in feedback/ROADMAP.md."
+        "2026-10-22 triage: confirmed open; work package M26.22 (Menu kit command) in feedback/ROADMAP.md.",
+        "2026-10-24: fixed in m26/menu-kit (M26.22): project.add_menu_kit {parts, overwrite} copies the kit of templates/menus/ (main-menu, options, credits, shop, pause, loading, keyboard, dialogue; parts bring what they need) into the game and merges its texts into the locales without replacing a key; a changed file stays unless overwrite is true. docs/MENUS.md, \"Add the kit with a command\"."
       ]
     },
     {
@@ -806,10 +807,12 @@
       "suggestion": "MeshRenderer.materialColors: {materialName: [r,g,b,a]} overrides, or a colour per glTF material slot.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.16 (Per-material colours) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.16 (Per-material colours) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/material-colors (M26.16): MeshRenderer.materialColors {materialName: [r,g,b,a]} replaces the glTF base colour factor of that material (MeshRenderer.color still tints the whole model), and factoria validate checks the names against the model with a did-you-mean. scripts/paints.js can now give the body a real colour and leave the eyes alone; it is not changed yet."
+      ],
+      "engineIssue": "m26/material-colors"
     },
     {
       "id": "FB-0032",
@@ -1114,10 +1117,12 @@
       "suggestion": "`factoria validate --pseudo-loc` (or a ui.overflowing() query) that lists clipped labels and widgets outside the screen at a given text scale and language.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: confirmed open; work package M26.23 (UI layout check) in feedback/ROADMAP.md."
-      ]
+        "2026-10-22 triage: confirmed open; work package M26.23 (UI layout check) in feedback/ROADMAP.md.",
+        "2026-10-23: fixed in m26/layout-check (M26.23): `ui.check_layout` loads each scene in each language and text scale plus a pseudo-localized pass and lists overflowing, overlapping and off-screen texts. First run on the game found the profile keyboard keys and the intro title and Skip button overflowing at 200 % (fixed with autoShrink); still open in the game: intro_hint leaves the screen at 200 % (safeArea bottom anchor), intro_hint overlaps intro_skip in Spanish at 200 %, select_title overlaps select_total at 200 % in every language, and the pseudo pass shows the main menu title and the Shop, Leaderboards and Credits buttons breaking at 200 % with 40 % longer text."
+      ],
+      "engineIssue": "m26/layout-check"
     },
     {
       "id": "FB-0044",

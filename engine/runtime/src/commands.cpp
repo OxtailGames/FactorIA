@@ -507,6 +507,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_scene_file_commands(engine, I);  // prefab.save, scene.format
     register_play_session_commands(engine, I);  // play.sessions, play.report
     register_i18n_commands(engine, I);          // i18n.state, i18n.set_language
+    register_ui_check_commands(engine, I);      // ui.check_layout
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 
     // --------------------------------------------------------------------- game

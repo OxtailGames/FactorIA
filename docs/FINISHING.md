@@ -17,8 +17,9 @@ says so under "Not in the engine".
 
 ## 1. Main menu, pause and the menu kit
 
-Read [MENUS.md](MENUS.md) (`factoria docs read menus`) and copy its files as they are: main menu, options, credits,
-loading screen and pause menu, driven by FactorIA's own tests with a gamepad only. The steps there are the whole recipe;
+Read [MENUS.md](MENUS.md) (`factoria docs read menus`) and add its kit with `project.add_menu_kit` (`factoria call
+project.add_menu_kit`; it copies the files as they are and merges their texts into your locales): main menu, options,
+credits, loading screen and pause menu, driven by FactorIA's own tests with a gamepad only. The steps there are the whole recipe;
 the parts a finished game must not skip:
 
 - `factoria.json` starts on the menu and has a `pause` action: `"mainScene": "scenes/menu.scene.json"`, and in
