@@ -251,9 +251,55 @@ final class GameCenter: @unchecked Sendable {
         return board
     }
 
-    func submit(id: String, storeId: String, order: String, score: Int) async throws -> JSONObject {
+    /// The period of a leaderboard request: `period` ("allTime", "daily" or "weekly") from the catalog.
+    ///
+    /// Game Center's own recurring boards (set up in App Store Connect) are used as they are, at their current occurrence:
+    /// the app does not pick the occurrence and the request's `periodKey` is not used. A classic board is read with the
+    /// `.today` or `.week` time scope of the same board. Both start periods at Apple's times (a recurring board's start date,
+    /// from App Store Connect; `.today` and `.week` are Game Center's own days and weeks), not at the player's midnight.
+    struct Period {
+        let scope: GKLeaderboard.TimeScope
+        /// The current occurrence of a recurring board, when Apple says: ISO 8601 UTC text.
+        let start: String?
+        let end: String?
+
+        var json: JSONObject {
+            var out: JSONObject = [:]
+            if let start = start { out["periodStart"] = start }
+            if let end = end { out["periodEnd"] = end }
+            return out
+        }
+    }
+
+    private static func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter.string(from: date)
+    }
+
+    static func period(of board: GKLeaderboard, requested: String) -> Period {
+        if board.type == .recurring {
+            // The board is the period: its occurrence is the current one, read with any scope.
+            var start: String? = nil, end: String? = nil
+            if let startDate = board.startDate {
+                start = iso(startDate)
+                if board.duration > 0 { end = iso(startDate.addingTimeInterval(board.duration)) }
+            }
+            if end == nil, let next = board.nextStartDate { end = iso(next) }
+            return Period(scope: .allTime, start: start, end: end)
+        }
+        switch requested {
+        case "daily": return Period(scope: .today, start: nil, end: nil)
+        case "weekly": return Period(scope: .week, start: nil, end: nil)
+        default: return Period(scope: .allTime, start: nil, end: nil)
+        }
+    }
+
+    func submit(id: String, storeId: String, order: String, period requested: String, score: Int) async throws -> JSONObject {
         try requireSignedIn()
         let board = try await leaderboard(id: id, storeId: storeId)
+        let period = GameCenter.period(of: board, requested: requested)
         do {
             try await board.submitScore(score, context: 0, player: GKLocalPlayer.local)
         } catch {
@@ -262,11 +308,13 @@ final class GameCenter: @unchecked Sendable {
         // The player's best after this one: the server's entry for the player, combined with the score just sent (the
         // server may not have counted it yet).
         var best = score
-        if let (mine, _, _) = try? await board.loadEntries(for: .global, timeScope: .allTime, range: NSRange(location: 1, length: 1)),
+        if let (mine, _, _) = try? await board.loadEntries(for: .global, timeScope: period.scope, range: NSRange(location: 1, length: 1)),
            let entry = mine {
             best = order == "ascending" ? min(entry.score, score) : max(entry.score, score)
         }
-        return ["id": id, "score": score, "best": best]
+        var out: JSONObject = ["id": id, "score": score, "best": best]
+        out.merge(period.json) { _, new in new }
+        return out
     }
 
     private func entryJSON(_ entry: GKLeaderboard.Entry) -> JSONObject {
@@ -275,24 +323,35 @@ final class GameCenter: @unchecked Sendable {
                 "isPlayer": player.gamePlayerID == GKLocalPlayer.local.gamePlayerID]
     }
 
-    func entries(id: String, storeId: String, range: String, count: Int) async throws -> [JSONObject] {
+    /// The entries as the list the contract wants; of a recurring board, `{entries, periodStart, periodEnd}` (the engine gives
+    /// the game the list with the two as properties).
+    private func answer(_ entries: [GKLeaderboard.Entry], _ period: Period) -> Any {
+        let list = entries.map(entryJSON)
+        if period.start == nil && period.end == nil { return list }
+        var out: JSONObject = ["entries": list]
+        out.merge(period.json) { _, new in new }
+        return out
+    }
+
+    func entries(id: String, storeId: String, range: String, period requested: String, count: Int) async throws -> Any {
         try requireSignedIn()
         let board = try await leaderboard(id: id, storeId: storeId)
+        let period = GameCenter.period(of: board, requested: requested)
         let action = "reading the leaderboard \"\(storeId)\""
         do {
             switch range {
             case "friends":
-                let (_, entries, _) = try await board.loadEntries(for: .friendsOnly, timeScope: .allTime, range: NSRange(location: 1, length: count))
-                return entries.map(entryJSON)
+                let (_, entries, _) = try await board.loadEntries(for: .friendsOnly, timeScope: period.scope, range: NSRange(location: 1, length: count))
+                return answer(entries, period)
             case "around":
-                let (mine, _, _) = try await board.loadEntries(for: .global, timeScope: .allTime, range: NSRange(location: 1, length: 1))
-                guard let me = mine else { return [] }  // no score yet: nobody is "around" the player
+                let (mine, _, _) = try await board.loadEntries(for: .global, timeScope: period.scope, range: NSRange(location: 1, length: 1))
+                guard let me = mine else { return answer([], period) }  // no score yet: nobody is "around" the player
                 let start = max(1, me.rank - count / 2)
-                let (_, entries, _) = try await board.loadEntries(for: .global, timeScope: .allTime, range: NSRange(location: start, length: count))
-                return entries.map(entryJSON)
+                let (_, entries, _) = try await board.loadEntries(for: .global, timeScope: period.scope, range: NSRange(location: start, length: count))
+                return answer(entries, period)
             default:
-                let (_, entries, _) = try await board.loadEntries(for: .global, timeScope: .allTime, range: NSRange(location: 1, length: count))
-                return entries.map(entryJSON)
+                let (_, entries, _) = try await board.loadEntries(for: .global, timeScope: period.scope, range: NSRange(location: 1, length: count))
+                return answer(entries, period)
             }
         } catch {
             throw foundationFailure(error, doing: action)
