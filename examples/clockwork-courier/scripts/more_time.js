@@ -1,10 +1,10 @@
 // @ts-check
 // "More time" on the retry screen: after the spring ran down the player may get 20 more seconds and carry on from the last
 // checkpoint, once per attempt. The offer comes from scripts/ads.js (a rewarded ad, or free with "Remove ads"; no button
-// when no ad can be shown). The retry screen is part of every level scene; the button is added here at run time so the eight
-// scenes stay as they are:
+// when no ad can be shown). The retry screen is the prefab prefabs/ui/retry.prefab.json that every level scene instances; the
+// button is added here at run time, first in the panel's column, so the prefab stays the same for games without ads:
 //
-//   install(flow)         level flow, onStart: creates the button inside "retry_panel_box", above the other buttons
+//   install(flow)         level flow, onStart: creates the button first inside "retry_buttons", above the two stock buttons
 //   onRetryShown(flow)    level flow, when the retry screen appears: shows the button (or hides it), and focuses it
 //
 // A level that continued is flagged: `flow.continued` is true and the level_completed event carries `continued: true`, so the
@@ -20,12 +20,11 @@ export function install(flow) {
   flow.moreTimeUsed = false;
   flow.continued = false;
   flow.askingForTime = false;
-  const box = world.find("retry_panel_box");
+  const box = world.find("retry_buttons");
   if (!box || world.find(BUTTON)) return;
-  world.spawn({ id: BUTTON, active: false, components: { Button: { autoSize: true, text: "", layer: 302 } } }, { parent: box });
-  // The layout stacks children in the order of the hierarchy: take the two stock buttons out and back in, behind the new one
-  // (spawn cannot insert at an index, FB-0032).
-  for (const id of ["retry_retry", "retry_title"]) world.find(id)?.setParent(box);
+  // The layout stacks children in the order of the hierarchy: index 0 puts the new button above the two stock ones, and it
+  // joins their uniformSize / fallbackLayout row.
+  world.spawn({ id: BUTTON, active: false, components: { Button: { autoSize: true, text: "", layer: 302 } } }, { parent: box, index: 0 });
   ui.on("click", BUTTON, () => run(flow));
 }
 

@@ -169,10 +169,8 @@
   },
   "profile": {
     "title": "Who is delivering?",
-    "hint": "Type a name or pick the letters.",
+    "hint": "Type a name.",
     "anonymous": "Courier",
-    "space": "Space",
-    "delete": "Delete",
     "done": "Done",
     "empty": "Pick a name with at least one letter or digit.",
     "placeholder": "Your name"
@@ -336,5 +334,10 @@
   "touch": {
     "jump": "Jump",
     "action": "Act"
+  },
+  "keyboard": {
+    "space": "Space",
+    "delete": "Delete",
+    "done": "Done"
   }
 }

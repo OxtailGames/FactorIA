@@ -29,7 +29,7 @@ describe("the offer on the retry screen", () => {
     expect(button().active).toBe(true);
     expect(button().get("Button").text).toContain("ad");
     expect(button().get("Button").text).toContain("20");
-    const kids = game.find("retry_panel_box").children.map((c) => c.id);
+    const kids = game.find("retry_buttons").children.map((c) => c.id);
     expect(kids.indexOf("retry_more_time")).toBeLessThan(kids.indexOf("retry_retry"));
   });
 
