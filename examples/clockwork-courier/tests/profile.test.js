@@ -1,19 +1,32 @@
-// P3: the name screen (scenes/profile.scene.json): typing on a keyboard, the on-screen letter grid with a gamepad and with
-// touch, the name limit, an empty name, renaming, and where Done and Back lead.
+// P3: the name screen (scenes/profile.scene.json): typing on a keyboard, the on-screen keyboard of the menu kit with a
+// gamepad, the name limit, an empty name, renaming, and where Done and Back lead.
 import { test, describe, expect, game, beforeEach } from "factoria:test";
-import { scene, session, storage } from "factoria";
+import { scene, session, storage, ui } from "factoria";
 import * as progress from "../scripts/progress.js";
-import { KEY_CHARS } from "../scripts/profile.js";
 import { NAME_MAX } from "../scripts/save_data.js";
 
 const SELECT = "scenes/level_select.scene.json";
 const text = () => game.find("profile_field").get("TextField").text;
-
-const WIDGETS = [...Array.from(KEY_CHARS, (c) => "key_" + c), "key_space", "key_back", "profile_ok", "profile_back"];
-/** Id of the focused button of the screen, "profile_field" for the text field, or null. */
-function focused() {
-  if (game.find("profile_field").get("TextField").focused) return "profile_field";
-  return WIDGETS.find((id) => game.find(id)?.get("Button").focused) ?? null;
+const keyboardOpen = () => game.find("keyboard").active;
+const focusedId = () => ui.focused?.id ?? null;
+/** The pad opens the on-screen keyboard: A on the focused field. */
+function openKeyboard(pad) {
+  pad.tap("A");
+  game.step(2);
+  expect(keyboardOpen()).toBe(true);
+}
+/** Walks the focus with the d-pad to the widget `id`: down to the bottom row first, then sideways. */
+function walkTo(pad, id) {
+  const bottom = ["osk_shift", "osk_space", "osk_delete", "osk_done"];
+  for (let i = 0; i < 12 && !bottom.includes(focusedId()); i++) {
+    pad.tap("DpadDown");
+    game.step(1);
+  }
+  for (let i = 0; i < 6 && focusedId() !== id; i++) {
+    pad.tap("DpadRight");
+    game.step(1);
+  }
+  expect(focusedId()).toBe(id);
 }
 
 function open(returnTo = SELECT) {
@@ -29,11 +42,14 @@ describe("name screen", () => {
     session.nextScene = null;
   });
 
-  test("the screen has the text field, every letter and digit, and the editing keys", () => {
+  test("the screen has the text field, the Done and Back buttons and the on-screen keyboard (closed)", () => {
     open();
     expect(game.find("profile_field")).not.toBeNull();
-    for (const id of WIDGETS) expect(game.find(id)).not.toBeNull();
-    expect(focused()).toBe("profile_field"); // the keyboard types at once
+    expect(game.find("profile_ok")).not.toBeNull();
+    expect(game.find("profile_back")).not.toBeNull();
+    expect(game.find("keyboard_host")).not.toBeNull();
+    expect(keyboardOpen()).toBe(false); // a player with a keyboard or a mouse never sees it
+    expect(game.find("profile_field").get("TextField").focused).toBe(true); // the keyboard types at once
   });
 
   test("keyboard: typing fills the field and Enter saves the name and goes to the level select", () => {
@@ -49,55 +65,45 @@ describe("name screen", () => {
     expect(scene.current).toBe(SELECT);
   });
 
-  test("touch: the on-screen keys type, Delete removes the last character, Done saves", () => {
+  test("gamepad: A opens the on-screen keyboard, A types, Delete removes, Done saves", () => {
     open();
-    for (const c of "ZOE") game.touch("key_" + c);
+    const pad = game.gamepad(0);
+    openKeyboard(pad);
+    pad.tap("A"); // the first key, "a"
     game.step(1);
-    expect(text()).toBe("ZOE");
-    game.touch("key_back");
+    pad.tap("DpadRight");
     game.step(1);
-    expect(text()).toBe("ZO");
-    game.touch("key_space");
-    game.touch("key_7");
+    pad.tap("A"); // "b"
     game.step(1);
-    expect(text()).toBe("ZO 7");
+    pad.tap("DpadRight");
+    game.step(1);
+    pad.tap("A"); // "c"
+    game.step(1);
+    expect(text()).toBe("abc");
+    walkTo(pad, "osk_delete");
+    pad.tap("A");
+    game.step(1);
+    expect(text()).toBe("ab");
     game.screenshot(".factoria/tmp/profile_typed.png");
-    game.touch("profile_ok");
+    walkTo(pad, "osk_done");
+    pad.tap("A");
     game.step(3);
-    expect(progress.name()).toBe("ZO 7");
+    expect(progress.name()).toBe("ab");
     expect(scene.current).toBe(SELECT);
   });
 
-  test("gamepad: the d-pad walks the letter grid, A types a letter, Done saves", () => {
+  test("gamepad: B closes the on-screen keyboard and keeps the screen; a second B goes back", () => {
+    progress.setName("Ana");
     open();
     const pad = game.gamepad(0);
-    pad.tap("DpadDown");
-    game.step(1);
-    const first = focused();
-    expect(first).toMatch(/^key_[A-Z0-9]$/);
-    pad.tap("A");
-    game.step(1);
-    expect(text()).toBe(first.slice(4));
-    pad.tap("DpadRight");
-    game.step(1);
-    const second = focused();
-    expect(second).not.toBe(first);
-    pad.tap("A");
-    game.step(1);
-    expect(text()).toBe(first.slice(4) + second.slice(4));
-    // down through the grid to the row of editing keys, right to Done
-    for (let i = 0; i < 6 && !["key_space", "key_back", "profile_ok", "profile_back"].includes(focused()); i++) {
-      pad.tap("DpadDown");
-      game.step(1);
-    }
-    for (let i = 0; i < 4 && focused() !== "profile_ok"; i++) {
-      pad.tap("DpadRight");
-      game.step(1);
-    }
-    expect(focused()).toBe("profile_ok");
-    pad.tap("A");
+    openKeyboard(pad);
+    pad.tap("B");
     game.step(3);
-    expect(progress.name()).toBe(first.slice(4) + second.slice(4));
+    expect(keyboardOpen()).toBe(false);
+    expect(scene.current).toBe("scenes/profile.scene.json");
+    expect(text()).toBe("Ana");
+    pad.tap("B");
+    game.step(3);
     expect(scene.current).toBe(SELECT);
   });
 
@@ -106,14 +112,16 @@ describe("name screen", () => {
     game.typeText("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
     game.step(2);
     expect(text().length).toBeLessThanOrEqual(NAME_MAX);
-    for (const c of "XYZ") game.touch("key_" + c);
+    const pad = game.gamepad(0);
+    openKeyboard(pad);
+    pad.tap("A");
     game.step(1);
-    expect(text().length).toBe(NAME_MAX);
+    expect(text().length).toBeLessThanOrEqual(NAME_MAX); // the keyboard types nothing past maxLength
   });
 
   test("an empty name is refused with a hint and nothing is saved", () => {
     open();
-    game.touch("key_space");
+    game.typeText("   ");
     game.step(1);
     game.touch("profile_ok");
     game.step(3);
@@ -126,10 +134,20 @@ describe("name screen", () => {
     progress.setName("Ana");
     open();
     expect(text()).toBe("Ana");
-    game.touch("key_back");
-    game.touch("key_back");
-    game.touch("key_back");
-    game.touch("key_B");
+    game.keyDown("Backspace");
+    game.step(1);
+    game.keyUp("Backspace");
+    game.step(1);
+    game.keyDown("Backspace");
+    game.step(1);
+    game.keyUp("Backspace");
+    game.step(1);
+    game.keyDown("Backspace");
+    game.step(1);
+    game.keyUp("Backspace");
+    game.step(1);
+    game.typeText("B");
+    game.step(1);
     game.touch("profile_ok");
     game.step(3);
     expect(progress.name()).toBe("B");

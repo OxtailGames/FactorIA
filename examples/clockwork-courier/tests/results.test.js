@@ -26,9 +26,9 @@ describe("results screen", () => {
   });
 
   test("starText draws filled and empty stars", () => {
-    expect(starText(0)).toBe("---");
-    expect(starText(2)).toBe("**-");
-    expect(starText(3)).toBe("***");
+    expect(starText(0)).toBe("\u2606\u2606\u2606");
+    expect(starText(2)).toBe("\u2605\u2605\u2606");
+    expect(starText(3)).toBe("\u2605\u2605\u2605");
   });
 
   test("the heading carries the name, the first win is a new best, and the goals are listed", () => {
@@ -36,7 +36,7 @@ describe("results screen", () => {
     finishRooftops1(10);
     const t = texts();
     expect(t.heading).toBe("Delivered, Ana!");
-    expect(t.stars).toMatch(/^\*+-*$/);
+    expect(t.stars).toMatch(/^\u2605+\u2606*$/);
     expect(t.time).toMatch(/^Time: \d+\.\d s   New best!$/);
     const lines = t.spring.split("\n");
     expect(lines[0]).toMatch(/^Spring left: \d+ s$/);

@@ -4,7 +4,8 @@
 // last file is in, the scene.load that follows reads nothing from the disk. `progress` (0..1) is what the bar and the
 // tests read.
 //
-// The level comes from session.nextScene (set by the main menu and by the results panel's "Next level").
+// The level comes from session.nextScene (set by the main menu and by the results panel's "Next level"). Without one (the
+// scene opened by itself, as ui.check_layout and the editor do) the screen goes back to the level select.
 import { Behaviour, scene, session, world, input, i18n } from "factoria";
 import * as levels from "./levels.js";
 
@@ -19,6 +20,12 @@ export default class Loading extends Behaviour {
   onStart() {
     this.progress = 0;
     this.loaded = false;
+    this.job = null;
+    if (!session.nextScene) {
+      this.gone = true;
+      scene.load("scenes/level_select.scene.json");
+      return;
+    }
     const lvl = levels.byScene(session.nextScene);
     const t = world.find(this.title);
     if (t && lvl) t.get("Text").text = i18n.t(lvl.nameKey);
@@ -51,7 +58,7 @@ export default class Loading extends Behaviour {
   }
 
   onUpdate() {
-    if (this.progress === this.job.progress) return;
+    if (!this.job || this.progress === this.job.progress) return;
     this.progress = this.job.progress;
     this.show();
   }

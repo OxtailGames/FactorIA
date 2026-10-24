@@ -163,9 +163,10 @@ it at 400). `factoria validate` errors on any character of a locale that no font
 character, and `tests/i18n.test.js` measures every Japanese character to catch the same in a run.
 
 **Layout.** Menus use `fit` Panels with `fallbackLayout` (a row becomes a column or a grid when it would leave the screen),
-buttons use `autoSize` with `maxWidth` (the label wraps), and lists are ScrollLists with `fill`. The level select, the HUD and
-the touch buttons have fixed places, so they stop their text at 1.15 to 1.3 times the design size (`capSizes`,
-`layoutHud`; FB-0042). At 200 percent, in each language, `tests/i18n.test.js` checks that every button of the title, the
+buttons use `autoSize` with `maxWidth` (the label wraps), and lists are ScrollLists with `shrink` (as tall as their content, up to the screen; the options tab list keeps `fill`
+because its height would change with each tab). The level select, the title, the HUD and the touch buttons have fixed
+places, so they stop their text at 1.15 to 1.5 times the design size (`maxTextScale` and `autoShrink` in the scene files;
+the HUD rows also move down with `layoutHud`). `ui.check_layout` reports no issue in any scene, language or text size. At 200 percent, in each language, `tests/i18n.test.js` checks that every button of the title, the
 credits, the shop, the achievements, the leaderboards, every options tab, the pause menu, and the results and retry screens
 is on the screen. Toggle and Slider labels do not wrap (FB-0041), so the options list gets wider with the text size and the
 slider names are Texts above the sliders.
@@ -226,8 +227,9 @@ door before the 60 s spring runs out. Stars: 1 for delivering, 2 with at least 2
 `LEVELS` is the ordered list; each entry is
 `{ id, name, nameKey, district, scene, spring, parTime, parcels, optionalParcels, music }` (`spring` and `parTime` in seconds; `music` is the district track). `TEST_LEVELS` holds the yard and the arena (found by `byId`/`byScene`, never listed). Helpers:
 `byId(id)`, `byScene(path)`, `next(id)`, `first()`, `inDistrict(district)`. A level scene needs the entities
-`courier`, `camera`, `spring`, `level` (script `level_flow.js`, prop `levelId`), `pause_menu` and `hud`, plus the
-result and retry panels of the yard. The title's Play button goes to `levels.first()` through the loading screen. P3 and later: show the stars of a level with `progress.resultFor(id)` (`goals` says which bonus goals were met) and `stars.evaluate(level, result)` / `stars.maxStars()`; the star counter belongs on the results panel and the level select.
+`courier`, `camera`, `spring`, `level` (script `level_flow.js`, prop `levelId`) and `pause_menu`, plus three entities
+that instance the shared panels: `hud` (`prefabs/ui/hud.prefab.json`: spring bar, parcel counter, touch controls),
+`results_panel` and `retry_panel` (`prefabs/ui/results.prefab.json`, `retry.prefab.json`, both inactive). The title's Play button goes to `levels.first()` through the loading screen. P3 and later: show the stars of a level with `progress.resultFor(id)` (`goals` says which bonus goals were met) and `stars.evaluate(level, result)` / `stars.maxStars()`; the star counter belongs on the results panel and the level select.
 
 ### Contract: progress (`scripts/progress.js`)
 
@@ -358,7 +360,8 @@ products, their types (NonConsumable, Consumable), prices and English titles com
   info API (FB-0036).
 - The same level can end a few seconds apart depending on what ran before it in one test engine (physics props,
   FB-0033); the level tests allow 10 percent between the main route and the shortcut.
-- The profile keyboard has the letters A to Z only: a Japanese name is typed with the system keyboard (FB-0020).
+- The on-screen keyboard of the name screen (the menu kit's, for gamepad players) has Latin keys for Japanese too: a
+  Japanese name is typed with the system keyboard.
 - Leaderboard titles are built from the level-name keys; the catalog's `name` has no key (FB-0029).
 - Control size and camera speed sliders show the plain multiplier (1), not a percentage (FB-0037).
 
