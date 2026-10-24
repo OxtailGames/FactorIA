@@ -1428,9 +1428,11 @@
       ],
       "suggestion": "Document that physics is deterministic per build, not across platforms; offer a robustness check (run a test N times with tiny perturbations) so games find chaotic spots before CI does; consider strict floating point (no FMA contraction) in the physics module.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-22 triage: holds in part: the 3D physics is the engine's own (no Jolt) and is deterministic for one build on one platform, which the docs do not say; work package M26.21 (Physics determinism across platforms) in feedback/ROADMAP.md."
+        "2026-10-22 triage: holds in part: the 3D physics is the engine's own (no Jolt) and is deterministic for one build on one platform, which the docs do not say; work package M26.21 (Physics determinism across platforms) in feedback/ROADMAP.md.",
+        "2026-10-23 M26.21 (branch m26/physics-determinism): the engine builds with no FP contraction and keeps sin/cos as library calls, CI compares a replay hash across the three desktop jobs, docs say what holds, and factoria:test has robust(check, { runs, nudge }); the level test \"the expert shortcut wins too\" uses it.",
+        "2026-10-24 M26.21: one replay hash now holds on the Linux (GCC), Windows (MSVC) and macOS (Apple Clang) CI jobs; sin/cos/atan2/asin/acos are fa::det:: (fa/core/det_math.h) on the whole simulation path. The last Windows difference was the sign of a zero: det::atan2 took |y| as `y < 0 ? -y : y`, which keeps -0, and MSVC compiles that as fabs, so asin(-0) (the pitch of a plank turned about z only) was +0 with Clang and GCC and -0 with MSVC. It uses std::fabs now, and test_det_math.cpp commits the signs of zero."
       ]
     }
   ]

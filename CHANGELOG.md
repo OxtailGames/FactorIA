@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Physics across platforms
+
+- The engine is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`), and the simulation no longer
+  calls the C library's `sin`/`cos`/`atan2`/`asin`/`acos` (each platform rounds their last bit differently): it uses
+  deterministic versions built from `+ - * / sqrt` (`fa/core/det_math.h`), so physics is meant to give the same bits on
+  Linux, Windows and macOS. CI prints a physics replay hash on those jobs and compares it with one committed value
+  (`FA_PHYSICS_REPLAY_HASH`).
+- `robust(check, { runs, nudge })` in `factoria:test` runs a check under small repeatable nudges of the bodies, so a level
+  test asserts what is robust instead of an exact frame count. Clockwork Courier's "shortcut is not slower" test uses it
+  (FB-0055).
+
 Menu kit command
 
 - `project.add_menu_kit {parts, overwrite}` (`factoria call project.add_menu_kit`) copies the menu kit of `docs/MENUS.md`

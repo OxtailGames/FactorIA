@@ -173,7 +173,7 @@ static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, cons
     Vec3 rb = hasB ? frame_to_world(RB, refB) : refB;
     rb = rb - aw * dot(rb, aw);
     if (length_sq(rb) < 1e-8f) return previous;
-    const float theta = std::atan2(dot(cross(ra, rb), aw), dot(ra, rb));  // B relative to A
+    const float theta = det::atan2(dot(cross(ra, rb), aw), dot(ra, rb));  // B relative to A
     const float raw = -theta;                                             // A relative to B
     return previous + wrap_pi(raw - previous);
 }
