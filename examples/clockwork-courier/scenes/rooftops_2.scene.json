@@ -2771,6 +2771,21 @@
           "castShadows": false
         }
       }
+    },
+    {
+      "id": "navmesh",
+      "components": {
+        "Transform": {
+          "position": [-3.0, 3, -48.5]
+        },
+        "NavMesh3D": {
+          "size": [32, 12, 125],
+          "agentRadius": 0.35,
+          "agentHeight": 1.8,
+          "stepHeight": 0.4,
+          "maxSlope": 45
+        }
+      }
     }
   ]
 }

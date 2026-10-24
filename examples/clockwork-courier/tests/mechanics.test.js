@@ -2,14 +2,13 @@
 // lever gate, a seesaw, a rope bridge, a moving platform, a guard dog, a key, a checkpoint and the delivery door).
 // The levels themselves are played end to end by tests/levels.test.js.
 import { test, describe, expect, game } from "factoria:test";
-import { scene, session, audio, storage } from "factoria";
+import { scene, session, audio, storage, nav } from "factoria";
 import { Autoplay } from "./helpers/autoplay.js";
 import { ROUTES } from "./helpers/routes.js";
 import * as settings from "../scripts/settings.js";
 import * as levels from "../scripts/levels.js";
 import * as stars from "../scripts/stars.js";
 import * as progress from "../scripts/progress.js";
-import { NavGrid } from "../scripts/nav.js";
 
 const ARENA = "scenes/test_arena.scene.json";
 
@@ -116,6 +115,25 @@ describe("guard dogs", () => {
     expect(log.some((e) => e.name === "courier_caught")).toBe(true);
   });
 
+  test("it chases round the wall to where it last saw the courier (a navmesh route, not a straight line into the wall)", () => {
+    const { c, dog } = dogScene();
+    c.position = [80, 0.62, 2]; // behind dog_wall (x 76..84 at z = -6)
+    const d = dog.behaviour;
+    d.enter("chase");
+    d.lastSeen = [80, 0.62, 2];
+    let widest = 0;
+    let corners = 0;
+    for (let i = 0; i < 240; i++) {
+      game.step(1);
+      widest = Math.max(widest, Math.abs(dog.position.x - 80));
+      if (d.path) corners = Math.max(corners, d.path.length);
+      if (d.state !== "chase") break;
+    }
+    expect(widest).toBeGreaterThan(4); // it went round the end of the wall
+    expect(dog.position.z).toBeGreaterThan(-6); // and is on the courier's side now
+    expect(corners).toBeGreaterThan(1); // a route with a corner round the wall, not one straight leg
+  });
+
   test("it ignores a courier that is not in its view cone or behind the wall", () => {
     const { c, dog, log } = dogScene();
     c.position = [80, 0.62, 2]; // behind dog_wall: the sight ray is blocked
@@ -154,24 +172,38 @@ describe("guard dogs", () => {
   });
 });
 
-describe("path finding (no navmesh in the engine: scripts/nav.js)", () => {
+describe("path finding (the engine's navmesh: nav.findPath over the NavMesh3D of the scene)", () => {
+  const len = (pts) => pts.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z)), 0);
+
   test("a path goes round the wall, never through it", () => {
     arena();
-    const nav = new NavGrid({ ceilY: 3, radius: 0.32, clearance: 0.5 });
-    const r = nav.findPath([80, -14], [80, 2]);
-    expect(r).not.toBeNull();
+    const r = nav.findPath([80, 0, -14], [80, 0, 2], { radius: 0.32 });
+    expect(r.found).toBe(true);
     expect(r.complete).toBe(true);
-    const len = r.path.reduce((s, p, i) => (i === 0 ? 0 : s + Math.hypot(p[0] - r.path[i - 1][0], p[1] - r.path[i - 1][1])), 0);
-    expect(len).toBeGreaterThan(16.5); // the straight line is 16 m: the wall forces a detour
-    expect(r.path.some((p) => Math.abs(p[0] - 80) > 2)).toBe(true);
+    expect(len(r.points)).toBeGreaterThan(16.5); // the straight line is 16 m: the wall forces a detour
+    expect(r.points.some((p) => Math.abs(p.x - 80) > 2)).toBe(true);
   });
 
   test("a clear straight line is one segment", () => {
     arena();
-    const nav = new NavGrid({ ceilY: 3, radius: 0.32, clearance: 0.5 });
-    const r = nav.findPath([-2, 10], [2, 10]);
-    expect(r.complete).toBe(true);
-    expect(r.path.length).toBeLessThanOrEqual(3);
+    const r = nav.findPath([-2, 0, 10], [2, 0, 10], { radius: 0.32 });
+    expect(r.found).toBe(true);
+    expect(r.points.length).toBeLessThanOrEqual(3);
+  });
+
+  test("a shut gate blocks the way and an open one does not (gates are navObstacles)", () => {
+    const c = arena();
+    const shut = nav.findPath([0, 0, 2], [0, 0, -12], { radius: 0.32 });
+    expect(shut.found).toBe(true);
+    expect(len(shut.points)).toBeGreaterThan(14.5); // no way through the doorway: round the walls
+    c.position = [3, 0.62, -3];
+    game.step(10);
+    game.tap("action");
+    game.step(90);
+    expect(game.find("gate_1").behaviour.isOpen).toBe(true);
+    const open = nav.findPath([0, 0, 2], [0, 0, -12], { radius: 0.32 });
+    expect(open.found).toBe(true);
+    expect(len(open.points)).toBeLessThan(len(shut.points));
   });
 });
 
@@ -189,6 +221,40 @@ describe("tap to move", () => {
     expect(t.lastComplete).toBe(true);
     game.step(400);
     expect(Math.hypot(c.position.x - target[0], c.position.z - target[2])).toBeLessThan(0.7);
+  });
+
+  test("a tap beyond the shut gate walks round the walls, through the doorway once the gate is open", () => {
+    const c = arena();
+    settings.save({ ...settings.load(), tapToMove: true });
+    const t = game.find("tap_move").behaviour;
+    c.position = [0, 0.62, 2];
+    game.step(5);
+    expect(t.goTo([0, 0, -12])).toBe(true);
+    expect(t.lastComplete).toBe(true);
+    expect(t.lastPath.some((p) => Math.abs(p[0]) > 1.5)).toBe(true); // round the wall, not through the gate
+    game.step(900);
+    expect(Math.hypot(c.position.x, c.position.z + 12)).toBeLessThan(0.7);
+    // Open the gate (the lever), and the same tap goes straight through the doorway.
+    c.position = [3, 0.62, -3];
+    game.step(10);
+    game.tap("action");
+    game.step(90);
+    c.position = [0, 0.62, 2];
+    game.step(5);
+    expect(t.goTo([0, 0, -12])).toBe(true);
+    expect(t.lastPath.every((p) => Math.abs(p[0]) < 1.5)).toBe(true);
+  });
+
+  test("a tap on a wall or beyond the courier's reach walks to the nearest ground that can be reached", () => {
+    const c = arena();
+    settings.save({ ...settings.load(), tapToMove: true });
+    const t = game.find("tap_move").behaviour;
+    c.position = [80, 0.62, 2];
+    game.step(5);
+    expect(t.goTo([80, 1.5, -6.2])).toBe(true); // the face of dog_wall
+    expect(t.lastPath.length).toBeGreaterThan(0);
+    const end = t.lastPath[t.lastPath.length - 1];
+    expect(Math.abs(end[1] + 6)).toBeLessThan(1.6);
   });
 
   test("the stick cancels a walk in progress", () => {

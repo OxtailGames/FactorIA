@@ -5,8 +5,9 @@
 //   patrol   walks the `route` (waypoints [x, z]; ping-pong, or a loop with `loop`), pausing at each end. No route:
 //            it stands guard and turns its head left and right.
 //   alert    stops, turns to the courier and barks for `alertTime` ("!" over its head, the view cone turns red)
-//   chase    runs after the courier along a path found by scripts/nav.js (a grid A*: the engine has no navmesh), at
-//            `runSpeed` (a little slower than the courier: running away works, for a while)
+//   chase    runs after the courier along a path from the engine's navmesh (nav.findPath over the scene's NavMesh3D,
+//            docs/NAVIGATION.md; gates and crates are navObstacles, so it goes round them), at `runSpeed` (a little
+//            slower than the courier: running away works, for a while)
 //   search   lost sight: runs to the last place it saw the courier, then sniffs around. After `giveUpTime` seconds
 //            without seeing it (or when it strays more than `leash` metres from home) it gives up
 //   return   walks back home (dog_gave_up is sent), then patrols again
@@ -18,9 +19,8 @@
 // (caught) or in its post-catch grace period.
 //
 // Tests and scenes read `state` ("patrol", "alert", "chase", "search", "return", "caught"), `sees`, `yaw`, `lostTime`.
-import { Behaviour, physics, world, audio } from "factoria";
+import { Behaviour, physics, world, audio, nav } from "factoria";
 import { EVENTS, emit } from "./events.js";
-import { NavGrid } from "./nav.js";
 
 const DEG = Math.PI / 180;
 
@@ -56,8 +56,12 @@ export default class Dog extends Behaviour {
   catchRadius = 0.85;
   /** Gravity, m/s^2. */
   gravity = 24;
-  /** Metres above the dog's start height from which the path finder looks down for ground (stairs up to this high). */
-  navUp = 2.5;
+  /** Height of the dog's centre above its feet (the CharacterController3D's half height), metres: path queries use the feet. */
+  feet = 0.45;
+  /** Radius of the dog for path finding, metres (at most the NavMesh3D's agentRadius). */
+  navRadius = 0.32;
+  /** Height of the courier's centre above its feet, metres. */
+  courierFeet = 0.55;
   /** Tint of the view cone when calm and when alerted. */
   calmColor = [1, 0.95, 0.7, 1];
   alertColor = [1, 0.25, 0.2, 1];
@@ -83,9 +87,8 @@ export default class Dog extends Behaviour {
     this.routeDir = 1;
     this.waiting = 0;
     this.barkTimer = 0;
-    this.nav = null;
-    this.navAge = 0;
     this.path = null;
+    this.pathDest = null;
     this.pathIndex = 0;
     this.pathCooldown = 0;
     this.dest = null;
@@ -143,29 +146,30 @@ export default class Dog extends Behaviour {
     this.anim.loop = name !== "shake";
   }
 
-  /** Points the dog to a world destination and keeps a path to it (re-found when it moved or the walk is blocked). */
-  setDest(x, z) {
-    const old = this.dest;
-    this.dest = [x, z];
-    if (old && Math.hypot(old[0] - x, old[1] - z) < 0.9 && this.path) return;
+  /** Points the dog to a world destination (x, z and the height of the ground there) and keeps a path to it (re-found when
+   *  the destination moved, or the walk is blocked). */
+  setDest(x, z, groundY) {
+    this.dest = [x, z, groundY];
+    if (this.path && this.pathDest && Math.hypot(this.pathDest[0] - x, this.pathDest[1] - z) < 0.9) return;
     this.findPath();
   }
 
+  /** Asks the navmesh for a route from the dog's feet to the destination. Falls back to walking straight at it. */
   findPath() {
     if (this.pathCooldown > 0) return;
     this.pathCooldown = 0.3;
-    if (!this.nav || this.navAge > 5) {
-      this.nav = new NavGrid({ ceilY: this.baseY + this.navUp, radius: 0.32, clearance: 0.5 });
-      this.navAge = 0;
-    }
     const p = this.entity.position;
     const d = this.dest;
-    if (this.nav.lineClear(p.x, p.z, d[0], d[1])) {
-      this.path = [[d[0], d[1]]];
-    } else {
-      const r = this.nav.findPath([p.x, p.z], d);
-      this.path = r ? r.path : [[d[0], d[1]]];
+    const from = [p.x, p.y - this.feet, p.z];
+    let r = nav.findPath(from, [d[0], d[2], d[1]], { radius: this.navRadius, closest: true });
+    // The goal is in the air or beyond the snap (the courier jumped a gap): chase the nearest ground to it instead.
+    if (!r.found && r.reason === "goal_off_mesh" && r.nearest) {
+      r = nav.findPath(from, r.nearest, { radius: this.navRadius, closest: true });
     }
+    // points[0] is where the dog stands: the rest are the corners to walk to.
+    this.path = r.found ? r.points.slice(1).map((q) => [q.x, q.z]) : [[d[0], d[1]]];
+    if (this.path.length === 0) this.path = [[d[0], d[1]]];
+    this.pathDest = [d[0], d[1]];
     this.pathIndex = 0;
   }
 
@@ -209,6 +213,7 @@ export default class Dog extends Behaviour {
     this.state = state;
     this.stateTime = 0;
     this.path = null;
+    this.pathDest = null;
     this.dest = null;
     if (this.mark) this.mark.active = state === "alert" || state === "chase";
     this.tintCone(state === "alert" || state === "chase" ? this.alertColor : this.calmColor);
@@ -227,7 +232,6 @@ export default class Dog extends Behaviour {
   onFixedUpdate(dt) {
     this.time += dt;
     this.stateTime += dt;
-    this.navAge += dt;
     if (this.pathCooldown > 0) this.pathCooldown -= dt;
     this.vx = 0;
     this.vz = 0;
@@ -265,13 +269,12 @@ export default class Dog extends Behaviour {
     const r = physics.moveCharacter(this.entity, [this.vx * dt, this.vy * dt, this.vz * dt]);
     this.grounded = r.isGrounded;
     if (this.grounded && this.vy > 0) this.vy = 0;
-    // Stuck on something (a crate, a closed gate): look for another path.
+    // Stuck on something (a crate pushed into the way): look for another path.
     const moved = Math.hypot(r.moved.x, r.moved.z);
     if (this.speed > 0 && moved < this.speed * dt * 0.25) this.stuckTime += dt;
     else this.stuckTime = 0;
     if (this.stuckTime > 0.5) {
       this.stuckTime = 0;
-      this.nav = null;
       this.pathCooldown = 0;
       if (this.dest) this.findPath();
     }
@@ -383,7 +386,7 @@ export default class Dog extends Behaviour {
     }
     if (this.state === "chase") {
       const t = this.sees ? [q.x, q.z] : [this.lastSeen[0], this.lastSeen[2]];
-      this.setDest(t[0], t[1]);
+      this.setDest(t[0], t[1], (this.sees ? q.y : this.lastSeen[1]) - this.courierFeet);
       this.walk(dt, this.runSpeed);
       this.setClip("run");
       if (!this.sees && Math.hypot(t[0] - p.x, t[1] - p.z) < 0.7) this.enter("search");
@@ -398,7 +401,6 @@ export default class Dog extends Behaviour {
     if (gaveUp) emit(EVENTS.dogGaveUp, { dog: this.entity.id });
     this.enter("return");
     this.lostTime = 0;
-    this.nav = null;
   }
 
   returnHome(dt) {
@@ -409,7 +411,7 @@ export default class Dog extends Behaviour {
       this.waiting = 0.6;
       return;
     }
-    this.setDest(this.home[0], this.home[1]);
+    this.setDest(this.home[0], this.home[1], this.baseY - this.feet);
     this.walk(dt, this.walkSpeed * 1.4);
     this.setClip("walk");
   }

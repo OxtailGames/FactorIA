@@ -1212,6 +1212,22 @@
           "position": [114, 0, 0]
         }
       }
+    },
+    {
+      "id": "navmesh",
+      "components": {
+        "Transform": {
+          "position": [43.0, 3, -32.0]
+        },
+        "NavMesh3D": {
+          "size": [158, 12, 112],
+          "cellSize": 0.4,
+          "agentRadius": 0.35,
+          "agentHeight": 1.8,
+          "stepHeight": 0.4,
+          "maxSlope": 45
+        }
+      }
     }
   ]
 }
