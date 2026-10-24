@@ -12,7 +12,7 @@ world: six levels in two districts, guard dogs, physics props, music and particl
 factoria validate
 factoria run                      # windowed
 factoria run --headless --frames 120 --screenshot-at 119 --json
-factoria test                     # 444 headless tests (the six levels are played by a bot)
+factoria test                     # 458 headless tests (the six levels are played by a bot)
 ```
 
 The title screen (`scenes/main.scene.json`) goes through Play and `scenes/loading.scene.json` to the first level of the

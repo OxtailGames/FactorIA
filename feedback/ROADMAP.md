@@ -6,549 +6,34 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 (M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two, M20 one and M23 the last one (MSIX,
 2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
 backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
-M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24 and M25 are done; M23 has the Mac
+M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25 and M26 are done; M23 has the Mac
 App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 is not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
 M25, the second reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055
 came from the CI fix of its rope bridges), triaged 2026-10-22: one was fixed on the way (CC/FB-0033), two were already
 fixed before the report (CC/FB-0007, CC/FB-0022; their docs are added), two are duplicates, and 50 are open, ranked below
-(11 major, 35 minor, 4 nice-to-have, no blocker). They are M26's 23 work packages, which come next; the same triage
-moved two M19 items into M26 and ranks the rest of M19 and of M12.
+(11 major, 35 minor, 4 nice-to-have, no blocker). M26's 23 packages fixed 49 of them (2026-10-24) and the game dropped
+their workarounds; CC/FB-0051 (playing a video) stays open for M19, and the close-out found CC/FB-0056 (the navmesh
+over bridges and moving platforms), also M19. The same triage moved two M19 items into M26 and
+ranked the rest of M19 and of M12: their first packages come next.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-50 entries from 6 project(s), 50 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+2 entries from 6 project(s), 2 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-## 1. glTF animation of rigid (non-skinned) meshes parented to bone nodes is ignored
-
-- **Category:** animation
-- **Severity:** major (score 8)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0001
-- **Suggestion:** Support node-transform animation of non-skinned mesh nodes in the Animator (drive the node world matrix of a MeshRenderer model's nodes), or auto-convert rigid-per-bone meshes to a skin at load. At least print a warning when a model has clips but no skin.
-- **Workarounds seen:**
-  - Wrote a Python script (tools/skinify.py) that bakes every rigid mesh into model space, gives it JOINTS_0/WEIGHTS_0 = 100% its parent bone and builds a skin with inverse bind matrices; then the Animator plays it. [P2] The same happens with Kenney cube-pets animal-dog.glb, where the MESH nodes themselves are the animated bones (8 clips, no skin): the dog stood frozen in every clip. tools/skinify.py now also treats an animated mesh node as its own bone (7 joints), and the Animator then plays walk/run/idle. Second asset of two in this game with the same layout, so it is common in CC0 packs.
-
-## 2. scene.format without paths rewrites every scene and prefab of the project
-
-- **Category:** tooling
-- **Severity:** major (score 8)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0016
-- **Suggestion:** Make `paths` required (or default to `check: true`), and print how many files it will change before writing more than a few.
-- **Workarounds seen:**
-  - Always pass `{"paths": [...]}`; level generators write canonical JSON themselves and the project notes say never to run it bare.
-
-## 3. A CharacterController3D is not carried by a kinematic platform it stands on
-
-- **Category:** physics
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0010
-- **Suggestion:** physics.moveCharacter should add the displacement of the kinematic body it is grounded on (the way it already treats dynamic bodies), with an option to turn it off.
-- **Workarounds seen:**
-  - scripts/courier.js reads the velocity of the kinematic body under its feet (the ground entity of the last move) and adds it to its own move every frame; scripts/mover.js drives the platform by velocity only, so the numbers agree.
-
-## 4. A joint-driven body is silently stopped by an overlapping static collider
-
-- **Category:** physics
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0015
-- **Suggestion:** A validate or debug-draw warning when a Joint3D body overlaps a static collider it is not connected to at the start pose, or a `game_state` field listing joints that are stalled against the motor.
-- **Workarounds seen:**
-  - Levels leave 0.2 m of clearance around every hinge gate and the arena's gate sits between two walls with that gap.
-
-## 5. A localized Text cannot take parameters and is rewritten every frame
-
-- **Category:** ui
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0021
-- **Suggestion:** Text.keyArgs (an object of replacements) or a {name} placeholder filled from a bound value, re-localized on language change.
-- **Workarounds seen:**
-  - Scripts clear Text.key and write the string built from i18n.t with replacements (level_flow.setText, results_view.js, level_select.js).
-
-## 6. Catalog is not readable from scripts and leaderboards have no localizable name
-
-- **Category:** platform
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0029
-- **Suggestion:** platform.catalog (read only: ids, types, titles) and nameKey on leaderboards.
-- **Workarounds seen:**
-  - scripts/store.js keeps a TYPES table; the leaderboards screen builds its titles from the level name keys; a test compares the code's lists with game.platform.state().catalog.
-
-## 7. Characters do not weigh on dynamic bodies and push them aside
-
-- **Category:** physics
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0011
-- **Suggestion:** Let the character controller optionally apply its weight (mass x gravity) to the dynamic body below, and expose `pushStrength` or a layer rule so it does not shove bodies that are jointed.
-- **Workarounds seen:**
-  - scripts/seesaw.js simulates the weight: while the courier is grounded on the plank the hinge motor drives the end it stands on down, and the plank's own velocity is zeroed every fixed step so the courier cannot push it off its pivot. scripts/rope_bridge.js lets the planks be walked on without reacting to the load (heavy damping keeps it calm).
-
-## 8. No ads API: no rewarded ad, no consent or tracking-permission flow, no dev/release flag
-
-- **Category:** platform
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0028
-- **Suggestion:** A platform.ads service next to purchases: ads.available(placement), ads.showRewarded(placement) -> {rewarded}, ads.consent() (with the ATT/UMP sheets) and a platform.release boolean; the fake backend answers with a scripted test ad so games and tests share one path.
-- **Workarounds seen:**
-  - scripts/ads.js defines the provider interface (name, available(), showRewarded(placement) -> {rewarded, reason}) and a stub overlay (scripts/ad_stub.js) used only while platform.backend is 'fake'; any other backend has no provider and the retry screen shows no ad offer. A real SDK plugin would call ads.setProvider().
-
-## 9. No calendar date API and no way to pin the date in tests
-
-- **Category:** scripting
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0019
-- **Suggestion:** Add `time.calendar()` (or `game.today()`) returning {year, month, day, utcOffsetMinutes, iso} from the real clock, recorded in replays, plus `game.setDate("2026-10-22")` in factoria:test (and a --date flag for headless runs) so date-driven logic is deterministic. Document the rule in the scripting guide next to rng.
-- **Workarounds seen:**
-  - scripts/clock.js is the only place that reads `new Date()`; everything else asks clock.today(), and tests pin the day with clock.setToday() (stored in `session`). Dates are YYYY-MM-DD of the local day.
-
-## 10. No on-screen keyboard for gamepad players
-
-- **Category:** ui
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0020
-- **Suggestion:** A built-in virtual keyboard widget a TextField can open when focus came from a gamepad (letters, digits, space, delete, done; d-pad navigation; localised layouts), and `input.showKeyboard` calling the platform's own gamepad keyboard where one exists (Steam Big Picture, consoles).
-- **Workarounds seen:**
-  - profile.scene.json has a grid of 36 buttons built at runtime (key_A..key_9, space, delete) that edit the TextField text; d-pad focus walks the grid.
-
-## 11. No path finding or navmesh for 3D characters
-
-- **Category:** physics
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0009
-- **Suggestion:** A `nav.findPath(from, to, {radius, stepHeight})` API (and a NavGrid/navmesh component baked from static colliders, with a dirty flag for moving obstacles) next to physics.raycast3d.
-- **Workarounds seen:**
-  - scripts/nav.js: a lazy height-field grid over the physics world (a ray straight down for the ground height, physics.overlapSphere for obstacles, a step-height rule for connections, A* with line-of-sight smoothing). It works but is slow to write, must be rebuilt when a gate or crate moves, and cannot know about doors or one-way drops.
-
-## 12. No shrink-to-fit or per-screen text scale cap
-
-- **Category:** ui
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0042
-- **Suggestion:** Text.autoShrink (minFontSize) and Button.autoShrink, plus Widget.maxTextScale so a heading or a disc label can stop growing.
-- **Workarounds seen:**
-  - Four screens cap the effective size of their fixed-place texts in script (level_select capSizes, hud layoutHud, touch labels in hud.js, toast panel fit); menus use fit Panels with fallbackLayout and ScrollLists with fill.
-
-## 13. Products.storekit exists only with a built Apple plugin and has one locale
-
-- **Category:** platform
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0034
-- **Suggestion:** Write Products.storekit whenever the catalog has products and the target is ios (the plugin only matters for the scheme), and one localization per locale of the project, from titleKey.
-- **Workarounds seen:**
-  - Checked on a scratch copy: add_backend apple, cmake build of the plugin, export; the four products came out right (ids, types, prices). The real project does not declare the plugin.
-
-## 14. Scene loads are synchronous and there is no progress or preload API
-
-- **Category:** assets
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0012
-- **Suggestion:** scene.preload(path) returning a handle with progress 0..1 (loading assets on a worker), or scene.loadAsync plus an `onProgress` callback; the same for assets.preload([paths]).
-- **Workarounds seen:**
-  - scenes/loading.scene.json draws a step bar that counts the three frames the script really runs before the blocking scene.load; it is honest about being steps, not a percentage.
-
-## 15. Scripts cannot see the app being suspended, resumed or losing focus
-
-- **Category:** platform
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0035
-- **Suggestion:** Expose game.onSuspend/onResume (and window focus) to scripts, and have a project setting that pauses the game on suspend by default.
-- **Workarounds seen:**
-  - scripts/comfort.js watches time.unscaledDt: a single frame longer than 0.75 s means the app was away, and it opens the pause menu. It cannot tell a suspend from a long hitch and cannot react before the suspend.
-
-## 16. assets.import of a .glb does not copy the texture file it references
-
-- **Category:** assets
-- **Severity:** major (score 4)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0008
-- **Suggestion:** assets.import for .glb/.gltf should copy every external uri it references (keeping the relative layout under a folder named after the model or the pack), add provenance for them, and warn when the destination folder already holds a different file of the same name. validate should report a model whose external texture is missing.
-- **Workarounds seen:**
-  - Moved each kit into its own folder (assets/models/town, props, pets), copied that kit's Textures/colormap.png next to it by hand and re-keyed assets.json (with provenance for the png).
-
-## 17. storage and the platform fake keep their state between tests of a run
-
-- **Category:** tooling
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0026
-- **Suggestion:** An option (or the default) that clears storage and resets game.platform before each test, or game.resetState().
-- **Workarounds seen:**
-  - tests/helpers/store.js: fresh() before and cleanup() after every test.
-
-## 18. validate keeps the audio loudness warnings after defaults.audio.normalize is set
-
-- **Category:** tooling
-- **Severity:** minor (score 4)
-- **Total occurrences:** 2
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0004
-- **Suggestion:** Make the loudness check read the effective import settings (defaults merged with per-asset), or say in the warning that the default is already applied and the warning is about the source file.
-- **Workarounds seen:**
-  - Left the two warnings (they are not errors). [P2] P2 sounds: validate still warns for loopcity_0.ogg (peaks at 0.3 dBFS), pluck_001.ogg and toggle_001.ogg (loudness) although assets.json sets normalize: true for them; the warning should read the import settings.
-
-## 19. 3D physics is not identical across platforms
+## 1. The navmesh holds no rope bridge, seesaw or moving platform
 
 - **Category:** physics
 - **Severity:** minor (score 2)
 - **Total occurrences:** 1
 - **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0055
-- **Suggestion:** Document that physics is deterministic per build, not across platforms; offer a robustness check (run a test N times with tiny perturbations) so games find chaotic spots before CI does; consider strict floating point (no FMA contraction) in the physics module.
+- **Entries:** Clockwork Courier/FB-0056
+- **Suggestion:** Off-mesh links on NavMesh3D (two points and a cost, one-way or both ways), and a collider flag that keeps a kinematic platform or a bridge in the mesh, re-marked as it moves like a navObstacle.
 - **Workarounds seen:**
-  - Made the bridges settle (ends off the slabs) and checked the level route under small position nudges (±0.2 mm to ±1.5 cm of every plank and of the courier) so it passes whatever the rounding.
+  - nav.findPath with closest: true (and, when the goal is off the mesh, a second query to the result's nearest point): the dog goes to the nearest reachable ground instead of following the courier across.
 
-## 20. A chain of hinged planks rings for a long time; a rope bridge needs heavy damping and wide planks
-
-- **Category:** physics
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0017
-- **Suggestion:** A `Rope`/`Chain` component (or solver iterations per joint chain) that is stable by default, or a documented recipe for bridges in the physics guide.
-- **Workarounds seen:**
-  - scripts/rope_bridge.js uses linearDamping 3 and angularDamping 8, width 2 m, sag 0.35 and 9 planks; with these it hangs still and holds the courier.
-
-## 21. A fill ScrollList makes its whole panel screen-tall
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0046
-- **Suggestion:** fill should take only the room left (maxHeight = screen minus the other rows), and let the panel shrink below it.
-- **Workarounds seen:**
-  - Each list gets a design size and fill: the panel uses the screen height only when the content is taller (credits, achievements, leaderboards, shop, options).
-
-## 22. A headless test cannot set the system language
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0044
-- **Suggestion:** game.setSystemLanguages([...]) in the test API, like setAccessibility, applied by the next scene load.
-- **Workarounds seen:**
-  - The rule is a pure function, settings.pickLanguage(systemLanguages, supported, fallback), tested with lists; the engine's own pick is not exercised.
-
-## 23. Android export needs the exact CMake 3.31.6 in the SDK and a JDK, with no offline way around it
-
-- **Category:** platform
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0048
-- **Suggestion:** Accept any CMake >= the minimum (read from `cmake --version` or `export.android.cmake`), print the cmake.dir / JAVA_HOME / --offline recipe in the error, and let `factoria doctor` list both.
-- **Workarounds seen:**
-  - Scratch scripts outside the repo: a cmake.dir in local.properties pointing at the system CMake (4.4.4), -Pfactoria.cmakeVersion=4.4.4 and JAVA_HOME from a JDK that was already installed (the one bundled with Unity Hub); then Gradle --offline built a 52.8 MB apk in 2m23s.
-
-## 24. Desktop export does not check that the bundled player matches the factoria that exports
-
-- **Category:** platform
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0049
-- **Suggestion:** Print the player path and version in the export report, and warn (or refuse without --allow-player-mismatch) when the player's version or build id differs from the factoria that exports. The Windows export already reads the player's version information; do the same on macOS and Linux (factoria_player --version).
-- **Workarounds seen:**
-  - Rebuilt the engine so factoria and factoria_player match (or pass --player <build dir>/player/factoria_player) and exported again; macOS verified running. SHIPPING.md says how to check.
-
-## 25. Joint3D chains never come fully to rest and unrelated chains affect each other
-
-- **Category:** physics
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0054
-- **Suggestion:** Let jointed bodies sleep as a group once all of them are calm, and solve separate joint islands independently so one island cannot disturb another.
-- **Workarounds seen:**
-  - None in the engine: the autoplay route crosses the see-saw with smaller, more careful steps (tests/helpers/routes.js).
-
-## 26. Joint3D connected empty string is rejected by the scene validator but documented as 'the world'
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0014
-- **Suggestion:** Accept the empty string as the world (as documented), or change the doc to say 'leave the field out'.
-- **Workarounds seen:**
-  - scripts/rope_bridge.js only sets `connected` when there is a next plank; the last plank's joint omits the field.
-
-## 27. MeshRenderer tints the whole model: no per-material colour
-
-- **Category:** rendering-3d
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0031
-- **Suggestion:** MeshRenderer.materialColors: {materialName: [r,g,b,a]} overrides, or a colour per glTF material slot.
-- **Workarounds seen:**
-  - scripts/paints.js stores a dark tint plus an emissive per paint, tuned by looking at screenshots.
-
-## 28. No animal sounds (bark, growl) in the CC0 sound kits the engine suggests
-
-- **Category:** assets
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0013
-- **Suggestion:** Document a CC0 animal/creature pack in the assets guide, or add an `audio.synth` helper (noise burst plus filtered sweep) for simple barks, growls and whooshes.
-- **Workarounds seen:**
-  - A pitched heavy impact (impactPunch_heavy_000.ogg) stands in for the bark; the dog also flashes a red view cone and shows an exclamation mark, so the warning does not depend on sound.
-
-## 29. No command to scaffold the menu kit; it can only be extracted from the docs by hand
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0003
-- **Suggestion:** Add a command (and MCP tool) that writes the kit into the project, optionally with a choice of parts (pause only, settings only).
-- **Workarounds seen:**
-  - Wrote a small script that splits the doc's fenced blocks (```lang path) into files.
-
-## 30. No graphics quality API: no render scale, no GPU info and the frame cap throws on phones
-
-- **Category:** performance
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0036
-- **Suggestion:** Add window.renderScale (0.5..1) and a read-only game.deviceTier or gpu info, and make window.frameCap a no-op that returns the real cap on phones instead of throwing.
-- **Workarounds seen:**
-  - The quality preset (scripts/accessibility.js) only changes what scripts own: Light.castShadows, view distance fog, particle counts and lantern lights. The frame cap option is disabled on phones (scripts/ui/options.js) and a phone starts at medium quality by a screen-size guess (scripts/settings.js).
-
-## 31. No locale-aware number formatting
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0039
-- **Suggestion:** Number, percent and duration formatters in i18n (i18n.number(v, {digits}), i18n.duration) following the active language, and {value:number} style placeholders.
-- **Workarounds seen:**
-  - Each locale file states format.decimal and scripts/fmt.js applies it (decimal, clock) before the value goes into i18n.t.
-
-## 32. No per-day or per-season leaderboards: the catalog is static
-
-- **Category:** platform
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0030
-- **Suggestion:** A `period` (daily, weekly) on a leaderboard that the backends map to their recurring boards, or leaderboards.submit(id, score, {suffix: date}).
-- **Workarounds seen:**
-  - One 'daily_route' board holds the best time ever; the day is only in the daily_route_finished event.
-
-## 33. No way to share a UI panel between scenes
-
-- **Category:** scene
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0023
-- **Suggestion:** Document or support UI prefabs with child overrides, or a scene include, in the menus guide.
-- **Workarounds seen:**
-  - The layout stays duplicated; texts are written at runtime from one script (results_view.js).
-
-## 34. Slider value set from a script sends no ui.change and shows the raw number
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0037
-- **Suggestion:** Add a test helper game.setSlider(id, value) that behaves like the user, and Slider.format (for example "{value:0%}").
-- **Workarounds seen:**
-  - tests/comfort.test.js clicks the middle of the track and checks the saved value is inside the range; the options show the multiplier as a plain number.
-
-## 35. Test API cannot hold a mouse button or turn the wheel, so mouse drag orbit and wheel zoom are untestable end to end
-
-- **Category:** input
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0005
-- **Suggestion:** Add game.mouse(x, y), game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) to the test API (same as game.input mouse/buttons).
-- **Workarounds seen:**
-  - tests/camera.test.js calls orbit() and zoom() directly; the drag and wheel reading in follow_camera.js readInput() has no test.
-
-## 36. The fake store cannot simulate a refund or a revoked purchase
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0024
-- **Suggestion:** game.platform.revoke(productId) (and an equivalent dev command) that removes the product from restore() and emits no event, like the Apple 'refunded transaction is never delivered' rule.
-- **Workarounds seen:**
-  - store.reconcile({authoritative:true}) revokes products the store no longer lists; tests call game.platform.reset() and then reconcile. On the fake backend the start-up reconcile is not authoritative (a dev run would lose its purchases at each start).
-
-## 37. The test API cannot observe a quit request
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0038
-- **Suggestion:** Add game.quitRequested to the test API and make game.quit() only set it in tests.
-- **Workarounds seen:**
-  - tests/comfort.test.js patches the quit function of the engine object for the duration of the test and restores it.
-
-## 38. Toggle and Slider labels do not wrap or shrink
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0041
-- **Suggestion:** maxWidth on Toggle and Slider (wrap the label, grow the height), and a Slider label placed above the track.
-- **Workarounds seen:**
-  - Sliders are fixed size with an empty label and a Text above each one (maxWidth wraps it); the options list width follows ui.textScale (fitWidth in scripts/ui/options.js); the Toggle labels stay short in every locale.
-
-## 39. TouchButton has no localization key
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0040
-- **Suggestion:** A `key` field on TouchButton, like Text and Button.
-- **Workarounds seen:**
-  - scripts/hud.js writes the label in the current language at start and at every i18n change, and sizes the font to fit the 96 px disc.
-
-## 40. Validator flags a method named start() as a lifecycle-hook lookalike
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0006
-- **Suggestion:** Only warn for names that differ from a hook by case or prefix (OnStart, onstart, on_start), not for generic verbs like start.
-- **Workarounds seen:**
-  - Renamed it to fill().
-
-## 41. Web player: typing in a TextInput from the browser pane did not fill it
-
-- **Category:** input
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0052
-- **Suggestion:** Document how the web player receives text (keydown vs the text input event, hidden input element for mobile keyboards) so a game can test it, and add an autotest page to the web player.
-- **Workarounds seen:**
-  - Filled the name with the on-screen keyboard of the game (scripts/profile.js) for the check.
-
-## 42. assets.set_provenance re-sorts the whole assets.json
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0045
-- **Suggestion:** Keep the file order and touch only the entry.
-- **Workarounds seen:**
-  - The font entry was inserted by hand in assets.json, in the same shape.
-
-## 43. glTF with two skins sharing the same joints: second skin is drawn wrong, no way to fix without editing the file
-
-- **Category:** animation
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0002
-- **Suggestion:** Merge skins that have the same joints/IBMs at load, or animate every skin of the file; the 'first skin' limit is a trap for exported characters.
-- **Workarounds seen:**
-  - Dropped the two hand meshes from the glb in the same script (the arms end in balls anyway).
-
-## 44. perf.measure and the test API give no triangles or lights, and renderStats is zero headless
-
-- **Category:** performance
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0050
-- **Suggestion:** Add triangles, lights, shadowCasters and textureMB to perf.measure and to a `game.renderStats()` in factoria:test (the headless EGL/Metal renderer has them after one frame).
-- **Workarounds seen:**
-  - tests/budget.test.js counts entities, MeshRenderer, Light and ParticleEmitter of every level in the running scene (static numbers); perf.json holds the draw-call budget of the heaviest level.
-
-## 45. platform.add_backend ignores dryRun and rewrites the whole factoria.json
-
-- **Category:** platform
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0047
-- **Suggestion:** Honour dryRun (print what would be written) and edit factoria.json in place without reformatting. Also exclude plugins/apple/build from the folder it creates, or say it is a build dir to ignore.
-- **Workarounds seen:**
-  - Kept the real result (it is what makes the export write Products.storekit) and committed it; the reformatting is in the same commit as the plugin.
-
-## 46. purchases.finish() throws synchronously for an unknown transaction instead of rejecting
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0025
-- **Suggestion:** Return a rejected Promise with the same message and hint, like the rest of the platform API.
-- **Workarounds seen:**
-  - store.grant wraps the call in try/await/catch.
-
-## 47. No control over the sibling order of a spawned UI child
-
-- **Category:** ui
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0032
-- **Suggestion:** A `index` (or `before`) option in world.spawn's options and entity.setParent(parent, index).
-- **Workarounds seen:**
-  - scripts/more_time.js spawns the new button and then calls setParent again on the two stock buttons so they come after it.
-
-## 48. No overflow or pseudo-localisation check
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0043
-- **Suggestion:** `factoria validate --pseudo-loc` (or a ui.overflowing() query) that lists clipped labels and widgets outside the screen at a given text scale and language.
-- **Workarounds seen:**
-  - A tour script drove factoria session through every screen per language and scale and listed widgets whose ui.state rect left the screen; tests/i18n.test.js repeats the key screens.
-
-## 49. No video playback, and --record-video writes a very large AVI
+## 2. No video playback, and --record-video writes a very large AVI
 
 - **Category:** assets
 - **Severity:** nice-to-have (score 1)
@@ -558,17 +43,6 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Suggestion:** A Video component (mp4/webm with the platform decoder) and an --record-video output that is already H.264 mp4 when the OS offers an encoder (VideoToolbox, Media Foundation, MediaCodec).
 - **Workarounds seen:**
   - The intro is an animated scene (scenes/intro.scene.json, scripts/intro.js). The trailer is a scripted director scene recorded with --record-video; SHIPPING.md has the ffmpeg command to make the mp4.
-
-## 50. scene.load called from a test only takes effect in the next frame
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0018
-- **Suggestion:** Document the difference in the testing guide, or make scene.load from a test start the scene immediately like game.load.
-- **Workarounds seen:**
-  - tests step two frames after scene.load before reading anything.
 
 # Next engine milestones
 
@@ -642,6 +116,13 @@ three stay in M12 (the real ads and leaderboard-period backends, CC/FB-0028 and 
 CC/FB-0020) and part of one in M19 (the video player, CC/FB-0051). Two M19 items moved to M26 because a game needed
 them: the navmesh (M26.10) and `scene.loadAsync` (M26.7). What is left of M19 and of M12 is ranked in their sections.
 
+Re-triage 2026-10-24, after M26 (#149-#176; each package's merge commit is in ROADMAP_DONE.md): 49 Clockwork Courier
+entries are fixed, each with a `Fixed in <commit>` note, and the game dropped their workarounds in the `m26/bookkeeping`
+PR (its own grid pathfinding, the eight copies of the level panels, the letter grid of the name screen, the dark-tint
+paints, the hand resets between tests). CC/FB-0051 stays open for M19's video player; the parts left to M12 are in its
+ranking. Moving the game onto the navmesh found one more entry, CC/FB-0056 (no rope bridge, seesaw or moving platform in
+the mesh, no off-mesh links), ranked second in M19.
+
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK, clockwork-courier = CC).
 
@@ -706,6 +187,18 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   time over its limit fails only in CI and is measured twice first, memory, draw calls and entities always fail, and the
   engine's own CI fails on a runner with no baseline (`requireBaseline`); a game's check passes there with the entry to
   commit.
+
+- M26 (2026-10-24): a command writes only what it is asked to: `scene.format` with neither `paths`, `all` nor `check`
+  writes nothing, and `factoria.json` is patched (its order and formatting kept), never rewritten. A character is
+  carried by the kinematic body it stands on (`carriedByPlatforms`, default true) and never shoves a body held by a
+  joint. `game.today()` is a fixed date in tests and headless runs and the recorded one in a replay; `pauseOnSuspend` is
+  on by default. A mesh under an animated node gets a rigid skin of one joint at import. `platform.release` is false in
+  development runs and tests. The navmesh is a deterministic 2.5D grid baked from the static colliders. `connected: ""`
+  on a joint is the world. `materialColors` replaces a material's base colour and `color` still tints the whole model.
+  `fill` wins over `shrink` in a list; a slider value a script sets sends no `ui.change` (`game.setSlider` does). A
+  spawn index outside the parent's children is an error, and a root takes no index. The simulation uses only
+  `fa::det::` maths with no floating-point contraction, and CI compares one committed replay hash on every desktop job.
+  `project.add_menu_kit` never replaces a key or a file the game edited unless asked (`overwrite`).
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -1039,7 +532,8 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
 - Networking: `http.fetch` (a Promise) and WebSocket in JS on every platform; real-time multiplayer later.
 - Saves: slots with their menu (on M10), a version field with a migration hook, optional encryption, cloud through
   M12's `platform`.
-- Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, a behaviour-tree helper module.
+- Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, off-mesh links and walkable moving
+  platforms on `NavMesh3D` (CC/FB-0056), a behaviour-tree helper module.
 - Video: a video player component for logos and cut-scenes (e.g. pl_mpeg, MIT).
 - ~~`scene.loadAsync` with progress~~ (done as `scene.preload`, M26.7).
 - Split screen: a viewport rectangle on Camera (four gamepads already work).
@@ -1048,10 +542,11 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
 Acceptance criteria: each item ships with its doctest or JS test and its docs, like any command or component.
 
 Ranked 2026-10-22: the navmesh and `scene.loadAsync` moved to M26 (M26.10, M26.7) because Clockwork Courier needed them.
-The rest, in this order: 1. video, for a studio intro (CC/FB-0051; recording an .mp4 is M26.19's); 2. save slots with a
-version and a migration hook (every store game saves); 3. networking (M12's analytics and remote config need it);
-4. audio effects, ducking and snapshots; 5. grid A* on a Tilemap and the behaviour-tree helper (they can share M26.10's
-search); 6. split screen. A game asked for the first one only.
+The rest, in this order: 1. video, for a studio intro (CC/FB-0051; recording an .mp4 is M26.19's); 2. off-mesh links and
+walkable bridges and moving platforms on `NavMesh3D` (CC/FB-0056, added 2026-10-24: Courier's dogs stop at a bridge); 3.
+save slots with a version and a migration hook (every store game saves); 4. networking (M12's analytics and remote
+config need it); 5. audio effects, ducking and snapshots; 6. grid A* on a Tilemap and the behaviour-tree helper (they
+can share M26.10's search); 7. split screen. A game asked for the first two only.
 
 ## M20. Editor and tooling (L, medium-high) — DONE (PRs #134-#142, the `m20/debugger` and `m20/finish` PRs)
 
@@ -1180,390 +675,42 @@ is open.
 Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M25.
 
 Left open:
-- The 54 open Clockwork Courier entries were triaged 2026-10-22 ("Next engine milestones" above): 50 are M26's
-  packages, below.
+- The 54 open Clockwork Courier entries were triaged 2026-10-22 ("Next engine milestones" above): 50 became M26's
+  packages, done (below).
 - The exports ran on the iOS Simulator, an Android emulator, a browser pane and macOS on one Mac, not on real phones;
   the Windows and Linux exports were not run. In-app purchases were tested on the engine's fake store only: StoreKit
   needs Xcode and `Products.storekit`.
 - The trailer replays of `rooftops_3` and `market_3` drift after about 700 frames; the shots are cut before
   (examples/clockwork-courier/SHIPPING.md, "Trailer").
 
-## M26. Found by the second reference game (S-L each, high; 50 Clockwork Courier entries)
-
-What Clockwork Courier (M25: 3D, mobile first) found, triaged 2026-10-22. Eleven entries are major: each forced the
-game's AI into a workaround a store game should not need (a Python script that rewrites glTF files, a letter grid for
-names, a wall-clock date). Ordered like M24, by score (occurrences x severity weight) per unit of size, with two
-exceptions: a package that needs another one comes after it, and packages that edit the same files say so (one worker
-after the other, never two at once). Each ships with its doctest or JS test and its docs. When one merges, mark its
-entries `fixed-in-engine` and let Clockwork Courier drop the workaround (its `workaroundFiles` say where); the store
-backends of M12 and M19's video player stay in their milestones.
-
-### M26.1 Commands write only what they change (S) — CC/FB-0016, CC/FB-0047
-
-Done (branch `m26/commands-write-only`): `scene.format` without `paths`, `all` or `check` writes nothing and teaches;
-`dryRun` and unknown-argument errors on `platform.add_backend` and `project.new_plugin`; one JSON patcher
-(`tools/common/src/json_patch.cpp`) used by both and by `save_export_settings`; plugin templates have a `.gitignore`.
-
-- `scene.format` with neither `paths` nor `check` writes nothing: it fails with a teaching error that says how many
-  files would change and names the first ones; formatting the whole project takes `all: true`. The validator's hint that
-  suggests `scene.format` (validate.cpp) names the files, and every doc that shows the call with no arguments
-  (AI_GUIDE.md, CLI.md, MAKE_BY_HAND.md, MENUS.md, the templates' AGENTS.md) and the editor's tools test pass `paths`.
-- `platform.add_backend` and `project.new_plugin` honour `dryRun` (they list the files and keys they would write) and
-  refuse an unknown argument with a "did you mean". They patch `factoria.json` instead of rewriting it: one JSON
-  patcher in `tools/common` (from `save_export_settings`) changes the keys asked for and keeps the order, the formatting
-  and the other keys. The plugin templates get a `.gitignore` for their build output.
-
-Acceptance: tooling tests: `scene.format {}` on a project with an unformatted scene changes no file and fails naming
-`paths` and `all`; `add_backend {"dryRun": true}` writes nothing; a real `add_backend` leaves every other line of a
-hand-ordered `factoria.json` as it was.
-
-### M26.2 Character controller on moving and dynamic bodies (M) — CC/FB-0010, CC/FB-0011
-
-Done (branch `m26/character-platforms`): kinematic platforms carry a character (displacement and turn;
-`carriedByPlatforms`), the character weighs on the dynamic body below (`applyWeight`, `mass`) and pushes free bodies
-with `pushStrength` but never a jointed one; Clockwork Courier's workarounds are gone.
-
-- `physics.moveCharacter` adds the displacement (and the turn) of the kinematic body the character stands on, as it
-  already does for dynamic ones (physics3d_character.cpp); `CharacterController3D.carriedByPlatforms` (default true)
-  turns it off. The comment in `physics.h` on what carries a character is fixed.
-- The character weighs on the dynamic body below it (`CharacterController3D.mass`, used when `applyWeight` is on) and
-  pushes the dynamic bodies it walks into with `pushStrength`; it never shoves a body held by a joint (a seesaw on its
-  pivot, a bridge plank), which still tilts under its weight. AI_GUIDE.md's 3D physics section shows a moving platform
-  and a seesaw.
-
-Acceptance: `fa_test_physics` cases: a character on a moving kinematic platform keeps its place on it for 300 frames
-(and slides off with `carriedByPlatforms: false`); a seesaw tilts toward the side the character stands on and stays on
-its pivot; a free crate is pushed, a jointed one is not.
-
-### M26.3 Calendar date and app lifecycle (M) — CC/FB-0019, CC/FB-0035
-
-Done (branch `m26/calendar-lifecycle`): `game.today()`, `game.setDate`, `--date` and the replay date;
-`game.on("suspend"|"resume"|"focus"|"blur")`, `game.focused`, `pauseOnSuspend` and the test hooks; Clockwork Courier
-uses them.
-
-- `game.today()` returns `{year, month, day, weekday, utcOffsetMinutes, iso}`: the real date in a player, a fixed date
-  (`EngineConfig::date`) in `factoria test` and headless runs, the recorded one when a replay plays. `game.setDate(iso)`
-  in `factoria:test` and `--date` on the CLI set it. SCRIPTING.md tells games to read the date there, never through
-  `Date`, next to `world.rng`.
-- Scripts see the app's life: `game.on("suspend" | "resume" | "focus" | "blur", fn)` (the runners already get these
-  events, runners.cpp) and `game.focused`. A project setting `pauseOnSuspend` (default true) pauses the game and the
-  music while the app is in the background. Test hooks `game.suspend()` and `game.resume()`. MOBILE.md, "Lifecycle",
-  says what a script sees.
-
-Acceptance: script tests for a daily seed from `game.today()` under `game.setDate`, a replay that keeps its date, and a
-pause menu opened by `game.suspend()`; a headless run with `--date 2026-02-29` fails with a teaching error.
-
-### M26.4 Rigid glTF animation and several skins (M) — CC/FB-0001, CC/FB-0002
-
-Done (branch `m26/rigid-animation`): rigid skins for meshes on animated nodes, one palette per skin, Clockwork Courier
-imports the original robot and dog (no `skinify.py`).
-
-- Meshes that are children of animated nodes (a body part under a bone, or an animated mesh node with no skin at all,
-  as in RobotExpressive and Kenney's cube pets) follow their node: the importer gives them a rigid skin of one joint
-  (`parse_skeleton`, skeleton.cpp), so the Animator plays them with no change to the file. A model with clips that
-  nothing can play gets one warning naming the clips.
-- A model with several skins over the same joints is drawn with each mesh's own skin (today `build_palette` uses skin 0
-  for all).
-
-Acceptance: `fa_test_scene` / render tests with a small fixture of each layout: rigid parts under bones, animated mesh
-nodes and two skins; a frame of the clip differs from the bind pose and matches the reference. Clockwork Courier
-drops `tools/skinify.py` and imports the original models.
-
-### M26.5 Model import and asset tooling (S-M) — CC/FB-0008, CC/FB-0045, CC/FB-0004, CC/FB-0013
-
-Done (branch `m26/model-import`): `.glb`/`.gltf` import copies its uri files and warns on a name clash; validate
-checks them; `assets.json` edits keep the file's order; loudness warnings use the normalize gain; `assets.synth_sound`.
-
-- `assets.import` of a `.gltf` or `.glb` copies the files its `uri`s point at (textures, `.bin`) next to it, warns when
-  the destination already has a different file with the same name, and `factoria validate` checks that every texture a
-  model references exists.
-- `assets.set_provenance` changes one entry and keeps the order of the rest of `assets.json` (asset_manifest.cpp sorts
-  the whole file today).
-- `factoria validate`'s loudness warnings use the gain that `defaults.audio.normalize` will apply (peak and LUFS after
-  the gain), so a project that set it has no warning left.
-- An offline sound maker, `assets.synth_sound {path, preset, seed}` (barks, growls and the usual game effects, a
-  deterministic WAV, no provider and no key), with its provenance; ASSETS.md points at it next to the CC0 kits.
-
-Acceptance: tooling tests: importing a `.gltf` with an external texture copies both and validate passes; one that
-collides warns; `set_provenance` on a hand-ordered `assets.json` changes one entry; a normalized quiet sound gives no
-warning; `synth_sound` gives the same bytes for the same seed.
-
-### M26.6 Text that fits (M-L) — CC/FB-0042, CC/FB-0041
-
-- `Text.autoShrink` with `minFontSize` (and the same on `Button` and `TouchButton`): the text shrinks to fit its box
-  before it is cut, in every language and at every `ui.textScale`.
-- `maxTextScale` on `Text` and `UiControl`: a heading or a round button label stops growing at that scale.
-- The labels of `Toggle` and `Slider` wrap or shrink: `maxWidth` on both, `labelAbove` on `Slider`.
-- The effective size goes through every place that measures or draws text (layout, `autoSize`, `ui.measureText`, the
-  2D and 3D renderers), and `ui.overflowed(id)` tells a script or a test that a text still does not fit.
-
-Acceptance: `fa_test_ui` cases for a German label in a fixed button at 200 % text (shrinks, stays inside, never under
-`minFontSize`), a heading capped at 1.3, a long Toggle label that wraps; the M10 menus fixture's golden images at 200 %
-show no overlap.
-
-Done (branch `m26/text-fits`): `autoShrink`/`minFontSize`/`maxTextScale`, Toggle/Slider `maxWidth`, `labelAbove`,
-`ui.overflowed`, one shared fit path (text_fit.h); Clockwork Courier uses them.
-
-### M26.7 Scene and asset preload with progress (M) — CC/FB-0012
-
-Done (branch `m26/scene-preload`): `scene.preload` / `assets.preload` read ahead, 4 files per test frame, CC loading.js.
-
-M19's `scene.loadAsync`, which a game now needs. `scene.preload(path)` and `assets.preload([paths])` return a handle
-with `progress` (0..1), `done` and a Promise; they load within a time budget per frame (a worker thread later, L), so a
-loading screen animates while a scene loads, and `scene.load` of a preloaded scene is immediate. MENUS.md gets a
-loading-screen recipe.
-
-Acceptance: a script test preloads a scene with several models and sees `progress` grow over more than one frame, then
-loads it with no new file read; a loading-screen fixture keeps drawing frames while it loads.
-
-### M26.8 Store fake and catalog in scripts (S) — CC/FB-0024, CC/FB-0025, CC/FB-0029
-
-Done (branch `m26/store-fake`): `platform.revoke` and `game.platform.revoke(id)` (a refund and its `revoked` purchase
-event); `purchases.finish` of an unknown transaction rejects `unknownId`; leaderboard `nameKey`; the catalog is
-documented; Clockwork Courier uses them.
-
-- The fake store can take a purchase back: `platform.revoke` and `game.platform.revoke(id)` in tests (a refund), with
-  the `purchase` event a real backend would send.
-- `purchases.finish()` of an unknown transaction rejects its Promise with `unknownId` instead of throwing
-  (platform.cpp); tests and PLATFORM.md follow.
-- `game.project.platform` (the catalog, already readable) is documented in PLATFORM.md; leaderboards get a `nameKey`
-  for their localized name, like achievements.
-
-Acceptance: platform tests for a refund, the rejection and a leaderboard name in two languages.
-
-### M26.9 Ads and leaderboard periods: the API and the fake (M) — CC/FB-0028, CC/FB-0030
-
-Done (branch `m26/ads-periods`): `platform.ads`, `platform.release`, leaderboard `period`, fake ads; Courier uses them.
-
-After M26.3 (the date of a period) and M26.8 (same catalog code).
-- A `platform.ads` service like `purchases`: the catalog's `platform.ads.placements`, `ads.available(placement)`,
-  `ads.showRewarded(placement)` resolving `{rewarded}`, `ads.consent()` (what the GDPR and tracking sheets answered) and
-  `platform.release` (false in development runs and tests). The fake backend shows a scripted test ad, so games and
-  tests share one path.
-- Leaderboards with `period: "allTime" | "daily" | "weekly"` in the catalog and the API; the fake keys scores by period
-  using `game.today()`.
-- The real backends (Google UMP and AdMob, Apple ATT, store leaderboard periods) are M12's next packages.
-
-Acceptance: platform tests for a rewarded ad that pays, one the player closes early, consent refused, and a daily
-leaderboard that is empty again the next day under `game.setDate`.
-
-### M26.10 Navmesh and paths for 3D (L) — CC/FB-0009
-
-Done (branch `m26/navmesh`): `NavMesh3D` baked from the static colliders into a deterministic 2.5D grid
-(`fa/physics/nav.h`), `nav.bake`, `nav.find_path`, `nav.info` and `nav.findPath` in scripts, `Collider3D.navObstacle`
-for moving obstacles, editor "Show navmesh"; docs/NAVIGATION.md. Clockwork Courier keeps its own scripts/nav.js for now.
-
-M19's navmesh, which a game now needs. A `NavMesh3D` component baked from static colliders (`nav.bake`, with the
-agent's radius, height, step and slope), `nav.find_path` and `nav.findPath(from, to, {radius})` in scripts next to
-`physics.raycast3d`, a debug draw in the editor, and moving obstacles through a dirty flag. M19's grid A* on a Tilemap
-and the behaviour-tree helper can share the search later.
-
-Acceptance: `fa_test_physics` (or a new module's) cases on a fixture with walls, a ramp and a step too high; a script
-test where a guard reaches the player around a wall; the bake is the same on every run.
-
-### M26.11 Test API gaps (M) — CC/FB-0005, CC/FB-0006, CC/FB-0018, CC/FB-0026, CC/FB-0038, CC/FB-0044
-
-Done (branch `m26/test-api`): `game.mouseDown/mouseUp/wheel`, `game.resetState`, `game.quitRequested` (a quit in a test
-only sets it; Back that nobody consumes too), `game.setSystemLanguages`, `checkHooks` counts arguments (`start(seconds)`
-is a method, `update(dt)` still warns), SCRIPTING.md on `scene.load` vs `game.load`; tests in
-`engine/script/tests/test_test_api.cpp`.
-
-Not at the same time as M26.3 (the same `factoria:test` object in factoria.js).
-- `game.mouseDown(button)`, `game.mouseUp(button)` and `game.wheel(dy)` (the natives exist), so drag and zoom can be
-  tested.
-- `checkHooks` in the validator counts arguments: `start(seconds)` is a method, `start()` still warns.
-- SCRIPTING.md, "Tests", says `scene.load` from a test takes effect next frame and that `game.load` is immediate.
-- `game.resetState({storage, platform})` resets the save data and the fake store between tests of one file (each file
-  already starts clean).
-- In tests a quit request sets `game.quitRequested` instead of stopping the run; it is reset for each test.
-- `game.setSystemLanguages([...])` decides what `i18n` picks at start, reset for each test.
-
-Acceptance: a JS test for each item, in `engine/script/tests`.
-
-### M26.12 Localized text with parameters (M) — CC/FB-0021 (and its duplicate CC/FB-0027), CC/FB-0040
-
-Done (branch `m26/i18n-args`): `keyArgs`, `TouchButton.key`, validate checks args; Courier uses them.
-
-- `keyArgs` on `Text`, `Button` (`UiControl`) and `TouchButton`: the values of a key's `{placeholders}`, passed to
-  `i18n.t` when the text is localized (localize.cpp), so a script sets `keyArgs` once instead of rewriting `text` every
-  frame, and a language switch keeps them.
-- `TouchButton` gets `key` like the other widgets.
-- `factoria validate` checks a key's placeholders against the entity's `keyArgs` instead of warning about every key
-  with placeholders.
-
-Acceptance: `fa_test_scene` cases: a score label with `keyArgs` in two languages, a switch at run time, a TouchButton
-with a key; validate warns only for a placeholder with no arg.
-
-### M26.13 Locale-aware numbers (M) — CC/FB-0039
-
-Done (branch `m26/numbers`): `fa/core/number_format.h` (table of separators and digits), placeholders `{v:number:N}` and
-`{t:duration:N}`, `i18n.number` / `i18n.duration`, section 5b of LOCALIZATION.md; Courier's `fmt.js` calls them.
-
-After M26.12 (same localize code). `{v:number:1}` and `{t:duration}` in keys, `i18n.number(v, {decimals})` and
-`i18n.duration(seconds)` in scripts: decimal and group separators and digit forms per language from a small table in
-the engine (no ICU). LOCALIZATION.md lists the languages it knows.
-
-Acceptance: script tests for 1234.5 in English, Spanish, German, French and Arabic, and a time of 83.4 s.
-
-### M26.14 Joints: overlaps, rest and bridges (L) — CC/FB-0015 (and its duplicate CC/FB-0053), CC/FB-0054, CC/FB-0017, CC/FB-0014
-
-After M26.2 (the same physics files).
-- A dynamic body that starts inside a static collider is reported once on the first step (and by `factoria validate`
-  for scenes), and `Joint3D.stalled` (read only) tells a script that a driven joint cannot move.
-- Islands are built across joints: a chain sleeps when it is at rest, a CCD event is solved per island instead of
-  holding every body of the world, and two unrelated chains no longer move each other (physics3d.cpp).
-- `Joint3D.damping` and more iterations for chains, so a plank bridge settles without heavy damping or wide planks;
-  AI_GUIDE.md has a rope bridge recipe (and `physics.make_chain3d` if the recipe stays long).
-- `connected: ""` means the world on `Joint3D` and `Joint2D` everywhere: in scene files, `factoria validate`, scripts
-  and `scene.set_component`, as the docs say.
-
-Acceptance: `fa_test_physics` cases: a body started in a wall is reported once; a hinge driven into a wall reads
-`stalled`; a 12-plank bridge sleeps within 5 s; two bridges side by side give the same poses as each one alone; a joint
-with `connected: ""` loads, validates and runs.
-
-Done (branch `m26/joints`): start-overlap warning and validate, `Joint3D.stalled`, `damping`, joint islands, chains.
-
-### M26.15 Graphics quality and render stats (M) — CC/FB-0036, CC/FB-0050
-
-- `window.renderScale` (0.5..1, wired to the renderer's render scale), `window.supports(feature)` and `game.device`
-  (`formFactor`, `gpuBackend`, a `tier` from the GPU and memory) for quality presets. The frame cap still throws where
-  a phone cannot honour it; SCRIPTING.md says to read `window.supports("frameCap")` first.
-- `game.renderStats()` in tests draws a frame when none has been drawn yet (today `game.state().renderStats` is zero
-  headless) and adds `shadowCasters`; `perf.measure` records triangles, lights and texture memory, and `perf.check`
-  takes budgets for them (`maxTriangles`...).
-
-Acceptance: script tests for the render scale (the drawn size changes), the device fields headless, and render stats
-of a fixture scene; a `perf.check` with a triangle budget fails when the scene goes over it.
-
-Done (branch `m26/render-quality`): `window.renderScale`, `window.supports`, `game.device` (fixed headless,
-`setDevice` in tests), `game.renderStats()` drawing on demand with `shadowCasters`/`textureMB`, `game.render_stats`;
-`perf.measure` records triangles/lights/textureMB and `perf.check` takes `budgets`; Clockwork Courier uses them.
-
-### M26.16 Per-material colours (M) — CC/FB-0031
-
-Done (branch `m26/material-colors`): `MeshRenderer.materialColors` (replaces the glTF base colour factor of the named
-material, `color` still tints the whole model, part of the batch key) and the `factoria validate` check with a "did you
-mean"; Courier's `paints.js` can drop its dark-tint-plus-emissive trick (not changed in this package).
-
-After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF
-material name, `{"Body": [0.2, 0.8, 0.7, 1]}`, applied per sub-mesh (the sub-mesh keeps its material name) and part of
-the batch key; `factoria validate` checks the names against the model with a "did you mean".
-
-Acceptance: a render test where one material of a two-material model changes colour and the other does not; validate
-suggests the right name for a typo.
-
-### M26.17 Text entry on every device (M) — CC/FB-0020, CC/FB-0052
-
-Done (branch `m26/text-entry`): the UI raises the phone's keyboard on focus, the MENUS.md kit has an on-screen keyboard
-for pad players, the web player has a hidden `<input>` and the web smoke types into a field (CI runs it).
-
-- A focused `TextField` raises the phone's keyboard and hides it on blur. MOBILE.md says it does; today only
-  `input.showKeyboard` does it (found while verifying CC/FB-0020).
-- An on-screen keyboard for gamepad players: a prefab the `TextField` opens when focus came from a pad (letters,
-  digits, space, delete, done; the d-pad walks it; the layout follows the language's script), in MENUS.md. The Steam
-  Deck's own keyboard is M12's, with Steamworks.
-- Web: TEXT.md and EXPORTING.md ("Web") say the web player takes typed text from `keypress` (what a browser pane's
-  synthetic key events may not send); the web autotest types into a field; a hidden `<input>` raises the keyboard on
-  mobile browsers.
-
-Acceptance: an input test where focusing a field shows the keyboard; a UI test that types a name with the pad alone;
-the web autotest fills a field.
-
-### M26.18 Slider and ScrollList (S-M) — CC/FB-0037, CC/FB-0046
-
-Done (branch `m26/slider-scroll`): `ui.set_slider` / `game.setSlider`, `Slider.format` and `formatKey`, `ScrollList.shrink`;
-Courier's slider formats and its comfort test use them (its lists keep `fill`).
-
-After M26.6 (the same widgets).
-- `game.setSlider(id, value)` in tests sends `ui.change` like a drag; a value set from a script does not (as today) and
-  this is documented. `Slider.format` shows the value as `"{v}%"` or through a key.
-- `ScrollList.shrink`: inside a `fit` parent a list is as tall as its content up to the space left, instead of the
-  whole screen.
-- Details: `format` takes `{v}`, `{v:N}` and `{percent}` (value x 100); `formatKey` is a key whose translation is the
-  pattern. Several `shrink` lists share the room by water-filling; `fill` wins over `shrink`.
-
-Acceptance: `fa_test_ui` cases for each.
-
-### M26.19 Export and store material checks (S-M) — CC/FB-0034, CC/FB-0048, CC/FB-0049, CC/FB-0051 (ffmpeg)
-
-Done (branch `m26/export-checks`): Products.storekit per language without the plugin; Android CMake from the SDK
-or the system (`cmake.dir`); build fingerprint check (`--allow-player-mismatch`); `setup ffmpeg`.
-
-- iOS: `Products.storekit` is written whenever the catalog has products, whether or not the Apple plugin is built
-  (export_ios.cpp), with one localization per language of the game (storekit_config.cpp).
-- Android: a CMake from the system (3.24 or newer) works through `cmake.dir`, the SDK's version is read instead of
-  required to be 3.31.6, and the hint says how to get one offline.
-- Desktop: the factoria binary and the player carry a build fingerprint; an export with a player from another build
-  stops with a teaching error (`--allow-player-mismatch` to go on).
-- `setup.install` can install ffmpeg, so `--record-video trailer.mp4` works without a manual step (the video player
-  itself is M19's).
-
-Acceptance: tooling tests for each export check and for the storekit file with two languages; `setup.install`'s
-ffmpeg component is listed by `setup.status`.
-
-### M26.20 Scene tree: sibling order and shared panels (S-M) — CC/FB-0032, CC/FB-0023
-
-Done (branch `m26/scene-order`): `World::set_parent(..., index)`, `scene.set_parent {index}`, `scene.spawn {index, overrides}`,
-`entity.setParent(parent, keepWorld, index)`, `world.spawn(json, {parent, index})` (an index outside 0..number of the
-parent's other children is an error; a root takes no index); prefab references take `overrides` for the prefab's
-descendants (by id, name or path) and `world.spawnPrefab(path, {childOverrides})` the same; docs/MENUS.md.
-
-- A child can be put at a place among its siblings: `World::set_parent` with an index, `scene.set_parent {index}`,
-  `entity.setParent(parent, keepWorld, index)` and `spawn({parent, index})`.
-- MENUS.md shows a panel shared between scenes as a prefab; a prefab instance can override its children's fields
-  (`overrides` in `expand_prefab`), so one panel serves two scenes with different texts.
-
-Acceptance: `fa_test_scene` cases for each.
-
-### M26.21 Physics determinism across platforms (S-M) — CC/FB-0055
-
-- AI_GUIDE.md and SCRIPTING.md ("Tests") say what holds: the same build on the same platform gives the same result;
-  another compiler or CPU may not.
-- The engine builds with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`) and the simulation uses its own
-  deterministic sin/cos/atan2/asin/acos (`fa::det::`), so the same source gives the same numbers on every platform; CI
-  compares a replay's hash with one committed value on the Linux, Windows and macOS jobs.
-- `factoria:test` has a helper that runs a check under small perturbations, so a level test asserts what is robust
-  instead of an exact frame count.
-
-Acceptance: the replay hash matches across CI's Linux, Windows and macOS jobs, or the docs list where it does not.
-
-Done (branch `m26/physics-determinism`): every target builds with `-ffp-contract=off` / `/fp:precise` and `-fmath-errno` (root
-CMakeLists.txt; per-module flags were not enough, see the comment there). The first CI run showed a different hash on each
-platform, from the C library's sin/cos/atan2/asin/acos (Euler angles of every world matrix, quaternion turns, hinge angles,
-round collider sampling). They are replaced on the whole simulation path by `fa::det::` (`engine/core/include/fa/core/
-det_math.h`: doubles, `+ - * / sqrt` only, range reduction and Taylor series; test_det_math.cpp checks accuracy against
-`std::` and commits exact bit patterns), also behind `Quat`, `Mat4::rotate_*` and `from_angle_deg` in math.h; `std::hypot` in
-the nav grid became `sqrt`. Box2D has its own cos/sin/atan2 (checked: v3 `b2ComputeCosSin`/`b2Atan2`), so its 2D part now
-matches Windows' on the Mac. The test `physics_determinism` (`engine/physics/tests/test_determinism.cpp`) compares a replay
-hash with ONE committed value on each CI job (no per-platform table) and prints `FA_PHYSICS_REPLAY_HASH`. `robust()` is in
-`factoria:test`; Clockwork Courier's shortcut test uses it. The last Windows difference was the sign of a zero: `det::atan2`
-took |y| as `y < 0 ? -y : y`, which keeps -0, and MSVC (even with `/fp:precise`) compiles that as `fabs`, so `asin(-0)` was
-+0 with Clang and GCC and -0 with MSVC; it uses `std::fabs` now (a Clang build with `-fno-signed-zeros` reproduced MSVC's
-hash locally). One hash holds on the Linux, Windows and macOS jobs; FB-0055 is fixed.
-
-### M26.22 Menu kit command (M) — CC/FB-0003
-
-Done (branch `m26/menu-kit`): `project.add_menu_kit` (tools/common/src/menu_kit.cpp), the kit in `templates/menus/` with
-`kit.json` listing its parts; the menus fixture keeps a copy of every kit file that the `cli` test "the menus fixture holds
-exactly the kit's files" keeps identical.
-
-After M26.1 (the kit is formatted on write). The menus recipe moves to `templates/menus/` (scenes, prefabs, scripts and
-locale keys), MENUS.md shows it from there, and `project.add_menu_kit {parts, overwrite}` copies the parts asked for
-into a game and merges their keys into its locale files.
-
-Acceptance: a tooling test adds the kit to a new project, which then validates and passes the kit's own test; adding it
-twice changes nothing.
-
-### M26.23 UI layout check (M) — CC/FB-0043
-
-Done (branch `m26/layout-check`): `ui.check_layout` (engine/runtime/src/ui_check.cpp), `I18n::set_pseudo`; Courier's
-intro and profile keys shrink; its remaining findings are in its ENGINE_FEEDBACK.json notes.
-
-After M26.6. `ui.check_layout {scenes, languages, textScales, pseudo}` loads each screen in each language and text scale
-(and a pseudo-localized one that lengthens every string), and lists every text that overflows or overlaps, with the
-entity and the key.
-
-Acceptance: a tooling test on the menus fixture finds a planted overflow at 200 % in German and nothing else.
+## M26. Found by the second reference game (S-L each, high; 50 Clockwork Courier entries) — DONE (PRs #149-#176 and the `m26/bookkeeping` PR)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M26 (M26.1-M26.23). 49 of the 50 Clockwork Courier entries are fixed, and the
+game dropped their workarounds in the `m26/bookkeeping` PR: the dog and tap-to-move walk on a `NavMesh3D`, the level
+panels are three shared prefabs, the name screen uses the menu kit's keyboard, the paints are material colours, the
+tests reset their state with `game.resetState`, and `ui.check_layout` finds no issue in the game.
+
+Left open:
+- CC/FB-0051: the engine records a trailer as an .mp4 (`factoria setup ffmpeg`, M26.19) but plays no video in a game;
+  that is M19's video player, first in its ranking.
+- M12: the real ad networks and the leaderboard periods of the real stores (CC/FB-0028, CC/FB-0030; M26.9 made the API
+  and the fake) and the Steam Deck's own keyboard (CC/FB-0020), first in M12's ranking.
+- M26.7: preloading reads whole files on the main thread within a time budget per frame; a worker thread is later (L).
+- M26.13: numbers and stopwatch times only (no currency, percentages or spelled-out durations); a language outside the
+  table (hi, th, vi...) is written like English.
+- M26.17: the kit's on-screen keyboard has Latin (with each language's extra letters), Cyrillic and Greek keys;
+  Japanese, Chinese, Korean and other scripts get the Latin keys, so a player with only a gamepad cannot type a Japanese
+  name.
+- M26.21: one replay hash holds on the Linux (GCC), Windows (MSVC) and macOS (Clang) jobs; the Android, iOS and web
+  players are not compared.
+- The trailer replays of `rooftops_3` and `market_3` still drift after about 700 frames (M25; the game's SHIPPING.md,
+  "Trailer").
+- CC/FB-0056, found by the close-out: the navmesh bakes static colliders only, so a guard dog never crosses a rope
+  bridge, the seesaw or a moving platform, and there are no off-mesh links; second in M19's ranking.
+
+Next: the first three packages of M12 and M19's first two (video, off-mesh links), the only ones a game asked for
+(ranked in their sections). M23's consoles wait for a game that needs them. Two ranked entries are open (CC/FB-0051,
+CC/FB-0056).
 
 ## Out of scope: Roblox
 

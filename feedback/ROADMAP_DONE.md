@@ -1029,6 +1029,393 @@ engine should remove (the ranked list in [ROADMAP.md](ROADMAP.md)). One was fixe
 3D joints were solved in the order of their entity ids, so a rope bridge behaved differently after other scenes; they are
 now solved in the scene's entity order and `Physics3D::reset()` drops joint state.
 
+## M26. Found by the second reference game — DONE (PRs #149-#176 and the `m26/bookkeeping` PR)
+
+What Clockwork Courier (M25: 3D, mobile first) found, triaged 2026-10-22. Eleven entries are major: each forced the
+game's AI into a workaround a store game should not need (a Python script that rewrites glTF files, a letter grid for
+names, a wall-clock date). Ordered like M24, by score (occurrences x severity weight) per unit of size, with two
+exceptions: a package that needs another one comes after it, and packages that edit the same files say so (one worker
+after the other, never two at once). Each ships with its doctest or JS test and its docs. When one merges, mark its
+entries `fixed-in-engine` and let Clockwork Courier drop the workaround (its `workaroundFiles` say where); the store
+backends of M12 and M19's video player stay in their milestones.
+
+### M26.1 Commands write only what they change (S) — CC/FB-0016, CC/FB-0047
+
+Done (#150, merge `7566e5b`): `scene.format` without `paths`, `all` or `check` writes nothing and teaches;
+`dryRun` and unknown-argument errors on `platform.add_backend` and `project.new_plugin`; one JSON patcher
+(`tools/common/src/json_patch.cpp`) used by both and by `save_export_settings`; plugin templates have a `.gitignore`.
+
+- `scene.format` with neither `paths` nor `check` writes nothing: it fails with a teaching error that says how many
+  files would change and names the first ones; formatting the whole project takes `all: true`. The validator's hint that
+  suggests `scene.format` (validate.cpp) names the files, and every doc that shows the call with no arguments
+  (AI_GUIDE.md, CLI.md, MAKE_BY_HAND.md, MENUS.md, the templates' AGENTS.md) and the editor's tools test pass `paths`.
+- `platform.add_backend` and `project.new_plugin` honour `dryRun` (they list the files and keys they would write) and
+  refuse an unknown argument with a "did you mean". They patch `factoria.json` instead of rewriting it: one JSON
+  patcher in `tools/common` (from `save_export_settings`) changes the keys asked for and keeps the order, the formatting
+  and the other keys. The plugin templates get a `.gitignore` for their build output.
+
+Acceptance: tooling tests: `scene.format {}` on a project with an unformatted scene changes no file and fails naming
+`paths` and `all`; `add_backend {"dryRun": true}` writes nothing; a real `add_backend` leaves every other line of a
+hand-ordered `factoria.json` as it was.
+
+### M26.2 Character controller on moving and dynamic bodies (M) — CC/FB-0010, CC/FB-0011
+
+Done (#151, merge `299cd69`): kinematic platforms carry a character (displacement and turn;
+`carriedByPlatforms`), the character weighs on the dynamic body below (`applyWeight`, `mass`) and pushes free bodies
+with `pushStrength` but never a jointed one; Clockwork Courier's workarounds are gone.
+
+- `physics.moveCharacter` adds the displacement (and the turn) of the kinematic body the character stands on, as it
+  already does for dynamic ones (physics3d_character.cpp); `CharacterController3D.carriedByPlatforms` (default true)
+  turns it off. The comment in `physics.h` on what carries a character is fixed.
+- The character weighs on the dynamic body below it (`CharacterController3D.mass`, used when `applyWeight` is on) and
+  pushes the dynamic bodies it walks into with `pushStrength`; it never shoves a body held by a joint (a seesaw on its
+  pivot, a bridge plank), which still tilts under its weight. AI_GUIDE.md's 3D physics section shows a moving platform
+  and a seesaw.
+
+Acceptance: `fa_test_physics` cases: a character on a moving kinematic platform keeps its place on it for 300 frames
+(and slides off with `carriedByPlatforms: false`); a seesaw tilts toward the side the character stands on and stays on
+its pivot; a free crate is pushed, a jointed one is not.
+
+### M26.3 Calendar date and app lifecycle (M) — CC/FB-0019, CC/FB-0035
+
+Done (#152, merge `5f3900a`): `game.today()`, `game.setDate`, `--date` and the replay date;
+`game.on("suspend"|"resume"|"focus"|"blur")`, `game.focused`, `pauseOnSuspend` and the test hooks; Clockwork Courier
+uses them.
+
+- `game.today()` returns `{year, month, day, weekday, utcOffsetMinutes, iso}`: the real date in a player, a fixed date
+  (`EngineConfig::date`) in `factoria test` and headless runs, the recorded one when a replay plays. `game.setDate(iso)`
+  in `factoria:test` and `--date` on the CLI set it. SCRIPTING.md tells games to read the date there, never through
+  `Date`, next to `world.rng`.
+- Scripts see the app's life: `game.on("suspend" | "resume" | "focus" | "blur", fn)` (the runners already get these
+  events, runners.cpp) and `game.focused`. A project setting `pauseOnSuspend` (default true) pauses the game and the
+  music while the app is in the background. Test hooks `game.suspend()` and `game.resume()`. MOBILE.md, "Lifecycle",
+  says what a script sees.
+
+Acceptance: script tests for a daily seed from `game.today()` under `game.setDate`, a replay that keeps its date, and a
+pause menu opened by `game.suspend()`; a headless run with `--date 2026-02-29` fails with a teaching error.
+
+### M26.4 Rigid glTF animation and several skins (M) — CC/FB-0001, CC/FB-0002
+
+Done (#155, merge `c71f1cc`): rigid skins for meshes on animated nodes, one palette per skin, Clockwork Courier
+imports the original robot and dog (no `skinify.py`).
+
+- Meshes that are children of animated nodes (a body part under a bone, or an animated mesh node with no skin at all,
+  as in RobotExpressive and Kenney's cube pets) follow their node: the importer gives them a rigid skin of one joint
+  (`parse_skeleton`, skeleton.cpp), so the Animator plays them with no change to the file. A model with clips that
+  nothing can play gets one warning naming the clips.
+- A model with several skins over the same joints is drawn with each mesh's own skin (today `build_palette` uses skin 0
+  for all).
+
+Acceptance: `fa_test_scene` / render tests with a small fixture of each layout: rigid parts under bones, animated mesh
+nodes and two skins; a frame of the clip differs from the bind pose and matches the reference. Clockwork Courier
+drops `tools/skinify.py` and imports the original models.
+
+### M26.5 Model import and asset tooling (S-M) — CC/FB-0008, CC/FB-0045, CC/FB-0004, CC/FB-0013
+
+Done (#153, merge `7e0cd19`): `.glb`/`.gltf` import copies its uri files and warns on a name clash; validate
+checks them; `assets.json` edits keep the file's order; loudness warnings use the normalize gain; `assets.synth_sound`.
+
+- `assets.import` of a `.gltf` or `.glb` copies the files its `uri`s point at (textures, `.bin`) next to it, warns when
+  the destination already has a different file with the same name, and `factoria validate` checks that every texture a
+  model references exists.
+- `assets.set_provenance` changes one entry and keeps the order of the rest of `assets.json` (asset_manifest.cpp sorts
+  the whole file today).
+- `factoria validate`'s loudness warnings use the gain that `defaults.audio.normalize` will apply (peak and LUFS after
+  the gain), so a project that set it has no warning left.
+- An offline sound maker, `assets.synth_sound {path, preset, seed}` (barks, growls and the usual game effects, a
+  deterministic WAV, no provider and no key), with its provenance; ASSETS.md points at it next to the CC0 kits.
+
+Acceptance: tooling tests: importing a `.gltf` with an external texture copies both and validate passes; one that
+collides warns; `set_provenance` on a hand-ordered `assets.json` changes one entry; a normalized quiet sound gives no
+warning; `synth_sound` gives the same bytes for the same seed.
+
+### M26.6 Text that fits (M-L) — CC/FB-0042, CC/FB-0041
+
+- `Text.autoShrink` with `minFontSize` (and the same on `Button` and `TouchButton`): the text shrinks to fit its box
+  before it is cut, in every language and at every `ui.textScale`.
+- `maxTextScale` on `Text` and `UiControl`: a heading or a round button label stops growing at that scale.
+- The labels of `Toggle` and `Slider` wrap or shrink: `maxWidth` on both, `labelAbove` on `Slider`.
+- The effective size goes through every place that measures or draws text (layout, `autoSize`, `ui.measureText`, the
+  2D and 3D renderers), and `ui.overflowed(id)` tells a script or a test that a text still does not fit.
+
+Acceptance: `fa_test_ui` cases for a German label in a fixed button at 200 % text (shrinks, stays inside, never under
+`minFontSize`), a heading capped at 1.3, a long Toggle label that wraps; the M10 menus fixture's golden images at 200 %
+show no overlap.
+
+Done (#154, merge `060ca42`): `autoShrink`/`minFontSize`/`maxTextScale`, Toggle/Slider `maxWidth`, `labelAbove`,
+`ui.overflowed`, one shared fit path (text_fit.h); Clockwork Courier uses them.
+
+### M26.7 Scene and asset preload with progress (M) — CC/FB-0012
+
+Done (#161, merge `d9bfb84`): `scene.preload` / `assets.preload` read ahead, 4 files per test frame, CC loading.js.
+
+M19's `scene.loadAsync`, which a game now needs. `scene.preload(path)` and `assets.preload([paths])` return a handle
+with `progress` (0..1), `done` and a Promise; they load within a time budget per frame (a worker thread later, L), so a
+loading screen animates while a scene loads, and `scene.load` of a preloaded scene is immediate. MENUS.md gets a
+loading-screen recipe.
+
+Acceptance: a script test preloads a scene with several models and sees `progress` grow over more than one frame, then
+loads it with no new file read; a loading-screen fixture keeps drawing frames while it loads.
+
+### M26.8 Store fake and catalog in scripts (S) — CC/FB-0024, CC/FB-0025, CC/FB-0029
+
+Done (#156, merge `49f77b3`): `platform.revoke` and `game.platform.revoke(id)` (a refund and its `revoked` purchase
+event); `purchases.finish` of an unknown transaction rejects `unknownId`; leaderboard `nameKey`; the catalog is
+documented; Clockwork Courier uses them.
+
+- The fake store can take a purchase back: `platform.revoke` and `game.platform.revoke(id)` in tests (a refund), with
+  the `purchase` event a real backend would send.
+- `purchases.finish()` of an unknown transaction rejects its Promise with `unknownId` instead of throwing
+  (platform.cpp); tests and PLATFORM.md follow.
+- `game.project.platform` (the catalog, already readable) is documented in PLATFORM.md; leaderboards get a `nameKey`
+  for their localized name, like achievements.
+
+Acceptance: platform tests for a refund, the rejection and a leaderboard name in two languages.
+
+### M26.9 Ads and leaderboard periods: the API and the fake (M) — CC/FB-0028, CC/FB-0030
+
+Done (#163, merge `3669375`): `platform.ads`, `platform.release`, leaderboard `period`, fake ads; Courier uses them.
+
+After M26.3 (the date of a period) and M26.8 (same catalog code).
+- A `platform.ads` service like `purchases`: the catalog's `platform.ads.placements`, `ads.available(placement)`,
+  `ads.showRewarded(placement)` resolving `{rewarded}`, `ads.consent()` (what the GDPR and tracking sheets answered) and
+  `platform.release` (false in development runs and tests). The fake backend shows a scripted test ad, so games and
+  tests share one path.
+- Leaderboards with `period: "allTime" | "daily" | "weekly"` in the catalog and the API; the fake keys scores by period
+  using `game.today()`.
+- The real backends (Google UMP and AdMob, Apple ATT, store leaderboard periods) are M12's next packages.
+
+Acceptance: platform tests for a rewarded ad that pays, one the player closes early, consent refused, and a daily
+leaderboard that is empty again the next day under `game.setDate`.
+
+### M26.10 Navmesh and paths for 3D (L) — CC/FB-0009
+
+Done (#159, merge `016421a`): `NavMesh3D` baked from the static colliders into a deterministic 2.5D grid
+(`fa/physics/nav.h`), `nav.bake`, `nav.find_path`, `nav.info` and `nav.findPath` in scripts, `Collider3D.navObstacle`
+for moving obstacles, editor "Show navmesh"; docs/NAVIGATION.md. Clockwork Courier keeps its own scripts/nav.js for now.
+
+M19's navmesh, which a game now needs. A `NavMesh3D` component baked from static colliders (`nav.bake`, with the
+agent's radius, height, step and slope), `nav.find_path` and `nav.findPath(from, to, {radius})` in scripts next to
+`physics.raycast3d`, a debug draw in the editor, and moving obstacles through a dirty flag. M19's grid A* on a Tilemap
+and the behaviour-tree helper can share the search later.
+
+Acceptance: `fa_test_physics` (or a new module's) cases on a fixture with walls, a ramp and a step too high; a script
+test where a guard reaches the player around a wall; the bake is the same on every run.
+
+### M26.11 Test API gaps (M) — CC/FB-0005, CC/FB-0006, CC/FB-0018, CC/FB-0026, CC/FB-0038, CC/FB-0044
+
+Done (#172, merge `1474bc1`): `game.mouseDown/mouseUp/wheel`, `game.resetState`, `game.quitRequested` (a quit in a test
+only sets it; Back that nobody consumes too), `game.setSystemLanguages`, `checkHooks` counts arguments (`start(seconds)`
+is a method, `update(dt)` still warns), SCRIPTING.md on `scene.load` vs `game.load`; tests in
+`engine/script/tests/test_test_api.cpp`.
+
+Not at the same time as M26.3 (the same `factoria:test` object in factoria.js).
+- `game.mouseDown(button)`, `game.mouseUp(button)` and `game.wheel(dy)` (the natives exist), so drag and zoom can be
+  tested.
+- `checkHooks` in the validator counts arguments: `start(seconds)` is a method, `start()` still warns.
+- SCRIPTING.md, "Tests", says `scene.load` from a test takes effect next frame and that `game.load` is immediate.
+- `game.resetState({storage, platform})` resets the save data and the fake store between tests of one file (each file
+  already starts clean).
+- In tests a quit request sets `game.quitRequested` instead of stopping the run; it is reset for each test.
+- `game.setSystemLanguages([...])` decides what `i18n` picks at start, reset for each test.
+
+Acceptance: a JS test for each item, in `engine/script/tests`.
+
+### M26.12 Localized text with parameters (M) — CC/FB-0021 (and its duplicate CC/FB-0027), CC/FB-0040
+
+Done (#162, merge `7921217`): `keyArgs`, `TouchButton.key`, validate checks args; Courier uses them.
+
+- `keyArgs` on `Text`, `Button` (`UiControl`) and `TouchButton`: the values of a key's `{placeholders}`, passed to
+  `i18n.t` when the text is localized (localize.cpp), so a script sets `keyArgs` once instead of rewriting `text` every
+  frame, and a language switch keeps them.
+- `TouchButton` gets `key` like the other widgets.
+- `factoria validate` checks a key's placeholders against the entity's `keyArgs` instead of warning about every key
+  with placeholders.
+
+Acceptance: `fa_test_scene` cases: a score label with `keyArgs` in two languages, a switch at run time, a TouchButton
+with a key; validate warns only for a placeholder with no arg.
+
+### M26.13 Locale-aware numbers (M) — CC/FB-0039
+
+Done (#169, merge `aae84c3`): `fa/core/number_format.h` (table of separators and digits), placeholders `{v:number:N}` and
+`{t:duration:N}`, `i18n.number` / `i18n.duration`, section 5b of LOCALIZATION.md; Courier's `fmt.js` calls them.
+
+After M26.12 (same localize code). `{v:number:1}` and `{t:duration}` in keys, `i18n.number(v, {decimals})` and
+`i18n.duration(seconds)` in scripts: decimal and group separators and digit forms per language from a small table in
+the engine (no ICU). LOCALIZATION.md lists the languages it knows.
+
+Acceptance: script tests for 1234.5 in English, Spanish, German, French and Arabic, and a time of 83.4 s.
+
+### M26.14 Joints: overlaps, rest and bridges (L) — CC/FB-0015 (and its duplicate CC/FB-0053), CC/FB-0054, CC/FB-0017, CC/FB-0014
+
+After M26.2 (the same physics files).
+- A dynamic body that starts inside a static collider is reported once on the first step (and by `factoria validate`
+  for scenes), and `Joint3D.stalled` (read only) tells a script that a driven joint cannot move.
+- Islands are built across joints: a chain sleeps when it is at rest, a CCD event is solved per island instead of
+  holding every body of the world, and two unrelated chains no longer move each other (physics3d.cpp).
+- `Joint3D.damping` and more iterations for chains, so a plank bridge settles without heavy damping or wide planks;
+  AI_GUIDE.md has a rope bridge recipe (and `physics.make_chain3d` if the recipe stays long).
+- `connected: ""` means the world on `Joint3D` and `Joint2D` everywhere: in scene files, `factoria validate`, scripts
+  and `scene.set_component`, as the docs say.
+
+Acceptance: `fa_test_physics` cases: a body started in a wall is reported once; a hinge driven into a wall reads
+`stalled`; a 12-plank bridge sleeps within 5 s; two bridges side by side give the same poses as each one alone; a joint
+with `connected: ""` loads, validates and runs.
+
+Done (#167, merge `bb13ed0`): start-overlap warning and validate, `Joint3D.stalled`, `damping`, joint islands, chains.
+
+### M26.15 Graphics quality and render stats (M) — CC/FB-0036, CC/FB-0050
+
+- `window.renderScale` (0.5..1, wired to the renderer's render scale), `window.supports(feature)` and `game.device`
+  (`formFactor`, `gpuBackend`, a `tier` from the GPU and memory) for quality presets. The frame cap still throws where
+  a phone cannot honour it; SCRIPTING.md says to read `window.supports("frameCap")` first.
+- `game.renderStats()` in tests draws a frame when none has been drawn yet (today `game.state().renderStats` is zero
+  headless) and adds `shadowCasters`; `perf.measure` records triangles, lights and texture memory, and `perf.check`
+  takes budgets for them (`maxTriangles`...).
+
+Acceptance: script tests for the render scale (the drawn size changes), the device fields headless, and render stats
+of a fixture scene; a `perf.check` with a triangle budget fails when the scene goes over it.
+
+Done (#166, merge `1ecb685`): `window.renderScale`, `window.supports`, `game.device` (fixed headless,
+`setDevice` in tests), `game.renderStats()` drawing on demand with `shadowCasters`/`textureMB`, `game.render_stats`;
+`perf.measure` records triangles/lights/textureMB and `perf.check` takes `budgets`; Clockwork Courier uses them.
+
+### M26.16 Per-material colours (M) — CC/FB-0031
+
+Done (#173, merge `c70c58b`): `MeshRenderer.materialColors` (replaces the glTF base colour factor of the named
+material, `color` still tints the whole model, part of the batch key) and the `factoria validate` check with a "did you
+mean"; Courier's `paints.js` can drop its dark-tint-plus-emissive trick (not changed in this package).
+
+After M26.4 and M26.15 (the same model and renderer code). `MeshRenderer.materialColors` is an object keyed by glTF
+material name, `{"Body": [0.2, 0.8, 0.7, 1]}`, applied per sub-mesh (the sub-mesh keeps its material name) and part of
+the batch key; `factoria validate` checks the names against the model with a "did you mean".
+
+Acceptance: a render test where one material of a two-material model changes colour and the other does not; validate
+suggests the right name for a typo.
+
+### M26.17 Text entry on every device (M) — CC/FB-0020, CC/FB-0052
+
+Done (#171, merge `4832aa4`): the UI raises the phone's keyboard on focus, the MENUS.md kit has an on-screen keyboard
+for pad players, the web player has a hidden `<input>` and the web smoke types into a field (CI runs it).
+
+- A focused `TextField` raises the phone's keyboard and hides it on blur. MOBILE.md says it does; today only
+  `input.showKeyboard` does it (found while verifying CC/FB-0020).
+- An on-screen keyboard for gamepad players: a prefab the `TextField` opens when focus came from a pad (letters,
+  digits, space, delete, done; the d-pad walks it; the layout follows the language's script), in MENUS.md. The Steam
+  Deck's own keyboard is M12's, with Steamworks.
+- Web: TEXT.md and EXPORTING.md ("Web") say the web player takes typed text from `keypress` (what a browser pane's
+  synthetic key events may not send); the web autotest types into a field; a hidden `<input>` raises the keyboard on
+  mobile browsers.
+
+Acceptance: an input test where focusing a field shows the keyboard; a UI test that types a name with the pad alone;
+the web autotest fills a field.
+
+### M26.18 Slider and ScrollList (S-M) — CC/FB-0037, CC/FB-0046
+
+Done (#174, merge `f13577d`): `ui.set_slider` / `game.setSlider`, `Slider.format` and `formatKey`, `ScrollList.shrink`;
+Courier's slider formats and its comfort test use them (its lists keep `fill`).
+
+After M26.6 (the same widgets).
+- `game.setSlider(id, value)` in tests sends `ui.change` like a drag; a value set from a script does not (as today) and
+  this is documented. `Slider.format` shows the value as `"{v}%"` or through a key.
+- `ScrollList.shrink`: inside a `fit` parent a list is as tall as its content up to the space left, instead of the
+  whole screen.
+- Details: `format` takes `{v}`, `{v:N}` and `{percent}` (value x 100); `formatKey` is a key whose translation is the
+  pattern. Several `shrink` lists share the room by water-filling; `fill` wins over `shrink`.
+
+Acceptance: `fa_test_ui` cases for each.
+
+### M26.19 Export and store material checks (S-M) — CC/FB-0034, CC/FB-0048, CC/FB-0049, CC/FB-0051 (ffmpeg)
+
+Done (#164, merge `069466c`): Products.storekit per language without the plugin; Android CMake from the SDK
+or the system (`cmake.dir`); build fingerprint check (`--allow-player-mismatch`); `setup ffmpeg`.
+
+- iOS: `Products.storekit` is written whenever the catalog has products, whether or not the Apple plugin is built
+  (export_ios.cpp), with one localization per language of the game (storekit_config.cpp).
+- Android: a CMake from the system (3.24 or newer) works through `cmake.dir`, the SDK's version is read instead of
+  required to be 3.31.6, and the hint says how to get one offline.
+- Desktop: the factoria binary and the player carry a build fingerprint; an export with a player from another build
+  stops with a teaching error (`--allow-player-mismatch` to go on).
+- `setup.install` can install ffmpeg, so `--record-video trailer.mp4` works without a manual step (the video player
+  itself is M19's).
+
+Acceptance: tooling tests for each export check and for the storekit file with two languages; `setup.install`'s
+ffmpeg component is listed by `setup.status`.
+
+### M26.20 Scene tree: sibling order and shared panels (S-M) — CC/FB-0032, CC/FB-0023
+
+Done (#168, merge `570a112`): `World::set_parent(..., index)`, `scene.set_parent {index}`, `scene.spawn {index, overrides}`,
+`entity.setParent(parent, keepWorld, index)`, `world.spawn(json, {parent, index})` (an index outside 0..number of the
+parent's other children is an error; a root takes no index); prefab references take `overrides` for the prefab's
+descendants (by id, name or path) and `world.spawnPrefab(path, {childOverrides})` the same; docs/MENUS.md.
+
+- A child can be put at a place among its siblings: `World::set_parent` with an index, `scene.set_parent {index}`,
+  `entity.setParent(parent, keepWorld, index)` and `spawn({parent, index})`.
+- MENUS.md shows a panel shared between scenes as a prefab; a prefab instance can override its children's fields
+  (`overrides` in `expand_prefab`), so one panel serves two scenes with different texts.
+
+Acceptance: `fa_test_scene` cases for each.
+
+### M26.21 Physics determinism across platforms (S-M) — CC/FB-0055
+
+- AI_GUIDE.md and SCRIPTING.md ("Tests") say what holds: the same build on the same platform gives the same result;
+  another compiler or CPU may not.
+- The engine builds with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`) and the simulation uses its own
+  deterministic sin/cos/atan2/asin/acos (`fa::det::`), so the same source gives the same numbers on every platform; CI
+  compares a replay's hash with one committed value on the Linux, Windows and macOS jobs.
+- `factoria:test` has a helper that runs a check under small perturbations, so a level test asserts what is robust
+  instead of an exact frame count.
+
+Acceptance: the replay hash matches across CI's Linux, Windows and macOS jobs, or the docs list where it does not.
+
+Done (#175, merge `34ab785`): every target builds with `-ffp-contract=off` / `/fp:precise` and `-fmath-errno` (root
+CMakeLists.txt; per-module flags were not enough, see the comment there). The first CI run showed a different hash on each
+platform, from the C library's sin/cos/atan2/asin/acos (Euler angles of every world matrix, quaternion turns, hinge angles,
+round collider sampling). They are replaced on the whole simulation path by `fa::det::` (`engine/core/include/fa/core/
+det_math.h`: doubles, `+ - * / sqrt` only, range reduction and Taylor series; test_det_math.cpp checks accuracy against
+`std::` and commits exact bit patterns), also behind `Quat`, `Mat4::rotate_*` and `from_angle_deg` in math.h; `std::hypot` in
+the nav grid became `sqrt`. Box2D has its own cos/sin/atan2 (checked: v3 `b2ComputeCosSin`/`b2Atan2`), so its 2D part now
+matches Windows' on the Mac. The test `physics_determinism` (`engine/physics/tests/test_determinism.cpp`) compares a replay
+hash with ONE committed value on each CI job (no per-platform table) and prints `FA_PHYSICS_REPLAY_HASH`. `robust()` is in
+`factoria:test`; Clockwork Courier's shortcut test uses it. The last Windows difference was the sign of a zero: `det::atan2`
+took |y| as `y < 0 ? -y : y`, which keeps -0, and MSVC (even with `/fp:precise`) compiles that as `fabs`, so `asin(-0)` was
++0 with Clang and GCC and -0 with MSVC; it uses `std::fabs` now (a Clang build with `-fno-signed-zeros` reproduced MSVC's
+hash locally). One hash holds on the Linux, Windows and macOS jobs; FB-0055 is fixed.
+
+### M26.22 Menu kit command (M) — CC/FB-0003
+
+Done (#176, merge `c944641`): `project.add_menu_kit` (tools/common/src/menu_kit.cpp), the kit in `templates/menus/` with
+`kit.json` listing its parts; the menus fixture keeps a copy of every kit file that the `cli` test "the menus fixture holds
+exactly the kit's files" keeps identical.
+
+After M26.1 (the kit is formatted on write). The menus recipe moves to `templates/menus/` (scenes, prefabs, scripts and
+locale keys), MENUS.md shows it from there, and `project.add_menu_kit {parts, overwrite}` copies the parts asked for
+into a game and merges their keys into its locale files.
+
+Acceptance: a tooling test adds the kit to a new project, which then validates and passes the kit's own test; adding it
+twice changes nothing.
+
+### M26.23 UI layout check (M) — CC/FB-0043
+
+Done (#170, merge `057a8e6`): `ui.check_layout` (engine/runtime/src/ui_check.cpp), `I18n::set_pseudo`; Courier's
+intro and profile keys shrink; its remaining findings are in its ENGINE_FEEDBACK.json notes.
+
+After M26.6. `ui.check_layout {scenes, languages, textScales, pseudo}` loads each screen in each language and text scale
+(and a pseudo-localized one that lengthens every string), and lists every text that overflows or overlaps, with the
+entity and the key.
+
+Acceptance: a tooling test on the menus fixture finds a planted overflow at 200 % in German and nothing else.
+
+Close-out (the `m26/bookkeeping` PR, 2026-10-24): Clockwork Courier dropped the workarounds of the fixed entries. The
+dog and tap-to-move walk on a `NavMesh3D` per level (`nav.findPath`; crates and gates are `navObstacle`s), and the
+game's own grid (scripts/nav.js) is gone. The eight level scenes instance three UI prefabs (HUD, results, retry);
+`more_time.js` spawns its button with `index: 0` in the retry row; the name screen uses the menu kit's keyboard; the
+paints set `materialColors`; the stars are ★ and ☆; four lists use `shrink`; and `ui.check_layout` reports no issue in
+any scene, language or text scale. Its tests reset with `game.resetState`, pick the system language with
+`game.setSystemLanguages` and drive the mouse and the wheel. SHIPPING.md uses the Android export and
+`--allow-player-mismatch`. The game has 458 headless tests. CC/FB-0051 (playing a video) stays open for M19, and moving
+onto the navmesh found CC/FB-0056 (no bridge or moving platform in the mesh), ranked in M19 too.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
