@@ -4,7 +4,10 @@
 #include <vector>
 
 #include "fa/core/log.h"
+#include "fa/core/i18n.h"
+#include "fa/scene/localize.h"
 #include "fa/scene/text_fit.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/ui/ui.h"
 
 using namespace fa;
@@ -431,6 +434,104 @@ TEST_CASE("ui slider: left / right change the value by step, clamp, snap; the mo
     t.in.on_mouse_button(MouseButton::Left, false);
     t.frame();
     CHECK(t.events() == V{"ui.change:s=0.7", "ui.change:s=0.2", "ui.change:s=1.0"});
+}
+
+TEST_CASE("ui slider: set_slider is a drag to a value: clamped, snapped, focused, one ui.change") {
+    Ui t;
+    Entity e = t.add<Slider>("s", {0, 0}, {320, 40});
+    Slider& s = *t.w.get<Slider>(e);
+    s.value = 0.5f;
+    t.frame();
+    t.events();
+    CHECK(t.ui.set_slider(t.w, e, 0.73f) == doctest::Approx(0.7f));  // snapped to step 0.1
+    CHECK(t.events() == V{"ui.focus:s", "ui.change:s=0.7"});
+    CHECK(t.ui.focused() == e);
+    CHECK(t.ui.set_slider(t.w, e, 0.7f) == doctest::Approx(0.7f));   // already there: no event
+    CHECK(t.events().empty());
+    CHECK(t.ui.set_slider(t.w, e, 5.0f) == doctest::Approx(1.0f));   // clamped to max
+    CHECK(t.events() == V{"ui.change:s=1.0"});
+    s.value = 0.2f;                                                   // a script's own write sends nothing
+    t.frame();
+    CHECK(t.events().empty());
+    s.min = 0; s.max = 10; s.step = 3;
+    CHECK(t.ui.set_slider(t.w, e, 9.9f) == doctest::Approx(10.0f));   // the end of the range even off the grid
+}
+
+TEST_CASE("ui slider: format writes the value as a pattern: {v}, {v:N}, {percent}, braces; formatKey translates it") {
+    Slider s;
+    CHECK(ui_slider_value_text(s, 0.6f) == "60%");                    // default for 0..1
+    s.min = 0.4f; s.max = 2.5f;
+    CHECK(ui_slider_value_text(s, 1.0f) == "1");
+    CHECK(ui_slider_value_text(s, 1.25f) == "1.25");
+    s.format = "{v}x";
+    CHECK(ui_slider_value_text(s, 1.2f) == "1.2x");
+    s.format = "{v:1}x ({percent}%)";
+    CHECK(ui_slider_value_text(s, 1.0f) == "1.0x (100%)");
+    s.min = 0.3f; s.max = 1.0f;
+    s.format = "{percent}%";
+    CHECK(ui_slider_value_text(s, 0.3f) == "30%");                    // value x 100, not the place in the range
+    s.format = "{{v}} = {v:3} {oops} {v:9}";
+    CHECK(ui_slider_value_text(s, 0.5f) == "{v} = 0.500 {oops} {v:9}");
+
+    World w;
+    I18n i18n;
+    i18n.configure("en", {"en", "fr"});
+    for (auto [lang, text] : {std::pair{"en", "{percent}%"}, std::pair{"fr", "{percent} %"}}) {
+        StringTable tb;
+        tb.language = lang;
+        tb.entries["slider.pct"].text = text;
+        REQUIRE(i18n.add_table(std::move(tb)).ok());
+    }
+    Entity e = w.create("vol", "vol");
+    Slider& vs = w.add<Slider>(e);
+    vs.formatKey = "slider.pct";
+    localize_entity(w, e, i18n);
+    CHECK(vs.format == "{percent}%");                                 // the placeholders survive the translation
+    i18n.set_language("fr");
+    localize_entity(w, e, i18n);
+    CHECK(vs.format == "{percent} %");
+    CHECK(ui_slider_value_text(vs, 0.25f) == "25 %");
+}
+
+TEST_CASE("ui scroll list shrink: inside a fit column the list is as tall as its content up to the room left") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity col = t.add<Panel>("col", {640, 360}, {10, 10});
+    Panel& p = *t.w.get<Panel>(col);
+    p.layout = UiLayout::Column;
+    p.fit = true;
+    p.pivot = {0.5f, 0.5f};
+    p.spacing = 12;
+    p.padding = {16, 16, 16, 16};
+    Entity list = t.add<ScrollList>("list", {0, 0}, {400, 100}, col);
+    ScrollList& l = *t.w.get<ScrollList>(list);
+    l.shrink = true;
+    l.spacing = 4;
+    l.padding = {8, 8, 8, 8};
+    Entity back = t.button("back", {0, 0}, {240, 56}, col);
+    for (int i = 0; i < 3; ++i) t.button(("item" + std::to_string(i)).c_str(), {0, 0}, {300, 40}, list);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(l.size.y == doctest::Approx(8 + 3 * 40 + 2 * 4 + 8));       // content: padding + items + gaps
+    CHECK(p.size.y == doctest::Approx(16 + l.size.y + 12 + 56 + 16)); // the panel is short too
+    CHECK(t.rect(col).h < 720.0f / 2);
+    for (int i = 3; i < 40; ++i) t.button(("item" + std::to_string(i)).c_str(), {0, 0}, {300, 40}, list);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(l.size.y == doctest::Approx(720 - 32 - 12 - 56));           // stops at the room left
+    CHECK(t.rect(col).y + t.rect(col).h <= 720.5f);
+    CHECK(t.rect(back).y + t.rect(back).h <= t.rect(col).y + t.rect(col).h);
+    // Two lists: the short one takes what it needs, the long one the rest. fill wins over shrink.
+    Entity second = t.add<ScrollList>("second", {0, 0}, {400, 100}, col);
+    ScrollList& l2 = *t.w.get<ScrollList>(second);
+    l2.shrink = true;
+    t.button("only", {0, 0}, {300, 40}, second);
+    t.button("other", {0, 0}, {300, 40}, second);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(l2.size.y == doctest::Approx(8 + 40 + 8 + 40 + 8));
+    CHECK(l.size.y == doctest::Approx(720 - 32 - 24 - 56 - l2.size.y));
+    l2.fill = true;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(l.size.y + l2.size.y == doctest::Approx(720 - 32 - 24 - 56).epsilon(0.01));
+    CHECK(l.size.y == doctest::Approx(l2.size.y).epsilon(0.01));      // both need more than half: equal share
 }
 
 TEST_CASE("ui textfield: typing, backspace with repeat, maxLength in code points, Enter submits, Space types a space") {
@@ -1313,4 +1414,40 @@ TEST_CASE("text fit: Slider labelAbove gives the track the whole width and maxWi
     CHECK_FALSE(tf->fit.overflow);
     CHECK(tf->fit.size.x <= 96 * 0.7f + 0.5f);
     CHECK(tf->fit.px <= 32 * 1.5f);
+}
+
+TEST_CASE("ui textfield: the phone's keyboard goes up with the focus and down with the blur, not for a pad") {
+    Ui t;
+    Entity f = t.add<TextField>("f", {0, 0}, {200, 30});
+    Entity b = t.button("b", {0, 60});
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());  // nothing focused
+    CHECK(t.ui.set_focus(t.w, f));
+    t.frame();
+    CHECK(t.in.keyboard_shown());
+    CHECK(t.ui.set_focus(t.w, b));  // a Button: down
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());
+    // A script that hides it while the field keeps the focus is not overruled: only changes count.
+    t.ui.set_focus(t.w, f);
+    t.frame();
+    CHECK(t.in.keyboard_shown());
+    t.in.set_keyboard_shown(false);
+    t.frame(3);
+    CHECK_FALSE(t.in.keyboard_shown());
+    t.ui.set_focus(t.w, kNullEntity);  // blur
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());
+    // The last input was a pad: the game's on-screen keyboard is for that, the phone's stays down.
+    t.in.set_last_device(InputDevice::Gamepad);
+    t.ui.set_focus(t.w, f);
+    t.frame();
+    CHECK_FALSE(t.in.keyboard_shown());
+    // A finger on the field raises it.
+    t.in.set_last_device(InputDevice::Touch);
+    t.ui.set_focus(t.w, b);
+    t.frame();
+    t.ui.set_focus(t.w, f);
+    t.frame();
+    CHECK(t.in.keyboard_shown());
 }

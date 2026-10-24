@@ -19,6 +19,11 @@ namespace {
 constexpr float kBeta = 0.2f;        // fraction of a position error removed per sub-step
 constexpr float kMaxBias = 10.0f;    // fastest correction of a position error (m/s)
 
+// A joint of a chain (three or more jointed dynamic bodies, see kChainIterations): its anchors are brought together by
+// moving the bodies, not through the velocity.
+template <class B>
+bool in_chain(const B& a, const B* b) { return a.chainDrag > 0.0f || (b && b->chainDrag > 0.0f); }
+
 Vec3 any_perpendicular(Vec3 a) {
     const Vec3 pick = std::fabs(a.x) < 0.6f ? Vec3{1, 0, 0} : (std::fabs(a.y) < 0.6f ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
     return normalize(cross(a, pick));
@@ -115,11 +120,22 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
                              j.sigAuto != jt->autoAnchor || j.seqA != a.seq || j.seqB != (b ? b->seq : 0);
         j.seqA = a.seq;
         j.seqB = b ? b->seq : 0;
+        // A motor, a limit or the damping edited by gameplay wakes the sleeping chain: it may have to move now.
+        const float lower = radians(std::min(jt->lowerLimit, jt->upperLimit));
+        const float upper = radians(std::max(jt->lowerLimit, jt->upperLimit));
+        const float damping = std::max(jt->damping, 0.0f);
+        if (!fresh && (j.useLimits != jt->useLimits || j.lower != lower || j.upper != upper || j.useMotor != jt->useMotor ||
+                       j.motorSpeed != radians(jt->motorSpeed) || j.maxTorque != std::max(jt->maxMotorTorque, 0.0f) ||
+                       j.damping != damping)) {
+            wake(a);
+            if (b) wake(bodies_[index_[jt->connected.bits()]]);
+        }
+        j.damping = damping;
         j.conn = jt->connected;
         j.type = jt->type;
         j.useLimits = jt->useLimits;
-        j.lower = radians(std::min(jt->lowerLimit, jt->upperLimit));
-        j.upper = radians(std::max(jt->lowerLimit, jt->upperLimit));
+        j.lower = lower;
+        j.upper = upper;
         j.useMotor = jt->useMotor;
         j.motorSpeed = radians(jt->motorSpeed);
         j.maxTorque = std::max(jt->maxMotorTorque, 0.0f);
@@ -162,8 +178,58 @@ static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, cons
     return previous + wrap_pi(raw - previous);
 }
 
+// Position pass of the joint anchors: the bodies are moved and turned directly so the two anchors meet. The correction is
+// never added to the velocities (Baumgarte pumped energy into a taut chain: a rope bridge never calmed down).
+void Physics3D::correct_joints(float h) {
+    constexpr int kPasses = 4;
+    const std::size_t count = jointOrder_.size();
+    for (int pass = 0; pass < kPasses; ++pass) {
+        for (std::size_t oi = 0; oi < count; ++oi) {
+            JointState& j = *jointOrder_[(pass & 1) ? count - 1 - oi : oi];
+            if (!j.active) continue;
+            auto ia = index_.find(j.e.bits());
+            if (ia == index_.end()) continue;
+            Body& A = bodies_[ia->second];
+            Body* B = nullptr;
+            if (j.seqB != 0) {
+                auto ib = index_.find(j.conn.bits());
+                if (ib == index_.end()) continue;
+                B = &bodies_[ib->second];
+            }
+            if (!((A.type == BodyType::Dynamic && !A.asleep) || (B && B->type == BodyType::Dynamic && !B->asleep))) continue;
+            if (!in_chain(A, B)) continue;
+            const Vec3 rA = frame_to_world(A.rot, j.anchorA);
+            const Vec3 rB = B ? frame_to_world(B->rot, j.anchorB) : Vec3{};
+            Vec3 err = (B ? B->center + rB : j.anchorB) - (A.center + rA);
+            const float el = length(err);
+            if (el < 1e-6f) continue;
+            const float cap = kMaxBias * h;  // never more than a bias-limited step
+            Vec3 want = -err;
+            if (el > cap) want = want * (cap / el);
+            const float im = A.invMass + (B ? B->invMass : 0.0f);
+            auto kmul = [&](Vec3 x) {
+                Vec3 r = x * im + cross(inv_inertia_mul(A, cross(rA, x)), rA);
+                if (B) r += cross(inv_inertia_mul(*B, cross(rB, x)), rB);
+                return r;
+            };
+            const Vec3 c0 = kmul({1, 0, 0}), c1 = kmul({0, 1, 0}), c2 = kmul({0, 0, 1});
+            const float det = dot(c0, cross(c1, c2));
+            if (std::fabs(det) < 1e-12f) continue;
+            const Vec3 k0 = cross(c1, c2) / det, k1 = cross(c2, c0) / det, k2 = cross(c0, c1) / det;
+            const Vec3 P{dot(k0, want), dot(k1, want), dot(k2, want)};
+            A.center -= P * A.invMass;
+            turn_by(A, inv_inertia_mul(A, cross(rA, -P)));
+            if (B) {
+                B->center += P * B->invMass;
+                turn_by(*B, inv_inertia_mul(*B, cross(rB, P)));
+            }
+        }
+    }
+}
+
 bool Physics3D::prepare_joints(float h) {
     bool any = false;
+    correct_joints(h);
     for (JointState* jp : jointOrder_) {
         JointState& j = *jp;
         if (!j.active) continue;
@@ -176,15 +242,22 @@ bool Physics3D::prepare_joints(float h) {
         Body& A = bodies_[j.ia];
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
         if (A.invMass + (B ? B->invMass : 0.0f) <= 0.0f && !A.rotDyn && !(B && B->rotDyn)) { j.active = false; continue; }  // nothing can move
+        // A chain at rest (asleep) costs nothing: its impulses wait for the bodies to wake.
+        j.live = (A.type == BodyType::Dynamic && !A.asleep) || (B && B->type == BodyType::Dynamic && !B->asleep);
+        if (!j.live) continue;
         const Vec3* RA = A.rot;
         const Vec3* RB = B ? B->rot : kIdentityAxes;
         j.rA = frame_to_world(RA, j.anchorA);
         j.rB = B ? frame_to_world(RB, j.anchorB) : Vec3{};
-        const Vec3 pA = A.center + j.rA, pB = B ? B->center + j.rB : j.anchorB;
-        Vec3 bias = (pB - pA) * (-kBeta / h);
-        const float bl = length(bias);
-        if (bl > kMaxBias) bias = bias * (kMaxBias / bl);
-        j.pBias = bias;
+        if (in_chain(A, B)) {
+            j.pBias = {};  // the error of a chain's joints was already removed by correct_joints, not through the velocity
+        } else {
+            const Vec3 pA = A.center + j.rA, pB = B ? B->center + j.rB : j.anchorB;
+            Vec3 bias = (pB - pA) * (-kBeta / h);
+            const float bl = length(bias);
+            if (bl > kMaxBias) bias = bias * (kMaxBias / bl);
+            j.pBias = bias;
+        }
         const float im = A.invMass + (B ? B->invMass : 0.0f);
         auto kmul = [&](Vec3 x) {
             Vec3 r = x * im + cross(inv_inertia_mul(A, cross(j.rA, x)), j.rA);
@@ -234,17 +307,39 @@ bool Physics3D::prepare_joints(float h) {
         else if (j.type == JointType3D::Fixed) L = j.aImp;
         push_ang(A, L);
         if (B) push_ang(*B, -L);
+        // Damping: the relative turning loses a fraction per sub-step (an implicit step: stable for any value).
+        if (j.damping > 0.0f && j.type != JointType3D::Fixed) {
+            const float keep = 1.0f / (1.0f + h * j.damping);
+            auto relw = [&]() { return (A.angVel - (B ? B->angVel : Vec3{})) * kDegToRad; };
+            if (j.type == JointType3D::Hinge) {
+                const Vec3 dir = j.aw;
+                const float Ld = -dot(relw(), dir) * (1.0f - keep) / j.kAxis;
+                push_ang(A, dir * Ld);
+                if (B) push_ang(*B, dir * -Ld);
+            } else {
+                for (int i = 0; i < 3; ++i) {
+                    Vec3 dir{};
+                    dir[i] = 1.0f;
+                    const float Ld = -relw()[i] * (1.0f - keep) / ang_k(dir);
+                    push_ang(A, dir * Ld);
+                    if (B) push_ang(*B, dir * -Ld);
+                }
+            }
+        }
         any = true;
     }
     return any;
 }
 
-void Physics3D::solve_joints(float h) {
-    for (JointState* jp : jointOrder_) {
-        JointState& j = *jp;
-        if (!j.active) continue;
+void Physics3D::solve_joints(float h, int iteration) {
+    const std::size_t count = jointOrder_.size();
+    for (std::size_t oi = 0; oi < count; ++oi) {
+        // Sweeps alternate direction (symmetric Gauss-Seidel): a chain's news travels both ways in two iterations.
+        JointState& j = *jointOrder_[(iteration & 1) ? count - 1 - oi : oi];
+        if (!j.active || !j.live) continue;
         Body& A = bodies_[j.ia];
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
+        if (iteration >= std::max(A.iterations, B ? B->iterations : 0)) continue;  // this chain has had its iterations
         auto apply_ang = [&](Vec3 L) {  // +L on A, -L on B
             push_ang(A, L);
             if (B) push_ang(*B, -L);
@@ -309,7 +404,7 @@ void Physics3D::solve_joints(float h) {
     }
 }
 
-void Physics3D::finish_joints(World& world) {
+void Physics3D::finish_joints(World& world, float dt) {
     for (JointState* jp : jointOrder_) {
         JointState& j = *jp;
         if (!j.active || j.type != JointType3D::Hinge) continue;
@@ -317,9 +412,30 @@ void Physics3D::finish_joints(World& world) {
         if (ia == index_.end()) continue;
         const Body& A = bodies_[ia->second];
         auto ib = j.seqB != 0 ? index_.find(j.conn.bits()) : index_.end();
-        const Vec3* RB = ib != index_.end() ? bodies_[ib->second].rot : kIdentityAxes;
-        j.angle = hinge_angle(A.rot, RB, j.axisA, j.refA, j.refB, ib != index_.end(), j.angle);
-        if (Joint3D* jt = world.get<Joint3D>(j.e)) jt->angle = degrees(j.angle);
+        const Body* B = ib != index_.end() ? &bodies_[ib->second] : nullptr;
+        const Vec3* RB = B ? B->rot : kIdentityAxes;
+        j.angle = hinge_angle(A.rot, RB, j.axisA, j.refA, j.refB, B != nullptr, j.angle);
+        // Stalled: the motor pushes but the joint does not turn (a wall in the way, too little torque). A hinge that
+        // reached its limit has arrived, it is not stalled. The sleeping chain keeps its last verdict (motors keep
+        // their bodies awake, so this only happens when the motor was switched off).
+        const float target = std::fabs(j.motorSpeed);
+        if (j.live) {
+            bool driving = j.useMotor && target > 1e-4f && j.maxTorque > 0.0f;
+            if (driving && j.useLimits) {
+                const float margin = 0.01f;
+                if ((j.motorSpeed > 0.0f && j.angle >= j.upper - margin) || (j.motorSpeed < 0.0f && j.angle <= j.lower + margin))
+                    driving = false;
+            }
+            const float speed = std::fabs(dot((A.angVel - (B ? B->angVel : Vec3{})) * kDegToRad, normalize(frame_to_world(A.rot, j.axisA))));
+            if (driving && speed < 0.1f * target) j.stallTime += dt;
+            else j.stallTime = 0.0f;
+        } else if (!j.useMotor) {
+            j.stallTime = 0.0f;
+        }
+        if (Joint3D* jt = world.get<Joint3D>(j.e)) {
+            jt->angle = degrees(j.angle);
+            jt->stalled = j.stallTime >= 0.25f;
+        }
     }
 }
 

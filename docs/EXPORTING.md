@@ -220,7 +220,7 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 | `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
 | `android --format gradle` ([Android](#android)) | no JDK, no SDK. The project holds the Android libraries (prebuilt mode) or is generated from an engine checkout (source mode) | after setup (`players --platforms mobile`) or with a checkout: yes | same | same |
 | `android` apk / aab, **prebuilt** ([modes](#mobile-exports-prebuilt-or-source)) | a JDK 17+ (17 and 21 are tested; `factoria setup android` installs Temurin 21) and the Android SDK with `platforms;android-36` and `build-tools;35.0.0` (same command, about 500 MB, accepts the SDK license); the Android libraries as above. No NDK, no CMake. The first build downloads Gradle 8.14.3 and the Android Gradle plugin | after setup, then after one online build | same | same |
-| `android` apk / aab, **from source** | the same JDK and SDK, an engine checkout (`--engine-root` or `FACTORIA_ENGINE_DIR`), and NDK r27+ (`ndk;27.2.12479018`) and CMake 3.31.6 in the SDK. `factoria setup android` does not install those two: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`. Compiles the engine for two ABIs (minutes) | after setup, then after one online build | same | same |
+| `android` apk / aab, **from source** | the same JDK and SDK, an engine checkout (`--engine-root` or `FACTORIA_ENGINE_DIR`), and NDK r27+ (`ndk;27.2.12479018`) and a CMake 3.24+: 3.31.6 in the SDK, else any other 3.24+ in the SDK, else one on this computer (the export points Gradle at it with `cmake.dir`). `factoria setup android` does not install the NDK or the CMake: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`. Compiles the engine for two ABIs (minutes) | after setup, then after one online build | same | same |
 | `android --release` (Google Play) | the above plus a keystore and `FACTORIA_ANDROID_KEYSTORE_PASSWORD` ([Signing](#android)); without a keystore it is an error unless `--allow-debug-key` (never upload that build) | same | same | same |
 | `ios` project ([iOS](#ios)) | prebuilt: the iOS libraries (in the macOS download; on Windows and Linux `factoria setup players --platforms mobile`); source: an engine checkout | prebuilt: after setup; source: yes | same | yes with the macOS download or a checkout |
 | `ios` app (`build_ios.sh`) | a Mac with Xcode (from the App Store; `factoria setup xcode` checks it) and CMake 3.24+ (`factoria setup cmake` installs 3.31.6, about 75 MB); a device build also needs an Apple Team ID | no | no | yes |
@@ -245,6 +245,7 @@ factoria setup cmake                               # CMake 3.31 for the iOS expo
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
 factoria setup shaders                             # sokol-shdc, the shader compiler of custom materials (the factoria downloads already have it next to factoria)
+factoria setup ffmpeg                              # ffmpeg, so --record-video trailer.mp4 works without installing it by hand
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -255,6 +256,7 @@ factoria setup shaders                             # sokol-shdc, the shader comp
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
 | `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA. The factoria downloads carry the same file next to `factoria`, so this is for a factoria built from source, or when that copy is gone | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
+| `ffmpeg` | ffmpeg 6.0, the static GPL build of `github.com/eugeneware/ffmpeg-static` (release `b6.0`, with libx264 and AAC): the one gzip file for this computer (Windows x64, Linux and macOS x64 or arm64), checked against a SHA-256 compiled into FactorIA and unpacked to `$FACTORIA_HOME/tools/ffmpeg/b6.0/`. Skipped when an ffmpeg is already found | about 19-28 MB | `factoria run --record-video trailer.mp4` ([Recording a replay as a video](#gameplay-video-from-a-replay)) |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
@@ -508,6 +510,16 @@ from the folder of the running `factoria` binary (or the build tree layout
 player of that OS: `factoria setup players` downloads the ones of the release ([Setting up this computer](#setting-up-this-computer)),
 or pass `--player path/to/factoria_player[.exe]` for one built there.
 
+**The player must come from the same build as `factoria`.** Both carry a build fingerprint (the commit they were built from,
+with `-dirty` when tracked files had uncommitted changes; `factoria version` prints it). The export reads the player's
+bytes, so it checks the player of another OS too. A player from another build, or an older one without a fingerprint, stops
+the export with an error that names both builds: it may lack the components or the script API the game uses, or fail to
+start. Fix it by building both from one checkout, or `factoria setup players` for the release's players. To bundle that
+player anyway, pass `--allow-player-mismatch` (the `export` command's `allowPlayerMismatch` argument): the export goes on
+and `warnings` says which builds differ. A `factoria` or a player built outside a git checkout carries `unknown` and is not
+compared. The same commit with `-dirty` on one side only is a warning, not an error; the fingerprint does not see which
+edits a `-dirty` build had, so rebuild both after editing the engine.
+
 ```
 linux/windows:  my-game-linux/
                   my-game            (my-game.exe on Windows)
@@ -534,8 +546,8 @@ The player starts the game found in `game/` next to the executable (inside the
 my-game [projectDir | game.pak] [--scene scenes/level2.scene.json] [--fullscreen] [--version]
 ```
 
-`--version` prints the engine version the player belongs to (`factoria_player 0.1.6`, the number `factoria version`
-prints) and exits.
+`--version` prints the engine version and build the player belongs to (`factoria_player 0.2.0 (build 1a2b3c4d5e6f)`,
+what `factoria version` prints after `factoria`) and exits.
 
 **Linux requirements.** The Linux player is built in Valve's Steam Runtime "sniper" container (libstdc++ and libgcc
 linked in), so a Linux game needs glibc 2.31 or newer and the usual desktop libraries (`libX11`, `libXi`, `libXcursor`,
@@ -945,6 +957,11 @@ server sends no `Content-Length`) replaced. A placeholder this factoria does not
   Atlas pages are at most 2048 px, like on phones: browsers run there too.
 - **Audio** is not changed by the web: WAV, OGG and QOA all decode in the player. Prefer OGG or QOA for long sounds, since
   every byte is downloaded before the game starts.
+- **Typing.** Typed text reaches the game from the browser's `keypress` events, so it needs a real keyboard (or events a
+  browser treats as typed; a browser pane's synthetic key events may only send `keydown`, and then letters do not appear).
+  On a phone or tablet, a `TextField` with focus makes the browser show its keyboard through a hidden `<input>`; iOS Safari
+  may need a second tap on the field. Details: [TEXT.md](TEXT.md#typing-text). A gamepad alone types with the on-screen
+  keyboard of [MENUS.md](MENUS.md).
 - **No icon** and no `export.web` settings: the page and the browser tab are the game's face. The `platforms` list of
   `factoria.json` is not checked for `web`.
 - **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria
@@ -1041,7 +1058,14 @@ packages `jniLibs` (`arm64-v8a` and `x86_64`, both required) and the assets, so 
 
 **Source**: Gradle compiles the engine through CMake from the engine checkout (`factoria.engineDir` in `gradle.properties`,
 default: the checkout the export used; override with `FACTORIA_ENGINE_DIR`), which takes several minutes the first time and
-needs NDK r27+ and CMake 3.31 in the SDK (`sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`).
+needs NDK r27+ and a CMake 3.24+ (`sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`). Android Gradle Plugin wants an exact CMake
+version, so the export reads it instead of requiring 3.31.6: the SDK's `cmake;3.31.6` when installed; else the newest CMake 3.24+
+in the SDK; else a CMake 3.24+ of this computer (PATH, Homebrew, `/Applications/CMake.app`, `C:\Program Files\CMake`, or the
+one `factoria setup cmake` installs), which the export hands to Gradle with `cmake.dir=<its folder>` in `local.properties`.
+The version it picked goes to `factoria.cmakeVersion` in `gradle.properties`, and a warning says which. To build with no
+network and no SDK CMake: install CMake 3.24+ (`brew install cmake`, `winget install Kitware.CMake`, or
+https://cmake.org/download; a Mac can use `factoria setup cmake`), a `ninja` next to it or on `PATH`, and run Gradle with
+`--offline`. Edit `cmake.dir` and `factoria.cmakeVersion` by hand when you move the project to another computer.
 
 The engine's libraries are linked for 16 KB memory pages (Google Play requires it for apps that target Android 15+), and the
 APK is zip-aligned for them.
@@ -1118,8 +1142,9 @@ From the project's [platform settings](#platform-settings) the export takes:
 `ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it
 ([MOBILE.md](MOBILE.md#native-plugins-ios)). The plugin's `ios/plugin.json` (system frameworks, Swift, entitlements) makes
 `build_ios.sh` link those frameworks and the Swift runtime, and the export writes `factoria_player.entitlements` next to
-it; with a store plugin that links StoreKit and products in the catalog it also writes `Products.storekit`, which the
-Xcode scheme uses to sell the products when the project runs from Xcode ([PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)).
+it; when the catalog has products it also writes `Products.storekit` (with or without a store plugin), which the
+Xcode scheme uses to sell the products when the project runs from Xcode, with one localization per language of the game
+([PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)).
 
 ```
 my-game-ios/                        prebuilt mode (the download for macOS)
@@ -1626,9 +1651,10 @@ factoria run --headless --input replays/trailer.json --frames 900 --render-scale
   (`--frames`) or use a smaller `--render-scale`.
 - `.mp4` (H.264 + AAC, what Steam, Google Play and the App Store accept for previews) is made by
   [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
-  `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, then
-  `PATH`. FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
-  before the replay runs, with this advice: install ffmpeg, or record `.avi` and convert it yourself:
+  `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, `PATH`,
+  then the copy `factoria setup ffmpeg` installs under `$FACTORIA_HOME/tools/ffmpeg/` (`setup.status` lists the `ffmpeg`
+  component and `setup.install {"component": "ffmpeg"}` installs it, one download of 19-28 MB). FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
+  before the replay runs, with this advice: run `factoria setup ffmpeg`, install ffmpeg yourself, or record `.avi` and convert it yourself:
   `ffmpeg -i trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4`.
 - Stores want the video at their own sizes and rates (Microsoft: 1920x1080 MP4, under 2 GB, 60 s or less recommended);
   pick `--frames` and `--render-scale` for it. A video needs a GPU like screenshots do (headless EGL with Mesa works).

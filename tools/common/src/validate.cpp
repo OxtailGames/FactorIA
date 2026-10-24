@@ -11,6 +11,7 @@
 #include "fa/core/image.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
+#include "fa/physics/physics.h"
 #include "fa/platform/input.h"
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
@@ -229,6 +230,18 @@ void check_fit_panels(Ctx& c, const std::string& file, World& world) {
                    std::to_string(int(std::ceil(p->size.y))) + " px, larger than the " + std::to_string(int(design.x)) + " x " +
                    std::to_string(int(design.y)) + " px screen at the design size.",
                "Shorten its texts, lower the font sizes, or put a ScrollList with `fill` in the column so it takes the free height.");
+    }
+}
+
+// A dynamic 3D body that starts inside a static collider: the first step pushes it out (or it sticks), which is never what
+// the scene meant. The same check the first physics step warns about, run on the loaded scene.
+void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
+    if (world.entities_with(&World::type_of<RigidBody3D>()).empty()) return;
+    Physics physics;
+    physics.init(PhysicsSettings{});
+    for (const StartOverlap& o : physics.start_overlaps3d(world)) {
+        c.warn(file, "", o.message,
+               "Move the body or the collider apart in the scene, or make the body a trigger / the collider smaller.");
     }
 }
 
@@ -618,6 +631,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             }
             collect_if_not_canonical(handFormatted, rel);
             check_fit_panels(c, rel, world);
+            check_start_overlaps(c, rel, world);
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             if (!text) continue;
             auto parsed = parse_json(*text, rel);

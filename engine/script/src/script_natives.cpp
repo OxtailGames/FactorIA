@@ -13,6 +13,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/number_format.h"
 #include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
@@ -549,7 +550,13 @@ NATIVE(setParent) {
     Entity p = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     if (!p.is_null() && !W.alive(p)) return throw_err(ctx, "setParent: the new parent entity was destroyed");
     if (p == e || (!p.is_null() && W.is_ancestor(e, p))) return throw_err(ctx, "setParent: an entity cannot be parented under itself or its own descendant");
-    W.set_parent(e, p, arg_bool(ctx, argc, argv, 2, false));
+    int index = -1;
+    if (argc > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
+        std::string bad = W.check_child_index(p, e, arg_num(ctx, argc, argv, 3, -1.0));
+        if (!bad.empty()) return throw_err(ctx, "setParent: " + bad);
+        index = static_cast<int>(arg_num(ctx, argc, argv, 3, -1.0));
+    }
+    W.set_parent(e, p, arg_bool(ctx, argc, argv, 2, false), index);
     return JS_UNDEFINED;
 }
 
@@ -596,8 +603,14 @@ NATIVE(spawn) {
     Json j = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
     if (!j.is_object()) return throw_err(ctx, "world.spawn expects an entity object like { name, tags, components: {...} }");
     Entity parent = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
+    int index = -1;
+    if (argc > 2 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
+        std::string bad = W.check_child_index(parent, kNullEntity, arg_num(ctx, argc, argv, 2, -1.0));
+        if (!bad.empty()) return throw_err(ctx, "world.spawn: " + bad);
+        index = static_cast<int>(arg_num(ctx, argc, argv, 2, -1.0));
+    }
     LoadReport report;
-    Entity e = entity_from_json(W, j, parent, report, "world.spawn");
+    Entity e = entity_from_json(W, j, parent, report, "world.spawn", "", index);
     if (!report.ok() || e.is_null()) {
         return throw_err(ctx, "world.spawn failed:\n" + report.summary());
     }
@@ -614,8 +627,14 @@ NATIVE(spawnPrefab) {
     Entity parent = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     Json overrides = argc > 2 ? I->to_json(argv[2]) : Json::object();
     if (overrides.is_null()) overrides = Json::object();
+    int index = -1;
+    if (argc > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
+        std::string bad = W.check_child_index(parent, kNullEntity, arg_num(ctx, argc, argv, 3, -1.0));
+        if (!bad.empty()) return throw_err(ctx, "world.spawnPrefab: " + bad);
+        index = static_cast<int>(arg_num(ctx, argc, argv, 3, -1.0));
+    }
     LoadReport report;
-    Entity e = instantiate_prefab(W, path, parent, report, overrides);
+    Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
     I->construct_for(report.created);
     localize_created(I, report.created);
@@ -1124,6 +1143,7 @@ NATIVE(fset) {
             if (JS_IsNull(v) || JS_IsUndefined(v)) { *static_cast<Entity*>(p) = kNullEntity; break; }
             if (JS_IsString(v)) {
                 std::string id = CStr(ctx, v).str();
+                if (id.empty()) { *static_cast<Entity*>(p) = kNullEntity; break; }  // "" = no entity (the world, for a joint)
                 Entity target = W.find_by_id(id);
                 if (target.is_null()) return throw_err(ctx, what + ": no entity with id '" + id + "'");
                 *static_cast<Entity*>(p) = target;
@@ -1532,6 +1552,24 @@ NATIVE(testSafeProfile) {  // (name) -> "" or what is wrong
         return JS_NewString(ctx, ("unknown profile '" + name + "'. " + did_you_mean(name, safe_area_profile_names())).c_str());
     W.set_safe_insets(e);
     return JS_NewString(ctx, "");
+}
+
+NATIVE(testQuit) {  // (reset?): whether a quit was requested in this test; true as argument clears it
+    SETUP;
+    const bool was = I->testQuitRequested;
+    if (arg_bool(ctx, argc, argv, 0, false)) I->testQuitRequested = false;
+    return JS_NewBool(ctx, was);
+}
+
+NATIVE(testSystemLanguages) {  // (list): the languages the device pretends to have; no argument clears
+    SETUP;
+    I->testSystemLanguages.clear();
+    if (argc > 0 && JS_IsArray(argv[0])) {
+        Json list = I->to_json(argv[0]);
+        for (const Json& v : list)
+            if (v.is_string()) I->testSystemLanguages.push_back(v.get<std::string>());
+    }
+    return JS_UNDEFINED;
 }
 
 NATIVE(testBack) {
@@ -1947,7 +1985,7 @@ NATIVE(debugDraw) {  // (kind, ...)
 // ---- game / storage / commands ------------------------------------------------------------------------------------
 NATIVE(quit) {
     SETUP;
-    I->host->request_quit();
+    I->request_quit();
     return JS_UNDEFINED;
 }
 
@@ -2173,6 +2211,8 @@ NATIVE(i18nInfo) {  // {enabled, language, defaultLanguage, languages, names, sy
         // The player's languages only in a game with its own window: headless runs and tests must not depend on the machine.
         if (I->host->window())
             for (const std::string& tag : system_languages()) j["systemLanguages"].push_back(tag);
+        else if (I->inTestRun)  // game.setSystemLanguages in a test
+            for (const std::string& tag : I->testSystemLanguages) j["systemLanguages"].push_back(tag);
     }
     return I->from_json(j);
 }
@@ -2184,6 +2224,24 @@ NATIVE(i18nT) {  // (key, args) -> the string; the key itself when no table has 
     if (!L) return JS_NewString(ctx, key.c_str());
     const Json args = argc > 1 ? I->to_json(argv[1]) : Json();
     const std::string text = L->t(key, args);
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
+NATIVE(i18nNumber) {  // (value, decimals) -> the number in the current language; decimals < 0: as many as it has
+    SETUP;
+    const I18n* L = I->host->i18n();
+    const double v = arg_num(ctx, argc, argv, 0);
+    const int decimals = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    const std::string text = L ? L->number(v, decimals) : format_number(v, decimals, "");
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
+NATIVE(i18nDuration) {  // (seconds, decimals) -> "1:23.4" in the current language
+    SETUP;
+    const I18n* L = I->host->i18n();
+    const double v = arg_num(ctx, argc, argv, 0);
+    const int decimals = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    const std::string text = L ? L->duration(v, decimals) : format_duration(v, decimals, "");
     return JS_NewStringLen(ctx, text.data(), text.size());
 }
 
@@ -2405,8 +2463,8 @@ const Reg kRegs[] = {
     R(setTimeScale, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
-    R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 3), R(worldPos, 1), R(setWorldPos, 2),
-    R(entityJson, 3), R(spawn, 2), R(spawnPrefab, 3), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
+    R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
+    R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
     R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
@@ -2414,13 +2472,13 @@ const Reg kRegs[] = {
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
     R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
-    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
+    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

@@ -83,6 +83,25 @@ inline constexpr SokolShdcBinary kSetupSokolShdcBinaries[] = {
     {"macos", "aarch64", "osx_arm64", "2a807d62dffcc67a50a6ab51df57cde2fc8b23a3daf6207177d79e00fbd4086b"},
 };
 
+// ffmpeg, which `factoria run --record-video x.mp4` turns its recording into H.264 + AAC with: the static builds of
+// github.com/eugeneware/ffmpeg-static (release tag kSetupFfmpegRelease, ffmpeg 6.0, GPL builds with libx264 and aac), one gzip
+// file per host, checked against the SHA-256 listed here. Installed to <home>/tools/ffmpeg/<release>/ffmpeg[.exe].
+inline constexpr const char* kSetupFfmpegRelease = "b6.0";
+struct FfmpegBinary {
+    const char* host;    // "windows" | "linux" | "macos" (SetupContext::host_os)
+    const char* arch;    // "x64" | "aarch64" | "" (any: the Windows x64 build also runs on Windows on Arm)
+    const char* asset;   // the name in the release: ffmpeg-<asset>.gz
+    const char* sha256;  // of that .gz
+    int sizeMb;          // the download
+};
+inline constexpr FfmpegBinary kSetupFfmpegBinaries[] = {
+    {"windows", "", "win32-x64", "450d66226c79405c724e821f291cab0911e934bfa9fa2231adcab587f3e07b50", 28},
+    {"linux", "x64", "linux-x64", "17c1ae10b52ac499180679fe6ba77e17642390c4eedb0f1e3b0ac045da55128f", 28},
+    {"linux", "aarch64", "linux-arm64", "2b708b2d15041d2a192c1db24c7a8a1d24f645a8242dce1c744ff2392b86ada1", 24},
+    {"macos", "x64", "darwin-x64", "a12354fce7eb62361473bbe10d53a1893695babd35869ec8e92e5dfea8d0440b", 24},
+    {"macos", "aarch64", "darwin-arm64", "6be74d6f449889c2e87a75873894f8520cad56c08ac76f2a628d85b0519daaca", 19},
+};
+
 // The folder everything is installed into: $FACTORIA_HOME when set, else <HOME>/.factoria
 // (%USERPROFILE%\.factoria on Windows). It is also where ai.json lives (export.json follows FACTORIA_HOME unless
 // FACTORIA_EXPORT_CONFIG names it).
@@ -165,7 +184,7 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders"
+    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -195,7 +214,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders"
+    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
     std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
@@ -267,6 +286,11 @@ std::string sokol_shdc_install_dir(const SetupContext& context);
 // The sokol-shdc to compile materials with: $SOKOL_SHDC, else sokol-shdc[.exe] next to the factoria executable (the
 // release downloads), else the one in sokol_shdc_install_dir; "" when none is there.
 std::string find_sokol_shdc(const SetupContext& context = {});
+
+// The ffmpeg binary of this host's entry in kSetupFfmpegBinaries; nullptr when the host has none.
+const FfmpegBinary* ffmpeg_binary(const SetupContext& context);
+// <home>/tools/ffmpeg/<kSetupFfmpegRelease>/ffmpeg[.exe]: where `setup ffmpeg` puts it (the file may not exist).
+std::string ffmpeg_install_path(const SetupContext& context);
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.

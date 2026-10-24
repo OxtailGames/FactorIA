@@ -318,7 +318,7 @@ A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle),
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | enum: revolute \\| distance \\| prismatic \\| weld | `"revolute"` | revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0). |
-| `connected` | entity |  | Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position. |
+| `connected` | entity |  | Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position. |
 | `anchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin. |
 | `connectedAnchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created. |
 | `axis` | vec2 | `[1.0,0.0]` | Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x. |
@@ -378,12 +378,12 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 
 Since 0.2.0.
 
-Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | enum: hinge \\| ball \\| fixed | `"hinge"` | hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all. |
-| `connected` | entity |  | The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D. |
+| `connected` | entity |  | The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D. |
 | `anchor` | vec3 | `[0.0,0.0,0.0]` | Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge. |
 | `connectedAnchor` | vec3 | `[0.0,0.0,0.0]` | Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true. |
 | `autoAnchor` | bool | `true` | true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together). |
@@ -395,7 +395,9 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 | `motorSpeed` | float | `0.0` | hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis. |
 | `maxMotorTorque` | float | `10.0` | hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more. Range 0.0..1000000.0. |
 | `collideConnected` | bool | `false` | false (default): the two joined bodies do not collide with each other. true: they do. |
+| `damping` | float | `0.0` | Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it. Range 0.0..1000.0. (not released yet, on main after 0.2.0) |
 | `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
+| `stalled` | bool | `false` | Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only. Runtime-only (not saved). (not released yet, on main after 0.2.0) |
 
 ### CharacterController3D
 
@@ -603,7 +605,9 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `min` | float | `0.0` | Smallest value. |
 | `max` | float | `1.0` | Largest value. |
 | `step` | float | `0.1` | Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press and dragging is not snapped. Range 0.0..1000000.0. |
-| `showValue` | bool | `true` | Draw the value at the right: "60%" when min is 0 and max is 1, else the number with up to 2 decimals. |
+| `showValue` | bool | `true` | Draw the value at the right. Without `format`: "60%" when min is 0 and max is 1, else the number with up to 2 decimals. |
+| `format` | string | `""` | Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language. (not released yet, on main after 0.2.0) |
+| `formatKey` | string | `""` | Localization key whose translation is the pattern, written into `format` like `key` writes the label ("slider.percent": "{v} %" in French). "" = none. A key no table has is reported once and `format` stays as it is. (not released yet, on main after 0.2.0) |
 
 ### TextField
 
@@ -659,6 +663,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 | `scroll` | float | `0.0` | Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame. Runtime-only (not saved). |
 | `scrollSpeed` | float | `40.0` | Pixels scrolled per mouse-wheel notch. Range 0.0..10000.0. |
 | `fill` | bool | `false` | true: when the parent is a Panel with layout column, `size.y` is set every frame to the height the other children leave. In a Panel with `fit` that is the screen height (minus the safe-area insets) minus the panel's padding, the gaps and the other children, so the panel ends exactly as tall as the screen at most (never below 64 px; if the other children do not leave that, the panel is taller than the screen and warns). In a Panel without fit it is the panel's own inner height minus the others. Several fill lists share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours. (since 0.2.0) |
+| `shrink` | bool | `false` | true: like `fill`, but the list is only as tall as its content (padding, children and gaps) when that is less than the room the other children leave, so inside a `fit` Panel a short list makes a short panel and a long one stops at the screen height and scrolls. The room is computed as for `fill` (it needs a parent Panel with layout column; ignored otherwise; never below 64 px). `fill` and `shrink` together: `fill` wins. Several shrink lists share the room: each takes what it needs, and a list that needs more than an equal share takes what the shorter ones leave. `size.x` is yours. (not released yet, on main after 0.2.0) |
 
 ### TouchStick
 
@@ -1869,6 +1874,7 @@ Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon 
 | `format` | string ["apk","aab","gradle","appimage","msix","folder"] | no | Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
+| `allowPlayerMismatch` | boolean | no | Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can. Default false. |
 | `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
 
 ### `project.info`
@@ -2186,13 +2192,14 @@ Since 0.2.0.
 
 Move an entity under another entity, or to the top level of the scene.
 
-`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle). Example: scene.set_parent {"id":"coin_3","parent":"chest"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name) to move. |
 | `parent` | any | no | New parent's id (or name); null or empty = top level. |
 | `keepWorldTransform` | boolean | no | true = keep the world position, rotation and scale (the local Transform changes); false = keep the local Transform. Default true. |
+| `index` | integer | no | Place among the new parent's other children (0 = first). Omitted = last. Needs a parent. |
 
 ### `scene.spawn` (modifies state)
 
@@ -2206,6 +2213,8 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 | `position` | array | no | [x, y] or [x, y, z] world position (Transform.position). |
 | `entity` | object | no | Entity JSON; alternatively put its fields (name, components...) at top level. |
 | `parent` | string | no | Parent entity id. |
+| `index` | integer | no | Place among the parent's children (0 = first, up to their count). Omitted = last. Needs parent. |
+| `overrides` | object | no | With prefab: patches for the prefab's children, keyed by child id, name or path (see docs/MENUS.md). |
 | `name` | string | no |  |
 | `id` | string | no |  |
 | `tags` | array | no |  |
@@ -2280,28 +2289,28 @@ The way to find out WHY a script misbehaves without an IDE. Runs the project hea
 
 Since 0.1.4.
 
-Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension (or open Xcode's App Store page).
+Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg (or open Xcode's App Store page).
 
-Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. It downloads hundreds of megabytes (setup.status says how many: installSizeMb) and can take minutes: ask the user before calling it. `android`: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's), saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with error code `license_required` until acceptLicenses is true: the Android SDK license is a legal agreement between the user and Google, so show the user the text from setup.status (components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said yes; never set it on your own. `players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the last release fails with code `no_release`); platforms narrows it (windows, linux, macos, mobile). `cmake`: CMake 3.31 from Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). `appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. `shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, for source builds and editor-less setups; downloads of factoria carry it. `vscode`: copies the VS Code extension built into factoria (the script debugger, docs_read {"name":"debugging"}) to ~/.vscode/extensions/oxtailgames.factoria-<version>/ and to VS Code Insiders, VSCodium and Cursor when they exist, records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. Example: {"component":"android","acceptLicenses":true}.
+Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. It downloads hundreds of megabytes (setup.status says how many: installSizeMb) and can take minutes: ask the user before calling it. `android`: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's), saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with error code `license_required` until acceptLicenses is true: the Android SDK license is a legal agreement between the user and Google, so show the user the text from setup.status (components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said yes; never set it on your own. `players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the last release fails with code `no_release`); platforms narrows it (windows, linux, macos, mobile). `cmake`: CMake 3.31 from Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). `appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. `shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, for source builds and editor-less setups; downloads of factoria carry it. `vscode`: copies the VS Code extension built into factoria (the script debugger, docs_read {"name":"debugging"}) to ~/.vscode/extensions/oxtailgames.factoria-<version>/ and to VS Code Insiders, VSCodium and Cursor when they exist, records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. `ffmpeg`: the static ffmpeg 6.0 build of github.com/eugeneware/ffmpeg-static (GPL, with libx264 and AAC; 19-28 MB depending on the computer) into $FACTORIA_HOME/tools/ffmpeg/<release>/, so `factoria run --record-video trailer.mp4` works without installing ffmpeg by hand; skipped when an ffmpeg is already found. Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. Example: {"component":"android","acceptLicenses":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode"] | yes | What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor). |
+| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode","ffmpeg"] | yes | What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4). |
 | `acceptLicenses` | boolean | no | android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user. Default false. |
 | `platforms` | array | no | players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). "web" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for. |
-| `force` | boolean | no | android, cmake, players: install again even when it is found (a JDK or CMake that is already there is used otherwise). Default false. |
+| `force` | boolean | no | android, cmake, players, ffmpeg: install again even when it is found (a JDK or CMake that is already there is used otherwise). Default false. |
 
 ### `setup.status`
 
 Since 0.1.4.
 
-Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension.
+Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg.
 
-Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, licenses[], canInstall}. Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player of the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of this factoria's version), `cmake` (3.24+, for the iOS export on a Mac), `xcode` (macOS: status only, it cannot be installed by a program) and `appimage` (appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with) `shaders` (sokol-shdc, the shader compiler of custom materials: $SOKOL_SHDC, the one next to factoria or the pinned one under home/tools/sokol-shdc/) and `vscode` (the FactorIA debugger extension in ~/.vscode/extensions and the other VS Code based editors' folders: installed when this factoria's version is there; docs_read {"name":"debugging"}). state is installed | missing | partial | unsupported (nothing to do on this computer). problems[] says what is missing and how to fix it; `setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android SDK license is not accepted yet) holds {id, title, text}: the full license the user must read and agree to before `setup.install` with acceptLicenses. The only network request is the fetch of that license text (fetchLicenses false skips it). Everything installed lives under `home` ($FACTORIA_HOME, default ~/.factoria). Details: docs_read {"name":"exporting"}. Example: {"component":"android"}.
+Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, licenses[], canInstall}. Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player of the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of this factoria's version), `cmake` (3.24+, for the iOS export on a Mac), `xcode` (macOS: status only, it cannot be installed by a program) and `appimage` (appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with) `shaders` (sokol-shdc, the shader compiler of custom materials: $SOKOL_SHDC, the one next to factoria or the pinned one under home/tools/sokol-shdc/) `vscode` (the FactorIA debugger extension in ~/.vscode/extensions and the other VS Code based editors' folders: installed when this factoria's version is there; docs_read {"name":"debugging"}) and `ffmpeg` (what `factoria run --record-video trailer.mp4` converts its recording to H.264 + AAC with: $FACTORIA_FFMPEG, "publish": {"ffmpeg"} of export.json, PATH or the one under home/tools/ffmpeg/). state is installed | missing | partial | unsupported (nothing to do on this computer). problems[] says what is missing and how to fix it; `setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android SDK license is not accepted yet) holds {id, title, text}: the full license the user must read and agree to before `setup.install` with acceptLicenses. The only network request is the fetch of that license text (fetchLicenses false skips it). Everything installed lives under `home` ($FACTORIA_HOME, default ~/.factoria). Details: docs_read {"name":"exporting"}. Example: {"component":"android"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode"] | no | Only this component (default: all of them). |
+| `component` | string ["android","players","cmake","xcode","appimage","shaders","vscode","ffmpeg"] | no | Only this component (default: all of them). |
 | `fetchLicenses` | boolean | no | Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI). Default true. |
 
 ## shader
@@ -2392,6 +2401,19 @@ Since 0.2.0.
 Remove every subtitle from the screen now.
 
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
+
+### `ui.set_slider` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.
+
+For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to [min, max] and snapped to `step` exactly as dragging the track does, and the "ui.change" event {id, value} is sent when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that is the difference. Needs an active, interactable Slider. Returns {id, value, changed}. Example: ui.set_slider {"id":"music_volume","value":0.5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name) of the Slider. |
+| `value` | number | yes | The wanted value; clamped to [min, max] and snapped to step. |
 
 ### `ui.set_text_scale` (modifies state)
 
@@ -2506,9 +2528,9 @@ declare module "factoria" {
   export type CastShape3D = { shape: "sphere"; radius: number } | { shape: "box"; size: Vec3Like };
 
   /**
-   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
+   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props. index is the place among the parent's children (0 = first, up to their count; omitted = last) and needs parent; a bad index throws.
    */
-  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> };
+  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; index?: number; props?: Record<string, any> };
 
   /**
    * 2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.
@@ -2798,7 +2820,10 @@ declare module "factoria" {
     destroy(): void;
     readonly parent: Entity | null;
     readonly children: Entity[];
-    setParent(parent: EntityLike, keepWorld?: boolean): void;
+    /**
+     * Moves the entity under another one (null = top level). index is the place among the new parent's OTHER children (0 = first, up to their count; omitted = last), so it also reorders within the same parent. A parent is required for an index; a bad index throws. Layouts follow this order.
+     */
+    setParent(parent: EntityLike, keepWorld?: boolean, index?: number): void;
     hasTag(tag: string): boolean;
     addTag(tag: string): void;
     removeTag(tag: string): void;
@@ -2932,9 +2957,9 @@ declare module "factoria" {
      */
     spawn(entityJson: Json, opts?: SpawnOptions): Entity;
     /**
-     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge).
+     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge). `childOverrides` patches the prefab's descendants: key = a child's id, name or path like "Panel/Title", value = { name?, tags?, active?, components? }; an unknown child or field throws with a suggestion.
      */
-    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity;
+    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json; childOverrides?: Record<string, Json> }): Entity;
     /**
      * Queue a game event; delivered to onEvent and world.on listeners.
      */
@@ -4158,6 +4183,14 @@ declare module "factoria" {
      */
     t(key: string, args?: { count?: number; [name: string]: unknown }): string;
     /**
+     * `value` written the way the current language writes numbers: decimal and group separators and digits from the engine's table (en "1,234.5", es "1234,5" and "12.345,5", de "1.234,5", fr "1 234,5" with a narrow no-break space, ar Arabic-Indic digits "١٬٢٣٤٫٥"). `decimals` (0 to 9) fixes the digits after the separator; without it the number keeps the digits it has. A language the table does not know writes like English; a game without localization is English. Same as the `{v:number:1}` placeholder of a string table. Throws for a value that is not a number or decimals out of range.
+     */
+    number(value: number, options?: { decimals?: number }): string;
+    /**
+     * `seconds` as a time in the current language: "1:23.4" for 83.4 (minutes:seconds), "1:02:03.4" from one hour on. `decimals` (0 to 3, default 1) are the digits of the second; the decimal separator and the digits follow the language (es "1:23,4", ar "١:٢٣٫٤"). Rounded as a whole, so 59.96 is "1:00.0". Same as the `{t:duration}` placeholder of a string table.
+     */
+    duration(seconds: number, options?: { decimals?: number }): string;
+    /**
      * True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one.
      */
     has(key: string): boolean;
@@ -4306,7 +4339,7 @@ declare module "factoria" {
   export const platform: PlatformAPI;
 
   /**
-   * Localization: t(key, args), language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
+   * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
    */
   export const i18n: I18nAPI;
 
@@ -5464,7 +5497,7 @@ declare module "factoria" {
      */
     type: "revolute" | "distance" | "prismatic" | "weld";
     /**
-     * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     * Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position.
      * @since 0.2.0
      */
     get connected(): Entity | null;
@@ -5673,7 +5706,7 @@ declare module "factoria" {
     navObstacle: boolean;
   }
   /**
-   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
    * 
    * Category: Physics
    * @since 0.2.0
@@ -5685,7 +5718,7 @@ declare module "factoria" {
      */
     type: "hinge" | "ball" | "fixed";
     /**
-     * The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D.
+     * The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D.
      * @since 0.2.0
      */
     get connected(): Entity | null;
@@ -5749,10 +5782,20 @@ declare module "factoria" {
      */
     collideConnected: boolean;
     /**
+     * Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it.
+     * @since unreleased
+     */
+    damping: number;
+    /**
      * Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only.
      * @since 0.2.0
      */
     readonly angle: number;
+    /**
+     * Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only.
+     * @since unreleased
+     */
+    readonly stalled: boolean;
   }
   /**
    * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, is carried by the kinematic platform it stands on (carriedByPlatforms), weighs on the dynamic body below it (applyWeight, mass: a seesaw tips) and pushes the free dynamic bodies it walks into (pushStrength). Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
@@ -6514,10 +6557,20 @@ declare module "factoria" {
      */
     step: number;
     /**
-     * Draw the value at the right: "60%" when min is 0 and max is 1, else the number with up to 2 decimals.
+     * Draw the value at the right. Without `format`: "60%" when min is 0 and max is 1, else the number with up to 2 decimals.
      * @since 0.1.6
      */
     showValue: boolean;
+    /**
+     * Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language.
+     * @since unreleased
+     */
+    format: string;
+    /**
+     * Localization key whose translation is the pattern, written into `format` like `key` writes the label ("slider.percent": "{v} %" in French). "" = none. A key no table has is reported once and `format` stays as it is.
+     * @since unreleased
+     */
+    formatKey: string;
   }
   /**
    * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
@@ -6732,6 +6785,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     fill: boolean;
+    /**
+     * true: like `fill`, but the list is only as tall as its content (padding, children and gaps) when that is less than the room the other children leave, so inside a `fit` Panel a short list makes a short panel and a long one stops at the screen height and scrolls. The room is computed as for `fill` (it needs a parent Panel with layout column; ignored otherwise; never below 64 px). `fill` and `shrink` together: `fill` wins. Several shrink lists share the room: each takes what it needs, and a list that needs more than an equal share takes what the shorter ones leave. `size.x` is yours.
+     * @since unreleased
+     */
+    shrink: boolean;
   }
   /**
    * On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. A finger that lands on it moves a stick of the TOUCH PAD, a virtual gamepad the action bindings read like a real one, so actions bound to GamepadLeftStickLeft/Right/Up/Down (or the right stick) work with no change to the game; the default ui_* actions include the left stick, so it also walks menus. Full tilt is the edge of the disc (half the shorter side); the pad deadzone (input.deadzone) applies like on a real stick. That finger is the stick's until it lifts, even outside the disc: it is not in input.touches, the Touch binding or the mouse. Several fingers work at once (a stick and buttons). Defaults: 200 x 200, inside the safe area, shown only while the player uses touch (touchOnly).
@@ -7164,7 +7222,7 @@ declare module "factoria" {
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
     Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean };
-    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
+    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
@@ -7172,9 +7230,9 @@ declare module "factoria" {
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
     TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
-    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
@@ -7496,6 +7554,10 @@ declare module "factoria:test" {
      */
     typeText(text: string): void;
     /**
+     * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable.
+     */
+    setSlider(id: string, value: number): void;
+    /**
      * Presses the system Back button of Android. The input.onBack handlers run at the next step(); when none consumes it the game asks to quit (game.quitRequested in game.state()).
      */
     pressBack(): void;
@@ -7527,6 +7589,30 @@ declare module "factoria:test" {
      * Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad.
      */
     gamepad(index?: number): TestGamepad;
+    /**
+     * Holds a mouse button (default left) until mouseUp(): input.mouse.down(button) follows. With mouseMove() it tests a drag.
+     */
+    mouseDown(button?: "left" | "right" | "middle"): void;
+    /**
+     * Releases a mouse button held with mouseDown().
+     */
+    mouseUp(button?: "left" | "right" | "middle"): void;
+    /**
+     * Turns the mouse wheel by dy notches for the next frame (input.mouse.wheel); a non-number throws.
+     */
+    wheel(dy: number): void;
+    /**
+     * True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test run never stops because of it. Cleared before each test.
+     */
+    readonly quitRequested: boolean;
+    /**
+     * Pretends the device has these languages (BCP 47 tags, best first): i18n.systemLanguages answers them so a first-run language choice can be tested. An empty list means no system language. Reset (empty) before each test. Example: game.setSystemLanguages(["es-ES", "en"]).
+     */
+    setSystemLanguages(languages: string[]): void;
+    /**
+     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers. Both default to true; an unknown key throws with a suggestion.
+     */
+    resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
      * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).

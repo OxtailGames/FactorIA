@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Text entry on every device
+
+- A focused `TextField` raises the phone's keyboard and hides it on blur (not for gamepad players). The menu kit in
+  `docs/MENUS.md` has an on-screen keyboard for gamepad players (Latin, Cyrillic and Greek layouts; other scripts fall
+  back to Latin). The web player takes typed text on mobile browsers through a hidden input, and the web smoke types
+  into a field.
+
 A 3D example game for phones
 
 - Clockwork Courier (`examples/clockwork-courier`) is a complete 3D game made for phones first, the way your AI makes a
@@ -14,6 +21,23 @@ A 3D example game for phones
   reduced motion, assist mode, captions), English, Spanish and Japanese, and store texts, images and a trailer. Its
   `SHIPPING.md` says how each export was run (iOS Simulator, Android emulator, browser, macOS) and what is still done by
   hand.
+
+Sliders and lists
+
+- `Slider.format` shows the value as a pattern: `"{v:1}x"`, `"{percent}%"` (the value times 100); `Slider.formatKey` takes the
+  pattern from a string table, so it can differ per language. `game.setSlider(id, value)` in a test drags a slider like a
+  player: clamped, snapped to `step`, `ui.change` sent (the `ui.set_slider` command); writing `Slider.value` from a script
+  still sends nothing. `ScrollList.shrink` makes a list as tall as its content up to the room the other children leave, so a
+  short list in a `fit` panel makes a short panel.
+
+Tests
+
+- `factoria:test` can hold a mouse button and turn the wheel (`game.mouseDown`, `mouseUp`, `wheel`), so a drag orbit and a
+  wheel zoom are tested through the input path. `game.resetState({ storage, platform })` clears the save data and the fake
+  store between tests of one file, `game.setSystemLanguages([...])` sets what `i18n.systemLanguages` answers, and a quit
+  request in a test (`game.quit()`, Back nobody consumes) sets `game.quitRequested` instead of stopping the run.
+  SCRIPTING.md says `scene.load` from a test takes effect next frame while `game.load` is immediate. The hook warning
+  skips a method that takes arguments, like `start(seconds)`.
 
 Animation
 
@@ -72,6 +96,11 @@ Platform services
 
 Localization
 
+- Numbers and times follow the language: `{v:number:1}` and `{t:duration}` in a string table and `i18n.number(v, {decimals})`
+  and `i18n.duration(seconds)` in scripts write 1234.5 as "1,234.5", "1234,5" (Spanish; "12.345,5" from five digits),
+  "1.234,5" (German), "1 234,5" (French, narrow no-break space) or "١٬٢٣٤٫٥" (Arabic digits), and 83.4 seconds as "1:23.4".
+  A small table in the engine, no ICU; a language it does not know is written like English (docs/LOCALIZATION.md).
+  Clockwork Courier uses it instead of its own helper (FB-0039).
 - `keyArgs` on `Text`, `Button`, `Toggle`, `Slider`, `TextField` and `TouchButton`: the values of a key's `{placeholders}`
   (and the `count` of a plural entry), so a script sets them once instead of rewriting `text` every frame, and a language
   switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
@@ -90,6 +119,20 @@ Tools
 - The plugin templates come with a `.gitignore` for their build output.
 - `factoria api --dts` lists a native plugin that is not built without its load error, so the typings no longer
   carry this machine's folders and come out the same on every machine.
+
+Exports and store files
+
+- `Products.storekit` is written by every iOS export whose catalog has products, with or without the Apple plugin, and
+  holds one localization per language of the game (names and descriptions from the products' `titleKey` /
+  `descriptionKey` in `locales/`).
+- An Android source build reads the CMake version it will use instead of requiring `cmake;3.31.6`: the SDK's, else the
+  newest 3.24+ in the SDK, else a 3.24+ of the computer (passed to Gradle as `cmake.dir`), so it works offline. The error
+  hint says how to get one.
+- `factoria` and `factoria_player` carry a build fingerprint (the commit, `-dirty` when it had uncommitted changes;
+  `factoria version` prints it). A desktop export with a player from another build stops with an error that names both
+  builds; `--allow-player-mismatch` (the `export` command's `allowPlayerMismatch`) bundles it anyway.
+- `setup.install {"component": "ffmpeg"}` (`factoria setup ffmpeg`) downloads a pinned static ffmpeg, so
+  `factoria run --record-video trailer.mp4` works without installing it by hand; `setup.status` lists the component.
 
 Assets
 
@@ -115,6 +158,15 @@ Physics
   `mass` x gravity (`applyWeight`, `mass`), so a seesaw tips and a bridge plank sags, and `pushStrength` scales the push on
   the free dynamic bodies it walks into (a body held by a `Joint3D` is never shoved). Clockwork Courier dropped its
   workarounds (FB-0010, FB-0011).
+- A dynamic body that starts inside a static collider is reported once in the log (both entities, the depth and the fix),
+  and `factoria validate` warns about it for scenes.
+- Joints form islands: a chain of planks falls asleep when it is at rest, a collision in one island no longer stops the
+  rest of the world, and two bridges side by side move exactly as each would alone. Chains of three or more jointed
+  bodies get more solver iterations and settle by themselves, so a rope bridge no longer needs heavy damping
+  (FB-0014, FB-0015, FB-0017, FB-0053, FB-0054).
+- `Joint3D.damping` (friction on the relative turning) and `Joint3D.stalled` (read only: a motor pushes and the joint
+  cannot turn, for example a gate against a wall). `docs/AI_GUIDE.md` has a rope bridge recipe.
+- `connected: ""` means the world on `Joint3D` and `Joint2D` in scenes, `factoria validate` and scripts.
 
 Navigation
 
@@ -170,6 +222,14 @@ Scripting
 
 UI
 
+- A child can be put at a place among its siblings, which is the order a `column` or `row` layout follows:
+  `scene.set_parent {id, parent, index}` (also `scene.spawn {index}`), `entity.setParent(parent, keepWorld, index)` and
+  `world.spawn(json, { parent, index })` / `world.spawnPrefab(path, { parent, index })`. 0 is first; an index outside
+  0..(number of the parent's other children) is an error that says the range. The order is saved with the scene.
+- One panel can serve several scenes: a prefab reference takes `overrides`, a map from a child of the prefab (its id,
+  name or a path like `"Panel/Title"`) to the `name`, `tags`, `active` and `components` to change, and
+  `world.spawnPrefab(path, { childOverrides })` and `scene.spawn {prefab, overrides}` do the same. A child or field that
+  does not exist is an error with a "did you mean". docs/MENUS.md shows it. Clockwork Courier's FB-0032 and FB-0023.
 - Text that fits: `autoShrink` (with `minFontSize`, default 10) on `Text`, `Button`, `Toggle`, `Slider` and `TouchButton`
   shrinks the font until the text fits its box (`Text.maxWidth` x the new `Text.maxHeight`, or the room the widget leaves
   its label), never under `minFontSize` times `ui.textScale`. `maxTextScale` on `Text`, every widget and `TouchButton`
