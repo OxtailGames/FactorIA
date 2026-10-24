@@ -62,6 +62,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers. |
 | `navObstacle` | bool | `false` | true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing. (not released yet, on main after 0.2.0) |
+| `navWalkable` | bool | `false` | true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set. (not released yet, on main after 0.2.0) |
 
 ## Joint2D
 
@@ -117,11 +118,23 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 | `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
 | `stalled` | bool | `false` | Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only. Runtime-only (not saved). (not released yet, on main after 0.2.0) |
 
+## NavLink3D
+
+Not released yet (on main after 0.2.0).
+
+An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a drop off a ledge. The walkable cells do not join the two places, so this joins them: the link runs from this entity's world position to `end` (both are moved onto the nearest walkable cell). nav.findPath may take it, and its result lists where in `links` (the index of the point where the link starts and the link's entity), so a script makes the character jump or climb there; the next point is where it ends. See docs/NAVIGATION.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `end` | vec3 | `[0.0,0.0,0.0]` | World position [x, y, z] where the link ends. The entity's own world position is where it starts. Both ends must be within the NavMesh3D box and near walkable ground (agentRadius + two cells horizontally, about stepHeight up and agentHeight down); a link whose end is not is ignored, and nav.info says so. |
+| `bidirectional` | bool | `true` | true (default): the path may also go from `end` to the entity. false: one way only, from the entity to `end` (a drop, a jump that cannot be climbed back). |
+| `cost` | float | `0.0` | Extra path length in meters added to the straight distance between the two ends. 0 = as long as the straight line; raise it so a path prefers walking around when that is not much longer. Range 0.0..1000.0. |
+
 ## NavMesh3D
 
 Not released yet (on main after 0.2.0).
 
-A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
+A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there; one with Collider3D.navWalkable (a bridge, a lift) adds its top surface while it is there, and NavLink3D entities add off-mesh links. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
