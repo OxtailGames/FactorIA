@@ -1519,12 +1519,25 @@ Acceptance: `fa_test_scene` cases for each.
 
 - AI_GUIDE.md and SCRIPTING.md ("Tests") say what holds: the same build on the same platform gives the same result;
   another compiler or CPU may not.
-- `fa_physics` and `fa_scene` build with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`), so the same
-  source gives the same numbers on more platforms; CI compares a replay's hash between the Linux and Windows jobs.
+- The engine builds with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`) and the simulation uses its own
+  deterministic sin/cos/atan2/asin/acos (`fa::det::`), so the same source gives the same numbers on every platform; CI
+  compares a replay's hash with one committed value on the Linux, Windows and macOS jobs.
 - `factoria:test` has a helper that runs a check under small perturbations, so a level test asserts what is robust
   instead of an exact frame count.
 
 Acceptance: the replay hash matches across CI's Linux, Windows and macOS jobs, or the docs list where it does not.
+
+Done (branch `m26/physics-determinism`): every target builds with `-ffp-contract=off` / `/fp:precise` and `-fmath-errno` (root
+CMakeLists.txt; per-module flags were not enough, see the comment there). The first CI run showed a different hash on each
+platform, from the C library's sin/cos/atan2/asin/acos (Euler angles of every world matrix, quaternion turns, hinge angles,
+round collider sampling). They are replaced on the whole simulation path by `fa::det::` (`engine/core/include/fa/core/
+det_math.h`: doubles, `+ - * / sqrt` only, range reduction and Taylor series; test_det_math.cpp checks accuracy against
+`std::` and commits exact bit patterns), also behind `Quat`, `Mat4::rotate_*` and `from_angle_deg` in math.h; `std::hypot` in
+the nav grid became `sqrt`. Box2D has its own cos/sin/atan2 (checked: v3 `b2ComputeCosSin`/`b2Atan2`), so its 2D part now
+matches Windows' on the Mac. The test `physics_determinism` (`engine/physics/tests/test_determinism.cpp`) compares a replay
+hash with ONE committed value on each CI job (no per-platform table) and prints `FA_PHYSICS_REPLAY_HASH`. `robust()` is in
+`factoria:test`; Clockwork Courier's shortcut test uses it. Open: the Linux and Windows hashes of the new code are confirmed
+only by CI; FB-0055 stays open until they match.
 
 ### M26.22 Menu kit command (M) — CC/FB-0003
 

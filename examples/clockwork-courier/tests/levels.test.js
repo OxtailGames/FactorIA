@@ -1,6 +1,6 @@
 // Every level of the player's list, played by the waypoint bot (tests/helpers/routes.js): the main route delivers every
 // parcel, the expert shortcut (where a level has one) wins too and is not slower. Also checks the shape of the list.
-import { test, describe, expect, game } from "factoria:test";
+import { test, describe, expect, robust, game } from "factoria:test";
 import { storage } from "factoria";
 import { Autoplay } from "./helpers/autoplay.js";
 import { ROUTES } from "./helpers/routes.js";
@@ -13,9 +13,12 @@ function record(names) {
   return log;
 }
 
-function play(level, route) {
+const mainFramesOf = {}; // level id -> frames of the main route, filled by the first test of each level
+
+function play(level, route, p = null) {
   storage.remove("progress");
   game.load(level.scene);
+  if (p) p.nudgeBodies(); // robust(): every plank and the courier start a few millimetres off
   game.step(10);
   const log = record(["parcel_picked", "parcel_delivered", "level_completed", "level_failed", "spring_wound", "checkpoint_reached", "courier_caught"]);
   const bot = new Autoplay(game, { maxFrames: 1500 });
@@ -48,6 +51,7 @@ for (const level of LEVELS) {
   describe(level.id, () => {
     test("the bot delivers every parcel (optional ones too) and wins with at least one star", () => {
       const { r, log } = play(level, ROUTES[level.id].main);
+      mainFramesOf[level.id] = r.frames;
       expect(JSON.stringify(r)).toContain('"reached":true');
       const names = log.map((e) => e.name);
       expect(names).not.toContain("level_failed");
@@ -65,13 +69,17 @@ for (const level of LEVELS) {
     });
 
     test("the expert shortcut wins too", () => {
-      const main = play(level, ROUTES[level.id].main);
-      const fast = play(level, ROUTES[level.id].shortcut);
-      expect(JSON.stringify(fast.r)).toContain('"reached":true');
-      expect(fast.log.map((e) => e.name)).toContain("level_completed");
-      // Not slower than the main route. The rope bridge and the seesaw are physics; a scene simulates the same whatever
-      // ran before it in the process (FB-0033, fixed in the engine), so the frame counts are stable.
-      expect(fast.r.frames).toBeLessThanOrEqual(main.r.frames);
+      // Not slower than the main route. Rope bridges and the seesaw are physics, exact per build but not across compilers
+      // or CPUs (FB-0055), so the shortcut is played twice, the second time with every plank and the courier a few
+      // millimetres off, and has to win either way (and not just by one exact frame count). The main route's time comes from
+      // the test above when it ran; each play costs seconds in a Debug build and a test has 60 s.
+      const mainFrames = mainFramesOf[level.id] ?? play(level, ROUTES[level.id].main).r.frames;
+      robust((p) => {
+        const fast = play(level, ROUTES[level.id].shortcut, p);
+        expect(JSON.stringify(fast.r)).toContain('"reached":true');
+        expect(fast.log.map((e) => e.name)).toContain("level_completed");
+        expect(fast.r.frames).toBeLessThanOrEqual(mainFrames);
+      }, { runs: 2 });
     });
   });
 }
