@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Video player
+
+- A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every
+  platform) in a UI rectangle: `fit` (`contain`, `cover`, `stretch`), `path`, `autoplay`, `loop`, `volume`, `bus`, `tint`.
+  Time follows the game clock (it pauses with the game, headless runs and tests decode the same frames) and the sound plays
+  through the mixer. Scripts use `entity.video`: `play`, `pause`, `stop`, `seek`, `time`, `duration`, `playing`, and
+  `on("ended", fn)` (the game event `video.ended`).
+- `assets.import` converts `.mp4`, `.m4v`, `.mov`, `.webm`, `.mkv` and `.avi` to an `.mpg` in `assets/video/` with ffmpeg
+  (`factoria setup ffmpeg` installs one) and records where it came from; an `.mpg` is checked and copied. `factoria
+  validate` reports a `Video` whose file is missing or that the engine cannot play, with the ffmpeg command that fixes it.
+- `docs/MENUS.md` has a studio-intro recipe where any button skips the video. Clockwork Courier's intro is now a 4.8 second
+  video of half a megabyte (FB-0051), recorded from an animated scene kept in `store/intro/`.
+
 Physics across platforms
 
 - The engine is built with no floating-point contraction (`-ffp-contract=off`, `/fp:precise`), and the simulation no longer
