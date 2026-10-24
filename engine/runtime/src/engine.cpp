@@ -327,6 +327,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
     {
         ProfSystemScope prof(ProfSystem::Ui);
+        // Text a plugin's platform keyboard returned (api->submit_text), for the field that took it.
+        for (const std::string& typed : plugin_take_submitted_text()) ui.submit_text(world, typed);
         ui.update(world, input, design_size(), float(dt), measure());
     }
     {
@@ -470,6 +472,38 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
     for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
+    plugin_take_submitted_text();  // text meant for an earlier engine of this process
+    if (!installed.textInputs.empty()) {
+        // The platform's own keyboard: the first plugin that answers 1 takes the field and is told when it loses the focus.
+        auto taker = std::make_shared<int>(-1);
+        I.ui.set_text_input_handler([&I, inputs = installed.textInputs, taker](const TextInputRequest& r) {
+            const Vec2 a = I.designToWindow ? I.designToWindow({r.rect.x, r.rect.y}) : Vec2{r.rect.x, r.rect.y};
+            const Vec2 b = I.designToWindow ? I.designToWindow({r.rect.x + r.rect.w, r.rect.y + r.rect.h})
+                                            : Vec2{r.rect.x + r.rect.w, r.rect.y + r.rect.h};
+            FaTextInput in{};
+            in.focused = r.focused ? 1 : 0;
+            in.x = a.x;
+            in.y = a.y;
+            in.width = b.x - a.x;
+            in.height = b.y - a.y;
+            in.text = r.text.c_str();
+            in.multiline = r.multiline ? 1 : 0;
+            in.max_length = r.maxLength;
+            in.password = r.password ? 1 : 0;
+            if (!r.focused) {
+                if (*taker >= 0 && *taker < int(inputs.size())) inputs[std::size_t(*taker)].handler(&in, inputs[std::size_t(*taker)].user);
+                *taker = -1;
+                return false;
+            }
+            for (std::size_t i = 0; i < inputs.size(); ++i)
+                if (inputs[i].handler(&in, inputs[i].user) != 0) {
+                    *taker = int(i);
+                    return true;
+                }
+            *taker = -1;
+            return false;
+        });
+    }
     BackendChoice choice = choose_platform_backend(config.platformBackend, config.platformFallback, I.platform.catalog(), installed,
                                                    runtime_platform());
     for (const std::string& warning : choice.warnings) {
@@ -763,6 +797,8 @@ Renderer* Engine::renderer() {
 }
 UiSystem* Engine::ui() { return &impl_->ui; }
 CommandRegistry& Engine::commands() { return impl_->commands; }
+void Engine::set_design_to_window(std::function<Vec2(Vec2)> mapper) { impl_->designToWindow = std::move(mapper); }
+
 Vec2 Engine::design_size() const { return impl_->design_size(); }
 Json Engine::project_settings() const {
     Json j = impl_->project.to_json();

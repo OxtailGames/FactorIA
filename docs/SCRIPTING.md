@@ -309,7 +309,8 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   - `text` is what the player typed this frame as UTF-8 (printable characters, emoji and accents included, no control
     keys: read Backspace/Enter/Escape with `keyPressed`). Empty most frames. `showKeyboard(on = true)` raises the on-screen
     keyboard on phones and tablets (a no-op on desktop, where the physical keyboard already types); `keyboardShown` is what
-    was asked for. A phone's keyboard may not deliver composed text (docs/MOBILE.md, "Phone features", lists the limits).
+    was asked for. `platformKeyboard` is true while a native plugin's keyboard (the Steam Deck's) has the focused TextField: the menu
+    kit's on-screen keyboard stays closed then (docs/PLATFORM.md, "Steam Deck keyboard"). A phone's keyboard may not deliver composed text (docs/MOBILE.md, "Phone features", lists the limits).
   - `onBack(handler)` is Android's Back button or gesture: `handler()` returns `true` (or nothing) when it closed
     something, `false` to let the next handler (the newest is asked first) or the system decide; if nobody consumes Back the
     game leaves, as Android would have. It returns a function that removes the handler, and handlers end with the scene.

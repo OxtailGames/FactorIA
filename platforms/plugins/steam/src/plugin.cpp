@@ -9,6 +9,7 @@
  *
  *   plugin.cpp         the entry point, the exit, the command steam.status
  *   backend.cpp        answers, call results, the callback pump
+ *   text_input.cpp     Steam's own keyboard on a Steam Deck or in Big Picture (plugin API 3)
  *   methods_game.cpp   sign-in, achievements, stats, leaderboards, cloud saves
  *   methods_store.cpp  purchases (DLC), overlay, rich presence
  */
@@ -98,7 +99,10 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
                              nullptr, 1, status, nullptr};
     FaBackendDesc desc = {"steam", "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\",\"presence\"]",
                              on_request, on_frame, nullptr};
-    if (api->add_command(api, &command) != 0 || api->add_backend(api, &desc) != 0) {
+    // Plugin API 3: the Steam Deck's own keyboard for a TextField a gamepad player focuses (an older engine has no hook).
+    const bool keyboardHook = api->version >= 3 && api->add_text_input && api->submit_text;
+    if (api->add_command(api, &command) != 0 || api->add_backend(api, &desc) != 0 ||
+        (keyboardHook && api->add_text_input(api, on_text_input, nullptr) != 0)) {
         s.SteamAPI_Shutdown();
         b.started = false;
         return 1;

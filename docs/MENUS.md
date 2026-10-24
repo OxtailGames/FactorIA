@@ -242,7 +242,9 @@ What the command does, file by file; do it by hand when you want to see each fil
   closes it and sends `ui.submit` (what Enter does), B (`ui.cancel`) closes it and keeps the text. It respects
   `maxLength`, and it closes by itself when the player touches the screen or presses a keyboard key. A game's own
   `ui.cancel` handler should do nothing while `OnScreenKeyboard.isOpen` is true
-  (`import OnScreenKeyboard from "./ui/keyboard.js"`). The Steam Deck's own keyboard is not used (that is the Steamworks backend's job).
+  (`import OnScreenKeyboard from "./ui/keyboard.js"`). On a Steam Deck (or in Big Picture) the Steam plugin shows Steam's own keyboard for a field a pad focuses
+  (docs/PLATFORM.md, "Steam Deck keyboard"); the engine then sets `input.platformKeyboard` and this keyboard stays closed
+  for that field. It opens as above everywhere the platform shows none.
   *Layout and languages.* The keys follow `i18n.language`: Latin (a-z, the digits and the accented letters of Spanish,
   French, German, Portuguese, Italian, Polish, Turkish, Swedish, Danish, Norwegian and Czech: `EXTRA`), Cyrillic
   (Russian, Ukrainian, Bulgarian, Serbian, Macedonian) and Greek. Every other language (Arabic, Hebrew, Chinese,
@@ -1318,7 +1320,9 @@ export default class PauseMenu extends Behaviour {
 // d-pad walks the keys, A types one, "Delete" removes the last character, "Done" closes it and sends ui.submit for the
 // field (what Enter does), B closes it and keeps the text. Typing goes through the same events a real keyboard sends
 // (ui.change), so the game's code does not know the difference. Phones and keyboards use their own keyboard: the engine
-// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad.
+// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad. A
+// platform that has a keyboard for pads (the Steam Deck, through a native plugin) shows its own: while
+// input.platformKeyboard is true this one stays closed too.
 //
 // The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
 import { Behaviour, ui, input, world, i18n } from "factoria";
@@ -1381,7 +1385,8 @@ export default class OnScreenKeyboard extends Behaviour {
     }
     // A on a focused field opens the keyboard again after B closed it.
     const f = ui.focused;
-    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && input.pressed("ui_submit")) this.open(f);
+    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && !input.platformKeyboard && input.pressed("ui_submit"))
+      this.open(f);
   }
 
   onFocus(entity) {
@@ -1392,7 +1397,7 @@ export default class OnScreenKeyboard extends Behaviour {
       return;
     }
     if (this.ignore === entity.id) return; // the focus we gave back ourselves (onUpdate forgets it two frames later)
-    if (entity.has("TextField") && input.lastDevice === "gamepad") this.open(entity);
+    if (entity.has("TextField") && input.lastDevice === "gamepad" && !input.platformKeyboard) this.open(entity);
   }
 
   open(field) {
@@ -1754,7 +1759,7 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
 
 ```js tests/keyboard.test.js
 import { test, expect, game } from "factoria:test";
-import { ui } from "factoria";
+import { input, ui } from "factoria";
 import { keysFor } from "../scripts/ui/keyboard.js";
 
 // A player with only a gamepad types a name through the on-screen keyboard (scripts/ui/keyboard.js).
@@ -1838,5 +1843,23 @@ test("the keys follow the language and the field's maxLength", () => {
   pad.tap("DpadUp");
   pad.tap("A"); // "a" does not fit
   expect(field().text).toBe("123456789012");
+});
+
+test("a platform keyboard takes the field: the on-screen keyboard stays closed", () => {
+  game.load("scenes/name.scene.json");
+  game.step(2);
+  // The engine sets input.platformKeyboard when a native plugin (the Steam Deck's) shows its own keyboard for the focused field.
+  const engineGetter = Object.getOwnPropertyDescriptor(input, "platformKeyboard");
+  Object.defineProperty(input, "platformKeyboard", { get: () => true, configurable: true });
+  try {
+    pad.tap("DpadDown");
+    pad.tap("DpadUp"); // back to the field with the pad: the platform keyboard is up, this one is not
+    expect(ui.focused.id).toBe("name_field");
+    expect(open()).toBe(false);
+    pad.tap("A"); // A on the field asks the platform again, not this keyboard
+    expect(open()).toBe(false);
+  } finally {
+    Object.defineProperty(input, "platformKeyboard", engineGetter);
+  }
 });
 ```

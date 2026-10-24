@@ -901,6 +901,9 @@
     get text() { return N.inText(); },
     showKeyboard(on = true) { N.inCursor(2, !!on); },
     get keyboardShown() { return N.inCursor(2); },
+    // True while the platform shows its own keyboard for the focused TextField (the Steam Deck's, through a native plugin):
+    // the menu kit's on-screen keyboard stays closed then. Read-only; false without such a plugin.
+    get platformKeyboard() { return N.inCursor(3); },
     // The system Back button or gesture (Android). Handlers run newest first at the start of the frame; the first one that
     // does not return false consumes the press. When none does (or there is none), the game quits, as Back always did.
     // Handlers end with the scene, like ui.on. Returns the function that removes the handler.

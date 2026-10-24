@@ -168,7 +168,40 @@ float UiSystem::set_slider(World& w, Entity e, float value) {
     return s.value;
 }
 
+void UiSystem::release_platform_keyboard(const World* w) {
+    if (!platformField_) return;
+    TextInputRequest r;
+    r.focused = false;
+    if (w && w->alive(platformField_))
+        if (const TextField* tf = w->get<TextField>(platformField_)) {
+            r.text = tf->text;
+            r.maxLength = tf->maxLength;
+        }
+    platformField_ = kNullEntity;
+    if (textInput_) textInput_(r);
+}
+
+bool UiSystem::submit_text(World& w, const std::string& text) {
+    TextField* tf = platformField_ && platformField_ == focus_ && w.alive(platformField_) ? w.get<TextField>(platformField_) : nullptr;
+    if (!tf) return false;
+    std::string clean;
+    for (std::size_t i = 0; i < text.size();) {
+        const char32_t c = utf8_next(text, i);
+        if (c < 32 || c == 127) continue;
+        if (tf->maxLength > 0 && utf8_length(clean) >= std::size_t(tf->maxLength)) break;
+        utf8_append(clean, c);
+    }
+    if (clean != tf->text) {
+        tf->text = clean;
+        caretStart_ = clock_;
+        emit(w, "ui.change", platformField_, Json(tf->text));
+    }
+    return true;
+}
+
 void UiSystem::reset() {
+    release_platform_keyboard(nullptr);
+    askedField_ = kNullEntity;
     focus_ = hover_ = press_ = kNullEntity;
     scrollToFocus_ = false;
     for (Repeat& r : nav_) r = Repeat{};
@@ -376,6 +409,27 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         if (TextField* tf = w.get<TextField>(it.e))
             tf->caret = it.e == focus_ && std::fmod(clock_ - caretStart_, 1.0f) < 0.5f;
     }
+
+    // ---- the platform's own keyboard (a native plugin): offered a TextField that a gamepad player focused, and told when
+    // the player leaves it. It stays up while the field keeps the focus whatever the last input is: the Steam Deck's
+    // floating keyboard types into the window as key presses, which makes the keyboard the last device.
+    if (platformField_ && (focus_ != platformField_ || !w.alive(platformField_))) release_platform_keyboard(&w);
+    if (textInput_) {
+        const TextField* tf = focus_ ? w.get<TextField>(focus_) : nullptr;
+        const bool padOnField = tf && in.last_device() == InputDevice::Gamepad;
+        const bool again = padOnField && in.action_pressed("ui_submit");  // A on the field after the player closed the keyboard
+        if (!padOnField && !platformField_) askedField_ = kNullEntity;
+        if (padOnField && (focus_ != askedField_ || again)) {
+            askedField_ = focus_;
+            TextInputRequest r;
+            r.rect = *ui_rect(w, focus_, design);
+            r.text = tf->text;
+            r.maxLength = tf->maxLength;
+            if (textInput_(r)) platformField_ = focus_;
+            else if (platformField_ == focus_) platformField_ = kNullEntity;
+        }
+    }
+    in.set_platform_keyboard(platformField_ != kNullEntity);
 
     // ---- the phone's keyboard follows a TextField's focus: up when one gets it, down when it goes. Only the changes
     // count, so a script's input.showKeyboard() in between still works. A pad player gets the game's on-screen keyboard

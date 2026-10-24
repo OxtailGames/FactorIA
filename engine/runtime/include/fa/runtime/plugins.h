@@ -51,10 +51,18 @@ struct PluginBackend {
     std::function<std::unique_ptr<PlatformBackend>()> create;
 };
 
+// A text input handler a plugin registered with api->add_text_input (ABI version 3): the platform's own keyboard.
+struct PluginTextInput {
+    std::string plugin;
+    FaTextInputHandler handler = nullptr;
+    void* user = nullptr;
+};
+
 struct PluginInstall {
     std::vector<std::string> problems;    // one teaching message per plugin that did not load; also logged as warnings
     std::vector<std::string> failed;      // the names of those plugins
     std::vector<PluginBackend> backends;  // of the plugins that loaded, in the order of factoria.json "plugins"
+    std::vector<PluginTextInput> textInputs;  // the same, for the plugins that registered a text input handler
 };
 
 // What Engine::init does: loads (once per process) the plugins `project` declares for this platform and installs what
@@ -63,6 +71,10 @@ struct PluginInstall {
 // exported game keeps the libraries (next to the executable; "" = each plugin's folder, for development runs).
 PluginInstall install_plugins(const ProjectSettings& project, const std::string& projectDir, const std::string& libraryDir,
                               CommandRegistry& commands, ScriptSystem& scripts);
+
+// The texts plugins handed back with api->submit_text since the last call, oldest first. The engine takes them once per
+// frame and gives them to the TextField that took the platform keyboard (UiSystem::submit_text).
+std::vector<std::string> plugin_take_submitted_text();
 
 }  // namespace fa
 

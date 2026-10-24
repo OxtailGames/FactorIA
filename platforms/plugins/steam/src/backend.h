@@ -47,6 +47,10 @@ struct Backend {
     std::map<std::string, u64> leaderboards;        // store name -> handle (a leaderboard handle is valid for the session)
     std::set<std::string> warned;                   // warnings that are logged once
     std::string library;
+
+    // The platform keyboard (text_input.cpp): which of Steam's keyboards is up for the focused TextField.
+    enum class Keyboard { None, Floating, Modal };
+    Keyboard keyboard = Keyboard::None;
 };
 
 Backend& backend();
@@ -97,6 +101,14 @@ bool store_stats(FaRequest* request);
 void run_frame();
 // Calls StoreStats for stats set since the last time (the frame does it; the exit does too).
 void flush_stats();
+
+// ---------------------------------------------------------------------------------------------- platform keyboard --
+// The plugin API 3 text input handler (text_input.cpp): on a Steam Deck or in Big Picture it opens Steam's floating keyboard
+// (Steam types into the window as key presses) or, where that is not offered, the modal one (the text comes back through
+// text_input_dismissed). Returns 1 when Steam shows a keyboard.
+int on_text_input(const FaTextInput* input, void* user);
+void text_input_dismissed(const GamepadTextInputDismissed& result);   // the modal keyboard closed: hand its text to the field
+void floating_text_input_dismissed();                                  // the floating keyboard closed
 
 // ------------------------------------------------------------------------------------------------------ methods --
 // plugin.cpp routes a request to one of these; each answers the request exactly once.

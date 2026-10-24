@@ -585,6 +585,13 @@ Vec2 Renderer::framebuffer_to_design(Vec2 fb, int fbW, int fbH, ScaleMode mode) 
     return {(fb.x - vp.x) / vp.w * float(tw), (fb.y - vp.y) / vp.h * float(th)};
 }
 
+Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) const {
+    int tw = impl_ ? impl_->targetW : fbW, th = impl_ ? impl_->targetH : fbH;
+    Viewport vp = compute_viewport(mode, fbW, fbH, tw, th);
+    if (vp.w <= 0 || vp.h <= 0 || tw <= 0 || th <= 0) return d;
+    return {vp.x + d.x / float(tw) * vp.w, vp.y + d.y / float(th) * vp.h};
+}
+
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------

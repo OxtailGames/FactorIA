@@ -54,6 +54,7 @@ struct Engine::Impl {
     Audio audio;
     ScriptSystem scripts;
     UiSystem ui;
+    std::function<Vec2(Vec2)> designToWindow;  // Engine::set_design_to_window; empty = design pixels
     PlatformServices platform;  // achievements, purchases, ...: the catalog of factoria.json and the backend (platform_backend.h)
     I18n i18n;                  // string tables and the current language (factoria.json "localization"); off without the section
     CommandRegistry commands;
