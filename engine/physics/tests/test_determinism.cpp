@@ -11,6 +11,7 @@
 //   2. If a code change moved ALL platforms together (same new hash everywhere), update kReferenceHash.
 //   3. If only this platform differs, that is a determinism bug, not drift to record: find the libm call, tie-breaking sort,
 //      unordered iteration or FP contraction behind it (fa::det:: replaces sin / cos / atan2 / asin / acos), and fix it.
+//      The sign of zero counts too: MSVC rewrites `v < 0 ? -v : v` as fabs(v), which turns -0 into +0 (use std::fabs).
 #include <doctest.h>
 
 #include <array>
@@ -32,7 +33,7 @@ namespace {
 constexpr float kDt = 1.0f / 60.0f;
 
 // The hash every platform is expected to produce (SHA-256 of the replay, first 16 hex digits).
-constexpr const char* kReferenceHash = "715653aeded84bc8";
+constexpr const char* kReferenceHash = "5fcd3b55f16ef6de";
 
 struct PlatformHash {
     const char* key;   // "<platform>-<arch>", see platform_key()
@@ -43,7 +44,7 @@ struct PlatformHash {
 constexpr std::array<PlatformHash, 0> kPlatformHashes{};
 
 // Platforms whose result is known to equal kReferenceHash (updated from CI logs; the failure message lists them).
-constexpr const char* kKnownMatching = "macos-arm64";
+constexpr const char* kKnownMatching = "macos-arm64, linux-x86_64, windows-x86_64";
 
 std::string platform_key() {
 #if defined(__aarch64__) || defined(_M_ARM64)

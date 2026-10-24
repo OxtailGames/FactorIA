@@ -1536,8 +1536,10 @@ det_math.h`: doubles, `+ - * / sqrt` only, range reduction and Taylor series; te
 the nav grid became `sqrt`. Box2D has its own cos/sin/atan2 (checked: v3 `b2ComputeCosSin`/`b2Atan2`), so its 2D part now
 matches Windows' on the Mac. The test `physics_determinism` (`engine/physics/tests/test_determinism.cpp`) compares a replay
 hash with ONE committed value on each CI job (no per-platform table) and prints `FA_PHYSICS_REPLAY_HASH`. `robust()` is in
-`factoria:test`; Clockwork Courier's shortcut test uses it. Open: the Linux and Windows hashes of the new code are confirmed
-only by CI; FB-0055 stays open until they match.
+`factoria:test`; Clockwork Courier's shortcut test uses it. The last Windows difference was the sign of a zero: `det::atan2`
+took |y| as `y < 0 ? -y : y`, which keeps -0, and MSVC (even with `/fp:precise`) compiles that as `fabs`, so `asin(-0)` was
++0 with Clang and GCC and -0 with MSVC; it uses `std::fabs` now (a Clang build with `-fno-signed-zeros` reproduced MSVC's
+hash locally). One hash holds on the Linux, Windows and macOS jobs; FB-0055 is fixed.
 
 ### M26.22 Menu kit command (M) — CC/FB-0003
 
