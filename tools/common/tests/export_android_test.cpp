@@ -310,6 +310,81 @@ TEST_CASE("android export: the Google Play plugin's module carries Billing, Play
     CHECK(testing::read_all(root / "gradle.properties").find("android.useAndroidX=true") != std::string::npos);
 }
 
+TEST_CASE("android export: the AdMob plugin gets its app id, test flag and audience from the export, and a release export warns about sample ids") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    {
+        auto project = load_json_file(game + "/factoria.json");
+        REQUIRE(project.ok());
+        (*project)["platform"] = Json::parse(R"({"ads": {"audience": "mixed", "placements": [{"id": "more_time"}]}})");
+        REQUIRE(save_json_file(game + "/factoria.json", *project).ok());
+    }
+    CommandRegistry reg;
+    register_plugin_commands(reg, game);
+    auto created = reg.call("project.new_plugin", Json::parse(R"({"name": "admob", "template": "admob", "platforms": ["android"]})"));
+    REQUIRE_MESSAGE(created.ok, created.error.dump());
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        testing::write_all(stdfs::path(game) / "plugins/admob/android/src/main/jniLibs" / abi / "libadmob.so", "fake bridge");
+
+    SUBCASE("a development export: Google's sample app id and test mode, whatever the catalog says") {
+        auto project = load_json_file(game + "/factoria.json");
+        (*project)["platform"]["ads"]["appIds"] = Json::parse(R"({"android": "ca-app-pub-1234567890123456~1234567890"})");
+        REQUIRE(save_json_file(game + "/factoria.json", *project).ok());
+        auto r = export_project(options(game, tmp, "gradle"));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string props = testing::read_all(stdfs::path(r->outputDir) / "gradle.properties");
+        CHECK(props.find("factoria.ads.appId=ca-app-pub-3940256099942544~3347511713\n") != std::string::npos);
+        CHECK(props.find("factoria.ads.test=true\n") != std::string::npos);
+        CHECK(props.find("factoria.ads.audience=mixed\n") != std::string::npos);
+        CHECK(props.find("{{") == std::string::npos);
+        // The module is a project of the build, and the app turns the three values into manifest placeholders.
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "settings.gradle").find("project(':plugin_admob').projectDir = file('plugins/admob')") != std::string::npos);
+        const std::string app = testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle");
+        CHECK(app.find("factoriaAdsAppId") != std::string::npos);
+        CHECK(app.find("providers.gradleProperty('factoria.ads.appId')") != std::string::npos);
+        const std::string manifest = testing::read_all(stdfs::path(r->outputDir) / "plugins/admob/src/main/AndroidManifest.xml");
+        CHECK(manifest.find("${factoriaAdsAppId}") != std::string::npos);
+        // A debug export has nothing to warn about.
+        CHECK_FALSE(any_contains(r->warnings, "appIds"));
+    }
+    SUBCASE("a release export carries the catalog's app id, leaves test mode, and warns when the ids are missing") {
+        ExportOptions o = options(game, tmp, "gradle");
+        o.release = true;
+        auto missing = export_project(o);
+        REQUIRE_MESSAGE(missing.ok(), (missing.ok() ? "" : missing.error().to_string()));
+        std::string props = testing::read_all(stdfs::path(missing->outputDir) / "gradle.properties");
+        CHECK(props.find("factoria.ads.appId=ca-app-pub-3940256099942544~3347511713\n") != std::string::npos);  // the app still starts
+        CHECK(props.find("factoria.ads.test=false\n") != std::string::npos);
+        CHECK(any_contains(missing->warnings, "factoria.json#/platform/ads/appIds/android: the game has the admob plugin for Android but "
+                                              "platform.ads.appIds.android is not set"));
+        CHECK(any_contains(missing->warnings, "the placement \"more_time\" has no"));
+
+        auto project = load_json_file(game + "/factoria.json");
+        (*project)["platform"]["ads"]["appIds"] = Json::parse(R"({"android": "ca-app-pub-1234567890123456~1234567890"})");
+        (*project)["platform"]["ads"]["placements"][0]["ids"] = Json::parse(R"({"admob": "ca-app-pub-1234567890123456/1234567890"})");
+        REQUIRE(save_json_file(game + "/factoria.json", *project).ok());
+        o.outDir = tmp.sub("out2");
+        auto good = export_project(o);
+        REQUIRE_MESSAGE(good.ok(), (good.ok() ? "" : good.error().to_string()));
+        props = testing::read_all(stdfs::path(good->outputDir) / "gradle.properties");
+        CHECK(props.find("factoria.ads.appId=ca-app-pub-1234567890123456~1234567890\n") != std::string::npos);
+        CHECK(props.find("factoria.ads.test=false\n") != std::string::npos);
+        CHECK_FALSE(any_contains(good->warnings, "appIds"));
+        CHECK_FALSE(any_contains(good->warnings, "has no \"ids\""));
+    }
+}
+
+TEST_CASE("android export: a game without the AdMob plugin writes the same properties and no warning about ads") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    ExportOptions o = options(game, tmp, "gradle");
+    o.release = true;
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradle.properties").find("factoria.ads.audience=general\n") != std::string::npos);
+    CHECK_FALSE(any_contains(r->warnings, "admob"));
+}
+
 TEST_CASE("android export: a plugin module without Java or Kotlin code leaves hasCode false; Kotlin sources turn it on") {
     testing::TempDir tmp;
     SUBCASE("only the native libraries") {

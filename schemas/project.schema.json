@@ -561,7 +561,9 @@
         },
         "exclude": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "description": "Project-relative globs no export ships (folder, game.pak, web, android, ios): \"store/**\", \"levels/*.tmx\", \"notes\" (a folder). '*' matches inside one folder, '**' crosses folders, '?' one character. Added to the files and folders every export already leaves out (hidden files and folders whose name starts with a dot, build/, tests/, tools/, types/, README.md, the feedback file, AGENTS.md, CLAUDE.md). `factoria validate` warns about a glob that matches no file and fails when one matches the main scene. See docs/EXPORTING.md, \"What is shipped\"."
         },
         "windows": {
@@ -574,7 +576,10 @@
             },
             "format": {
               "type": "string",
-              "enum": ["folder", "msix"],
+              "enum": [
+                "folder",
+                "msix"
+              ],
               "default": "folder",
               "description": "\"folder\" (default): <slug>-windows/ with the exe and the game. \"msix\": also writes <out>/<slug>-windows.msix next to that folder, the package of the Microsoft Store (and of Add-AppxPackage on a PC). It can be built on any computer. `factoria export --format msix` wins over this. See docs/EXPORTING.md, \"Microsoft Store\"."
             },
@@ -623,7 +628,9 @@
                 },
                 "languages": {
                   "type": "array",
-                  "items": {"type": "string"},
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "Language tags the app lists as resources (\"en-us\", \"es-es\"): the Store lists the app for these. Default: localization.languages of the project, else [\"en-us\"]."
                 }
               }
@@ -666,10 +673,21 @@
               "description": "Sandbox capabilities the game needs beyond the default, added to the entitlements of the Mac App Store signature (sign.macos with distribution \"appStore\"): {\"com.apple.security.network.client\": true} lets the game open network connections. The default is only com.apple.security.app-sandbox (the player's save folder, log, screenshots, gamepads, audio and opening links need nothing else); the entitlements of the native plugins are added on top. Values are true/false, a string, a whole number or an array of strings. Keys that FactorIA sets itself (the sandbox, the application and team identifiers) are not allowed. Default: none. See docs/EXPORTING.md, \"Mac App Store\".",
               "additionalProperties": {
                 "anyOf": [
-                  {"type": "boolean"},
-                  {"type": "string"},
-                  {"type": "integer"},
-                  {"type": "array", "items": {"type": "string"}}
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
                 ]
               }
             }
@@ -809,7 +827,9 @@
                 },
                 "trackingDomains": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "NSPrivacyTrackingDomains: the domains that connect to tracking services, e.g. [\"ads.example.com\"]. Default none."
                 },
                 "accessedApis": {
@@ -817,17 +837,29 @@
                   "description": "Required-reason APIs the game's plugins or native code call, on top of the engine's. Each entry names a category and the reason codes that fit; entries for a category the engine already declares are merged with it.",
                   "items": {
                     "type": "object",
-                    "required": ["category", "reasons"],
+                    "required": [
+                      "category",
+                      "reasons"
+                    ],
                     "properties": {
                       "category": {
                         "type": "string",
-                        "enum": ["FileTimestamp", "SystemBootTime", "DiskSpace", "UserDefaults", "ActiveKeyboards"],
+                        "enum": [
+                          "FileTimestamp",
+                          "SystemBootTime",
+                          "DiskSpace",
+                          "UserDefaults",
+                          "ActiveKeyboards"
+                        ],
                         "description": "The API category (the NSPrivacyAccessedAPICategory name without the prefix)."
                       },
                       "reasons": {
                         "type": "array",
                         "minItems": 1,
-                        "items": { "type": "string", "pattern": "^[A-Z0-9]{4}\\.[0-9]$" },
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Z0-9]{4}\\.[0-9]$"
+                        },
                         "description": "Apple's reason codes for the category, e.g. [\"E174.1\"] for DiskSpace. FileTimestamp: DDA9.1, C617.1, 3B52.1, 0A2A.1. SystemBootTime: 35F9.1, 8FFB.1, 3D61.1. DiskSpace: E174.1, 85F4.1, 7D9E.1, B728.1. UserDefaults: CA92.1, 1C8F.1, C56D.1, AC6B.1. ActiveKeyboards: 3EC4.1, 54BD.1."
                       }
                     }
@@ -838,7 +870,10 @@
                   "description": "Data the app collects (NSPrivacyCollectedDataTypes), for example the purchase history a store plugin reads. Default none: a game that sends nothing off the device collects nothing.",
                   "items": {
                     "type": "object",
-                    "required": ["type", "purposes"],
+                    "required": [
+                      "type",
+                      "purposes"
+                    ],
                     "properties": {
                       "type": {
                         "type": "string",
@@ -855,7 +890,17 @@
                       "purposes": {
                         "type": "array",
                         "minItems": 1,
-                        "items": { "type": "string", "enum": ["ThirdPartyAdvertising", "DeveloperAdvertising", "Analytics", "ProductPersonalization", "AppFunctionality", "Other"] },
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "ThirdPartyAdvertising",
+                            "DeveloperAdvertising",
+                            "Analytics",
+                            "ProductPersonalization",
+                            "AppFunctionality",
+                            "Other"
+                          ]
+                        },
                         "description": "Why the data is collected (the NSPrivacyCollectedDataTypePurpose name without the prefix)."
                       }
                     }

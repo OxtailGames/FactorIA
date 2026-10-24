@@ -32,6 +32,7 @@
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
+    "privacyOptions": "Privacidad de los anuncios",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"
@@ -57,5 +58,13 @@
     "unreachable": "No se pudo contactar con la tienda ({code}). {detail}"
   },
   "keyboard": { "space": "Espacio", "delete": "Borrar", "done": "Hecho" },
-  "name": { "title": "Tu nombre", "placeholder": "Nombre", "next": "Continuar" }
+  "name": { "title": "Tu nombre", "placeholder": "Nombre", "next": "Continuar" },
+  "ageGate": {
+    "title": "Antes de jugar",
+    "question": "¿En qué año naciste?",
+    "why": "Solo lo usamos para elegir qué anuncios se pueden mostrar. Guardamos si eres menor, no tu año de nacimiento.",
+    "year": "Año de nacimiento",
+    "continue": "Continuar",
+    "skip": "Prefiero no decirlo"
+  }
 }

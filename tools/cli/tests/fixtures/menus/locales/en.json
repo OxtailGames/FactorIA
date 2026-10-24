@@ -32,6 +32,7 @@
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"
@@ -57,5 +58,13 @@
     "unreachable": "The store could not be reached ({code}). {detail}"
   },
   "keyboard": { "space": "Space", "delete": "Delete", "done": "Done" },
-  "name": { "title": "Your name", "placeholder": "Name", "next": "Continue" }
+  "name": { "title": "Your name", "placeholder": "Name", "next": "Continue" },
+  "ageGate": {
+    "title": "Before you play",
+    "question": "In which year were you born?",
+    "why": "We only use this to choose which ads can be shown. We keep whether you are a child, not your birth year.",
+    "year": "Birth year",
+    "continue": "Continue",
+    "skip": "I would rather not say"
+  }
 }

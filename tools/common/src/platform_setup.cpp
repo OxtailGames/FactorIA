@@ -21,7 +21,7 @@ namespace platform_setup {
 namespace {
 
 const std::vector<Backend>& backends() {
-    static const std::vector<Backend> all = {steam_backend(), apple_backend(), googleplay_backend()};
+    static const std::vector<Backend> all = {steam_backend(), apple_backend(), googleplay_backend(), admob_backend()};
     return all;
 }
 

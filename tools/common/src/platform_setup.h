@@ -63,9 +63,22 @@ inline std::string quoted_list(const std::vector<std::string>& ids) {
     return out;
 }
 
+// The Android SDK's NDK, CMake and Ninja (googleplay and admob build their C bridge with them): platform_setup_android.cpp.
+struct NdkToolchain {
+    std::string sdk, ndk, toolchainFile, cmake, ninja;
+    std::vector<std::string> notes;  // "used NDK 28.0 because 27.2 is not installed"
+};
+// Finds them; throws a CommandError that says what to install. `backend` is the plugin ("admob"), `display` how a message names it
+// ("the AdMob plugin").
+NdkToolchain find_ndk_toolchain(const AndroidToolchainSearch& search, const std::string& backend, const std::string& display);
+// Builds the plugin's C bridge in `folder` for arm64-v8a and x86_64 (a dry run only records the step) and fills ctx.done and
+// ctx.extra["libraries"].
+void build_android_abis(Context& ctx, const NdkToolchain& tc, const std::string& folder);
+
 // One per backend file.
 Backend steam_backend();  // platform_setup_steam.cpp
 Backend apple_backend();  // platform_setup_apple.cpp
 Backend googleplay_backend();  // platform_setup_googleplay.cpp
+Backend admob_backend();  // platform_setup_admob.cpp
 
 }  // namespace fa::platform_setup

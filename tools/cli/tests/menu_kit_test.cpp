@@ -154,6 +154,41 @@ TEST_CASE("project.add_menu_kit: one part brings what it needs, and nothing else
     CHECK(read_json(stdfs::path(dir2) / "locales" / "en.json").size() == 2);  // $name and loading
 }
 
+TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and the main menu brings it") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const std::string dir = new_game("agegate");
+    const fa::Json r = add(dir, {"ageGate"});
+    CAPTURE(r.dump(2));
+    CHECK(r["parts"] == fa::Json::parse(R"(["core","ageGate"])"));
+    CHECK(has(r["added"], "prefabs/ui/age_gate.prefab.json"));
+    CHECK(has(r["added"], "scripts/ui/age_gate.js"));
+    CHECK(has(r["added"], "tests/age_gate.test.js"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "scenes" / "menu.scene.json"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "prefabs" / "ui" / "options.prefab.json"));
+    for (const char* language : {"en"}) {
+        const fa::Json en = read_json(stdfs::path(dir) / "locales" / (std::string(language) + ".json"));
+        CHECK(en.contains("ageGate"));
+        CHECK(en["ageGate"].contains("skip"));
+        CHECK_FALSE(en.contains("options"));
+    }
+    bool mentionsAudience = false;
+    for (const fa::Json& step : r["nextSteps"]) mentionsAudience = mentionsAudience || step.get<std::string>().find("\"mixed\"") != std::string::npos;
+    CHECK(mentionsAudience);
+
+    // Its own test passes in a game that has nothing else of the kit.
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::None;
+    auto session = fa::cli::Session::open(dir, so);
+    fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+    CHECK_MESSAGE(rep.ok(), rep.summary());
+    CHECK(rep.passed >= 6);
+    session.reset();
+    fa::fs::set_project_root(oldRoot);
+
+    const std::string dir2 = new_game("mainmenu");
+    CHECK(has(add(dir2, {"main-menu"})["parts"], "ageGate"));
+}
+
 TEST_CASE("project.add_menu_kit: a file the game edited stays unless overwrite is true; keys the game has are never replaced") {
     const std::string dir = new_game("edit");
     add(dir, {"credits"});
