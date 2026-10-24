@@ -125,7 +125,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "Fixed in 1474bc1 (M26.11): game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) in factoria:test."
+        "Fixed in 1474bc1 (M26.11): game.mouseDown(button), game.mouseUp(button) and game.wheel(dy) in factoria:test. tests/camera.test.js orbits with a left-button drag and zooms with the wheel through game.mouseDown/mouseMove/mouseUp and game.wheel, end to end through readInput()."
       ],
       "engineIssue": "#172"
     },
@@ -170,7 +170,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in e3ab260 (before this report): entity.animator.get(name) returns a parameter's current value (a declared param or a set one; a wrong name throws with a \"did you mean\"), and game.find(id) in a test returns the same entity, so tests/animator.test.js can read game.find(id).animator.get(\"speed\"). docs/ANIMATION.md now shows it (#149)."
+        "Fixed in e3ab260 (before this report): entity.animator.get(name) returns a parameter's current value (a declared param or a set one; a wrong name throws with a \"did you mean\"), and game.find(id) in a test returns the same entity, so tests/animator.test.js can read game.find(id).animator.get(\"speed\"). docs/ANIMATION.md now shows it (#149). It does now, instead of reading get(\"Animator\").values."
       ],
       "engineIssue": "e3ab260"
     },
@@ -227,7 +227,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.10 (Navmesh and paths for 3D) in feedback/ROADMAP.md (M19's navmesh, taken now that a game needs it).",
-        "Fixed in 016421a (M26.10): a NavMesh3D component baked from the static colliders (agentRadius, agentHeight, stepHeight, maxSlope), nav.findPath(from, to, {radius}) in scripts and the nav.find_path / nav.bake / nav.info commands, Collider3D.navObstacle for gates and crates that move, and \"Show navmesh\" in the editor (docs/NAVIGATION.md). The game's scripts/nav.js, dog.js and tap_move.js still use their own grid: moving them onto the engine API needs the six levels re-tuned and retested, which is a game task."
+        "Fixed in 016421a (M26.10): a NavMesh3D component baked from the static colliders (agentRadius, agentHeight, stepHeight, maxSlope), nav.findPath(from, to, {radius}) in scripts and the nav.find_path / nav.bake / nav.info commands, Collider3D.navObstacle for gates and crates that move, and \"Show navmesh\" in the editor (docs/NAVIGATION.md). The game dropped its own grid (scripts/nav.js is gone): each level scene bakes a NavMesh3D from its static colliders, the gate and crate prefabs are navObstacle colliders, and scripts/dog.js and tap_move.js ask nav.findPath for their routes (closest: true; a dog whose target is in the air retries with the result's nearest point). The rooftops_3 bot routes now sneak past dog_2, which really follows the courier round the walls. The navmesh holds no rope bridge, seesaw or moving platform: FB-0056."
       ],
       "engineIssue": "#159"
     },
@@ -515,7 +515,7 @@
       "occurrences": 2,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 4832aa4 (M26.17): a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12.",
+        "Fixed in 4832aa4 (M26.17): a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12. The name screen uses the kit (project.add_menu_kit {parts: [\"keyboard\"]}) instead of its 36-button letter grid: touch and keyboards type into the field, a gamepad types with the kit's keyboard.",
         "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin.",
         "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks."
       ],
@@ -567,7 +567,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed before this report, documented in 07d0251 (#149): the built-in DejaVu Sans has ★ (U+2605) and ☆ (U+2606), and ✓ ✗ ♥ ♪ ← →; colour emoji such as ⭐ (U+2B50) are not in it, which is likely the missing glyph seen. docs/TEXT.md now says so. results_view.starText can use ★ and ☆."
+        "Fixed before this report, documented in 07d0251 (#149): the built-in DejaVu Sans has ★ (U+2605) and ☆ (U+2606), and ✓ ✗ ♥ ♪ ← →; colour emoji such as ⭐ (U+2B50) are not in it, which is likely the missing glyph seen. docs/TEXT.md now says so. results_view.starText can use ★ and ☆. It does: results_view.starText (shared by the level select) writes ★ and ☆."
       ],
       "engineIssue": "#149"
     },
@@ -592,7 +592,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: a prefab already shares a panel between scenes (each scene instances it); what is missing is the recipe in MENUS.md and per-instance overrides of a prefab's children: work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
-        "Fixed in 570a112 (M26.20): a prefab reference takes `overrides` (child id, name or path -> name, tags, active, components) and world.spawnPrefab takes `childOverrides`; docs/MENUS.md has the recipe (\"A panel shared between scenes\"). The game's eight level scenes still hold their own copies of the panels: moving them onto one prefab is a game task."
+        "Fixed in 570a112 (M26.20): a prefab reference takes `overrides` (child id, name or path -> name, tags, active, components) and world.spawnPrefab takes `childOverrides`; docs/MENUS.md has the recipe (\"A panel shared between scenes\"). The eight level scenes instance prefabs/ui/hud.prefab.json, results.prefab.json and retry.prefab.json instead of holding their own copies (the copies were identical, so no overrides were needed)."
       ],
       "engineIssue": "#168"
     },
@@ -674,7 +674,7 @@
         "2026-10-22: tests/helpers/store.js: fresh() before and cleanup() after every test.",
         "2026-10-22 (clockwork-courier-p5): module state, session, game.paused and the language leak too; tests/comfort.test.js resets them in afterEach.",
         "2026-10-22 triage: holds in part: each test file already starts clean (storage, the platform fake and module state are reset between files); tests in one file share them. A reset between tests is work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "Fixed in 1474bc1 (M26.11): game.resetState({storage, platform}) resets the save data and the fake store between tests of one file."
+        "Fixed in 1474bc1 (M26.11): game.resetState({storage, platform}) resets the save data and the fake store between tests of one file. tests/helpers/store.js (fresh, cleanup) and tests/comfort.test.js call it; the game resets by hand only its own session.settingsApplied and the language."
       ],
       "engineIssue": "#172"
     },
@@ -812,7 +812,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.16 (Per-material colours) in feedback/ROADMAP.md.",
-        "Fixed in c70c58b (M26.16): MeshRenderer.materialColors {materialName: [r,g,b,a]} replaces the glTF base colour factor of that material (MeshRenderer.color still tints the whole model), and factoria validate checks the names against the model with a did-you-mean. scripts/paints.js can now give the body a real colour and leave the eyes alone; it is not changed yet."
+        "Fixed in c70c58b (M26.16): MeshRenderer.materialColors {materialName: [r,g,b,a]} replaces the glTF base colour factor of that material (MeshRenderer.color still tints the whole model), and factoria validate checks the names against the model with a did-you-mean. scripts/paints.js gives the body (material Main) a real colour per paint through materialColors: the dark tint and the emissive are gone, and the eyes and the metal keep their colours."
       ],
       "engineIssue": "#173"
     },
@@ -838,7 +838,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.20 (Scene tree: sibling order and shared panels) in feedback/ROADMAP.md.",
-        "Fixed in 570a112 (M26.20): world.spawn(json, {parent, index}), world.spawnPrefab(path, {parent, index}), entity.setParent(parent, keepWorld, index) and scene.set_parent {index}. scripts/more_time.js still re-parents the stock buttons: a game task to drop."
+        "Fixed in 570a112 (M26.20): world.spawn(json, {parent, index}), world.spawnPrefab(path, {parent, index}), entity.setParent(parent, keepWorld, index) and scene.set_parent {index}. scripts/more_time.js spawns its button with index 0 inside retry_buttons and re-parents nothing, so the button joins the stock buttons' uniformSize / fallbackLayout row."
       ],
       "engineIssue": "#168"
     },
@@ -1122,7 +1122,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.23 (UI layout check) in feedback/ROADMAP.md.",
-        "Fixed in 057a8e6 (M26.23): `ui.check_layout` loads each scene in each language and text scale plus a pseudo-localized pass and lists overflowing, overlapping and off-screen texts. First run on the game found the profile keyboard keys and the intro title and Skip button overflowing at 200 % (fixed with autoShrink); still open in the game: intro_hint leaves the screen at 200 % (safeArea bottom anchor), intro_hint overlaps intro_skip in Spanish at 200 %, select_title overlaps select_total at 200 % in every language, and the pseudo pass shows the main menu title and the Shop, Leaderboards and Credits buttons breaking at 200 % with 40 % longer text."
+        "Fixed in 057a8e6 (M26.23): `ui.check_layout` loads each scene in each language and text scale plus a pseudo-localized pass and lists overflowing, overlapping and off-screen texts. First run on the game found the profile keyboard keys and the intro title and Skip button overflowing at 200 % (fixed with autoShrink). The game fixed the rest: intro_hint grows upwards with a maxWidth, the level select's title and total share a fit column, the main menu's title shrinks (autoShrink, maxTextScale 1.5) and its buttons stop at 1.5 times, and the level select's text caps moved from script into the scene file. ui.check_layout reports no issue in any scene, language or text scale; tests/i18n.test.js stays as a regression test at 200 %."
       ],
       "engineIssue": "#170"
     },
@@ -1147,7 +1147,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.11 (Test API gaps) in feedback/ROADMAP.md.",
-        "Fixed in 1474bc1 (M26.11): game.setSystemLanguages([...]) decides what i18n.systemLanguages answers in a test (cleared for each test)."
+        "Fixed in 1474bc1 (M26.11): game.setSystemLanguages([...]) decides what i18n.systemLanguages answers in a test (cleared for each test). tests/i18n.test.js starts the title scene with game.setSystemLanguages and checks the language it picks (and that a saved language wins); the tests of the pure pickLanguage stay."
       ],
       "engineIssue": "#172"
     },
@@ -1196,7 +1196,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.18 (Slider and ScrollList) in feedback/ROADMAP.md.",
-        "Fixed in f13577d (M26.18): ScrollList.shrink makes a list as tall as its content up to the room the other children leave. Courier keeps fill on its lists: the options panel would change height with every tab and the four screens would need a visual pass, so moving to shrink is left to a design change."
+        "Fixed in f13577d (M26.18): ScrollList.shrink makes a list as tall as its content up to the room the other children leave. The credits, shop, achievements and leaderboard lists use shrink (checked on screenshots at text scale 1 and 2); the options tab list keeps fill, because its height would change with every tab."
       ],
       "engineIssue": "#174"
     },
@@ -1248,7 +1248,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: the JDK is already found (JAVA_HOME, Android Studio's, PATH); CMake must still be the SDK's 3.31.6: work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
-        "Fixed in 069466c (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH)."
+        "Fixed in 069466c (M26.19): the Android source build reads the CMake it will use (the SDK's 3.31.6, else the newest 3.24+ in the SDK, else one of the computer through cmake.dir in local.properties and factoria.cmakeVersion in gradle.properties); the error hint gives the offline recipe. The JDK was already found (JAVA_HOME, Android Studio, PATH). SHIPPING.md's Android section points at the export, with no loose scripts."
       ],
       "engineIssue": "#164"
     },
@@ -1274,7 +1274,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; work package M26.19 (Export and store material checks) in feedback/ROADMAP.md.",
-        "Fixed in 069466c (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway."
+        "Fixed in 069466c (M26.19): factoria and factoria_player carry a build fingerprint; a desktop export with a player from another build stops with an error naming both builds, and --allow-player-mismatch (allowPlayerMismatch) bundles it anyway. SHIPPING.md names --allow-player-mismatch."
       ],
       "engineIssue": "#164"
     },
@@ -1329,7 +1329,7 @@
       "status": "open",
       "notes": [
         "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md.",
-        "Fixed in 069466c (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md)."
+        "Fixed in 069466c (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md). SHIPPING.md records the trailer with factoria setup ffmpeg and --record-video trailer.mp4; the studio intro stays an animated scene until the engine plays video."
       ],
       "engineIssue": "#164"
     },
@@ -1407,7 +1407,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open: jointed bodies never sleep and a CCD event far away holds every body of the world (physics3d.cpp); the dependence on earlier tests was CC/FB-0033, fixed in M25. Work package M26.14 (Joints: overlaps, rest and bridges) in feedback/ROADMAP.md.",
-        "Fixed in bb13ed0 (M26.14): Joint3D.damping, chain iterations and drag: the rope bridge needs no heavy damping or wide planks."
+        "Fixed in bb13ed0 (M26.14): Joint3D.damping, chain iterations and drag: the rope bridge needs no heavy damping or wide planks. tests/helpers/routes.js dropped the three careful seesaw waypoints of rooftops_3: the bot crosses it with normal steps."
       ],
       "engineIssue": "#167"
     },
@@ -1438,6 +1438,31 @@
         "2026-10-24 M26.21: one replay hash now holds on the Linux (GCC), Windows (MSVC) and macOS (Apple Clang) CI jobs; sin/cos/atan2/asin/acos are fa::det:: (fa/core/det_math.h) on the whole simulation path. The last Windows difference was the sign of a zero: det::atan2 took |y| as `y < 0 ? -y : y`, which keeps -0, and MSVC compiles that as fabs, so asin(-0) (the pitch of a plank turned about z only) was +0 with Clang and GCC and -0 with MSVC. It uses std::fabs now, and test_det_math.cpp commits the signs of zero."
       ],
       "engineIssue": "#175"
+    },
+    {
+      "id": "FB-0056",
+      "date": "2026-10-24",
+      "reporter": {
+        "kind": "ai",
+        "agent": "clockwork-courier-m26-closeout",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "The navmesh holds no rope bridge, seesaw or moving platform",
+      "missing": "NavMesh3D bakes only static colliders, so the rope bridges, the seesaw and the moving platforms of rooftops_3 and market_3 are not in it, and there is no way to say that a dynamic or kinematic surface can be walked, or to link two parts of the mesh (an off-mesh link). A guard dog never crosses a bridge: when the courier is on one, the dog waits at the reachable point nearest to it.",
+      "workaround": "nav.findPath with closest: true (and, when the goal is off the mesh, a second query to the result's nearest point): the dog goes to the nearest reachable ground instead of following the courier across.",
+      "workaroundFiles": [
+        "scripts/dog.js",
+        "scripts/tap_move.js"
+      ],
+      "suggestion": "Off-mesh links on NavMesh3D (two points and a cost, one-way or both ways), and a collider flag that keeps a kinematic platform or a bridge in the mesh, re-marked as it moves like a navObstacle.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-10-24 triage (M26 close-out): holds; docs/NAVIGATION.md, \"Limits\", already plans an off-mesh link list. Ranked in M19 (pathfinding), after the video player."
+      ]
     }
   ]
 }
