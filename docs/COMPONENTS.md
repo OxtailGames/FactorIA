@@ -1846,6 +1846,19 @@ Writes {"format":"factoria.prefab/1","entity":{...}} in the canonical compact la
 
 ## project
 
+### `project.add_menu_kit` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.
+
+The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options, credits and shop) and are listed in `requiredBy`. A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Shop, Quit, with the options, credits and shop panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options, credits and shop: the scene uses their scripts and prefab.; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own). |
+| `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
+
 ### `project.create` (modifies state)
 
 Create a new game project from a template.
@@ -2393,6 +2406,22 @@ The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line wi
 | `key` | string | no | Localization key of the line. |
 | `speaker` | string | no | Name drawn before the line. |
 | `seconds` | number | no | How long it shows, in game-clock seconds (default 3). |
+
+### `ui.check_layout` (modifies state)
+
+Since 0.2.0.
+
+Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen.
+
+For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text scale, plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened ("[" + vowels doubled + "]", at least 40 % longer) to show where an unknown, longer language would break. Returns {ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter string). Only texts with a localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only. It RELOADS scenes: afterwards the running scene is loaded again and the language, text size and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {"textScales":[1,2],"pseudo":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scenes` | array | no | Project-relative scene paths to check, e.g. ["scenes/menu.scene.json"]. Default: every scene of the project that has UI (a widget or a screen-space Text). |
+| `languages` | array | no | Languages to check, as in factoria.json localization.languages. Default: all of them (the current one when the game has no localization). |
+| `textScales` | array | no | Text size options (ui.set_text_scale) to check. Default: [1, 2]. |
+| `pseudo` | boolean | no | Also run the pseudo-localized pass (default language, every text scale). Default: true. |
+| `settleFrames` | integer | no | Frames stepped after each change so scripts and layout settle. Default: 4. |
 
 ### `ui.clear_captions` (modifies state)
 

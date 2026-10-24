@@ -191,6 +191,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`perf.check`](commands/project.md#perfcheck): Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner. _Since 0.2.0._
 - [`perf.measure`](commands/project.md#perfmeasure): Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory. _Since 0.2.0._
 - [`perf.profile`](commands/project.md#perfprofile): Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory. _Since 0.2.0._
+- [`project.add_menu_kit`](commands/project.md#projectadd_menu_kit-modifies-state): Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales. _Not released yet._
 - [`project.create`](commands/project.md#projectcreate-modifies-state): Create a new game project from a template.
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
@@ -255,6 +256,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [ui](commands/ui.md)
 
 - [`ui.caption`](commands/ui.md#uicaption-modifies-state): Show a subtitle line on the Captions component for a few seconds. _Since 0.2.0._
+- [`ui.check_layout`](commands/ui.md#uicheck_layout-modifies-state): Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen. _Since 0.2.0._
 - [`ui.clear_captions`](commands/ui.md#uiclear_captions-modifies-state): Remove every subtitle from the screen now. _Since 0.2.0._
 - [`ui.set_slider`](commands/ui.md#uiset_slider-modifies-state): Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent. _Not released yet._
 - [`ui.set_text_scale`](commands/ui.md#uiset_text_scale-modifies-state): Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller. _Since 0.2.0._

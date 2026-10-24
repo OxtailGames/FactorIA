@@ -1,0 +1,68 @@
+{
+  "description": "The menu kit of docs/MENUS.md: the files project.add_menu_kit copies into a game. This folder is not a project template (factoria new does not list it): it has no factoria.json.",
+  "parts": [
+    {
+      "name": "core",
+      "description": "Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.",
+      "requires": [],
+      "files": ["scripts/settings.js", "scripts/ui/menu_stack.js", "scripts/ui/read_aloud.js"],
+      "localeKeys": ["menu"]
+    },
+    {
+      "name": "options",
+      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).",
+      "requires": ["core"],
+      "files": ["prefabs/ui/options.prefab.json", "scripts/ui/options.js"],
+      "localeKeys": ["options"]
+    },
+    {
+      "name": "credits",
+      "description": "The credits panel that lists the software inside the runtime (scripts/ui/credits.js).",
+      "requires": ["core"],
+      "files": ["scripts/ui/credits.js"],
+      "localeKeys": ["credits"]
+    },
+    {
+      "name": "shop",
+      "description": "The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json \"platform\" (docs/PLATFORM.md).",
+      "requires": ["core"],
+      "files": ["scripts/ui/shop.js", "scripts/store_events.js"],
+      "localeKeys": ["shop"]
+    },
+    {
+      "name": "main-menu",
+      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Shop, Quit, with the options, credits and shop panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options, credits and shop: the scene uses their scripts and prefab.",
+      "requires": ["core", "options", "credits", "shop"],
+      "files": ["scenes/menu.scene.json", "scripts/main_menu.js", "tests/recipe.test.js"],
+      "localeKeys": []
+    },
+    {
+      "name": "pause",
+      "description": "The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the \"pause\" action to factoria.json when the game has none.",
+      "requires": ["core", "options"],
+      "files": ["prefabs/ui/pause.prefab.json", "scripts/pause_menu.js"],
+      "localeKeys": ["pause"]
+    },
+    {
+      "name": "loading",
+      "description": "The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.",
+      "requires": [],
+      "files": ["scenes/loading.scene.json", "scripts/loading.js"],
+      "localeKeys": ["loading"]
+    },
+    {
+      "name": "keyboard",
+      "description": "The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.",
+      "requires": [],
+      "files": ["prefabs/ui/keyboard.prefab.json", "scripts/ui/keyboard.js"],
+      "localeKeys": ["keyboard"]
+    },
+    {
+      "name": "dialogue",
+      "description": "Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).",
+      "requires": [],
+      "files": ["scripts/dialogue.js"],
+      "localeKeys": ["captions"]
+    }
+  ]
+}

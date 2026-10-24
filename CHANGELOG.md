@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Menu kit command
+
+- `project.add_menu_kit {parts, overwrite}` (`factoria call project.add_menu_kit`) copies the menu kit of `docs/MENUS.md`
+  into a game: main menu, options, credits, shop, pause, loading screen, on-screen keyboard and subtitles, each part with
+  what it needs. It merges the kit's texts into the game's `locales/<language>.json` without replacing a key, leaves a
+  file the game changed alone unless `overwrite` is true, and does nothing the second time. The kit lives in
+  `templates/menus/`. The Controls tab of the options leaves out an action the game does not have.
+
 Text entry on every device
 
 - A focused `TextField` raises the phone's keyboard and hides it on blur (not for gamepad players). The menu kit in
@@ -106,6 +114,11 @@ Localization
   switch keeps them. `TouchButton` has a localization `key` like the other widgets. `factoria validate` checks a key's
   placeholders against the entity's `keyArgs`: it warns for a placeholder with no arg and for an arg no translation uses,
   not for every key with placeholders.
+- `ui.check_layout {scenes, languages, textScales, pseudo}` loads each screen with UI in each language and text size
+  (default: every language, scales 1 and 2) plus a pseudo-localized pass that lengthens every string by 40 %, and lists
+  every text that overflows its box (the `ui.overflowed` test), overlaps another or leaves the screen, with the scene,
+  the entity and its path, the key and the languages and scales where it happens. Clockwork Courier's profile keys and
+  intro texts that broke at 200 % now shrink (FB-0043).
 
 Tools
 

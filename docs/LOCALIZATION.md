@@ -341,6 +341,20 @@ language in the file (or only `languages`):
 
 After an import, run `factoria validate`: it lists what is still missing, and the glyphs the new texts need.
 
+**Does it fit? `ui.check_layout`.** `validate` cannot know whether a translation fits its widget: that depends on the
+layout, the font and the text size. Run `factoria call ui.check_layout` (or the MCP tool) after you add a language or
+change a menu. For every scene with UI it loads the scene in every language of the game at text scale 1 and 2, plus a
+pseudo-localized pass (the default language with every string lengthened by at least 40 %: `Play` becomes `[Plaay]`)
+that shows where a longer language would break, and lists every text that
+overflows its box (the test of `ui.overflowed`, so `autoSize`, `autoShrink` and `maxTextScale` count), overlaps another
+text or widget, or leaves the screen. Each problem comes once, with the scene, the entity id and path, the `key`, the
+rectangle and every language and scale where it happens, so the fix goes to the widget: `autoSize`, `autoShrink` with
+`minFontSize`, `maxWidth`, a bigger box or a shorter string. Narrow it with `scenes`, `languages` and `textScales`
+(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`). It checks what is active when the scene has settled: a
+panel a script opens later (options, shop) is not seen until the scene shows it, and a text a script writes without a
+`key` is only checked at each text scale. It reloads scenes and restores the language and text size afterwards, so run
+it on a fresh game, not in the middle of a play session.
+
 ## 9. Commands
 
 - `i18n.state` (read-only): `{enabled, default, current, languages: [{code, name, file, loaded, keys, missing,
@@ -350,5 +364,9 @@ After an import, run `factoria validate`: it lists what is still missing, and th
 - `i18n.export {format?, languages?, out?, delimiter?}` and `i18n.import {file, languages?, dryRun?}`: the files
   translators exchange (section 8). Both write files, `i18n.export` only under `out` (default `build/translations/`,
   never in `locales/`).
+
+- `ui.check_layout {scenes?, languages?, textScales?, pseudo?, settleFrames?}`: the layout check above; returns
+  `{ok, checked, skipped, issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?, cases}]}` with `kind`
+  `overflow`, `overlap` or `offscreen`.
 
 All are MCP tools and `factoria call` commands (`factoria call i18n.state`).

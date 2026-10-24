@@ -390,3 +390,9 @@ TEST_CASE("i18n: a language with a table of the wrong name is refused") {
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("not one of the game's languages") != std::string::npos);
 }
+
+TEST_CASE("i18n: pseudo-localization lengthens a string by at least 40 %") {
+    CHECK(fa::I18n::pseudo_localize("Play") == "[Plaay]");
+    const std::string kana = "\xE3\x83\x97\xE3\x83\xAC\xE3\x82\xA4";  // three characters, no ASCII vowel
+    CHECK(fa::I18n::pseudo_localize(kana) == "[" + kana + "~]");              // padded to four characters
+}
