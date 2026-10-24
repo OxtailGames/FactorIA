@@ -56,7 +56,7 @@ void NavGrid::build(const NavParams& params, std::vector<NavEntry>& entries) {
         if (a.solid.top != b.solid.top) return a.solid.top < b.solid.top;
         return a.solid.topNormalY < b.solid.topNormalY;
     });
-    const float minNormalY = std::cos(p_.maxSlopeDeg * 3.14159265f / 180.0f) - kEps;
+    const float minNormalY = det::cos(p_.maxSlopeDeg * 3.14159265f / 180.0f) - kEps;
     std::size_t at = 0;
     std::vector<NavSolid> merged;
     for (std::size_t c = 0; c < ncell; ++c) {
@@ -238,7 +238,7 @@ int NavGrid::nearest_span(Vec3 p, float reachDown, float reachUp, float maxDist,
                 if (!usable(s)) continue;
                 const Vec3 q = center(s);
                 if (q.y < p.y - reachDown - kEps || q.y > p.y + reachUp + kEps) continue;
-                const float d = std::hypot(q.x - p.x, q.z - p.z);
+                const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z));
                 if (d > maxDist + kEps) continue;
                 if (d < bestD - 1e-6f) {
                     bestD = d;
@@ -336,7 +336,7 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest) const {
 
 bool NavGrid::line_clear(int a, int b) const {
     const Vec3 A = center(a), B = center(b);
-    const float len = std::hypot(B.x - A.x, B.z - A.z);
+    const float len = std::sqrt((B.x - A.x) * (B.x - A.x) + (B.z - A.z) * (B.z - A.z));
     const int n = std::max(1, int(std::ceil(len / (p_.cell * 0.25f))));
     const float tol = p_.step * 0.5f + p_.cellHeight;
     // The usable span of cell (ix, iz) nearest in height to `y`, or -1 when none is within the tolerance.
@@ -404,7 +404,7 @@ void NavGrid::set_obstacle(std::uint64_t key, const std::vector<Footprint>& foot
         const int fx = cell_x(f.cell), fz = cell_z(f.cell);
         for (int dz = -R; dz <= R; ++dz) {
             for (int dx = -R; dx <= R; ++dx) {
-                if (std::hypot(float(dx), float(dz)) * p_.cell >= reach + kEps && (dx != 0 || dz != 0)) continue;
+                if (std::sqrt(float(dx * dx + dz * dz)) * p_.cell >= reach + kEps && (dx != 0 || dz != 0)) continue;
                 const int ix = fx + dx, iz = fz + dz;
                 if (ix < 0 || iz < 0 || ix >= p_.nx || iz >= p_.nz) continue;
                 const int c = iz * p_.nx + ix;

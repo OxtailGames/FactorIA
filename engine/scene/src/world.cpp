@@ -17,12 +17,12 @@ namespace {
 Vec3 euler_from_rotation(const Mat4& m) {
     auto r = [&](int row, int col) { return m.at(col, row); };
     float sinPitch = clamp(-r(1, 2), -1.0f, 1.0f);
-    float pitch = std::asin(sinPitch), yaw, roll;
+    float pitch = det::asin(sinPitch), yaw, roll;
     if (std::fabs(sinPitch) < 0.9999f) {
-        yaw = std::atan2(r(0, 2), r(2, 2));
-        roll = std::atan2(r(1, 0), r(1, 1));
+        yaw = det::atan2(r(0, 2), r(2, 2));
+        roll = det::atan2(r(1, 0), r(1, 1));
     } else {  // gimbal lock: fold roll into yaw
-        yaw = std::atan2(-r(2, 0), r(0, 0));
+        yaw = det::atan2(-r(2, 0), r(0, 0));
         roll = 0.0f;
     }
     return {degrees(pitch), degrees(yaw), degrees(roll)};
