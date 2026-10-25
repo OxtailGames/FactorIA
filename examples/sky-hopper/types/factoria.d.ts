@@ -714,6 +714,40 @@ declare module "factoria" {
   }
 
   /**
+   * A handle on one audio bus, from audio.bus(name): its effects (docs/SCRIPTING.md, "Audio buses"). Every method returns the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. A bus with no effect does no effect work (it only costs one add per sample into the master while it plays).
+   */
+  export interface AudioBus {
+    /**
+     * The bus this handle controls.
+     */
+    readonly name: "master" | "sfx" | "music" | "ui";
+    /**
+     * A 12 dB per octave low-pass filter at `hz` (20..20000; a muffled, underwater sound is 400..800). 0 or null switches it off. With `fade` (seconds) the cutoff slides (in octaves) from where it is; a bus with no filter starts open. Costs one biquad per channel: five multiply-adds per sample of the bus.
+     */
+    lowpass(hz: number | null, opts?: { fade?: number }): AudioBus;
+    /**
+     * A small room reverb: the bus is heard as (1 - mix) dry + mix wet, mix 0..1 (0 switches it off, 0.3 is a touch of room). The tail rings out for about 4 seconds after the bus goes silent, then the work stops. With `fade` the mix slides. Costs several times a low-pass (eight comb and four all-pass filters per channel) and some memory for its delay lines.
+     */
+    reverb(mix: number, opts?: { fade?: number }): AudioBus;
+    /**
+     * Lowers this bus by `amount` (the fraction removed, 0.5 default: half as loud) while `byBus` is louder than -40 dBFS, e.g. audio.bus("music").duck("sfx", 0.5) pushes the music down under every sound effect. `attack` (0.05 s) and `release` (0.5 s) are time constants in seconds: the bus covers 63% of the way down (or back up) in that time, about 95% in three times it. null switches ducking off (so does unduck()); the master cannot duck. Costs a peak detector on `byBus` and one multiply per sample here.
+     */
+    duck(byBus: "sfx" | "music" | "ui" | null, amount?: number, attack?: number, release?: number): AudioBus;
+    /**
+     * Switches ducking off.
+     */
+    unduck(): AudioBus;
+    /**
+     * The bus volume, like audio.setVolume (the player's volume: snapshots scale on top of it and leave it alone). With `fade` (seconds) it moves in a straight line; without it, it still ramps over about 10 ms so it does not click.
+     */
+    volume(volume: number, opts?: { fade?: number }): AudioBus;
+    /**
+     * The settings the bus is moving to (a fade in progress shows its end value): `lowpass` is 0 when off, `snapshotVolume` is the scale the last snapshot put on `volume`.
+     */
+    state(): { volume: number, snapshotVolume: number, lowpass: number, reverb: number, duck: { by: string, amount: number, attack: number, release: number } | null };
+  }
+
+  /**
    * Sound playback.
    */
   export interface AudioAPI {
@@ -754,6 +788,18 @@ declare module "factoria" {
      * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
      */
     getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
+    /**
+     * A handle on a bus to set its effects: low-pass, reverb, ducking and volume (see AudioBus). Throws for an unknown name, with a "did you mean". The effects stay across scene loads, like volumes (a snapshot or the handle changes them).
+     */
+    bus(name: "master" | "sfx" | "music" | "ui"): AudioBus;
+    /**
+     * Moves every bus to the named snapshot of factoria.json "audio"."snapshots" (volume scale, low-pass, reverb and ducking; a bus the snapshot does not list goes back to neutral, so { "normal": {} } is the way back). `fade` is the seconds the move takes; without it the snapshot's own "fade" (0.5 when it has none). Low-pass, reverb and volume slide, ducking switches at once; the volumes the player set with setVolume are not touched. Throws for an unknown name, with a "did you mean". `factoria validate` checks the catalog.
+     */
+    snapshot(name: string, opts?: { fade?: number }): void;
+    /**
+     * The snapshot names of factoria.json and the one applied last ("" = none).
+     */
+    snapshots(): { names: string[], current: string };
   }
 
   /**

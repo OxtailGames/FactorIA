@@ -185,6 +185,84 @@
         }
       }
     },
+    "audio": {
+      "type": "object",
+      "description": "The mixer (docs/SCRIPTING.md, \"Audio buses\"). `snapshots` is the catalog audio.snapshot(name, { fade }) and the audio.snapshot command read. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "snapshots": {
+          "type": "object",
+          "description": "Named sets of bus settings. Applying one moves every bus to the snapshot's state: a bus it does not list goes back to neutral (volume scale 1, no low-pass, no reverb, no ducking), so a snapshot is the whole picture and `\"normal\": {}` is the way back. The volumes the player set (audio.setVolume) are not touched. Example: {\"underwater\": {\"fade\": 0.8, \"buses\": {\"sfx\": {\"lowpass\": 600, \"reverb\": 0.3}, \"music\": {\"volume\": 0.5, \"lowpass\": 400}}}, \"normal\": {}}.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One snapshot.",
+            "properties": {
+              "fade": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 60,
+                "description": "Seconds audio.snapshot takes when the call gives no time (default 0.5)."
+              },
+              "buses": {
+                "type": "object",
+                "description": "Settings by bus name: \"sfx\", \"music\", \"ui\" or \"master\".",
+                "additionalProperties": {
+                  "type": "object",
+                  "description": "What the snapshot sets on one bus.",
+                  "properties": {
+                    "volume": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 4,
+                      "description": "A scale on the bus's own volume (the one the player's options set): 1 = unchanged (default), 0.5 = half, 0 = silent."
+                    },
+                    "lowpass": {
+                      "type": ["number", "null"],
+                      "minimum": 0,
+                      "maximum": 20000,
+                      "description": "Low-pass cutoff in Hz, 20..20000 (a 12 dB per octave filter: 600 is a muffled, underwater sound). 0 or null = no filter (default)."
+                    },
+                    "reverb": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Reverb wet mix: 0 = none (default), 0.3 = a touch of room, 1 = all wet."
+                    },
+                    "duck": {
+                      "type": ["object", "null"],
+                      "description": "Lowers this bus while another one plays (not for \"master\"). Example: {\"by\": \"sfx\", \"amount\": 0.5, \"attack\": 0.05, \"release\": 0.5}. Ducking switches at once when the snapshot is applied; it does not fade.",
+                      "properties": {
+                        "by": {
+                          "enum": ["sfx", "music", "ui"],
+                          "description": "The bus that triggers it (another bus than this one)."
+                        },
+                        "amount": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "The fraction of the volume removed while `by` plays: 0.5 (default) is half as loud, 1 is silent, 0 is no ducking."
+                        },
+                        "attack": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 30,
+                          "description": "Attack time constant in seconds: the bus covers 63% of the way down to the ducked level in this time, about 95% in three times it (default 0.05)."
+                        },
+                        "release": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 30,
+                          "description": "Release time constant in seconds: 63% of the way back up in this time once `by` has stopped, about 95% in three times it (default 0.5)."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "localization": {
       "type": "object",
       "description": "Languages of the game (docs/LOCALIZATION.md). Each language has a string table locales/<language>.json; Text.key and the widgets' key fields, `i18n.t(key, args)` in scripts and the i18n.* commands read them. Without this section localization is off and the game behaves as it always did. Headless runs (tests, the MCP server, `factoria call`) and the editor always use defaultLanguage; a game in its own window or an exported game starts in the language of the player's system that best matches `languages`, unless the environment variable FA_LANGUAGE names one. `factoria validate` reports every problem with how to fix it.",

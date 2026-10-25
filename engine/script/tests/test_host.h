@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "fa/audio/audio.h"
+#include "fa/audio/snapshots.h"
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
 #include "fa/physics/physics.h"
@@ -54,6 +55,7 @@ struct TestHost : ScriptHost {
         in.set_actions(proj["input"]["actions"]);
         au.init(false, nullptr);
         au.set_clock(&w);
+        if (proj.contains("audio")) au.set_snapshots(parse_audio_settings(proj["audio"]).snapshots);  // as the Engine does
         ph.init(PhysicsSettings{});
         if (auto catalog = load_platform_catalog(proj.contains("platform") ? proj["platform"] : Json()); catalog.ok())
             platformServices.set_catalog(std::move(catalog.value()));
