@@ -2,6 +2,7 @@
 #include "fa/services/fake_platform.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <format>
 
@@ -330,6 +331,14 @@ void FakeBackend::answer(std::uint64_t id, std::uint64_t seq, const std::string&
                 scripted.value("hint", std::string())});
         return;
     }
+    if (method == "http.fetch" && scripted.is_null()) {  // no network in the fake: the test says what the server answers
+        reject({"network",
+                "the fake backend never reaches the network, and no response is scripted for " + args.value("method", std::string("GET")) + " " +
+                    args.value("url", std::string()),
+                "Script the answer first: game.platform.respond(\"http.fetch\", { status: 200, json: { ... } }), or { error: \"network\" } for "
+                "an offline player."});
+        return;
+    }
     if (scripted.is_null() && !signedIn_ && method != "player.signIn") {
         reject({"notSignedIn", "the player is not signed in", "Call platform.signIn() first; in a test, game.platform.set({ signedIn: true })."});
         return;
@@ -347,6 +356,23 @@ void FakeBackend::answer(std::uint64_t id, std::uint64_t seq, const std::string&
         } else {
             if (result.is_null()) result = Json::object({{"key", args.value("key", std::string())}});  // cloud.load of a missing key
             for (auto it = scripted.begin(); it != scripted.end(); ++it) result[it.key()] = *it;
+        }
+        if (method == "http.fetch" && result.is_object()) {
+            if (auto j = result.find("json"); j != result.end()) {  // a test's shorthand for a JSON answer
+                result["text"] = j->dump();
+                result.erase("json");
+                if (result.contains("headers") && result["headers"].is_object() && !result["headers"].contains("content-type"))
+                    result["headers"]["content-type"] = "application/json";
+            }
+            if (result.contains("headers") && result["headers"].is_object()) {  // header names come in lower case, as every backend gives them
+                Json lowered = Json::object();
+                for (auto h = result["headers"].begin(); h != result["headers"].end(); ++h) {
+                    std::string name = h.key();
+                    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    lowered[name] = *h;
+                }
+                result["headers"] = std::move(lowered);
+            }
         }
     }
     if (o.commit) o.commit(result);
@@ -494,6 +520,8 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
         o.commit = [this](const Json& final) {
             if (final.is_object() && final.value("shown", false)) ++adsPrivacyShown_;
         };
+    } else if (method == "http.fetch") {
+        o.result = Json::object({{"status", 200}, {"headers", Json::object()}, {"text", ""}});  // merged with what the test scripted
     } else if (method == "overlay.open") {
         o.result = Json::object();
     } else if (method == "presence.set") {

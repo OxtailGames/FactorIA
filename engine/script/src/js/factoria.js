@@ -1032,7 +1032,24 @@
   const windowApi = {
     get available() { return N.windowInfo().available; },
     get fullscreen() { return N.windowInfo().fullscreen; },
-    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on); },
+    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on ? "fullscreen" : "windowed"); },
+    get mode() { return N.windowInfo().mode; },
+    setMode(mode) {
+      const modes = ["windowed", "borderless", "fullscreen"];
+      if (!modes.includes(mode)) {
+        const sug = typeof mode === "string" ? closest(mode, modes) : "";
+        throw new Error(`window.setMode(mode) expects "windowed", "borderless" or "fullscreen", e.g. window.setMode("borderless"), but got ${inspect(mode)}${sug ? ` (did you mean "${sug}"?)` : ""}`);
+      }
+      winSet("setMode", 0, mode);
+    },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
+    setMonitor(index) {
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error(`window.setMonitor(index) expects the number of a monitor from window.monitors(), counted from 0, e.g. window.setMonitor(1), but got ${inspect(index)}`);
+      }
+      winSet("setMonitor", 4, index);
+    },
     get size() { const w = N.windowInfo(); return new Vec2(w.width, w.height); },
     get displaySize() { const w = N.windowInfo(); return new Vec2(w.displayWidth, w.displayHeight); },
     setSize(width, height) {
@@ -1071,18 +1088,20 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
-    // supports("frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
+    // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
     // with a "did you mean".
     supports(feature) {
-      const names = ["frameCap", "renderScale", "fullscreen", "resize", "clipboard"];
+      const names = ["frameCap", "renderScale", "fullscreen", "borderless", "monitors", "resize", "clipboard"];
       if (!names.includes(feature)) {
         const sug = typeof feature === "string" ? closest(feature, names) : "";
         throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
       }
       if (feature === "renderScale") return true;
       if (feature === "clipboard") return N.clipboardSupported();
+      if (feature === "borderless") return N.windowInfo().supportsModes;
+      if (feature === "monitors") return N.windowInfo().supportsMonitors;
       return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
     },
   };
@@ -1157,6 +1176,60 @@
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
     getVolume: (bus) => N.audioGetVolume(bus),
+    // Bus effects (docs/SCRIPTING.md, "Audio buses"). audio.bus("music") is a handle on the bus "sfx", "music", "ui" or "master";
+    // its methods return the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. Each takes an optional { fade }
+    // (seconds): the value slides instead of jumping. Ducking has no fade (it follows the other bus on its own).
+    //   .lowpass(hz, { fade })    12 dB per octave low-pass at hz (20..20000); 0 or null = off.
+    //   .reverb(mix, { fade })    small room reverb, wet mix 0..1; 0 = off.
+    //   .duck(byBus, amount = 0.5, attack = 0.05, release = 0.5)  lowers this bus by `amount` while byBus plays; duck(null) or
+    //                             .unduck() = off.
+    //   .volume(v, { fade })      the bus volume, like audio.setVolume (the player's volume; snapshots scale on top of it).
+    //   .state()                  { volume, snapshotVolume, lowpass, reverb, duck } as they are now.
+    bus(name) {
+      if (typeof name !== "string") throw new Error(`audio.bus(name): name is "sfx", "music", "ui" or "master", but got ${inspect(name)}`);
+      const bus = name.toLowerCase();
+      N.audioBusState(bus);  // throws for an unknown bus, with a did-you-mean
+      const fadeOf = (fn, o) => {
+        if (o === undefined || o === null) return 0;
+        if (typeof o !== "object" || (o.fade !== undefined && (typeof o.fade !== "number" || !(o.fade >= 0))))
+          throw new Error(`audio.bus(${inspect(name)}).${fn}(value, options): options is { fade: seconds }, e.g. { fade: 0.5 }, but got ${inspect(o)}`);
+        return o.fade ?? 0;
+      };
+      const num = (fn, v, what) => {
+        if (typeof v !== "number" || !Number.isFinite(v))
+          throw new Error(`audio.bus(${inspect(name)}).${fn}(${what}): ${what} must be a number, but got ${inspect(v)}`);
+        return v;
+      };
+      const handle = {
+        name: bus,
+        lowpass(hz, o) {
+          N.audioBusLowpass(bus, hz === null || hz === undefined ? 0 : num("lowpass", hz, "hz"), fadeOf("lowpass", o));
+          return handle;
+        },
+        reverb(mix, o) { N.audioBusReverb(bus, num("reverb", mix, "mix"), fadeOf("reverb", o)); return handle; },
+        duck(by, amount = 0.5, attack = 0.05, release = 0.5) {
+          if (by === null || by === undefined) { N.audioBusDuck(bus, "", 0, 0, 0); return handle; }
+          if (typeof by !== "string")
+            throw new Error(`audio.bus(${inspect(name)}).duck(byBus, amount, attack, release): byBus is the bus that ducks this one ("sfx", "music" or "ui"), e.g. audio.bus("music").duck("sfx", 0.5), but got ${inspect(by)}. Pass null to switch ducking off.`);
+          N.audioBusDuck(bus, by.toLowerCase(), num("duck", amount, "amount"), num("duck", attack, "attack"), num("duck", release, "release"));
+          return handle;
+        },
+        unduck() { N.audioBusDuck(bus, "", 0, 0, 0); return handle; },
+        volume(v, o) { N.audioBusVolume(bus, num("volume", v, "volume"), fadeOf("volume", o)); return handle; },
+        state() { return N.audioBusState(bus); },
+      };
+      return handle;
+    },
+    // snapshot(name, { fade }): moves every bus to the named snapshot of factoria.json "audio"."snapshots" (a bus the snapshot
+    // does not list goes back to neutral). `fade` is in seconds; without it the snapshot's own "fade" (0.5 by default) applies.
+    // An unknown name throws with a did-you-mean. snapshots() -> { names, current }.
+    snapshot(name, o) {
+      if (typeof name !== "string") throw new Error(`audio.snapshot(name, options): name is a snapshot of factoria.json "audio"."snapshots", e.g. audio.snapshot("underwater", { fade: 1 }), but got ${inspect(name)}`);
+      if (o !== undefined && o !== null && (typeof o !== "object" || (o.fade !== undefined && (typeof o.fade !== "number" || !(o.fade >= 0)))))
+        throw new Error(`audio.snapshot(${inspect(name)}, options): options is { fade: seconds }, e.g. { fade: 1 }, but got ${inspect(o)}`);
+      N.audioSnapshot(name, o && o.fade !== undefined ? o.fade : -1);
+    },
+    snapshots() { return N.audioSnapshots(); },
   };
 
   const maskOf = (o) => (o && typeof o.mask === "number" ? o.mask : -1);
@@ -1652,7 +1725,7 @@
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay", "http"];
   const PLATFORM_EVENTS = ["purchase", "overlay", "player", "remotePlay"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
@@ -1740,7 +1813,7 @@
     // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
     get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-    // "presence", "integrity", "ads", "remotePlay".
+    // "presence", "integrity", "ads", "remotePlay", "http" (http.fetch: false when the system's HTTP client cannot run on this computer).
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1849,6 +1922,70 @@
     },
   };
 
+  // ======================================================================================================== http
+  // http.fetch(url, options): one HTTP request to a host that factoria.json "network" declares (docs/NETWORKING.md). It is a
+  // platform request like the store calls above: a mistake in the call (an undeclared host, a bad header) throws at once, a
+  // failure of the network rejects with an Error that has .code ("network", "unavailable") and .hint, and the answer settles
+  // at the start of an engine frame. A server's error status (404, 500) is NOT a failure: the promise resolves with it.
+  const HTTP_OPTIONS = ["method", "headers", "body", "timeout"];
+  const httpLabel = (url) => `http.fetch(${platformArg(url)})`;
+  function httpResponse(label, r) {
+    const text = r.text;
+    const response = {
+      status: r.status,
+      ok: r.status >= 200 && r.status < 300,
+      // Header names in lower case; a header the server sent twice is joined with ", ".
+      headers: Object.freeze(Object.assign({}, r.headers)),
+      text,
+      // The body parsed as JSON. Throws an Error that says what came back when it is not JSON.
+      json() {
+        try { return JSON.parse(text); }
+        catch (e) {
+          const shown = text.length > 60 ? text.slice(0, 57) + "..." : text;
+          throw new Error(`${label}: the response body is not JSON (${e.message}); it starts with ${JSON.stringify(shown)}` +
+            ` (hint: check response.status and response.headers["content-type"] before response.json())`);
+        }
+      },
+    };
+    return Object.freeze(response);
+  }
+  const http = {
+    // fetch(url, { method?, headers?, body?, timeout? }) -> Promise<{ status, ok, headers, text, json() }>
+    // method: "GET" (default), "HEAD", "POST", "PUT", "PATCH" or "DELETE". headers: an object of strings. body: a string, or an
+    // object / array that is sent as JSON (with Content-Type application/json unless you set one). timeout: seconds, 15 by default.
+    fetch(url, options) {
+      if (options !== undefined && options !== null && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`${httpLabel(url)}: options must be an object like { method: "POST", body: { score: 10 } }, but got ${platformArg(options)}`);
+      const o = options || {};
+      for (const k of Object.keys(o)) {
+        if (HTTP_OPTIONS.includes(k)) continue;
+        const sug = closest(k, HTTP_OPTIONS);
+        throw new Error(`${httpLabel(url)}: unknown option '${k}'${sug ? ` (did you mean '${sug}'?)` : ""}; use ${quotedList(HTTP_OPTIONS)}`);
+      }
+      const args = { url };
+      if (o.method !== undefined) args.method = o.method;
+      let headers = o.headers;
+      if (isObj(headers) && !Array.isArray(headers)) headers = Object.assign({}, headers);
+      if (o.body !== undefined && o.body !== null) {
+        if (typeof o.body === "string") args.body = o.body;
+        else if (typeof o.body === "object" || typeof o.body === "number" || typeof o.body === "boolean") {
+          args.body = JSON.stringify(plain(o.body));
+          if (isObj(headers) && !Array.isArray(headers)) {
+            if (!Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
+          } else if (headers === undefined || headers === null) {
+            headers = { "Content-Type": "application/json" };
+          }
+        } else {
+          throw new Error(`${httpLabel(url)}: body must be a string or something JSON can hold (an object, an array), but got ${platformArg(o.body)}`);
+        }
+      }
+      if (headers !== undefined && headers !== null) args.headers = headers;
+      if (o.timeout !== undefined) args.timeout = o.timeout;
+      const label = httpLabel(url);
+      return platformCall("http.fetch", label, args, (r) => httpResponse(label, r));
+    },
+  };
+
   // ======================================================================================================= i18n
   // Localization (docs/LOCALIZATION.md): the string tables are locales/<language>.json, the languages are listed in factoria.json
   // "localization". Without that section the game is not localized: t(key) returns the key, languages is [].
@@ -1937,14 +2074,172 @@
       }
       return out;
     },
+    // findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): A* over the cells of a Tilemap
+    // entity (or its id) or of a grid { width, height, cost, origin?, cellSize? } (docs/NAVIGATION.md, "Tile paths").
+    // Cells are { col, row } or [col, row], row 0 = top. Result { found, complete, cells: {col,row}[], points: Vec2[], cost,
+    // length } or { found: false, reason, message, hint }. Never throws for "no route".
+    findTilePath(map, from, to, o) {
+      const label = "nav.findTilePath(map, from, to)";
+      const cell = (c, what) => {
+        const a = Array.isArray(c) ? c : (c && typeof c === "object" && "col" in c && "row" in c) ? [c.col, c.row] : null;
+        if (!a || a.length !== 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1]))
+          throw new Error(`${label}: \`${what}\` must be a cell { col, row } or [col, row] (0-based, row 0 = top), but got ${inspect(c)}`);
+        return [a[0], a[1]];
+      };
+      const args = { from: cell(from, "from"), to: cell(to, "to") };
+      if (typeof map === "string") args.tilemap = map;
+      else if (map instanceof Entity) args.tilemap = map.id;
+      else if (map && typeof map === "object" && Array.isArray(map.cost)) {
+        const cost = new Array(map.cost.length);
+        for (let i = 0; i < cost.length; i++) { const c = map.cost[i]; cost[i] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : -1; }
+        args.grid = { width: map.width, height: map.height, cost };
+        if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
+        if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id) or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      if (o) {
+        for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+        if (o.costs !== undefined) {
+          const costs = {};
+          for (const k of Object.keys(o.costs)) { const c = o.costs[k]; costs[k] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : null; }
+          args.costs = costs;
+        }
+      }
+      const r = N.navFindTilePath(args);
+      const out = { found: r.found, complete: r.complete, cells: r.cells.map((c) => ({ col: c[0], row: c[1] })),
+                    points: r.points.map((p) => new Vec2(p[0], p[1])), cost: r.cost, length: r.length };
+      if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
+      return out;
+    },
+    // tileVersion(tilemap): how many tiles were written to the Tilemap with setTile / tilemap.set_tile so far; compare it
+    // with the value you saw when you searched to know a path is stale. Writes that replace `tiles` as a whole do not count.
+    tileVersion(tilemap) {
+      const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
+      if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);
+      return N.tileVersion(e.$h);
+    },
     // bake(mesh?): bakes now (autoBake does it by itself) and returns the stats.
     bake(mesh) { return N.navBake(mesh === undefined ? "" : String(mesh)); },
   };
 
+  // ================================================================================================================== bt
+  // bt: a small behaviour tree in plain JS (docs/SCRIPTING.md, "AI: behaviour trees"). Deterministic: time only advances by
+  // the dt the script passes to tick().
+  const BT_SUCCESS = "success", BT_FAILURE = "failure", BT_RUNNING = "running";
+  const btNode = (label, node) => node;
+  function btChildren(label, list) {
+    list.forEach((c, i) => {
+      if (!c || typeof c.type !== "string") throw new Error(`bt.${label}: child ${i} is not a node (${inspect(c)}); build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+    });
+    return list;
+  }
+  function btFn(label, fn) {
+    if (typeof fn !== "function") throw new Error(`bt.${label} expects a function, e.g. bt.${label}((bb) => bb.ready), but got ${inspect(fn)}`);
+    return fn;
+  }
+  function btSeconds(label, s) {
+    if (!(typeof s === "number" && s >= 0)) throw new Error(`bt.${label}(seconds): seconds must be a number >= 0, but got ${inspect(s)}`);
+    return s;
+  }
+  class BtTree {
+    // `blackboard` is the object every condition and action receives: the state of the thing the tree drives.
+    constructor(root, blackboard = {}) {
+      if (!root || typeof root.type !== "string") throw new Error(`new bt.Tree(root, blackboard): root must be a node built with bt.sequence, bt.selector, bt.action..., but got ${inspect(root)}`);
+      this.root = root; this.blackboard = blackboard; this.clock = 0; this.count = 0; this.dt = 0;
+      this.memory = new Map(); this.status = BT_FAILURE;
+    }
+    tick(dt) {
+      if (!(typeof dt === "number" && dt >= 0)) throw new Error(`tree.tick(dt): dt must be a number of seconds >= 0 (pass the dt of onUpdate), but got ${inspect(dt)}`);
+      this.clock += dt; this.count++; this.dt = dt;
+      this.status = this.run(this.root);
+      for (const [node, mem] of this.memory)
+        if (node.type === "action" && mem.running && mem.seen !== this.count) { mem.running = false; node.hooks?.onExit?.(this.blackboard, "aborted"); }
+      return this.status;
+    }
+    reset() {
+      for (const [node, mem] of this.memory) if (node.type === "action" && mem.running) node.hooks?.onExit?.(this.blackboard, "aborted");
+      this.memory.clear();
+    }
+    mem(node) {
+      let m = this.memory.get(node);
+      if (!m) { m = { seen: -10 }; this.memory.set(node, m); }
+      if (m.seen !== this.count - 1 && m.seen !== this.count) {
+        const keep = node.type === "cooldown" ? m.until : undefined;
+        for (const k of Object.keys(m)) if (k !== "seen" && k !== "running") delete m[k];
+        if (keep !== undefined) m.until = keep;
+      }
+      m.seen = this.count;
+      return m;
+    }
+    run(node) {
+      const bb = this.blackboard;
+      switch (node.type) {
+        case "condition": this.mem(node); return node.fn(bb) ? BT_SUCCESS : BT_FAILURE;
+        case "action": {
+          const m = this.mem(node);
+          if (!m.running) { m.running = true; node.hooks?.onEnter?.(bb); }
+          const st = node.fn(bb, this.dt, this);
+          if (st !== BT_SUCCESS && st !== BT_FAILURE && st !== BT_RUNNING)
+            throw new Error(`bt.action: the function returned ${inspect(st)}; it must return bt.SUCCESS, bt.FAILURE or bt.RUNNING`);
+          if (st !== BT_RUNNING) { m.running = false; node.hooks?.onExit?.(bb, st); }
+          return st;
+        }
+        case "sequence": {
+          const m = this.mem(node);
+          for (let i = m.index ?? 0; i < node.children.length; i++) {
+            const st = this.run(node.children[i]);
+            if (st === BT_RUNNING) { m.index = i; return BT_RUNNING; }
+            if (st === BT_FAILURE) { m.index = 0; return BT_FAILURE; }
+          }
+          m.index = 0; return BT_SUCCESS;
+        }
+        case "selector": {
+          this.mem(node);
+          for (const child of node.children) { const st = this.run(child); if (st !== BT_FAILURE) return st; }
+          return BT_FAILURE;
+        }
+        case "wait": {
+          const m = this.mem(node);
+          m.waited = (m.waited ?? 0) + this.dt;
+          if (m.waited >= node.seconds) { m.waited = 0; return BT_SUCCESS; }
+          return BT_RUNNING;
+        }
+        case "cooldown": {
+          const m = this.mem(node);
+          if (m.until !== undefined && this.clock < m.until) return BT_FAILURE;
+          const st = this.run(node.children[0]);
+          if (st !== BT_RUNNING) m.until = this.clock + node.seconds;
+          return st;
+        }
+        case "inverter": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_SUCCESS ? BT_FAILURE : st === BT_FAILURE ? BT_SUCCESS : BT_RUNNING;
+        }
+        case "succeeder": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_RUNNING ? BT_RUNNING : BT_SUCCESS;
+        }
+      }
+      throw new Error(`bt: unknown node type '${node.type}'; build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+    }
+  }
+  const bt = {
+    SUCCESS: BT_SUCCESS, FAILURE: BT_FAILURE, RUNNING: BT_RUNNING, Tree: BtTree,
+    sequence: (...children) => btNode("sequence", { type: "sequence", children: btChildren("sequence", children) }),
+    selector: (...children) => btNode("selector", { type: "selector", children: btChildren("selector", children) }),
+    condition: (fn) => ({ type: "condition", fn: btFn("condition", fn) }),
+    action: (fn, hooks = {}) => ({ type: "action", fn: btFn("action", fn), hooks }),
+    wait: (seconds) => ({ type: "wait", seconds: btSeconds("wait", seconds) }),
+    cooldown: (seconds, child) => ({ type: "cooldown", seconds: btSeconds("cooldown", seconds), children: btChildren("cooldown", [child]) }),
+    inverter: (child) => ({ type: "inverter", children: btChildren("inverter", [child]) }),
+    succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
+  };
+
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
-    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, i18n,
+    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens, bt,
   };
 
   // ============================================================================================ eval serialization
@@ -2498,6 +2793,7 @@
       testCurrentName = t.name;
       N.resetInput();
       N.audioLog(true);
+      N.audioFxReset();
       N.spokenLog(true);
       N.captionClear();
       N.testAccessibility();

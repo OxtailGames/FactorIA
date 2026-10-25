@@ -1744,6 +1744,38 @@ build/export/my-game-linux/my-game --frames 120          # xvfb-run -a ... on a 
 The game opens a window like a normal run, so on a Linux runner start it with `xvfb-run -a` (the `check` job already installs
 what it needs). `factoria run --headless --frames N` does the same check without a window or the export.
 
+### Checking an exported build
+
+`--frames N` only proves that the build starts. To check that it **plays** the same as the game you tested, give it a
+replay (the JSON `input.record` writes, [DEBUGGING.md](DEBUGGING.md)) and ask for what it ended up with:
+
+```bash
+build/export/my-game-linux/my-game --frames 300 --input replays/level1.json \
+    --dump-state out/state.json --screenshot out/last.png
+factoria run --headless --frames 300 --input replays/level1.json --state-out out/ref.json \
+    --screenshot-at 299 --screenshot-pattern out/ref.png
+cmp out/state.json out/ref.json && cmp out/last.png out/ref.png
+```
+
+- `--input <replay>`: plays the replay; a relative path is relative to the current directory. A replay does not name a
+  scene: it plays from the start scene (`--scene` overrides it, as for the editor).
+- `--dump-state <file>`: the world state as JSON after the last frame (what `factoria run --state-out` writes).
+- `--screenshot <file>`: a PNG of the last frame (frame `N-1`, what `--screenshot-at N-1` captures), at design size.
+- All three need `--frames N` (without it the player says so and exits 2); any one of them makes the run **headless**
+  (no window, no audio, fixed time step, seed 1, in-memory storage, fake platform), the same path as `factoria run
+  --headless`, so it also works on a CI machine without a display (it still needs a GPU or the Mesa software renderer).
+  Missing parent folders of the outputs are created.
+- Exit code: `0`; `1` when a script raised an error (printed on stderr), like `factoria run`; `2` for a usage error: a missing
+  or malformed replay, an output that cannot be written, `--frames` missing.
+- What to compare: the state dump should be **byte-equal** to `factoria run`'s for the same replay and frame count (it is
+  deterministic); the screenshot is equal too when both run on the same renderer (the test `cli_player_replay` compares the
+  PNG bytes), but across machines or GPUs allow a small pixel tolerance. A difference in the state means the export
+  changed the game's behaviour (missing asset, script, plugin); a difference only in the picture means a renderer problem.
+- Not available in the player: `--props` (a replay of a scene that needs props cannot be checked this way) and the
+  other `factoria run` outputs (audio, video).
+- In CI: run the player step after `factoria export` in the same job, then `cmp` or diff the files as above, and upload
+  them as artifacts when they differ.
+
 ## Tips
 
 - Run `factoria validate` first; export only checks what packaging needs.

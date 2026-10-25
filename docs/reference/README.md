@@ -107,7 +107,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [audio](commands/audio.md)
 
+- [`audio.bus`](commands/audio.md#audiobus-modifies-state): Set a bus's volume and effects (low-pass, reverb, ducking), or read its state. _Not released yet._
 - [`audio.log`](commands/audio.md#audiolog): List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
+- [`audio.snapshot`](commands/audio.md#audiosnapshot-modifies-state): Apply a named mixer snapshot from factoria.json, or list the snapshots. _Not released yet._
 
 ### [docs](commands/docs.md)
 
@@ -164,6 +166,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`nav.bake`](commands/physics.md#navbake): Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats. _Not released yet._
 - [`nav.find_path`](commands/physics.md#navfind_path): Find a walkable path between two 3D points on the baked NavMesh3D. _Not released yet._
+- [`nav.find_tile_path`](commands/physics.md#navfind_tile_path): Find a path over the cells of a Tilemap (or a plain cost grid) with A*. _Not released yet._
 - [`nav.info`](commands/physics.md#navinfo): List the NavMesh3D components with their bounds, agent size, bake state and stats. _Not released yet._
 - [`physics.raycast`](commands/physics.md#physicsraycast): Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 - [`physics.shape_cast`](commands/physics.md#physicsshape_cast): Sweep a circle, sphere or box from one point to another and return the first collider it touches.

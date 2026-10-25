@@ -72,14 +72,14 @@ TEST_CASE("audio: buses, master volume, pan and fades") {
     fx.audio.set_bus_volume("sfx", 0.5f);
     CHECK(fx.audio.bus_volume("sfx") == 0.5f);
     CHECK(fx.audio.bus_volume("nope") == -1.0f);
-    CHECK(measure(p).peak() == doctest::Approx(0.25f).epsilon(0.03));
+    CHECK(measure(p).peak(1000) == doctest::Approx(0.25f).epsilon(0.03));  // a bus volume ramps over about 10 ms: measure after it
     PlayParams ui;
     ui.bus = "ui";
     CHECK(measure(ui).peak() == doctest::Approx(0.5f).epsilon(0.03));
     fx.audio.set_bus_volume("sfx", 1.0f);
     fx.audio.set_master_volume(0.5f);
     CHECK(fx.audio.bus_volume("master") == 0.5f);
-    CHECK(measure(p).peak() == doctest::Approx(0.25f).epsilon(0.03));
+    CHECK(measure(p).peak(1000) == doctest::Approx(0.25f).epsilon(0.03));
     fx.audio.set_master_volume(1.0f);
     PlayParams left;
     left.pan = -1.0f;

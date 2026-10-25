@@ -64,7 +64,7 @@ Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, 
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
 that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
-The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)).
+The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)). With `--frames N` it also takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>`: a headless run like `factoria run --headless`, so a shipped build can be checked against the editor's ([EXPORTING.md](EXPORTING.md#checking-an-exported-build)).
 
 `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
@@ -134,7 +134,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--scene S`, `--width W`, `--height H` | Start scene / resolution override |
 | `--headless` | No window; every frame is exactly `1/fixedHz` s |
 | `--frames N` | Frames to simulate (default 60) |
-| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad` and `touch` (see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
+| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad`, `touch`, `clipboard` and `http` (the answers of the game's `http.fetch` calls, `docs/NETWORKING.md`; see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
 | `--render-scale S` | Screenshot size = design size * S (0.25 to 4, default 1), drawn natively and sharp, not upscaled: the HUD, camera and visible area are the same as at 1. 1.5 on a 1280x720 game gives 1920x1080 for store pages. (`--width/--height` change the design instead.) |
 | `--screenshot-simulate MODE` | Save the screenshots as a colour-blind viewer sees them: `greyscale`, `protanopia`, `deuteranopia` or `tritanopia` (Machado 2009, severity 1.0, applied to the sRGB pixels in linear light; `greyscale` is Rec. 709 luminance). Only the saved PNGs change (not the video, not what the game draws; a `Camera.colorFilter` of the game is part of the frame and shows in both). The same option is `simulate` of `game.screenshot`. |

@@ -348,7 +348,22 @@ Settings an options menu needs. The getters work everywhere (a headless run or a
 every setter throws an Error that says what to do when the run has no window (`factoria run --headless`, tests, the
 editor's game view), so check `window.available` first or offer the option only in `factoria run` and exported games.
 - `available` is true when a real window exists. `fullscreen` (read only) and `setFullscreen(on)`: `window.setFullscreen(true)`
-  toggles at once (it takes `true` or `false`, nothing else).
+  toggles at once (it takes `true` or `false`, nothing else): `setMode("fullscreen")` and `setMode("windowed")` below.
+- `mode` (read only) and `setMode("windowed" | "borderless" | "fullscreen")`. Windowed has a frame and the size of
+  `setSize`; the other two cover the monitor the window is on (`fullscreen` is true for both). What "fullscreen" means
+  depends on the OS: **Windows and Linux** have no exclusive full screen in the engine, so `"fullscreen"` and
+  `"borderless"` are the same frameless window over the monitor (the name only remembers what the player picked);
+  **macOS** runs `"fullscreen"` as the OS's native full screen (a Space of its own, the menu bar slides in) and
+  `"borderless"` as a frameless window over the monitor that hides the menu bar and the Dock but stays on the desktop's
+  Space. On macOS, going from `"fullscreen"` straight to `"borderless"` throws (the Space takes a second to leave): set
+  `"windowed"` first (the menu kit's button cycles windowed, borderless, fullscreen, so it never does). The web and
+  phones have no borderless mode (`supports("borderless")` is false); phones are always `"fullscreen"`.
+- `monitors()` lists `[{ index, name, size, primary, current }]`, primary first; `monitor` is the index of the one the
+  window is on and `setMonitor(index)` moves the window there (centred when windowed, covering it when full screen or
+  borderless). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
+  a machine without it lists the whole screen as one monitor). Elsewhere `monitors()` has one entry and `setMonitor`
+  throws; on macOS it also throws while the window is in its native full screen. Two identical monitors have the same
+  `name`: show the index too. A saved choice should keep the name, since indices change when a monitor is unplugged.
 - `size` (Vec2, window pixels without the title bar) and `setSize(width, height)` (whole numbers, 160 to 16384). Setting
   the size while full screen throws: leave full screen first. `displaySize` is the monitor's size.
   `resolutions()` lists `[{ width, height }]`, smallest first: 16:9 and 16:10 sizes that fit the monitor plus the game's
@@ -363,9 +378,15 @@ editor's game view), so check `window.available` first or offer the option only 
   `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation. Read `window.supports("frameCap")`
   first and hide the option where it is false instead of catching the Error.
 - `supports(feature)`: `"frameCap"`, `"fullscreen"` and `"resize"` are true in a game window on a desktop (they are false
-  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere; `"clipboard"` is
+  headless and on phones and tablets, where their setters throw); `"borderless"` is true in a desktop game window
+  (Windows, macOS, Linux), `"monitors"` where the monitors can be listed and chosen (the same three; it is true with one
+  monitor too, so offer the choice when `window.monitors().length > 1`); `"renderScale"` is true everywhere; `"clipboard"` is
   true on Windows, macOS, Linux and the web, and in headless runs and tests (an in-memory clipboard), false on phones
   and tablets. An unknown name throws with a "did you mean".
+- Window modes and monitor choice, checked by hand on: nothing yet (the script layer is covered by tests with a fake set
+  of monitors). To be checked: macOS (borderless, native full screen, a second monitor), Windows (two monitors, windowed
+  and full screen moves) and Linux X11 (two monitors with XRandR; `_NET_WM_FULLSCREEN_MONITORS` depends on the window
+  manager).
 - `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
   of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
   tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
@@ -402,9 +423,9 @@ const canCap = window.supports("frameCap");                      // hide the fra
 ```
 ```js
 import { window, storage } from "factoria";
-const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
+const s = storage.get("video", { windowMode: "windowed", vsync: true, cap: 0 });
 if (window.available) {
-  window.setFullscreen(s.fullscreen);
+  window.setMode(s.windowMode);   // "windowed" | "borderless" | "fullscreen"; window.setMonitor(i) first to pick the monitor
   window.setVsync(s.vsync);
   window.frameCap = s.cap;
 }
@@ -424,6 +445,63 @@ if (window.available) {
   (0 silent, 1 full). Stems of equal length stay aligned across loops; `stopMusic` stops every layer.
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
   `game.audioLog()`, agents with the `audio.log` command.
+- `bus(name)` gives a handle with `lowpass`, `reverb`, `duck`, `unduck`, `volume` and `state`; `snapshot(name, { fade })` and
+  `snapshots()` move every bus to a named snapshot of factoria.json. Effects and ducking are in "Audio buses" below.
+- A change of a bus volume (`setVolume`, `bus(name).volume`) ramps over about 10 ms, so it never clicks.
+
+### Audio buses
+Every voice goes into the buffer of its bus (`sfx`, `music`, `ui`), each bus gets its effects and its volume, and the
+buses are summed into the master, which has its own. `audio.bus(name)` returns a handle on `"sfx"`, `"music"`, `"ui"` or
+`"master"` (an unknown name throws with a "did you mean"); its methods return the handle, so they chain:
+
+```js
+audio.bus("music").lowpass(800).reverb(0.2);              // muffled, in a small room
+audio.bus("music").duck("sfx", 0.5);                      // music at half volume while a sound effect plays
+audio.bus("music").lowpass(null, { fade: 1 });            // the filter opens again over a second
+audio.bus("music").unduck();                              // or duck(null)
+```
+
+| Method | What it does |
+|---|---|
+| `lowpass(hz, { fade })` | 12 dB per octave low-pass at `hz` (20 to 20000; 400 to 800 sounds muffled or underwater). `0` or `null` switches it off. With `fade` the cutoff slides, measured in octaves, from where it is (a bus with no filter starts at 20000). |
+| `reverb(mix, { fade })` | A small room reverb: `(1 - mix)` dry plus `mix` wet, 0 to 1. `0` switches it off. The tail rings out for about 4 seconds after the bus goes silent, then the reverb stops working. |
+| `duck(byBus, amount = 0.5, attack = 0.05, release = 0.5)` | Lowers this bus by `amount` (the fraction removed: 0.5 is half as loud, 1 is silent) while `byBus` (`"sfx"`, `"music"` or `"ui"`, another bus than this one) is louder than -40 dBFS, measured after that bus's own effects and volume. `attack` and `release` are time constants in seconds: the bus covers 63% of the way in that time and about 95% in three times it. The master cannot duck. `duck(null)` and `unduck()` switch it off. Ducking has no `fade`: it follows `byBus` by itself. |
+| `volume(v, { fade })` | The bus volume, the same as `audio.setVolume(name, v)` with an optional fade (a straight line over `fade` seconds). |
+| `state()` | `{ volume, snapshotVolume, lowpass, reverb, duck }`: what the bus is moving to (a fade in progress shows its end), `lowpass` is 0 and `reverb` 0 when off, `duck` is null or `{ by, amount, attack, release }`. |
+
+The order on a bus is low-pass, reverb, volume, then ducking; the master takes a low-pass and a reverb on the sum of the
+buses, then its volume. A bad value (a cutoff below 20 Hz, a mix above 1, a bus that ducks itself) throws an error that says
+what to use. Effects stay across scene loads, like volumes: a game that switches them on for one level switches them off
+(or applies a snapshot) when it leaves. The test runner puts every effect back to off before each test.
+
+**Snapshots** name a whole mixer state so a script does not juggle buses one by one. They live in factoria.json:
+
+```json
+"audio": { "snapshots": {
+  "underwater": { "fade": 0.8, "buses": {
+    "sfx":   { "lowpass": 600, "reverb": 0.3 },
+    "music": { "volume": 0.5, "lowpass": 400 } } },
+  "dialogue": { "fade": 0.3, "buses": { "music": { "duck": { "by": "ui", "amount": 0.6 } } } },
+  "normal": {}
+} }
+```
+
+`audio.snapshot("underwater")` moves every bus to that state over the snapshot's `fade` (0.5 s when it gives none), or over
+`audio.snapshot("underwater", { fade: 2 })`. A bus the snapshot does not list goes back to neutral (no effects, scale 1), so
+`"normal": {}` is the way back and one snapshot replaces the last. `volume` in a snapshot is a scale on the bus volume the
+player set with `setVolume` (the options menu keeps working under a snapshot); low-pass, reverb and the scale fade, ducking
+switches at once. `audio.snapshots()` returns `{ names, current }`. An unknown name throws with a "did you mean", and
+`factoria validate` reports a bad catalog (a typo in a bus or key, a value out of range) with its JSON pointer and a fix.
+Agents use the commands `audio.bus` (`{ "bus": "music", "lowpass": 800, "fade": 0.5 }`; just `bus` reads the state) and
+`audio.snapshot` (`{ "name": "underwater" }`; no name lists them). The mix is deterministic, so a test can render a clip with
+`factoria run --headless --record-audio out.wav` after switching an effect on and measure the result.
+
+Cost, on a mix of 44.1 or 48 kHz stereo: a bus with no effect does no effect work (its voices are only added into the master,
+one add per sample while it plays). A low-pass is one biquad per channel, five multiply-adds a sample, and works only while
+the bus has sound. A reverb is eight comb and four all-pass filters per channel (several times a low-pass) and about 100 KB of
+delay lines, allocated when first switched on; it keeps working for its 4 s tail and then stops. Ducking is a peak detector on
+`byBus`, one gain computation and one multiply per sample, and stops by itself once the bus is back at full volume and `byBus`
+is silent. Give `fade` when you switch a low-pass or reverb on or off in the middle of a sound, so it does not step.
 
 ### physics
 - `raycast(from, to, { mask, ignore, ignoreTriggers })` → `{ entity, point, normal, distance } | null` (2D when `from` has no z)
@@ -456,6 +534,43 @@ if (window.available) {
   (around walls, up ramps, never up a step above `stepHeight`). `points[0]` is the start; walk straight to `points[1]`,
   and so on. "No route" is a result to check, not an exception; a `radius` bigger than the mesh was baked for throws an
   Error that says how to bake for it. `nav.bake(mesh?)` bakes now and returns the stats. Guide: [NAVIGATION.md](NAVIGATION.md).
+
+- `nav.findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal })` → `{ found, complete, cells:
+  {col, row}[], points: Vec2[], cost, length }` or `{ found: false, reason, message, hint }`: A* over a `Tilemap` entity
+  (solid tiles block; `costs` per tile index) or your own `{ width, height, cost }` grid; `nav.tileVersion(tilemap)` counts
+  the `setTile` writes. See NAVIGATION.md, section 7.
+
+### AI: behaviour trees (`bt`)
+`import { bt } from "factoria"` is a small behaviour tree in plain JS (like `tween`): you build a description once, give each
+agent its own `bt.Tree` with a blackboard (the agent's state), and call `tree.tick(dt)` from `onUpdate(dt)`. Nothing runs by
+itself and time only advances by the `dt` you pass, so it is deterministic and replays and tests repeat it exactly.
+
+```js
+import { Behaviour, bt, nav, world } from "factoria";
+const { SUCCESS, FAILURE, RUNNING, sequence, selector, condition, action, wait, cooldown } = bt;
+const brain = selector(
+  sequence(condition((b) => b.seesPlayer()), cooldown(2, action((b) => { b.bite(); return SUCCESS; })), action((b, dt) => { b.chase(dt); return RUNNING; })),
+  sequence(action((b, dt) => { b.wander(dt); return RUNNING; }), wait(1)),   // a node returns SUCCESS, FAILURE or RUNNING
+);
+export default class Rat extends Behaviour {
+  onStart() { this.tree = new bt.Tree(brain, this); }   // the blackboard is the behaviour itself
+  onUpdate(dt) { this.tree.tick(dt); }
+}
+```
+
+- `sequence(...children)`: in order; FAILURE at the first failure, RUNNING while a child runs (the next tick resumes at that
+  child WITHOUT asking the earlier conditions again), SUCCESS when all succeeded.
+- `selector(...children)`: in order from the first child on every tick, the first result that is not FAILURE; so an earlier
+  (more important) child interrupts a running later one.
+- `condition(fn)`: `fn(blackboard)` truthy = SUCCESS, falsy = FAILURE. `action(fn, { onEnter, onExit })`: `fn(blackboard, dt,
+  tree)` returns `bt.SUCCESS`, `bt.FAILURE` or `bt.RUNNING` (anything else throws); `onExit(blackboard, status)` also runs with
+  `"aborted"` when a tick no longer reaches a running action, or `tree.reset()` stops it.
+- `wait(seconds)`: RUNNING until that much `dt` passed, then SUCCESS. `cooldown(seconds, child)`: after the child finishes,
+  FAILURE for `seconds` without ticking it. `inverter(child)` swaps SUCCESS and FAILURE; `succeeder(child)` turns both into SUCCESS.
+- A node that was not ticked on the previous tick starts fresh (a sequence at its first child, a wait at zero). Each `Tree`
+  has its own memory per node, so one description can drive many agents. Build trees once, not every frame.
+- Typical enemy: a tree decides WHAT to do (chase, flee, wander) and `nav.findTilePath` says WHERE to step; see the "enemies"
+  recipe of the AI guide.
 
 ### time
 `dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`.
@@ -850,6 +965,20 @@ finish restore`), `overlay.open(page, id?)`, `presence.set(text, data?)`, `integ
 server to verify). Everything about it, the catalog, the error
 codes, the fake store's test hooks (`game.platform` in `factoria:test`) and how to write a backend plugin, is in
 [PLATFORM.md](PLATFORM.md). `game.platform` of the `factoria` module is the operating system's name, a different thing.
+
+### http (web requests)
+`import { http } from "factoria"`: `http.fetch(url, { method, headers, body, timeout })` returns a Promise of the server's
+answer `{ status, ok, headers, text, json() }`, on every platform (WinHTTP, `NSURLSession`, libcurl, `HttpURLConnection`,
+the browser's `fetch`). The game declares the servers it may call in `factoria.json` (`"network": { "hosts": [...],
+"purpose": "..." }`); `https://` only; an undeclared host throws at once. Tests get the fake: `game.platform.respond("http.fetch",
+{ status: 200, json: {...} })`, no network. The answer may arrive after the scene changed: check `scene.current` before
+using it. Limits, the recipe, replays, per-platform notes (CORS on the web, the Android permission) and the privacy side:
+[NETWORKING.md](NETWORKING.md).
+
+```js
+const r = await http.fetch("https://api.example.com/daily").catch(() => null);   // rejects on a network failure
+if (r && r.ok) startChallenge(r.json().seed);                                   // a 404 resolves with ok: false
+```
 
 ### i18n (several languages)
 `import { i18n } from "factoria"`: the strings of `locales/<language>.json` in the player's language (factoria.json

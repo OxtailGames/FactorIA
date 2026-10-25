@@ -38,6 +38,7 @@
 #include "fa/runtime/project.h"
 #include "fa/scene/world.h"
 #include "fa/script/script.h"
+#include "fa/services/platform.h"
 
 namespace fa {
 
@@ -132,10 +133,11 @@ public:
     void reload_scene();  // keeps the scene's props
 
     // Input recording (docs/DEBUGGING.md, the `input.record` command): from now on every key, mouse, touch, gamepad and Back
-    // event the game receives, the frame times and the clipboard reads are written in the input replay format. Starting
-    // again drops what was recorded. Start and stop BETWEEN frames: the frame that is running is not replayed whole.
-    // stop_input_recording() returns the replay (what `factoria run --headless --input` plays), also when nothing was
-    // recorded; frames are numbered from the start. What is held at the start (keys, buttons, pads) is part of the replay.
+    // event the game receives, the frame times, the clipboard reads and the answers of http.fetch are written in the input
+    // replay format. Starting again drops what was recorded. Start and stop BETWEEN frames: the frame that is running is not
+    // replayed whole. stop_input_recording() returns the replay (what `factoria run --headless --input` plays), also when
+    // nothing was recorded; frames are numbered from the start. What is held at the start (keys, buttons, pads) is part of
+    // the replay. A request still waiting for its answer at the stop is not in it, nor are the ones made after it.
     void start_input_recording();
     Json stop_input_recording();
     bool input_recording() const;

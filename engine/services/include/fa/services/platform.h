@@ -27,6 +27,7 @@
 #include "fa/core/date.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/services/network.h"
 
 namespace fa {
 
@@ -147,7 +148,8 @@ Result<PlatformCatalog> load_platform_catalog(const Json& section);
 inline constexpr const char* kPlatformKey = "platform";  // the section of factoria.json
 
 // The ten services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-// "presence", "integrity", "ads", "remotePlay". `player.signIn` belongs to none: every backend answers it.
+// "presence", "integrity", "ads", "remotePlay". `player.signIn` belongs to none: every backend answers it. An eleventh, "http"
+// (http.fetch), is the engine's own: only the fake backend and the engine's HTTP client offer it (set_http_backend), never a plugin.
 const std::vector<std::string>& platform_services_all();
 // The events a backend sends: "purchase", "overlay", "player", "remotePlay".
 const std::vector<std::string>& platform_events();
@@ -165,6 +167,13 @@ const PlatformMethodInfo* find_platform_method(const std::string& name);
 
 struct PlatformError {
     std::string code, message, hint;
+};
+
+// One answered http.fetch for a replay: the engine frame the request was made in and the answer in the shape of
+// FakeBackend::respond ({"result": {status, headers, text}} or {"error": code, "message", "hint"}).
+struct HttpLogEntry {
+    std::uint64_t frame = 0;
+    Json answer;
 };
 
 struct PlatformAnswer {
@@ -254,6 +263,26 @@ public:
     PlatformBackend* ads_backend() const;  // nullptr when there is none
     // Why ads.* goes where it goes, in a sentence (platform.state's adsWhy).
     std::string ads_why() const;
+    // The hosts http.fetch may call (factoria.json "network"): a request to any other host, or to a plain http:// address that is not
+    // loopback, is a mistake (an Error from start()) before anything is sent.
+    void set_network(NetworkPolicy network);
+    const NetworkPolicy& network() const;
+    // A third backend that serves only the "http" request (http.fetch): the engine's HTTP client in windowed runs and shipped games.
+    // `http.fetch` goes to it whenever one is set, so a client that cannot run on this computer (Linux without libcurl) answers
+    // "unavailable" instead of falling back to the fake. Without one, the store backend serves it if it offers "http" (the fake does:
+    // it answers what game.platform.respond scripted and never touches the network). Kept when set_backend replaces the store backend.
+    // `why` is the sentence quoted when the client is unavailable. nullptr removes it. "http" is not one of platform_services_all(): a
+    // plugin cannot offer it.
+    void set_http_backend(std::unique_ptr<PlatformBackend> backend, std::string why = {});
+    PlatformBackend* http_backend() const;  // nullptr when there is none
+    // Recording for replays (editor play sessions): while on, every answered http.fetch is kept, in the order the requests were made,
+    // with the frame of the request, until take_http_log(). An answer that comes later than the ones requested after it waits for its
+    // turn there, so a replay that plays them back in this order matches each answer to its request. `frame` is read when the request
+    // starts: pass the engine's frame counter (null = frame 0).
+    void set_frame_clock(const std::uint64_t* frame);
+    void log_http(bool on);
+    std::vector<HttpLogEntry> take_http_log();
+    const std::string& http_why() const { return httpWhy_; }  // platform.state's httpWhy
     // Re-reads the backend's name and services (the fake changes them with set_none and reset).
     void refresh_backend();
     FakeBackend* fake() const;  // the backend when it is the fake, else nullptr
@@ -297,6 +326,8 @@ private:
     std::string why_;
     std::unique_ptr<PlatformBackend> adsBackend_;
     std::string adsWhy_;
+    std::unique_ptr<PlatformBackend> httpBackend_;
+    std::string httpWhy_;
 };
 
 }  // namespace fa
