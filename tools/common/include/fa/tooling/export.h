@@ -80,6 +80,9 @@ struct ExportOptions {
     bool allowPlayerMismatch = false;  // desktop: bundle a factoria_player built from another commit than this factoria (its
                                 // build fingerprint differs, or it has none) with a warning instead of stopping; the
                                 // game may not run on that player
+    bool allowMissingPlugins = false;  // a native plugin whose build for the target platform is missing (optional or not) is left
+                                // out of the export, with a warning and an entry in ExportReport::pluginsLeftOut, instead
+                                // of stopping it
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
     std::string mobileDir;      // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
                                 // ios/{iphoneos,iphonesimulator}/*.a); giving it selects "prebuilt" mode.
@@ -122,6 +125,8 @@ struct ExportReport {
     std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
     std::vector<std::string> materials;    // the *.material.json that ship (project-relative, sorted), each with its compiled
                                            // shaders <material>.json.<slang>.shader for the platform's dialects
+    std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the native plugins whose build for this platform was missing, so the
+                                           // export does not hold them (a warning names each); empty otherwise
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems
     Json to_json() const;
