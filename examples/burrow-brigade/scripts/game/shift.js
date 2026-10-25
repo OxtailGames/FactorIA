@@ -5,7 +5,8 @@
 // The scene needs one entity with this Script and a Tilemap entity named by `mineEntity`. Leave `rows` empty for a generated
 // mine (the run's seed); give it rows of text (mine_ascii.js) for a handmade one, as scenes/test_mine.scene.json does.
 // The stratum decides the tileset, the ambient light and the music (generator.js STRATA); the floor decides the mine.
-import { Behaviour, world, scene } from "factoria";
+import { Behaviour, world, scene, time, game } from "factoria";
+import { gameSpeedOf } from "../settings.js";
 import * as players from "./players.js";
 import * as events from "./events.js";
 import { generate, stratumInfo } from "./generator.js";
@@ -18,6 +19,7 @@ import { Hazards } from "./hazards.js";
 import { Lights } from "./lights.js";
 import { Fog } from "./fog.js";
 import * as music from "./music.js";
+import { resetToggles } from "./miner_input.js";
 import * as saveFile from "./save.js";
 import * as revive from "./revive.js";
 import * as daily from "./daily.js";
@@ -60,6 +62,10 @@ export default class Shift extends Behaviour {
     const stratum = stratumInfo(run.stratum);
     world.settings.ambientLight = stratum.ambient;
     music.play(run.stratum);
+    resetToggles(); // a dig toggled in the last shift does not carry over
+    // assist: a slower game. time.scale scales every script and timer but not the audio, and outlives scene loads, so onDestroy puts it back.
+    this.speed = gameSpeedOf();
+    time.scale = this.speed;
 
     this.mapEntity = world.find(this.mineEntity);
     if (!this.mapEntity) throw new Error(`shift: no entity with id '${this.mineEntity}' (the Tilemap that shows the mine). Add one to the scene, or set the Shift script's 'mineEntity' prop.`);
@@ -96,7 +102,7 @@ export default class Shift extends Behaviour {
     live.hazards = this.hazards;
     live.lights = this.lights;
     live.fog = this.fog;
-    events.emit("shiftStarted", { seed, stratum: run.stratum, floor: run.floor, hash: this.mine.hash, players: list.length });
+    events.emit("shiftStarted", { seed, stratum: run.stratum, floor: run.floor, hash: this.mine.hash, players: list.length, speed: this.speed });
   }
 
   onUpdate(dt) {
@@ -150,6 +156,8 @@ export default class Shift extends Behaviour {
   }
 
   onDestroy() {
+    music.stop();
+    if (!game.paused) time.scale = 1; // the pause menu's Main menu unpauses before it loads
     this.unsubscribe?.();
     this.hazards?.dispose();
     this.lights?.dispose();

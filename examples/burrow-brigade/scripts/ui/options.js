@@ -1,17 +1,19 @@
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
-// colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding, one page per player) and Language (cycles through the game's languages). Every change is
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
+// size, the monitor's size, vsync, frame cap, and the colour filter, an accessibility option that works without a window),
+// Audio (one slider per bus, read aloud, subtitles), Controls (rebinding, one page per player), Access (sound captions, reduced
+// flashing, game speed, hold or toggle for the dig button of each player) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
+import { Behaviour, ui, input, window, world, i18n, platform } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 import * as controls from "../game/controls.js";
 import * as players from "../game/players.js";
 import * as analytics from "../game/analytics.js";
+import * as mix from "../game/mix.js";
 
-const TABS = ["video", "audio", "controls", "language"];
+const TABS = ["video", "audio", "controls", "access", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
@@ -28,6 +30,7 @@ export default class Options extends Behaviour {
     this.setupVideo();
     this.setupAudio();
     this.setupControls();
+    this.setupAccess();
     this.setupLanguage();
     this.setupPrivacy();
     this.setupAnalytics();
@@ -35,6 +38,7 @@ export default class Options extends Behaviour {
     i18n.on("change", () => {
       this.refreshVideo();
       this.refreshControls();
+      this.refreshAccess();
       this.refreshLanguage();
     });
   }
@@ -51,14 +55,16 @@ export default class Options extends Behaviour {
     const s = this.s;
     const has = window.available; // false in headless runs and tests: the rows stay visible, greyed out
     world.find("video_note").active = !has;
-    const fullscreen = world.find("fullscreen").get("Toggle");
     const vsync = world.find("vsync").get("Toggle");
-    fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
-    fullscreen.interactable = vsync.interactable = world.find("frame_cap").get("Button").interactable = has;
+    vsync.interactable = has;
     this.refreshVideo();
 
-    ui.on("change", "fullscreen", (e) => this.video("full screen", () => { window.setFullscreen(e.value); s.fullscreen = e.value; }));
+    // Window mode: the engine has windowed and full screen (its full screen is the window covering the monitor: borderless).
+    ui.on("click", "display_mode", () => {
+      const next = settings.DISPLAY_MODES[(settings.DISPLAY_MODES.indexOf(window.fullscreen ? "fullscreen" : "windowed") + 1) % settings.DISPLAY_MODES.length];
+      this.video("window mode", () => { window.setFullscreen(next === "fullscreen"); s.displayMode = next; s.fullscreen = next === "fullscreen"; });
+    });
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
       const sizes = window.resolutions();
@@ -97,7 +103,13 @@ export default class Options extends Behaviour {
     resolution.text = window.fullscreen
       ? i18n.t("options.windowSizeFullscreen")
       : i18n.t("options.windowSize", { width: Math.round(size.x), height: Math.round(size.y) });
-    resolution.interactable = window.available && !window.fullscreen; // full screen uses the display's size
+    resolution.interactable = window.supports("resize") && !window.fullscreen; // full screen uses the display's size
+    const mode = world.find("display_mode").get("Button");
+    mode.text = i18n.t("options.displayMode", { mode: i18n.t(`options.mode.${window.fullscreen ? "fullscreen" : "windowed"}`) });
+    mode.interactable = window.supports("fullscreen");
+    const display = window.displaySize;
+    world.find("monitor").get("Text").text = i18n.t("options.monitor", { width: Math.round(display.x), height: Math.round(display.y) });
+    world.find("frame_cap").get("Button").interactable = window.supports("frameCap");
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
       : i18n.t("options.frameCapOff");
@@ -110,7 +122,7 @@ export default class Options extends Behaviour {
       world.find(`${bus}_volume`).get("Slider").value = this.s.volume[bus];
       ui.on("change", `${bus}_volume`, (e) => {
         this.s.volume[bus] = e.value;
-        audio.setVolume(bus, e.value);
+        mix.setUser(bus, e.value); // the mix puts the snapshot and the duck of the moment on top (scripts/game/mix.js)
         settings.save(this.s);
       });
     }
@@ -133,20 +145,63 @@ export default class Options extends Behaviour {
     });
   }
 
+  // ----------------------------------------------------------------------------------------------------------- access
+  // Sound captions, reduced flashing, game speed, and hold or toggle for the dig button of each player. All of them work from the
+  // keyboard, a gamepad or the mouse like every widget of the panel; each is applied at once and saved.
+  setupAccess() {
+    this.holdSeat = 0;
+    world.find("sound_captions_toggle").get("Toggle").value = this.s.soundCaptions;
+    ui.on("change", "sound_captions_toggle", (e) => {
+      this.s.soundCaptions = e.value;
+      settings.applySubtitles(this.s);
+      settings.save(this.s);
+    });
+    world.find("reduced_flashing").get("Toggle").value = this.s.reducedEffects;
+    ui.on("change", "reduced_flashing", (e) => {
+      this.s.reducedEffects = e.value; // lights.js and hazards.js read it every frame
+      settings.save(this.s);
+    });
+    ui.on("click", "game_speed", () => {
+      const all = settings.GAME_SPEEDS;
+      this.s.gameSpeed = all[(all.indexOf(settings.gameSpeedOf(this.s)) + 1) % all.length]; // a shift reads it when it starts
+      settings.save(this.s);
+      this.refreshAccess();
+    });
+    ui.on("click", "hold_player", () => {
+      this.holdSeat = (this.holdSeat + 1) % players.MAX_PLAYERS;
+      this.refreshAccess();
+    });
+    ui.on("click", "hold_mode", () => {
+      this.s.holdMode[String(this.holdSeat)] = settings.holdModeOf(this.holdSeat, this.s) === "hold" ? "toggle" : "hold";
+      settings.save(this.s);
+      this.refreshAccess();
+    });
+    this.refreshAccess();
+  }
+
+  refreshAccess() {
+    const speed = settings.gameSpeedOf(this.s);
+    world.find("game_speed").get("Button").text = i18n.t("options.gameSpeed", { percent: Math.round(speed * 100) });
+    world.find("hold_player").get("Button").text = i18n.t("options.player", { n: this.holdSeat + 1 });
+    const mode = settings.holdModeOf(this.holdSeat, this.s);
+    world.find("hold_mode").get("Button").text = i18n.t("options.holdMode", { mode: i18n.t(mode === "toggle" ? "options.holdModeToggle" : "options.holdModeHold") });
+    world.find("access_note").get("Text").text = i18n.t(speed < 1 ? "options.gameSpeedNote" : "options.accessNote");
+  }
+
   // --------------------------------------------------------------------------------------------------------- controls
   // One page per player (Player 1 to 4): each rebinds its own keyboard and gamepad (scripts/game/controls.js), saved by seat. The
   // button at the top cycles the player; a row waits for a key or button and rebinds the list of the device that was pressed.
   setupControls() {
     const list = world.find("bindings");
     this.seat = 0;
-    world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [640, 34], fontSize: 20, layer: 302 } } }, { parent: list });
+    world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [640, 32], fontSize: 20, layer: 302 } } }, { parent: list });
     ui.on("click", "controls_player", () => {
       if (this.waiting) return;
       this.seat = (this.seat + 1) % players.MAX_PLAYERS;
       this.refreshControls();
     });
     for (const action of controls.ACTIONS) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [640, 34], fontSize: 20, layer: 302 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [640, 32], fontSize: 20, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };

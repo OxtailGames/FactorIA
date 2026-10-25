@@ -79,6 +79,19 @@
         "date": "2026-10-25"
       }
     },
+    "assets/audio/beetle_alert.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 5,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset screech, 0.40 s, seed 5",
+        "date": "2026-10-25"
+      }
+    },
     "assets/audio/bite.wav": {
       "provenance": {
         "origin": "original",
@@ -170,6 +183,19 @@
         "date": "2026-10-25"
       }
     },
+    "assets/audio/lamp_low.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset error, 0.50 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
     "assets/audio/lamp_out.wav": {
       "provenance": {
         "origin": "original",
@@ -193,6 +219,19 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "preset whoosh, 0.60 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/mole_call.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset meow, 0.40 s, seed 3",
         "date": "2026-10-25"
       }
     },
@@ -827,6 +866,30 @@
         "notes": "synthesised loop, python3 -I assets/src/make_music.py"
       }
     },
+    "assets/music/music_crystal_danger.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_crystal_fight.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
     "assets/music/music_magma.wav": {
       "provenance": {
         "origin": "original",
@@ -839,6 +902,30 @@
         "notes": "synthesised loop, python3 -I assets/src/make_music.py"
       }
     },
+    "assets/music/music_magma_danger.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_magma_fight.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
     "assets/music/music_topsoil.wav": {
       "provenance": {
         "origin": "original",
@@ -849,6 +936,30 @@
         "license": "CC0-1.0",
         "author": "Burrow Brigade project",
         "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
+    "assets/music/music_topsoil_danger.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_topsoil_fight.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
       }
     },
     "assets/sprites.png": {
@@ -864,7 +975,7 @@
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
@@ -873,7 +984,7 @@
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
@@ -882,7 +993,7 @@
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }

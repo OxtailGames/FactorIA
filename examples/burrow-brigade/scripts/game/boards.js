@@ -10,6 +10,12 @@
 // the daily board when `run.mode === "daily"` (P4 sets `run.mode` and `run.dailyKey`, the local "YYYY-MM-DD" of the daily seed). A run
 // with no `mode` is a normal one. The store keeps each player's best, so posting after every shift is safe.
 //
+// ASSISTED RUNS. A run played at a game speed under 100 % (Options > Access, `shiftStarted.speed`) is not posted: a board compares
+// players, and a slower game is an assist, not a rival's score. The run still earns cash, trophies and its local results, and the
+// daily dig can still be played at a slower speed (it is the same seed and mine); only the board posts are skipped
+// (`status().assisted`). The flag is kept from the first shift of a run, so a run continued from a save (Continue) starts a fresh
+// count: it is assisted only when a shift played after the continue was slow.
+//
 // The daily board is the store's board of TODAY (the engine cannot post to another day). P4's `dailyKey` is the local date the try
 // began on, so a try that crosses midnight is keyed by yesterday while the store posts to today: a daily run is posted while
 // `run.dailyKey` is at most one day away from today's date, and nothing is posted to the daily board for an older one
@@ -18,7 +24,7 @@
 //   start() / stop()          subscribe / unsubscribe to the events (events.keep). start is idempotent.
 //   idle()                    resolves when every post made so far has been answered.
 //   top(board, count = 10)    [{ rank, name, score, isPlayer }] of the board's current period; [] when the store has no boards.
-//   status()                  { runScore, mode, dailyKey, today, dailyOpen, lastPost }
+//   status()                  { runScore, mode, dailyKey, today, dailyOpen, assisted, lastPost }
 import { platform, game } from "factoria";
 import * as events from "./events.js";
 import { run } from "./run_state.js";
@@ -33,6 +39,8 @@ const state = {
   lastNumber: 0,
   /** @type {{allTime?: {score: number, best: number}, daily?: {score: number, best: number} | {skipped: string}}} */
   lastPost: {},
+  /** True when a shift of this run was played slower than 100 %: nothing is posted. */
+  assisted: false,
 };
 
 export async function idle() {
@@ -67,10 +75,16 @@ export function dailyOpen() {
 }
 
 /** @param {any} d */
-function onShiftStarted() {
+function onShiftStarted(d) {
   const n = run.shiftNumber;
-  if (n <= 1) state.runScore = 0;
-  else if (n !== state.lastNumber + 1 && n !== state.lastNumber) state.runScore = run.cash; // a continued run: start from the cash in hand
+  if (n <= 1) {
+    state.runScore = 0;
+    state.assisted = false;
+  } else if (n !== state.lastNumber + 1 && n !== state.lastNumber) {
+    state.runScore = run.cash; // a continued run: start from the cash in hand
+    state.assisted = false; // and a fresh assist count
+  }
+  if (d && typeof d.speed === "number" && d.speed < 1) state.assisted = true;
   state.lastNumber = n;
 }
 
@@ -79,7 +93,7 @@ function onShiftEnded(d) {
   if (d.outcome !== "lift") return;
   state.runScore += d.banked ?? 0;
   const score = Math.max(0, Math.floor(state.runScore));
-  if (score <= 0 || !platform.has("leaderboards")) return;
+  if (score <= 0 || state.assisted || !platform.has("leaderboards")) return;
   const daily = modeOf() === "daily";
   const open = daily && dailyOpen();
   const key = dailyKeyOf();
@@ -111,6 +125,7 @@ export function stop() {
   state.runScore = 0;
   state.lastNumber = 0;
   state.lastPost = {};
+  state.assisted = false;
 }
 
 /**
@@ -132,6 +147,7 @@ export function status() {
     dailyKey: dailyKeyOf(),
     today: game.today().iso,
     dailyOpen: dailyOpen(),
+    assisted: state.assisted,
     lastPost: state.lastPost,
   };
 }

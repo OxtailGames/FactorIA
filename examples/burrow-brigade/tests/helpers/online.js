@@ -63,10 +63,10 @@ export function freshOnline() {
 }
 
 /** One shift's worth of events: the shift starts, `body` happens, the shift ends. */
-export function shift({ stratum = 0, floor = 1, players: n = 1, outcome = "lift", banked = 100 } = {}, body = () => {}) {
+export function shift({ stratum = 0, floor = 1, players: n = 1, outcome = "lift", banked = 100, speed = 1 } = {}, body = () => {}) {
   run.shiftNumber += 1; // what beginShift does before the shift scene says shiftStarted
   const shiftNumber = run.shiftNumber;
-  events.emit("shiftStarted", { seed: 7, stratum, floor, hash: "x", players: n });
+  events.emit("shiftStarted", { seed: 7, stratum, floor, hash: "x", players: n, speed });
   body();
   events.emit("shiftEnded", { outcome, ore: {}, oreCount: 0, value: banked, banked, time: 90, molesRescued: 0, molesTotal: 0, shiftNumber, stratum, floor });
 }

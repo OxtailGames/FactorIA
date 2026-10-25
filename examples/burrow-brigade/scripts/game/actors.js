@@ -47,3 +47,11 @@ export function nearestMiner(x, y) {
   }
   return best ? { miner: best, dist: bestD } : null;
 }
+
+/** The behaviours of the enemies alive (entities tagged "enemy"), optionally of one kind ("beetle", "thief" or "king"). */
+export function enemies(kind) {
+  return world
+    .findByTag("enemy")
+    .map((e) => e.behaviour)
+    .filter((b) => b && !b.dead && (!kind || b.kind === kind));
+}
