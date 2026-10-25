@@ -15,14 +15,15 @@
       "severity": "major",
       "title": "Light2D has no occlusion, so unexplored mine stays visible",
       "missing": "A Light2D shines through solid Tilemap tiles: a miner's lamp lights the dirt behind the tunnel wall and, with the 16-lights cap, there is no fog of war or line of sight. A game whose point is exploring in the dark (Burrow Brigade) cannot keep the unseen parts black.",
-      "workaround": "A small lamp radius (96 world units, 20 when nearly dry), falloff 1.5 and SceneSettings.ambientLight 0.07, so the walls beyond a few tiles fall to near black. Walls next to the lamp still light up on the far side; a hand-made fog layer was not attempted in P1.",
+      "workaround": "A small lamp radius (96 world units, 20 when nearly dry), falloff 1.5 and SceneSettings.ambientLight 0.07, so the walls beyond a few tiles fall to near black. Walls next to the lamp still light up on the far side; a hand-made fog layer was not attempted in P1. P2: the fog of war grew on it: scripts/game/fog.js tracks seen tiles per miner and paints them on a second Tilemap.",
       "workaroundFiles": [
         "scripts/game/miner.js",
-        "scenes/shift.scene.json"
+        "scenes/shift.scene.json",
+        "scripts/game/fog.js"
       ],
       "suggestion": "Let a Light2D (or a Tilemap) opt into shadows from the solid tiles (a 2D shadow cast from Tilemap.solidTiles), or give Tilemap a per-tile 'explored' mask / fog-of-war layer that scripts can set.",
       "effort": "large",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -37,10 +38,10 @@
       "severity": "minor",
       "title": "Tilemap tileset has no margin or spacing",
       "missing": "Tilemap.tileset is cut into tileSize cells with no margin or spacing field. Kenney's Roguelike Caves & Dungeons sheet has a 1 px gap between tiles, so using it directly shows bleeding edges and shifted tiles.",
-      "workaround": "assets/src/make_atlases.py cuts the tiles out of the source sheets and re-packs them margin-free into assets/tiles.png and assets/sprites.png (run once, output committed).",
+      "workaround": "assets/src/make_atlases.py cuts the tiles out of the source sheets and re-packs them margin-free into assets/tiles_topsoil.png, tiles_crystal.png and tiles_magma.png and assets/sprites.png (run once, output committed).",
       "workaroundFiles": [
         "assets/src/make_atlases.py",
-        "assets/tiles.png"
+        "assets/tiles_topsoil.png"
       ],
       "suggestion": "Add Tilemap.margin and Tilemap.spacing (vec2, texture pixels), and the same for Sprite sheets in assets.generate_sprite_sheet / the editor tile picker.",
       "effort": "small",
@@ -59,13 +60,15 @@
       "severity": "minor",
       "title": "Changing one tile rewrites the whole Tilemap tiles array",
       "missing": "Tilemap.tiles is one JSON value: digging a single tile means building and setting the full width*height array (up to 96x64 = 6144 integers here) through entity.set, and the renderer rebuilds the tilemap. There is no setTile.",
-      "workaround": "The shift keeps its own array, marks it dirty on every MineMap change and writes it once per frame in onLateUpdate, so several tiles dug in one frame cost one write.",
+      "workaround": "The shift keeps its own array, marks it dirty on every MineMap change and writes it once per frame in onLateUpdate, so several tiles dug in one frame cost one write. P2: the fog Tilemap and the flood and magma spreading rewrite tiles too, so scripts/game/fog.js and hazards.js batch their changes and write once per frame.",
       "workaroundFiles": [
-        "scripts/game/shift.js"
+        "scripts/game/shift.js",
+        "scripts/game/fog.js",
+        "scripts/game/hazards.js"
       ],
       "suggestion": "Expose a tile API on the Tilemap view: tilemap.setTile(tx, ty, index) / getTile, with a dirty-rect rebuild.",
       "effort": "medium",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -125,14 +128,14 @@
       "severity": "minor",
       "title": "Per-gamepad input cannot use actions, so co-op pads are not rebindable",
       "missing": "Actions bound to Gamepad* names react to ANY connected pad. For local co-op each player needs their own pad, which only input.gamepad(i).axis/down answer, with raw button and axis names; those cannot go through the Options Controls rebinding or the per-action bindings in factoria.json.",
-      "workaround": "scripts/game/miner_input.js has three device kinds: 'any' (the project's actions: keyboard and every pad, one player), 'keys' (a fixed key block) and 'pad' (input.gamepad(i) with hard-coded left stick, d-pad and A/X).",
+      "workaround": "scripts/game/miner_input.js has three device kinds: 'any' (the project's actions: keyboard and every pad, one player), 'keys' (a fixed key block) and 'pad' (input.gamepad(i) with hard-coded left stick, d-pad and A/X). P2 added the torch button (B or Y on a pad, T on the keyboard) to the same three device kinds.",
       "workaroundFiles": [
         "scripts/game/miner_input.js",
         "scripts/game/players.js"
       ],
       "suggestion": "Per-player action sets: input.gamepad(i).down('dig') resolving the project's binding for that action, or input.player(i).axis(...) with a rebind per player.",
       "effort": "medium",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -152,6 +155,117 @@
         "assets.json"
       ],
       "suggestion": "Have synth_sound normalise its output to about -18 LUFS, or write the normalize import setting to assets.json itself.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "major",
+      "title": "Light2D is capped at 16 per frame",
+      "missing": "Only 16 Light2D reach the shader per frame; more are dropped with no message and no way to choose which. A mine with torches, crystals and four miners' lamps goes past 16 at once.",
+      "workaround": "scripts/game/lights.js keeps a pool of 16 minus one per miner and gives it to the sources nearest the miners, switching the others off; tests count the active Light2D entities.",
+      "workaroundFiles": [
+        "scripts/game/lights.js",
+        "tests/light.test.js"
+      ],
+      "suggestion": "Pick the 16 lights that matter on the engine side (nearest the camera, brightest) and say so in the Light2D docs; or raise the cap with a tiled/clustered 2D lighting pass.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "renderStats().lights does not count Light2D",
+      "missing": "factoria:test renderStats().lights counts only 3D lights, so a test cannot assert how many Light2D are drawn or that the cap of 16 holds.",
+      "workaround": "tests/helpers/world.js activeLights() counts the active entities that carry a Light2D component instead of the lights the renderer uses.",
+      "workaroundFiles": [
+        "tests/helpers/world.js",
+        "tests/light.test.js"
+      ],
+      "suggestion": "Add lights2d (counted) and lights2dDropped to renderStats().",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "No 2D or tile pathfinding",
+      "missing": "The engine has no path search for tile maps: enemies that chase a miner through tunnels that change as the miners dig need A* on the Tilemap that reacts to edits.",
+      "workaround": "scripts/game/pathfinding.js: A* over the mine grid (with dig cost, danger tiles, a path follower and a nav.version counter that tells followers when digging changed the map); tested in tests/pathfinding.test.js.",
+      "workaroundFiles": [
+        "scripts/game/pathfinding.js",
+        "tests/pathfinding.test.js"
+      ],
+      "suggestion": "A nav module: nav.findPath(tilemap, from, to, opts) with a passable callback and an invalidation counter fed by Tilemap edits.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No behaviour tree or other AI module",
+      "missing": "The engine has no AI building blocks: enemies need sequences, selectors, cooldowns and interruption, and every game has to write them.",
+      "workaround": "scripts/game/behavior_tree.js is a small generic tree (sequence, selector, condition, action with hooks, wait, cooldown, inverter, succeeder); scripts/game/enemy_brains.js builds the beetle, thief and Mole King trees on it.",
+      "workaroundFiles": [
+        "scripts/game/behavior_tree.js",
+        "scripts/game/enemy_brains.js",
+        "tests/behavior_tree.test.js"
+      ],
+      "suggestion": "Ship a behaviour-tree helper in the scripting module, or document the pattern in AI_GUIDE.md.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Audio docs do not say a scene load stops the music",
+      "missing": "docs/AUDIO.md and the audio API say nothing about audio.music after a scene load. Only a paragraph on scene editing in AI_GUIDE.md says loading a scene stops the audio, so a track started in one scene silently ends in the next.",
+      "workaround": "scripts/game/music.js starts the stratum's track at every shift (play() always calls audio.music) and reports whether the track changed.",
+      "workaroundFiles": [
+        "scripts/game/music.js",
+        "tests/strata.test.js"
+      ],
+      "suggestion": "Say in the audio.music doc string and in AUDIO.md what a scene load does to music, and offer a persistent music option.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"

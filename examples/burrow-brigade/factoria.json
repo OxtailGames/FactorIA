@@ -50,6 +50,11 @@
         "GamepadA",
         "GamepadX"
       ],
+      "torch": [
+        "T",
+        "GamepadB",
+        "GamepadY"
+      ],
       "pause": [
         "Escape",
         "P",

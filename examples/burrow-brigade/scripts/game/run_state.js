@@ -7,6 +7,7 @@ import { rng } from "factoria";
 import { ORES, ORE_VALUE } from "./tiles.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
+import * as music from "./music.js";
 
 /** The upgrades and their starting level; P4 raises them. */
 export const BASE_UPGRADES = Object.freeze({
@@ -15,6 +16,7 @@ export const BASE_UPGRADES = Object.freeze({
   lampOil: 120, // seconds of light a full lamp holds
   lampRadius: 1, // multiplies the light radius
   walkSpeed: 1, // multiplies the walking speed
+  torches: 6, // torches the team can place per shift (the supply is shared)
 });
 
 /**
@@ -27,7 +29,7 @@ export const BASE_UPGRADES = Object.freeze({
 
 /**
  * @typedef {object} ShiftSummary
- * @property {string} outcome   "lift" (the miners rode the lift up) or "dark" (every lamp went out).
+ * @property {string} outcome   "lift" (the miners rode the lift up), "dark" (every lamp went out) or "allDown" (every miner is down).
  * @property {Record<string, number>} ore   Pieces of each ore the miners carried when the shift ended.
  * @property {number} oreCount  Total pieces.
  * @property {number} value     Cash value of the ore (banked only when outcome is "lift").
@@ -36,6 +38,8 @@ export const BASE_UPGRADES = Object.freeze({
  * @property {number} molesRescued
  * @property {number} molesTotal
  * @property {number} shiftNumber
+ * @property {number} stratum   The stratum the shift was played in.
+ * @property {number} floor     The floor within that stratum.
  */
 
 export const run = {
@@ -56,6 +60,10 @@ export const run = {
   molesTotal: 0,
   /** Seconds since the shift began. */
   shiftTime: 0,
+  /** Torches the team still has this shift (`lights.placeTorch` takes one). */
+  torches: 0,
+  /** True while the exit lift is jammed: the Mole King's floor, until the King falls (enemy.js clears it). */
+  exitLocked: false,
   /** True while a shift is being played. */
   inShift: false,
   /** @type {ShiftSummary|null} The summary of the last shift (the results screen reads it). */
@@ -87,6 +95,9 @@ export function startRun(opts = {}) {
   run.molesRescued = 0;
   run.molesTotal = 0;
   run.shiftTime = 0;
+  run.torches = 0;
+  run.exitLocked = false;
+  music.reset();
   players.ensureOne();
   return run;
 }
@@ -106,13 +117,27 @@ export function beginShift(opts = {}) {
   run.molesRescued = 0;
   run.molesTotal = 0;
   run.inShift = true;
+  run.torches = run.upgrades.torches;
+  run.exitLocked = false; // shift.js locks it again on the boss floor
   run.lamps = {};
   players.ensureOne();
   for (const p of players.all()) {
+    p.hp = players.MAX_HP;
+    p.invulnerable = 0;
     run.lamps[p.id] = { oil: run.upgrades.lampOil, max: run.upgrades.lampOil, out: false, low: false };
     players.setState(p.id, "active");
   }
   return opts.seed ?? run.seed + run.shiftNumber - 1;
+}
+
+/** Light radius (world units) of a lamp that is nearly dry and of a full one. */
+export const LAMP_MIN = 20;
+export const LAMP_MAX = 96;
+
+/** Light radius in world units of a lamp now: it shrinks with the oil (a dry lamp keeps a small glow of LAMP_MIN, but no light). */
+export function lampRadius(lamp) {
+  const f = lamp.max > 0 ? Math.max(0, Math.min(1, lamp.oil / lamp.max)) : 0;
+  return (LAMP_MIN + (LAMP_MAX - LAMP_MIN) * Math.pow(f, 0.6)) * run.upgrades.lampRadius;
 }
 
 /** Lamp of a player (created full when missing, so a player who joins mid-shift has one). */
@@ -140,7 +165,7 @@ export function oreValue() {
 /**
  * Closes the shift: builds the summary, banks the ore value into `cash` when the miners came back up ("lift"), and sets
  * `run.lastShift`. Called once by the shift scene, which then emits `shiftEnded`.
- * @param {"lift"|"dark"} outcome
+ * @param {"lift"|"dark"|"allDown"} outcome
  * @returns {ShiftSummary}
  */
 export function endShift(outcome) {
@@ -150,7 +175,7 @@ export function endShift(outcome) {
   run.inShift = false;
   run.lastShift = {
     outcome, ore: { ...run.ore }, oreCount: totalOre(), value, banked, time: run.shiftTime,
-    molesRescued: run.molesRescued, molesTotal: run.molesTotal, shiftNumber: run.shiftNumber,
+    molesRescued: run.molesRescued, molesTotal: run.molesTotal, shiftNumber: run.shiftNumber, stratum: run.stratum, floor: run.floor,
   };
   return run.lastShift;
 }

@@ -8,11 +8,14 @@ import { K, TILE, kindInfo, isSolidKind } from "./tiles.js";
 import * as events from "./events.js";
 
 /**
- * The map being played, set by the shift scene when it starts (null outside a shift). Other packages read it here instead of
- * searching the scene: `live.map` is the MineMap and `live.mine` its mine.
- * @type {{map: MineMap|null, mine: import("./generator.js").Mine|null}}
+ * The shift being played, set by the shift scene when it starts and emptied when it ends. Other modules read it here instead
+ * of searching the scene: `map` is the MineMap and `mine` its mine; `nav` the tile pathfinding of the map, `fog` the fog of
+ * war, `hazards` the water/magma/cave-in rules and `lights` the torch and crystal lights (all null outside a shift, and `fog`,
+ * `hazards` and `lights` also null in a test that builds a map without a scene).
+ * @type {{map: MineMap|null, mine: import("./generator.js").Mine|null, nav: import("./pathfinding.js").NavGrid|null,
+ *   fog: import("./fog.js").Fog|null, hazards: import("./hazards.js").Hazards|null, lights: import("./lights.js").Lights|null}}
  */
-export const live = { map: null, mine: null };
+export const live = { map: null, mine: null, nav: null, fog: null, hazards: null, lights: null };
 
 export class MineMap {
   /**
