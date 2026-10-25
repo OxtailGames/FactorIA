@@ -25,6 +25,17 @@ bool valid_backend_name(const std::string& s) {
            std::all_of(s.begin(), s.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
 }
 
+// ca-app-pub-<16 digits><separator><10 digits>: an AdMob app id has a '~', an ad unit id a '/'.
+bool admob_id_shape(const std::string& s, char separator) {
+    static const std::string prefix = "ca-app-pub-";
+    if (s.size() != prefix.size() + 16 + 1 + 10 || s.compare(0, prefix.size(), prefix) != 0) return false;
+    for (std::size_t i = prefix.size(); i < s.size(); ++i) {
+        const bool sep = i == prefix.size() + 16;
+        if (sep ? s[i] != separator : !std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+    }
+    return true;
+}
+
 std::string in_quotes(const std::string& s) { return Json(s).dump(); }
 
 std::string in_quotes_list(const std::vector<std::string>& items) {
@@ -214,6 +225,56 @@ struct Parser {
         }
     }
 
+    // platform.ads.appIds / audience / backend.
+    void read_ads_settings(const Json& ads) {
+        const std::string base = "/platform/ads";
+        read_app_ids(ads, base);
+        read_enum(ads, base, "audience", {"general", "children", "mixed"}, "an audience", out.catalog.adsAudience, false);
+        if (auto it = ads.find("backend"); it != ads.end() && !it->is_null()) {
+            const std::string pointer = base + "/backend";
+            if (!it->is_string() || !valid_backend_name(it->get<std::string>())) {
+                issue(pointer, "expected \"auto\" or the name of an ads plugin, got " + describe_json_value(*it),
+                      "Use \"auto\" (the default) or the name of a plugin declared in \"plugins\" that offers only ads, e.g. \"admob\".");
+            } else if (it->get<std::string>() != "auto") {
+                out.catalog.adsBackend = it->get<std::string>();
+                out.catalog.adsBackendPointer = pointer;
+                out.catalog.backendRefs.push_back({pointer, out.catalog.adsBackend});
+            }
+        }
+    }
+
+    void read_app_ids(const Json& ads, const std::string& base) {
+        auto it = ads.find("appIds");
+        if (it == ads.end() || it->is_null()) return;
+        const std::string pointer = base + "/appIds";
+        if (!it->is_object()) {
+            issue(pointer, "expected an object like {\"android\": \"ca-app-pub-1234567890123456~1234567890\"}, got " + describe_json_value(*it),
+                  "Copy the app id from the AdMob console (Apps > App settings), one per platform.");
+            return;
+        }
+        static const std::vector<std::string> known = {"android", "ios"};
+        for (auto ai = it->begin(); ai != it->end(); ++ai) {
+            const std::string p = pointer + "/" + ai.key();
+            if (std::find(known.begin(), known.end(), ai.key()) == known.end()) {
+                issue(p, in_quotes(ai.key()) + " is not a platform with an ad network; use " + in_quotes_list(known) + suggestion(ai.key(), known),
+                      "Example: \"appIds\": {\"android\": \"ca-app-pub-1234567890123456~1234567890\"}.");
+                continue;
+            }
+            if (!ai->is_string() || ai->get<std::string>().empty()) {
+                issue(p, "expected the app id as a non-empty string, got " + describe_json_value(*ai),
+                      "AdMob app ids look like ca-app-pub-1234567890123456~1234567890 (a tilde, not a slash: the slash form is an ad unit).");
+                continue;
+            }
+            if (!admob_id_shape(ai->get<std::string>(), '~')) {
+                issue(p, in_quotes(ai->get<std::string>()) + " is not an AdMob app id: they look like ca-app-pub-1234567890123456~1234567890",
+                      "Copy it from the AdMob console (Apps > App settings > App ID). An id with a slash (ca-app-pub-.../...) is an ad unit: it goes in "
+                      "a placement's \"ids\": {\"admob\": \"...\"}. The wrong id in the manifest stops the app at start.");
+                continue;
+            }
+            out.catalog.adsAppIds[ai.key()] = ai->get<std::string>();
+        }
+    }
+
     void read_backend(const Json& root) {
         auto it = root.find("backend");
         if (it == root.end() || it->is_null()) return;
@@ -365,7 +426,8 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
             p.issue("/platform/ads", "expected an object like {\"placements\": [...]}, got " + describe_json_value(*it),
                     "Example: \"ads\": {\"placements\": [{\"id\": \"more_time\"}]} (docs/PLATFORM.md, \"Ads\").");
         } else {
-            p.unknown_keys(*it, "/platform/ads", {"placements"});
+            p.unknown_keys(*it, "/platform/ads", {"placements", "appIds", "audience", "backend"});
+            p.read_ads_settings(*it);
             p.read_section<PlatformPlacement>(
                 *it, "placements", "ad placement",
                 [&](const Json& e, const std::string& ptr, PlatformPlacement& pl) {

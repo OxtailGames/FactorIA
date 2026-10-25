@@ -1,0 +1,83 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "AgeGate",
+    "components": {
+      "Panel": {
+        "size": [760, 460],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      }
+    },
+    "children": [
+      {
+        "id": "age_title",
+        "components": {
+          "Text": { "text": "Before you play", "key": "ageGate.title", "fontSize": 40, "space": "screen", "layer": 301 }
+        }
+      },
+      {
+        "id": "age_question",
+        "components": {
+          "Text": {
+            "text": "In which year were you born?",
+            "key": "ageGate.question",
+            "fontSize": 28,
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "birth_year",
+        "components": {
+          "Slider": {
+            "autoSize": true,
+            "label": "Birth year",
+            "key": "ageGate.year",
+            "size": [640, 48],
+            "min": 1900,
+            "max": 2026,
+            "value": 2000,
+            "step": 1,
+            "format": "{v:0}",
+            "layer": 302,
+            "autoFocus": true
+          }
+        }
+      },
+      {
+        "id": "age_why",
+        "components": {
+          "Text": {
+            "text": "We only use this to choose which ads can be shown. We keep whether you are a child, not your birth year.",
+            "key": "ageGate.why",
+            "fontSize": 18,
+            "color": [0.75, 0.8, 0.9, 1],
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "age_continue",
+        "components": {
+          "Button": { "autoSize": true, "text": "Continue", "key": "ageGate.continue", "layer": 302 }
+        }
+      },
+      {
+        "id": "age_skip",
+        "components": {
+          "Button": { "autoSize": true, "text": "I would rather not say", "key": "ageGate.skip", "layer": 302 }
+        }
+      }
+    ]
+  }
+}

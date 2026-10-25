@@ -632,6 +632,10 @@ declare module "factoria" {
      */
     readonly keyboardShown: boolean;
     /**
+     * True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only.
+     */
+    readonly platformKeyboard: boolean;
+    /**
      * The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });
      */
     onBack(handler: () => boolean | void): () => void;
@@ -1629,10 +1633,14 @@ declare module "factoria" {
      * False when the player refused the GDPR consent: no ad may be requested then.
      */
     readonly canShowAds: boolean;
+    /**
+     * Whether the game must offer a way to change the ad choices (GDPR): required means the player has to find a "Privacy settings" button that calls platform.ads.privacyOptions(); notRequired where the consent sheet does not apply; unknown before the consent flow finished.
+     */
+    readonly privacyOptions: "required" | "notRequired" | "unknown";
   }
 
   /**
-   * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped game gets a real network once a backend offers one (check platform.has("ads")): until then every call rejects with code "unavailable". Use platform.release to keep a development-only ad stub out of a shipped game.
+   * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped Android game gets Google AdMob with the Google consent sheet (UMP) when it has the admob plugin (platform.add_backend admob), and any other shipped game rejects every call with code "unavailable" until a backend offers ads (check platform.has("ads")). Use platform.release to keep a development-only ad stub out of a shipped game. Children: factoria.json platform.ads.audience (docs/PLATFORM.md, "Children and consent").
    */
   export interface PlatformAdsAPI {
     /**
@@ -1647,6 +1655,22 @@ declare module "factoria" {
      * What the GDPR and tracking sheets answered, for the game's privacy screen.
      */
     consent(): Promise<PlatformConsent>;
+    /**
+     * Tells the ad network whether the player is under the age of consent (use 16, the highest age of consent in Europe). Call it after the game asked the player's age with a neutral screen (the menu kit's ageGate part does). The engine keeps the answer for the session and sends it with every ads request: AdMob then tags the requests as child-directed and under the age of consent, and the consent sheet is not shown to a child. With factoria.json platform.ads.audience "mixed" no ad is shown before this is called (available() is false, showRewarded() ends with reason "consentRefused"); with "children" every player counts as under age and setUnderAge(false) throws.
+     */
+    setUnderAge(underAge: boolean): Promise<void>;
+    /**
+     * Opens the consent form where the player changes their ad choices. Show a "Privacy settings" button that calls it only when consent().privacyOptions is "required" (the menu kit's options screen does). Resolves when the form closes; shown is false when there was no form to open.
+     */
+    privacyOptions(): Promise<{ shown: boolean }>;
+    /**
+     * Who plays, from factoria.json platform.ads.audience (default "general").
+     */
+    readonly audience: "general" | "children" | "mixed";
+    /**
+     * The answer of setUnderAge() for this session: true or false; true in a "children" game; null while the game has not asked.
+     */
+    readonly underAge: boolean | null;
   }
 
   /**
@@ -1667,6 +1691,10 @@ declare module "factoria" {
      * Which backend answers: "fake" (development, tests), "none" (no store: every call rejects with "unavailable"), or the plugin's backend name ("steam", "apple").
      */
     readonly backend: string;
+    /**
+     * Which backend answers platform.ads: an ads plugin ("admob"), the store backend when it offers ads itself ("fake"), or "none" when nothing offers ads.
+     */
+    readonly adsBackend: string;
     /**
      * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion.
      */
@@ -5216,9 +5244,9 @@ declare module "factoria:test" {
      */
     revoke(productId: string): void;
     /**
-     * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr and options.tracking set what ads.consent() answers; a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
+     * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr, options.tracking and options.privacyOptions set what ads.consent() answers (with privacyOptions "required", platform.ads.privacyOptions() counts a form shown); a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
      */
-    ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired" }): void;
+    ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */

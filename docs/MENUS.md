@@ -26,14 +26,15 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 | `options` | `prefabs/ui/options.prefab.json`, `scripts/ui/options.js` | `options.*` |
 | `credits` | `scripts/ui/credits.js` | `credits.*` |
 | `shop` | `scripts/ui/shop.js`, `scripts/store_events.js` | `shop.*` |
+| `ageGate` | `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, `tests/age_gate.test.js` | `ageGate.*` |
 | `main-menu` | `scenes/menu.scene.json`, `scripts/main_menu.js`, `tests/recipe.test.js` | none of its own |
 | `pause` | `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js` | `pause.*` |
 | `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `main-menu` adds `core`, `options`, `credits` and
-`shop` (the title screen's scene holds their panels). The result lists them in `requiredBy`.
+A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` adds `core`, `main-menu` adds `core`, `options`, `credits`, `shop` and
+`ageGate` (the title screen's scene holds their panels). The result lists them in `requiredBy`.
 
 - **Files.** A file the game does not have is `added`. One that is already the kit's file is `unchanged`, so running the
   command twice changes nothing. One the game has edited is left alone and listed in `skipped` with the reason, unless
@@ -71,14 +72,16 @@ What the command does, file by file; do it by hand when you want to see each fil
    ([PLATFORM.md](PLATFORM.md)). Without a store (the exported game before a store plugin is added) the button stays
    hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
    `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
-8. **On-screen keyboard (only for a game with a TextField).** `prefabs/ui/keyboard.prefab.json` and
+8. **Age gate (only for ads that reach children and adults).** `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, the
+   `age_gate` panel of `scenes/menu.scene.json`, and the line in `main_menu.js` that opens it. See "Age gate" below.
+9. **On-screen keyboard (only for a game with a TextField).** `prefabs/ui/keyboard.prefab.json` and
    `scripts/ui/keyboard.js`, and one entity with that script in every scene that has a TextField (`keyboard_host` in
    `scenes/name.scene.json`). See "On-screen keyboard" below.
-9. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
+10. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
    Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
    texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
    `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
-10. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
+11. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` and `tests/keyboard.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.
@@ -201,6 +204,20 @@ What the command does, file by file; do it by hand when you want to see each fil
   remembers the transactions it already granted so the player is not paid twice. A cancelled purchase and a store error
   (`e.code`, `e.hint`) show a message and grant nothing. "Restore purchases" returns the non-consumables. The tests are
   `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
+- **Age gate.** <a id="age-gate"></a>A game whose ads reach children and adults (`"platform": { "ads": { "audience": "mixed" } }`
+  in factoria.json) must not request an ad, or show Google's consent form, before it knows whether the player is under the
+  age of consent ([PLATFORM.md](PLATFORM.md#children-and-consent)). The `ageGate` part is that question: `main_menu.js` opens
+  the `age_gate` panel over the title screen, the first time, when `platform.ads.audience` is `"mixed"` (any other audience
+  never sees it). The player picks a year of birth on a slider that starts at no particular year, or presses "I would rather
+  not say"; the script computes `underAge` (born 16 or fewer years ago, or declined: the highest age of consent in Europe,
+  and a year alone is off by one), calls `platform.ads.setUnderAge(underAge)`, and keeps **only that boolean** in
+  `storage` (`ageGate`), never the year. The panel cannot be closed with Back or Escape. On the next runs the stored
+  answer is sent again at start and the panel stays closed. A game that asks the age its own way calls
+  `platform.ads.setUnderAge` itself and deletes this part. `tests/age_gate.test.js` drives the gate with the pad against the
+  fake store.
+- **Ad privacy button.** The options panel has a hidden "Ad privacy settings" button (`privacy_options`). `options.js` shows
+  it only when the game has the `ads` service and `platform.ads.consent().privacyOptions` is `"required"`, and its click
+  calls `platform.ads.privacyOptions()`, which opens Google's form where the player changes their ad choices.
 - **Read menus aloud.** `ui.speak(text)` says a line with the operating system's text to speech (Windows SAPI, macOS and
   iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's `speechSynthesis`), in
   `i18n.language`; `ui.stopSpeaking()` stops it and `ui.speechAvailable` says whether the system can speak at all. The
@@ -242,7 +259,9 @@ What the command does, file by file; do it by hand when you want to see each fil
   closes it and sends `ui.submit` (what Enter does), B (`ui.cancel`) closes it and keeps the text. It respects
   `maxLength`, and it closes by itself when the player touches the screen or presses a keyboard key. A game's own
   `ui.cancel` handler should do nothing while `OnScreenKeyboard.isOpen` is true
-  (`import OnScreenKeyboard from "./ui/keyboard.js"`). The Steam Deck's own keyboard is not used (that is the Steamworks backend's job).
+  (`import OnScreenKeyboard from "./ui/keyboard.js"`). On a Steam Deck (or in Big Picture) the Steam plugin shows Steam's own keyboard for a field a pad focuses
+  (docs/PLATFORM.md, "Steam Deck keyboard"); the engine then sets `input.platformKeyboard` and this keyboard stays closed
+  for that field. It opens as above everywhere the platform shows none.
   *Layout and languages.* The keys follow `i18n.language`: Latin (a-z, the digits and the accented letters of Spanish,
   French, German, Portuguese, Italian, Polish, Turkish, Swedish, Danish, Norwegian and Czech: `EXTRA`), Cyrillic
   (Russian, Ukrainian, Bulgarian, Serbian, Macedonian) and Greek. Every other language (Arabic, Hebrew, Chinese,
@@ -564,6 +583,7 @@ export class MenuStack {
         { "id": "quit", "components": { "Button": { "autoSize": true, "text": "Quit", "key": "menu.quit" } } }
       ] },
     { "id": "options", "active": false, "prefab": "prefabs/ui/options.prefab.json" },
+    { "id": "age_gate", "active": false, "prefab": "prefabs/ui/age_gate.prefab.json" },
     { "id": "shop", "active": false,
       "components": {
         "Panel": { "size": [760, 520], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
@@ -599,6 +619,7 @@ import { Behaviour, ui, game, scene, session, platform } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
+import { openAgeGate } from "./ui/age_gate.js";
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -611,6 +632,8 @@ export default class MainMenu extends Behaviour {
     // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).
     if (platform.has("purchases")) this.world.find("shop_button").active = true;
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
+    // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).
+    if (platform.ads.audience === "mixed") openAgeGate(this.menus);
     ui.on("click", "play", () => {
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
@@ -860,7 +883,7 @@ export default class StoreEvents extends Behaviour {
   "entity": {
     "name": "Options",
     "components": {
-      "Panel": { "size": [760, 620], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "direction": "auto", "align": "start",
+      "Panel": { "size": [760, 680], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "direction": "auto", "align": "start",
         "spacing": 16, "padding": [24, 24, 24, 24] },
       "Script": { "path": "scripts/ui/options.js" }
     },
@@ -906,6 +929,7 @@ export default class StoreEvents extends Behaviour {
         "children": [
           { "id": "language", "components": { "Button": { "autoSize": true, "text": "Language: English", "size": [560, 44], "layer": 302 } } }
         ] },
+      { "id": "privacy_options", "active": false, "components": { "Button": { "autoSize": true, "text": "Ad privacy settings", "key": "options.privacyOptions", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
       { "id": "options_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
     ]
   }
@@ -921,7 +945,7 @@ export default class StoreEvents extends Behaviour {
 // Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -946,6 +970,7 @@ export default class Options extends Behaviour {
     this.setupAudio();
     this.setupControls();
     this.setupLanguage();
+    this.setupPrivacy();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
@@ -1098,6 +1123,22 @@ export default class Options extends Behaviour {
     button.interactable = i18n.languages.length > 1; // a game with one language has nothing to choose
   }
 
+  // ------------------------------------------------------------------------------------------------------- privacy
+  /** The "Ad privacy settings" button: only where ads exist and the consent sheet says the player must be able to change their choice. */
+  setupPrivacy() {
+    if (!platform.has("ads")) return;
+    const button = world.find("privacy_options");
+    platform.ads
+      .consent()
+      .then((consent) => {
+        if (button.alive) button.active = consent.privacyOptions === "required"; // the panel may be gone by now
+      })
+      .catch((e) => console.warn(`options: the ad consent state could not be read: ${e.message}`));
+    ui.on("click", "privacy_options", () => {
+      platform.ads.privacyOptions().catch((e) => console.warn(`options: the privacy form did not open: ${e.message}`));
+    });
+  }
+
   onUpdate() {
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
@@ -1123,6 +1164,264 @@ export default class Options extends Behaviour {
     ui.focus(button); // the key that was pressed may also have moved the focus
   }
 }
+```
+
+### `prefabs/ui/age_gate.prefab.json`
+
+```json prefabs/ui/age_gate.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "AgeGate",
+    "components": {
+      "Panel": {
+        "size": [760, 460],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      }
+    },
+    "children": [
+      {
+        "id": "age_title",
+        "components": {
+          "Text": { "text": "Before you play", "key": "ageGate.title", "fontSize": 40, "space": "screen", "layer": 301 }
+        }
+      },
+      {
+        "id": "age_question",
+        "components": {
+          "Text": {
+            "text": "In which year were you born?",
+            "key": "ageGate.question",
+            "fontSize": 28,
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "birth_year",
+        "components": {
+          "Slider": {
+            "autoSize": true,
+            "label": "Birth year",
+            "key": "ageGate.year",
+            "size": [640, 48],
+            "min": 1900,
+            "max": 2026,
+            "value": 2000,
+            "step": 1,
+            "format": "{v:0}",
+            "layer": 302,
+            "autoFocus": true
+          }
+        }
+      },
+      {
+        "id": "age_why",
+        "components": {
+          "Text": {
+            "text": "We only use this to choose which ads can be shown. We keep whether you are a child, not your birth year.",
+            "key": "ageGate.why",
+            "fontSize": 18,
+            "color": [0.75, 0.8, 0.9, 1],
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "age_continue",
+        "components": {
+          "Button": { "autoSize": true, "text": "Continue", "key": "ageGate.continue", "layer": 302 }
+        }
+      },
+      {
+        "id": "age_skip",
+        "components": {
+          "Button": { "autoSize": true, "text": "I would rather not say", "key": "ageGate.skip", "layer": 302 }
+        }
+      }
+    ]
+  }
+}
+```
+
+### `scripts/ui/age_gate.js`
+
+```js scripts/ui/age_gate.js
+// @ts-check
+// The age gate (prefabs/ui/age_gate.prefab.json): a neutral screen that asks for the birth YEAR, for a game whose
+// factoria.json has platform.ads.audience "mixed" (children and adults play). It does not say which age matters, starts
+// on no special year and lets the player decline. The answer goes to platform.ads.setUnderAge(), so the ad network treats a
+// child as a child (no personalised ads, no consent sheet), and is kept in storage as a boolean: the birth year is not saved.
+import { ui, world, storage, platform, game } from "factoria";
+import { MenuStack } from "./menu_stack.js";
+
+/** storage key of the saved answer: { underAge: boolean }. */
+const KEY = "ageGate";
+/** The highest age of consent in Europe (GDPR lets states pick 13 to 16). A year of birth alone is off by one, so the gate counts anyone born up to 16 years ago as a child. */
+export const CONSENT_AGE = 16;
+
+/** True when the player is a child by the birth year they gave, or declined to give one (declining counts as a child). */
+export function isUnderAge(birthYear, year = game.today().year) {
+  return birthYear === null || year - birthYear <= CONSENT_AGE;
+}
+
+/** The answer saved by an earlier run ({ underAge }), or null when the player has not answered. */
+export function savedAge() {
+  return storage.get(KEY, null);
+}
+
+/** Tells the ad network the answer the player gave in an earlier run. Does nothing when there is none. */
+export function applySavedAge() {
+  const saved = savedAge();
+  if (saved) tell(saved.underAge === true);
+}
+
+/** Sends the answer to the ad network. A game without ads support, or a rejected call, still plays: ads just stay off. */
+function tell(underAge) {
+  platform.ads.setUnderAge(underAge).catch((e) => console.warn(`age gate: the ad network was not told: ${e.message}`));
+}
+
+/**
+ * For a game with platform.ads.audience "mixed" (the main menu calls it only then), from the scene that opens first: opens the
+ * gate over the menu when the player has not answered yet, otherwise tells the network the saved answer. `menus` is the
+ * scene's MenuStack, `panel` the id of the gate's entity in the scene (prefabs/ui/age_gate.prefab.json). Returns true when
+ * the gate is open. The player cannot close it with Back: an answer (or "I would rather not say") is needed.
+ */
+export function openAgeGate(menus, panel = "age_gate") {
+  if (savedAge()) {
+    applySavedAge();
+    return false;
+  }
+  const field = world.find("birth_year");
+  const slider = field.get("Slider");
+  slider.max = game.today().year;
+  slider.value = Math.min(slider.value, slider.max);
+  const answer = (/** @type {number | null} */ birthYear) => {
+    const underAge = isUnderAge(birthYear);
+    storage.set(KEY, { underAge });
+    tell(underAge);
+    MenuStack.busy = false;
+    menus.back();
+  };
+  // A click reaches the handler of every gate this scene opened; only the gate that is still there answers.
+  ui.on("click", "age_continue", () => field.alive && answer(Math.round(slider.value)));
+  ui.on("click", "age_skip", () => field.alive && answer(null));
+  menus.show(panel);
+  ui.focus(world.find("birth_year")); // a widget under the gate may hold the focus (a stack without a root panel does not move it)
+  MenuStack.busy = true; // Escape / gamepad B must not skip the question
+  return true;
+}
+```
+
+### `tests/age_gate.test.js`
+
+```js tests/age_gate.test.js
+// The age gate (scripts/ui/age_gate.js): it asks for the birth year, tells the ad network whether the player is under the age
+// of consent, keeps only that boolean, cannot be skipped with Back, and is not asked again. The gate is spawned from its prefab
+// into whatever scene the test starts in, so this test passes in any game that has the ageGate part. The fake store plays the
+// ad network (docs/PLATFORM.md), driven with a gamepad like the other menu tests.
+import { test, expect, game } from "factoria:test";
+import { world, ui, storage, platform } from "factoria";
+import { MenuStack } from "../scripts/ui/menu_stack.js";
+import { openAgeGate, isUnderAge } from "../scripts/ui/age_gate.js";
+
+const pad = game.gamepad(0);
+
+// An empty store, then the gate over a menu stack of its own. Returns the stack.
+function open() {
+  storage.clear();
+  game.platform.reset();
+  world.find("age_gate")?.destroy(); // the panel of the test before
+  game.step(1);
+  const panel = world.spawnPrefab("prefabs/ui/age_gate.prefab.json");
+  panel.id = "age_gate"; // MenuStack shows panels by id
+  panel.active = false;
+  const menus = new MenuStack(null);
+  expect(openAgeGate(menus)).toBe(true);
+  game.step(2);
+  expect(menus.top).toBe("age_gate");
+  expect(world.find("age_gate").active).toBe(true);
+  return menus;
+}
+
+// Sets the year on the slider the way a drag would, then presses Continue with the gamepad.
+function answer(year) {
+  world.find("birth_year").get("Slider").value = year;
+  ui.focus(world.find("age_continue")); // the menu under the gate has widgets of its own: do not walk to Continue
+  pad.tap("A");
+  game.step(2);
+}
+
+test("the year decides: born 16 years ago or less counts as a child, a year of birth alone is off by one", () => {
+  expect(isUnderAge(2020, 2026)).toBe(true);
+  expect(isUnderAge(2010, 2026)).toBe(true); // 15 or 16: counted as a child
+  expect(isUnderAge(2009, 2026)).toBe(false); // 16 or 17
+  expect(isUnderAge(1980, 2026)).toBe(false);
+  expect(isUnderAge(null, 2026)).toBe(true); // "I would rather not say"
+});
+
+test("a child's birth year: the network is told under age, and only that is saved", () => {
+  const menus = open();
+  expect(platform.ads.underAge).toBe(null);
+  answer(game.today().year - 9);
+  expect(platform.ads.underAge).toBe(true);
+  expect(storage.get("ageGate")).toEqual({ underAge: true }); // not the year
+  expect(menus.top).toBe(null);
+  expect(world.find("age_gate").active).toBe(false);
+  expect(game.platform.calls().filter((c) => c.method === "ads.setUnderAge").map((c) => c.args.underAge)).toEqual([true]);
+});
+
+test("an adult's birth year", () => {
+  open();
+  answer(1985);
+  expect(platform.ads.underAge).toBe(false);
+  expect(storage.get("ageGate")).toEqual({ underAge: false });
+});
+
+test("\"I would rather not say\" counts as a child", () => {
+  open();
+  ui.focus(world.find("age_skip")); // I would rather not say
+  pad.tap("A");
+  game.step(2);
+  expect(platform.ads.underAge).toBe(true);
+  expect(storage.get("ageGate")).toEqual({ underAge: true });
+});
+
+test("Back does not skip the question", () => {
+  const menus = open();
+  pad.tap("B");
+  game.step(1);
+  expect(menus.top).toBe("age_gate");
+  expect(world.find("age_gate").active).toBe(true);
+  expect(platform.ads.underAge).toBe(null);
+  expect(MenuStack.busy).toBe(true);
+  answer(1990);
+  expect(MenuStack.busy).toBe(false);
+});
+
+test("the next run does not ask again and tells the network the saved answer", () => {
+  open();
+  answer(2015);
+  expect(platform.ads.underAge).toBe(true);
+  // A new run: the network forgot the answer (the fake is reset), storage kept it.
+  game.platform.reset();
+  expect(platform.ads.underAge).toBe(null);
+  const menus = new MenuStack(null);
+  expect(openAgeGate(menus)).toBe(false);
+  game.step(2);
+  expect(menus.top).toBe(null);
+  expect(platform.ads.underAge).toBe(true);
+});
 ```
 
 ### `scenes/loading.scene.json`
@@ -1400,7 +1699,9 @@ export default class PauseMenu extends Behaviour {
 // d-pad walks the keys, A types one, "Delete" removes the last character, "Done" closes it and sends ui.submit for the
 // field (what Enter does), B closes it and keeps the text. Typing goes through the same events a real keyboard sends
 // (ui.change), so the game's code does not know the difference. Phones and keyboards use their own keyboard: the engine
-// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad.
+// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad. A
+// platform that has a keyboard for pads (the Steam Deck, through a native plugin) shows its own: while
+// input.platformKeyboard is true this one stays closed too.
 //
 // The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
 import { Behaviour, ui, input, world, i18n } from "factoria";
@@ -1463,7 +1764,8 @@ export default class OnScreenKeyboard extends Behaviour {
     }
     // A on a focused field opens the keyboard again after B closed it.
     const f = ui.focused;
-    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && input.pressed("ui_submit")) this.open(f);
+    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && !input.platformKeyboard && input.pressed("ui_submit"))
+      this.open(f);
   }
 
   onFocus(entity) {
@@ -1474,7 +1776,7 @@ export default class OnScreenKeyboard extends Behaviour {
       return;
     }
     if (this.ignore === entity.id) return; // the focus we gave back ourselves (onUpdate forgets it two frames later)
-    if (entity.has("TextField") && input.lastDevice === "gamepad") this.open(entity);
+    if (entity.has("TextField") && input.lastDevice === "gamepad" && !input.platformKeyboard) this.open(entity);
   }
 
   open(field) {
@@ -1707,6 +2009,7 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"
@@ -1732,7 +2035,15 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "unreachable": "The store could not be reached ({code}). {detail}"
   },
   "keyboard": { "space": "Space", "delete": "Delete", "done": "Done" },
-  "name": { "title": "Your name", "placeholder": "Name", "next": "Continue" }
+  "name": { "title": "Your name", "placeholder": "Name", "next": "Continue" },
+  "ageGate": {
+    "title": "Before you play",
+    "question": "In which year were you born?",
+    "why": "We only use this to choose which ads can be shown. We keep whether you are a child, not your birth year.",
+    "year": "Birth year",
+    "continue": "Continue",
+    "skip": "I would rather not say"
+  }
 }
 ```
 
@@ -1776,6 +2087,7 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
+    "privacyOptions": "Privacidad de los anuncios",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"
@@ -1801,7 +2113,15 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "unreachable": "No se pudo contactar con la tienda ({code}). {detail}"
   },
   "keyboard": { "space": "Espacio", "delete": "Borrar", "done": "Hecho" },
-  "name": { "title": "Tu nombre", "placeholder": "Nombre", "next": "Continuar" }
+  "name": { "title": "Tu nombre", "placeholder": "Nombre", "next": "Continuar" },
+  "ageGate": {
+    "title": "Antes de jugar",
+    "question": "¿En qué año naciste?",
+    "why": "Solo lo usamos para elegir qué anuncios se pueden mostrar. Guardamos si eres menor, no tu año de nacimiento.",
+    "year": "Año de nacimiento",
+    "continue": "Continuar",
+    "skip": "Prefiero no decirlo"
+  }
 }
 ```
 
@@ -1836,7 +2156,7 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
 
 ```js tests/keyboard.test.js
 import { test, expect, game } from "factoria:test";
-import { ui } from "factoria";
+import { input, ui } from "factoria";
 import { keysFor } from "../scripts/ui/keyboard.js";
 
 // A player with only a gamepad types a name through the on-screen keyboard (scripts/ui/keyboard.js).
@@ -1920,5 +2240,23 @@ test("the keys follow the language and the field's maxLength", () => {
   pad.tap("DpadUp");
   pad.tap("A"); // "a" does not fit
   expect(field().text).toBe("123456789012");
+});
+
+test("a platform keyboard takes the field: the on-screen keyboard stays closed", () => {
+  game.load("scenes/name.scene.json");
+  game.step(2);
+  // The engine sets input.platformKeyboard when a native plugin (the Steam Deck's) shows its own keyboard for the focused field.
+  const engineGetter = Object.getOwnPropertyDescriptor(input, "platformKeyboard");
+  Object.defineProperty(input, "platformKeyboard", { get: () => true, configurable: true });
+  try {
+    pad.tap("DpadDown");
+    pad.tap("DpadUp"); // back to the field with the pad: the platform keyboard is up, this one is not
+    expect(ui.focused.id).toBe("name_field");
+    expect(open()).toBe(false);
+    pad.tap("A"); // A on the field asks the platform again, not this keyboard
+    expect(open()).toBe(false);
+  } finally {
+    Object.defineProperty(input, "platformKeyboard", engineGetter);
+  }
 });
 ```

@@ -520,7 +520,7 @@ void Dbg::hook_k(JSValueConst frame, JSValueConst exc) {
 Dbg::EvalOutcome Dbg::run_in(JSValueConst closure, const std::string& code) {
     EvalOutcome out;
     const bool savedTimedOut = sys->timedOut;
-    sys->push_guard("debugger evaluate", sys->callbackLimit);
+    const size_t depth = sys->push_guard("debugger evaluate", sys->callbackLimit);
     sys->timedOut = false;
     JSValue arg = JS_NewStringLen(ctx, code.data(), code.size());
     JSValue r;
@@ -532,7 +532,7 @@ Dbg::EvalOutcome Dbg::run_in(JSValueConst closure, const std::string& code) {
         r = JS_Call(ctx, closure, JS_UNDEFINED, 1, &arg);
     }
     JS_FreeValue(ctx, arg);
-    sys->pop_guard();
+    sys->pop_guard(depth);
     const bool timedOut = sys->timedOut;
     sys->timedOut = savedTimedOut;
     if (JS_IsException(r)) {
@@ -869,11 +869,11 @@ public:
                 JS_FreeValue(ctx_, v.value);
                 return Error{"cannot assign [[Prototype]]", "Set the properties of the object instead."};
             }
-            d_.sys->push_guard("debugger set variable", d_.sys->callbackLimit);
+            const size_t depth = d_.sys->push_guard("debugger set variable", d_.sys->callbackLimit);
             const bool savedTimedOut = d_.sys->timedOut;
             d_.sys->timedOut = false;
             int rc = JS_SetPropertyStr(ctx_, r.obj, key.c_str(), v.value);  // consumes v.value
-            d_.sys->pop_guard();
+            d_.sys->pop_guard(depth);
             d_.sys->timedOut = savedTimedOut;
             if (rc < 0) {
                 JSValue exc = JS_GetException(ctx_);

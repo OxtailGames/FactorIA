@@ -8,10 +8,14 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/platform/input.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/components.h"
+#include "fa/ui/ui.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -66,11 +70,11 @@ int failing_init(const FaPluginApi* api) {
 
 struct Game {
     stdfs::path dir;
-    explicit Game(const std::string& plugins) {
+    explicit Game(const std::string& plugins, const std::string& entities = "") {
         dir = fs::make_temp_dir("fa_plugins_test");
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Plugins","plugins":)" << plugins << "}";
-        std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[]})";
+        std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[)" << entities << "]}";
     }
     ~Game() {
         std::error_code ec;
@@ -86,7 +90,105 @@ struct Game {
     }
 };
 
+// A plugin of API 3 that shows a keyboard of its own for the TextFields a gamepad focuses.
+struct KeyboardLog {
+    std::vector<std::string> asked;  // "focused x y w h text maxLength" for each call
+    bool take = true;
+    const FaPluginApi* api = nullptr;
+} g_keyboard;
+
+int keyboard_handler(const FaTextInput* in, void*) {
+    char line[256];
+    std::snprintf(line, sizeof line, "%d %g %g %g %g %s %d", in->focused, in->x, in->y, in->width, in->height, in->text, in->max_length);
+    g_keyboard.asked.push_back(line);
+    return g_keyboard.take ? 1 : 0;
+}
+
+int keyboard_init(const FaPluginApi* api) {
+    g_keyboard.api = api;
+    CHECK(api->version >= 3);
+    CHECK(api->add_text_input(api, keyboard_handler, nullptr) == 0);
+    CHECK(api->add_text_input(api, keyboard_handler, nullptr) != 0);  // one per plugin
+    return 0;
+}
+
+// A plugin that never registers a handler, as one built against API 2 does.
+int silent_init(const FaPluginApi* api) {
+    api->submit_text(api, "nobody asked");  // no field waits for it: dropped
+    return 0;
+}
+
 }  // namespace
+
+TEST_CASE("plugins: a TextField a gamepad focuses is offered to the plugin's keyboard, and submit_text fills it") {
+    fa_register_static_plugin("keyboard", keyboard_init);
+    Game game(R"({"keyboard": {"path": "native/keyboard"}})",
+              R"({"id":"name","components":{"TextField":{"size":[200,30],"text":"Ann","maxLength":6}}})");
+    g_keyboard = KeyboardLog();
+    Engine engine;
+    std::string err;
+    REQUIRE(engine.init(game.cfg(), nullptr, &err));
+    Entity field = engine.world().find("name");
+    REQUIRE(field != kNullEntity);
+    auto text = [&] { return engine.world().get<TextField>(field)->text; };
+
+    // A mouse or keyboard focus is not offered: the player has a keyboard.
+    engine.input().set_last_device(InputDevice::Keyboard);
+    REQUIRE(engine.ui()->set_focus(engine.world(), field));
+    engine.step(2);
+    CHECK(g_keyboard.asked.empty());
+    CHECK_FALSE(engine.input().platform_keyboard());
+    engine.ui()->set_focus(engine.world(), kNullEntity);
+    engine.step(1);
+
+    // A pad focus is: the rectangle in window pixels (a headless run has no window: design pixels), the text, the limit.
+    engine.input().set_last_device(InputDevice::Gamepad);
+    REQUIRE(engine.ui()->set_focus(engine.world(), field));
+    engine.step(2);
+    REQUIRE(g_keyboard.asked.size() == 1);
+    CHECK(g_keyboard.asked[0].find("1 ") == 0);
+    CHECK(g_keyboard.asked[0].find(" 200 30 Ann 6") != std::string::npos);
+    CHECK(engine.input().platform_keyboard());
+
+    // The keyboard hands text back from any thread; the field takes it on the next frame, cut to maxLength.
+    g_keyboard.api->submit_text(g_keyboard.api, "Bartholomew");
+    CHECK(text() == "Ann");
+    engine.step(1);
+    CHECK(text() == "Bartho");
+
+    // The focus leaves: the plugin is told, and text that comes late goes nowhere.
+    engine.ui()->set_focus(engine.world(), kNullEntity);
+    engine.step(2);
+    REQUIRE(g_keyboard.asked.size() == 2);
+    CHECK(g_keyboard.asked[1].find("0 ") == 0);
+    CHECK_FALSE(engine.input().platform_keyboard());
+    g_keyboard.api->submit_text(g_keyboard.api, "late");
+    engine.step(2);
+    CHECK(text() == "Bartho");
+
+    // A plugin that declines leaves the game's own keyboard to the field.
+    g_keyboard.take = false;
+    engine.ui()->set_focus(engine.world(), field);
+    engine.step(2);
+    CHECK_FALSE(engine.input().platform_keyboard());
+    engine.shutdown();
+}
+
+TEST_CASE("plugins: a plugin without a text input handler sees no keyboard request") {
+    fa_register_static_plugin("silent", silent_init);
+    Game game(R"({"silent": {"path": "native/silent"}})",
+              R"({"id":"name","components":{"TextField":{"size":[200,30],"text":"Ann"}}})");
+    Engine engine;
+    std::string err;
+    REQUIRE(engine.init(game.cfg(), nullptr, &err));
+    Entity field = engine.world().find("name");
+    engine.input().set_last_device(InputDevice::Gamepad);
+    REQUIRE(engine.ui()->set_focus(engine.world(), field));
+    engine.step(3);
+    CHECK_FALSE(engine.input().platform_keyboard());
+    CHECK(engine.world().get<TextField>(field)->text == "Ann");
+    engine.shutdown();
+}
 
 TEST_CASE("plugins: a plugin's functions and commands reach scripts and the command registry") {
     fa_register_static_plugin("probe", fa_plugin_init);  // FA_PLUGIN_INIT(probe) defines fa_plugin_init (not static)

@@ -157,6 +157,8 @@ void plugin_emit(const FaPluginApi* api, const char* event, const char* dataJson
 
 // -------------------------------------------------------------------------------------------------------- choice --
 
+static bool is_ads_backend(const PluginBackend& b) { return b.services.size() == 1 && b.services[0] == "ads"; }
+
 BackendChoice choose_platform_backend(const std::string& requested, const std::string& fallback, const PlatformCatalog& catalog,
                                       const PluginInstall& plugins, const std::string& platform) {
     BackendChoice out;
@@ -172,20 +174,35 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
         out.backend = b.create();
         out.why = "the plugin '" + b.plugin + "' registered it and " + how;
     };
-    auto find = [&](const std::string& plugin) -> const PluginBackend* {
-        for (const PluginBackend& b : plugins.backends)
-            if (b.plugin == plugin) return &b;
+    // Store backends and ads backends (a plugin whose only service is "ads") are chosen separately.
+    std::vector<const PluginBackend*> stores, adsPlugins;
+    for (const PluginBackend& b : plugins.backends) (is_ads_backend(b) ? adsPlugins : stores).push_back(&b);
+    auto find_in = [](const std::vector<const PluginBackend*>& list, const std::string& plugin) -> const PluginBackend* {
+        for (const PluginBackend* b : list)
+            if (b->plugin == plugin) return b;
         return nullptr;
     };
-    std::vector<std::string> names;
-    for (const PluginBackend& b : plugins.backends) names.push_back(b.plugin);
-    std::sort(names.begin(), names.end());
+    auto find = [&](const std::string& plugin) { return find_in(stores, plugin); };
+    auto sorted_names = [](const std::vector<const PluginBackend*>& list) {
+        std::vector<std::string> names;
+        for (const PluginBackend* b : list) names.push_back(b->plugin);
+        std::sort(names.begin(), names.end());
+        return names;
+    };
+    const std::vector<std::string> names = sorted_names(stores);
 
     // Why the plugin `name` cannot be the backend.
     auto unavailable = [&](const std::string& name, const std::string& source) {
         if (std::find(plugins.failed.begin(), plugins.failed.end(), name) != plugins.failed.end())
             return source + " names the plugin '" + name + "', which did not load (see the warning above)";
-        std::string message = source + " names '" + name + "', but no plugin of that name offers a platform backend on " + platform;
+        std::string message;
+        if (find_in(adsPlugins, name)) {
+            message = source + " names '" + name + "', which offers only ads: set it as \"backend\" in the \"ads\" part of the \"platform\" "
+                      "section instead (\"ads\": {\"backend\": \"" + name + "\"}) and leave this one for the store plugin";
+            out.warnings.push_back(message);
+            return message;
+        }
+        message = source + " names '" + name + "', but no plugin of that name offers a platform backend on " + platform;
         message += names.empty() ? " (no plugin does: a backend plugin registers one with api->add_backend, docs/PLATFORM.md)"
                                  : ". " + did_you_mean(name, names);
         out.warnings.push_back(message);
@@ -208,25 +225,56 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
         source = "factoria.json platform.backend";
     }
     if (!wanted.empty()) {
-        if (const PluginBackend* b = find(wanted)) {
-            use_plugin(*b, source + " names it");
-            return out;
-        }
-        use_fallback("no store backend on " + platform + " (" + unavailable(wanted, source) + ")");
-        return out;
-    }
-    if (names.size() == 1) {
+        if (const PluginBackend* b = find(wanted)) use_plugin(*b, source + " names it");
+        else use_fallback("no store backend on " + platform + " (" + unavailable(wanted, source) + ")");
+    } else if (names.size() == 1) {
         use_plugin(*find(names[0]), "it is the only backend plugin of the game");
-        return out;
-    }
-    if (names.size() > 1) {
+    } else if (names.size() > 1) {
         out.warnings.push_back("several plugins offer a platform backend on " + platform + ": " + join_names(names) + ". Using '" +
                                names[0] + "'; set \"backend\" in the \"platform\" section of factoria.json to choose, e.g. "
                                "\"backend\": \"" + names[0] + "\" (or one per platform: {\"windows\": \"" + names[0] + "\"}).");
         use_plugin(*find(names[0]), "it is the first of several");
+    } else {
+        use_fallback("no store backend on " + platform);
+    }
+
+    // The ads backend. The fake (development) serves ads itself and a plugin that is not a store (admob) is not used with it:
+    // development runs must never show a real ad.
+    const std::vector<std::string> adsNames = sorted_names(adsPlugins);
+    if (out.backend->name() == "fake") {
+        if (!adsNames.empty())
+            out.adsWhy = "the fake backend serves ads in development runs; the ads plugin '" + adsNames[0] + "' only runs in shipped games";
         return out;
     }
-    use_fallback("no store backend on " + platform);
+    const std::string adsWanted = catalog.adsBackend;
+    if (!adsWanted.empty()) {
+        if (const PluginBackend* b = find_in(adsPlugins, adsWanted)) {
+            out.adsBackend = b->create();
+            out.adsWhy = "the plugin '" + b->plugin + "' registered it and factoria.json platform.ads.backend names it";
+        } else {
+            std::string message;
+            if (std::find(plugins.failed.begin(), plugins.failed.end(), adsWanted) != plugins.failed.end())
+                message = "factoria.json platform.ads.backend names the plugin '" + adsWanted + "', which did not load (see the warning above)";
+            else if (find(adsWanted))
+                message = "factoria.json platform.ads.backend names '" + adsWanted + "', which is a store backend, not an ads plugin: it offers " +
+                          join_names(find(adsWanted)->services) + ". Use \"backend\" in the \"platform\" section for it";
+            else
+                message = "factoria.json platform.ads.backend names '" + adsWanted + "', but no plugin of that name offers an ads backend on " +
+                          platform + (adsNames.empty() ? " (no plugin does: platform.add_backend {\"backend\":\"admob\"} adds the AdMob one)"
+                                                       : ". " + did_you_mean(adsWanted, adsNames));
+            out.warnings.push_back(message);
+            out.adsWhy = message;
+        }
+    } else if (adsNames.size() == 1) {
+        out.adsBackend = find_in(adsPlugins, adsNames[0])->create();
+        out.adsWhy = "the plugin '" + adsNames[0] + "' registered it and it is the only ads plugin of the game";
+    } else if (adsNames.size() > 1) {
+        out.warnings.push_back("several plugins offer an ads backend on " + platform + ": " + join_names(adsNames) + ". Using '" + adsNames[0] +
+                               "'; set \"backend\" in the \"ads\" part of the \"platform\" section of factoria.json to choose, e.g. "
+                               "\"ads\": {\"backend\": \"" + adsNames[0] + "\"}.");
+        out.adsBackend = find_in(adsPlugins, adsNames[0])->create();
+        out.adsWhy = "the plugin '" + adsNames[0] + "' registered it and it is the first of several";
+    }
     return out;
 }
 

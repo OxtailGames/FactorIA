@@ -1753,7 +1753,7 @@ Since 0.2.0.
 
 Set up a store backend for this game: its plugin, its build and what the store needs.
 
-One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs. steam: the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich presence): writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK ("sdk": its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt ("appId", default Valve's test app 480) for development. apple: the StoreKit 2, Game Center and iCloud plugin for iOS and macOS (Swift: it builds on a Mac with Xcode). googleplay: the Google Play Billing, Play Games Services and Play Integrity plugin for Android (a C bridge and a Java module; it builds with the Android SDK's NDK). Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only the plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With `dryRun` true nothing is written, built or copied: the result is {backend, dryRun: true, folder, files[] (what it would write), keys[] (the factoria.json keys it would write), wouldDo[], nextSteps[]}. An argument that does not exist is an error with a "did you mean" (backend-specific ones like sdk or appId are listed above and are accepted for every backend). Example: {"backend": "steam", "appId": 480}.
+One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs. steam: the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich presence): writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK ("sdk": its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt ("appId", default Valve's test app 480) for development. apple: the StoreKit 2, Game Center and iCloud plugin for iOS and macOS (Swift: it builds on a Mac with Xcode). googleplay: the Google Play Billing, Play Games Services and Play Integrity plugin for Android (a C bridge and a Java module; it builds with the Android SDK's NDK). admob: the AdMob ads plugin for Android: Google's consent form (UMP) and rewarded ads. It offers only the "ads" service, so it works next to the store backend of the game (a C bridge and a Java module; it builds with the Android SDK's NDK). Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only the plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With `dryRun` true nothing is written, built or copied: the result is {backend, dryRun: true, folder, files[] (what it would write), keys[] (the factoria.json keys it would write), wouldDo[], nextSteps[]}. An argument that does not exist is an error with a "did you mean" (backend-specific ones like sdk or appId are listed above and are accepted for every backend). Example: {"backend": "steam", "appId": 480}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1763,7 +1763,8 @@ One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): wri
 | `appleBuild` | boolean | no | apple: false only writes the plugin and declares it, without building (any computer); build it later on a Mac with Xcode: cmake -S plugins/apple -B plugins/apple/build && cmake --build plugins/apple/build. Default true. |
 | `playGamesId` | any | no | googleplay: the Play Games Services project id (digits: Play Console > Play Games Services > Setup and management > Configuration), written to android/src/main/res/values/games-ids.xml. Without it the backend offers purchases, the store page and Play Integrity, and no achievements, leaderboards or cloud saves. Kept as it is when not passed; "" turns Play Games off. Export again after changing it. |
 | `googleplayBuild` | boolean | no | googleplay: false only writes the plugin and declares it, without building (any computer); build it later where the Android NDK is installed. Default true. |
-| `backend` | string ["steam","apple","googleplay"] | yes | The store backend to set up; it is also the plugin's name. |
+| `admobBuild` | boolean | no | admob: false only writes the plugin and declares it, without building (any computer); build it later where the Android NDK is installed. Default true. |
+| `backend` | string ["steam","apple","googleplay","admob"] | yes | The store backend to set up; it is also the plugin's name. |
 | `dryRun` | boolean | no | true = write, build and copy nothing: list the files and factoria.json keys it would write (files, keys) and the steps (wouldDo). Default false. |
 
 ### `platform.emit` (modifies state)
@@ -1785,7 +1786,7 @@ Since 0.2.0.
 
 Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.
 
-Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again. Pending requests are not cancelled. Fails when the game runs a real store backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that share state. Example: platform.reset {}
+Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again, and forgets the answer of platform.ads.setUnderAge (the game asks the age again). Pending requests are not cancelled. Fails when the game runs a real store backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that share state. Example: platform.reset {}
 
 ### `platform.respond` (modifies state)
 
@@ -1819,13 +1820,14 @@ Not released yet (on main after 0.2.0).
 
 Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.
 
-`outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): "watched" (the default: {rewarded: true}), "closedEarly" ({rewarded: false, reason: "closedEarly"}), "noFill" (no ad: ads.available() is false and showRewarded gives reason "noFill") or "consentRefused" (also sets gdpr and tracking to "denied"; reason "consentRefused"). `gdpr` ("granted", "denied", "notRequired", "unknown") and `tracking` ("authorized", "denied", "notDetermined", "restricted", "notRequired") are what ads.consent() answers; a denied gdpr stops every ad. Give any of them. platform.state's fake.ads counts the ads shown and rewarded. Fails when the game runs a real store backend. Example: platform.set_ad {"outcome":"closedEarly"}
+`outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): "watched" (the default: {rewarded: true}), "closedEarly" ({rewarded: false, reason: "closedEarly"}), "noFill" (no ad: ads.available() is false and showRewarded gives reason "noFill") or "consentRefused" (also sets gdpr and tracking to "denied"; reason "consentRefused"). `gdpr` ("granted", "denied", "notRequired", "unknown") and `tracking` ("authorized", "denied", "notDetermined", "restricted", "notRequired") are what ads.consent() answers; a denied gdpr stops every ad. `privacyOptions` ("required", "notRequired", "unknown") is what ads.consent() answers for the privacy options form: with "required", platform.ads.privacyOptions() "shows" the form. Give any of them. platform.state's fake.ads counts the ads shown and rewarded and the privacy forms shown. Fails when the game runs a real store backend. Example: platform.set_ad {"outcome":"closedEarly"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `outcome` | string ["watched","closedEarly","noFill","consentRefused"] | no | How the next ads end. |
 | `gdpr` | string ["granted","denied","notRequired","unknown"] | no | What the GDPR (UMP) sheet answered. |
 | `tracking` | string ["authorized","denied","notDetermined","restricted","notRequired"] | no | What the tracking (ATT) sheet answered. |
+| `privacyOptions` | string ["required","notRequired","unknown"] | no | Whether the consent form for changing ad choices is required (ads.consent privacyOptions). |
 
 ### `platform.set_fake` (modifies state)
 
@@ -1847,7 +1849,7 @@ Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 
-Returns {backend, why, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
+Returns {backend, why, adsBackend, adsWhy, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads plugin such as admob, the store backend when it offers ads, or "none") and `adsWhy` says why; `audience` is factoria.json platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). Example: platform.state {}
 
 ## play
 
@@ -1894,11 +1896,11 @@ Not released yet (on main after 0.2.0).
 
 Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.
 
-The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options, credits and shop) and are listed in `requiredBy`. A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
+The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options, credits, shop and ageGate) and are listed in `requiredBy`. A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Shop, Quit, with the options, credits and shop panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options, credits and shop: the scene uses their scripts and prefab.; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own). |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu opens it once, before any ad; its tests/age_gate.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Shop, Quit, with the options, credits, shop and age gate panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options, credits, shop and ageGate: the scene uses their scripts and prefab.; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own). |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -3165,6 +3167,10 @@ declare module "factoria" {
      */
     readonly keyboardShown: boolean;
     /**
+     * True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only.
+     */
+    readonly platformKeyboard: boolean;
+    /**
      * The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });
      */
     onBack(handler: () => boolean | void): () => void;
@@ -4162,10 +4168,14 @@ declare module "factoria" {
      * False when the player refused the GDPR consent: no ad may be requested then.
      */
     readonly canShowAds: boolean;
+    /**
+     * Whether the game must offer a way to change the ad choices (GDPR): required means the player has to find a "Privacy settings" button that calls platform.ads.privacyOptions(); notRequired where the consent sheet does not apply; unknown before the consent flow finished.
+     */
+    readonly privacyOptions: "required" | "notRequired" | "unknown";
   }
 
   /**
-   * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped game gets a real network once a backend offers one (check platform.has("ads")): until then every call rejects with code "unavailable". Use platform.release to keep a development-only ad stub out of a shipped game.
+   * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped Android game gets Google AdMob with the Google consent sheet (UMP) when it has the admob plugin (platform.add_backend admob), and any other shipped game rejects every call with code "unavailable" until a backend offers ads (check platform.has("ads")). Use platform.release to keep a development-only ad stub out of a shipped game. Children: factoria.json platform.ads.audience (docs/PLATFORM.md, "Children and consent").
    */
   export interface PlatformAdsAPI {
     /**
@@ -4180,6 +4190,22 @@ declare module "factoria" {
      * What the GDPR and tracking sheets answered, for the game's privacy screen.
      */
     consent(): Promise<PlatformConsent>;
+    /**
+     * Tells the ad network whether the player is under the age of consent (use 16, the highest age of consent in Europe). Call it after the game asked the player's age with a neutral screen (the menu kit's ageGate part does). The engine keeps the answer for the session and sends it with every ads request: AdMob then tags the requests as child-directed and under the age of consent, and the consent sheet is not shown to a child. With factoria.json platform.ads.audience "mixed" no ad is shown before this is called (available() is false, showRewarded() ends with reason "consentRefused"); with "children" every player counts as under age and setUnderAge(false) throws.
+     */
+    setUnderAge(underAge: boolean): Promise<void>;
+    /**
+     * Opens the consent form where the player changes their ad choices. Show a "Privacy settings" button that calls it only when consent().privacyOptions is "required" (the menu kit's options screen does). Resolves when the form closes; shown is false when there was no form to open.
+     */
+    privacyOptions(): Promise<{ shown: boolean }>;
+    /**
+     * Who plays, from factoria.json platform.ads.audience (default "general").
+     */
+    readonly audience: "general" | "children" | "mixed";
+    /**
+     * The answer of setUnderAge() for this session: true or false; true in a "children" game; null while the game has not asked.
+     */
+    readonly underAge: boolean | null;
   }
 
   /**
@@ -4200,6 +4226,10 @@ declare module "factoria" {
      * Which backend answers: "fake" (development, tests), "none" (no store: every call rejects with "unavailable"), or the plugin's backend name ("steam", "apple").
      */
     readonly backend: string;
+    /**
+     * Which backend answers platform.ads: an ads plugin ("admob"), the store backend when it offers ads itself ("fake"), or "none" when nothing offers ads.
+     */
+    readonly adsBackend: string;
     /**
      * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion.
      */
@@ -7744,9 +7774,9 @@ declare module "factoria:test" {
      */
     revoke(productId: string): void;
     /**
-     * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr and options.tracking set what ads.consent() answers; a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
+     * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr, options.tracking and options.privacyOptions set what ads.consent() answers (with privacyOptions "required", platform.ads.privacyOptions() counts a form shown); a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
      */
-    ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired" }): void;
+    ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */

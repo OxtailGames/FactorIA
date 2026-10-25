@@ -13,6 +13,8 @@
 #pragma once
 
 #include <array>
+#include <functional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -33,6 +35,18 @@ Json ui_with_default_actions(const Json& actions);
 // the box around its screen-space Text / Sprite / Shape2D (text sized through `measure`). nullopt for any other entity.
 std::optional<Rect> ui_screen_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {});
 
+// A TextField the player focused or left with a gamepad, for the platform's own keyboard (the runtime hands it to a native
+// plugin: fa_plugin.h, FaTextInput). `rect` is in design pixels; the runtime converts it to window pixels.
+struct TextInputRequest {
+    bool focused = true;   // true: took the focus (or the pad's submit button was pressed on it again); false: lost it
+    Rect rect;             // the field's rectangle, design pixels (empty when the field is gone)
+    std::string text;
+    std::int32_t maxLength = 0;
+    bool multiline = false, password = false;  // no TextField has either yet
+};
+// Returns true when the platform shows its own keyboard for the field. For a request with `focused` false it is ignored.
+using TextInputHandler = std::function<bool(const TextInputRequest&)>;
+
 class UiSystem {
 public:
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
@@ -47,6 +61,16 @@ public:
     // script, which is still changing the menu) skips the "fit panel larger than the screen" warning: the frame's own
     // layout logs it if the final menu is still too big.
     void layout(World& world, Vec2 designSize, const VisualMeasure& measure, bool warn = true);
+
+    // The platform keyboard (native plugins, plugin API 3). With a handler, a TextField that takes the focus while the last input
+    // was a gamepad (or gets the pad's submit button again) is offered to it; when it answers true, input.platformKeyboard()
+    // is true until the field loses the focus, and the menu kit's on-screen keyboard stays closed. Without a handler nothing
+    // changes. The handler runs inside update() and reset() on the game thread.
+    void set_text_input_handler(TextInputHandler handler) { textInput_ = std::move(handler); }
+    // Text the platform keyboard returned: replaces the text of the field that took the keyboard if it still has the focus
+    // (cut to its maxLength, control characters dropped) and sends ui.change when the text changed. False when no field is
+    // waiting for it: the text is dropped.
+    bool submit_text(World& world, const std::string& text);
 
     Entity focused() const { return focus_; }
     // Gives focus to `e` (kNullEntity clears it) and emits ui.focus. Returns false, and changes nothing, when `e` cannot
@@ -84,6 +108,10 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
+    TextInputHandler textInput_;
+    Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)
+    Entity askedField_;     // the TextField the handler was asked about since it got the focus
+    void release_platform_keyboard(const World* world);
     bool keyboardRaised_ = false;  // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)

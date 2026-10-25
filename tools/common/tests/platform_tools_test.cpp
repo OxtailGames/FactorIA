@@ -141,7 +141,7 @@ TEST_CASE("project.new_plugin: template picks a starting point, an unknown one l
     auto ok = reg.call("project.new_plugin", Json::parse(R"({"name": "store"})"));
     REQUIRE_MESSAGE(ok.ok, ok.error.dump());
     const std::string header = testing::read_all(stdfs::path(dir) / "plugins/store/include/fa_plugin.h");
-    CHECK(header.find("FA_PLUGIN_API_VERSION 2") != std::string::npos);
+    CHECK(header.find("FA_PLUGIN_API_VERSION 3") != std::string::npos);
     CHECK(header.find("add_backend") != std::string::npos);
 }
 
@@ -159,7 +159,7 @@ TEST_CASE("platform.add_backend: one command lists every store backend with the 
     CHECK_FALSE(info->readOnly);
     const Json& backend = info->inputSchema["properties"]["backend"];
     REQUIRE(backend["enum"].is_array());
-    for (const char* name : {"steam", "apple", "googleplay"}) {
+    for (const char* name : {"steam", "apple", "googleplay", "admob"}) {
         bool listed = false;
         for (const Json& n : backend["enum"]) listed = listed || n == name;
         CHECK_MESSAGE(listed, name);
