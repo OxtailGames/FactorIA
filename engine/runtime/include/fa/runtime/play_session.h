@@ -2,7 +2,7 @@
 //
 // A session is the folder .factoria/sessions/<yyyymmdd-hhmmss>/ with session.json (perf, spikes, warnings/errors, marks),
 // input.json (the input replay: the format `factoria run --headless --input` reads) and the mark screenshots.
-// Everything here is pure data + file reading; the editor (tools/editor) does the recording. The commands play.sessions
+// Everything here is pure data + file reading; the recording itself is the engine's (Engine::start_input_recording / the input.record command). The commands play.sessions
 // and play.report are registered with the other built-in commands.
 #pragma once
 

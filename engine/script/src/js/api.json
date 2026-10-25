@@ -627,6 +627,10 @@
        "doc": "Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get(\"Animator\") answers null instead."
       },
       {
+       "sig": "readonly tilemap: TilemapAPI",
+       "doc": "Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get(\"Tilemap\") answers null instead."
+      },
+      {
        "sig": "readonly video: VideoAPI",
        "doc": "Playback of this entity's Video component (play, pause, stop, seek, time, duration, the \"ended\" event). Throws if the entity has no Video; entity.get(\"Video\") answers null instead."
       }
@@ -1437,8 +1441,8 @@
        "doc": "Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload(\"scenes/level2.scene.json\"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load(\"scenes/level2.scene.json\"); or job.promise.then(() => scene.load(...))."
       },
       {
-       "sig": "load(path: string): void",
-       "doc": "Deferred to the end of the frame."
+       "sig": "load(path: string, props?: Json): void",
+       "doc": "Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load(\"scenes/level.scene.json\", { level: 3 })."
       },
       {
        "sig": "reload(): void",
@@ -1505,6 +1509,10 @@
        "doc": "True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused."
       },
       {
+       "sig": "sceneProps(): Json",
+       "doc": "The props the current scene was started with: scene.load(path, props), factoria run --props, or the scene.load command's props. A plain object, {} when none were given; available from the first onStart. A reload keeps them, a load without props drops them. A fresh copy each call. Example: const level = game.sceneProps().level ?? 1."
+      },
+      {
        "sig": "today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } }",
        "doc": "The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso (\"YYYY-MM-DD\") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on(\"dayChanged\") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate(\"2026-10-23T23:59:30\"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day."
       },
@@ -1551,6 +1559,39 @@
      ]
     },
     {
+     "kind": "alias",
+     "name": "WindowMode",
+     "type": "\"windowed\" | \"borderless\" | \"fullscreen\"",
+     "doc": "How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS."
+    },
+    {
+     "kind": "interface",
+     "name": "MonitorInfo",
+     "doc": "One monitor, from window.monitors().",
+     "members": [
+      {
+       "sig": "index: number",
+       "doc": "Its place in window.monitors(), the number window.setMonitor() takes. The primary monitor is 0."
+      },
+      {
+       "sig": "name: string",
+       "doc": "What the OS calls it (\"DELL U2723QE\", \"Built-in Retina Display\", \"HDMI-1\"; Windows gives the graphics driver's text, often \"Generic PnP Monitor\"). Two identical monitors have the same name: show the index too."
+      },
+      {
+       "sig": "size: Vec2",
+       "doc": "Its size in logical pixels."
+      },
+      {
+       "sig": "primary: boolean",
+       "doc": "The OS's main monitor (the one with the taskbar or menu bar)."
+      },
+      {
+       "sig": "current: boolean",
+       "doc": "The game window is on it now."
+      }
+     ]
+    },
+    {
      "kind": "interface",
      "name": "Resolution",
      "doc": "A window size in logical pixels, from window.resolutions().",
@@ -1580,7 +1621,27 @@
       },
       {
        "sig": "setFullscreen(on: boolean): void",
-       "doc": "Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws (\"phones and tablets always run full screen\"). Throws without a window."
+       "doc": "Enters or leaves full screen: `setMode(\"fullscreen\")` for true, `setMode(\"windowed\")` for false. `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws (\"phones and tablets always run full screen\"). Throws without a window."
+      },
+      {
+       "sig": "readonly mode: WindowMode",
+       "doc": "\"windowed\", \"borderless\" or \"fullscreen\" (\"fullscreen\" when the project's display.fullscreen is on and there is no window, and always on phones and tablets). `window.fullscreen` is true for both borderless and fullscreen."
+      },
+      {
+       "sig": "setMode(mode: WindowMode): void",
+       "doc": "Chooses how the window is shown. \"windowed\" has a frame and the size window.setSize() gave. \"borderless\" has no frame and covers the monitor the window is on. \"fullscreen\" covers it too, and where the OS has a native full screen it uses it: on macOS that is the OS's own full screen Space (the menu bar slides in, Mission Control shows it as a Space; borderless instead hides the menu bar and the Dock but stays on the desktop's Space); on Windows and Linux the engine has no exclusive mode, so fullscreen and borderless are the same frameless window over the monitor and the two names only keep what the player picked. On macOS going from fullscreen straight to borderless throws (the Space takes a moment to leave): go through \"windowed\" and wait a second. Use window.supports(\"borderless\") before offering borderless. Throws without a window, on an unknown name, and on phones and tablets for anything but \"fullscreen\"."
+      },
+      {
+       "sig": "monitors(): MonitorInfo[]",
+       "doc": "The monitors, primary first. A run without a window, phones, tablets and the web answer with one entry, the display the game runs on (a run without a window: the project's display size). Linux lists the connected XRandR outputs (one entry for the whole screen when libXrandr is missing)."
+      },
+      {
+       "sig": "readonly monitor: number",
+       "doc": "The index in window.monitors() of the monitor the window is on (0 when there is only one)."
+      },
+      {
+       "sig": "setMonitor(index: number): void",
+       "doc": "Moves the window to monitor `index` of window.monitors(): a windowed window is centred on it, a fullscreen or borderless one covers it. Works on Windows, macOS and Linux; throws on other platforms, without a window, for an index that does not exist, and on macOS while the window is in its native full screen Space (leave it with setMode(\"windowed\") first). `window.displaySize` and `window.resolutions()` describe the new monitor afterwards (on Linux a moment later, when the window manager has moved the window). Check window.supports(\"monitors\") first."
       },
       {
        "sig": "readonly size: Vec2",
@@ -1615,8 +1676,8 @@
        "doc": "Resolution of the picture as a fraction of the window, from 0.5 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. Works in every run with a renderer, headless tests included (game.screenshot then has that size); a run without graphics only remembers the value. A number outside 0.5 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === \"low\" ? 0.6 : 1."
       },
       {
-       "sig": "supports(feature: \"frameCap\" | \"renderScale\" | \"fullscreen\" | \"resize\" | \"clipboard\"): boolean",
-       "doc": "Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor \"desktop\"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a \"did you mean\". Read window.supports(\"frameCap\") before offering window.frameCap."
+       "sig": "supports(feature: \"frameCap\" | \"renderScale\" | \"fullscreen\" | \"borderless\" | \"monitors\" | \"resize\" | \"clipboard\"): boolean",
+       "doc": "Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor \"desktop\"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a \"did you mean\". borderless needs a desktop window (Windows, macOS, Linux; not the web), monitors needs a desktop window that can list and move between monitors (Windows, macOS, Linux; true with one monitor too: offer the choice when window.monitors().length > 1). Read window.supports(\"frameCap\") before offering window.frameCap."
       }
      ]
     },
@@ -2669,6 +2730,33 @@
     },
     {
      "kind": "class",
+     "name": "TilemapAPI",
+     "doc": "Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.",
+     "members": [
+      {
+       "sig": "getTile(x: number, y: number): number",
+       "doc": "The tile value at column x, row y (0-based, row 0 = TOP row): the tile index plus flip/rotate flag bits, -1 when empty or outside the map. Mask with `& 0xFFFFFFF` for the plain index."
+      },
+      {
+       "sig": "setTile(x: number, y: number, tile: number): void",
+       "doc": "Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step."
+      },
+      {
+       "sig": "readonly width: number",
+       "doc": "Map width in tiles."
+      },
+      {
+       "sig": "readonly height: number",
+       "doc": "Map height in tiles (rows)."
+      },
+      {
+       "sig": "readonly component: Components[\"Tilemap\"]",
+       "doc": "The Tilemap component view."
+      }
+     ]
+    },
+    {
+     "kind": "class",
      "name": "VideoAPI",
      "doc": "Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on(\"ended\", () => scene.load(\"scenes/menu.scene.json\"))`; `intro.video.seek(10)`.",
      "members": [
@@ -3364,8 +3452,8 @@
        "doc": "The window loses the focus: game.focused becomes false and the game.on(\"blur\") handlers run. Does not pause anything (a window that lost the focus keeps running)."
       },
       {
-       "sig": "load(path: string): void",
-       "doc": "Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step()."
+       "sig": "load(path: string, props?: Json): void",
+       "doc": "Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}."
       },
       {
        "sig": "fileReads(): number",
@@ -3472,8 +3560,8 @@
        "doc": "Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList."
       },
       {
-       "sig": "loadJson(scene: Json): void",
-       "doc": "Loads a scene given as JSON ({ format: \"factoria.scene/1\", entities: [...] }) instead of a file."
+       "sig": "loadJson(scene: Json, props?: Json): void",
+       "doc": "Loads a scene given as JSON ({ format: \"factoria.scene/1\", entities: [...] }) instead of a file. `props` is what the scene reads with game.sceneProps(); without it the new scene has {}."
       },
       {
        "sig": "touch(target: Vec2Like | Entity | string, frames?: number): void",

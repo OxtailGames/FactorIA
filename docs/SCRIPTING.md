@@ -144,6 +144,7 @@ are not affected.
 | `isGrounded(tolerance?)` | 2D or 3D physics: standing on something (contact normal up) |
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `animator` | skeletal animation of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
+| `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |
 
@@ -347,7 +348,22 @@ Settings an options menu needs. The getters work everywhere (a headless run or a
 every setter throws an Error that says what to do when the run has no window (`factoria run --headless`, tests, the
 editor's game view), so check `window.available` first or offer the option only in `factoria run` and exported games.
 - `available` is true when a real window exists. `fullscreen` (read only) and `setFullscreen(on)`: `window.setFullscreen(true)`
-  toggles at once (it takes `true` or `false`, nothing else).
+  toggles at once (it takes `true` or `false`, nothing else): `setMode("fullscreen")` and `setMode("windowed")` below.
+- `mode` (read only) and `setMode("windowed" | "borderless" | "fullscreen")`. Windowed has a frame and the size of
+  `setSize`; the other two cover the monitor the window is on (`fullscreen` is true for both). What "fullscreen" means
+  depends on the OS: **Windows and Linux** have no exclusive full screen in the engine, so `"fullscreen"` and
+  `"borderless"` are the same frameless window over the monitor (the name only remembers what the player picked);
+  **macOS** runs `"fullscreen"` as the OS's native full screen (a Space of its own, the menu bar slides in) and
+  `"borderless"` as a frameless window over the monitor that hides the menu bar and the Dock but stays on the desktop's
+  Space. On macOS, going from `"fullscreen"` straight to `"borderless"` throws (the Space takes a second to leave): set
+  `"windowed"` first (the menu kit's button cycles windowed, borderless, fullscreen, so it never does). The web and
+  phones have no borderless mode (`supports("borderless")` is false); phones are always `"fullscreen"`.
+- `monitors()` lists `[{ index, name, size, primary, current }]`, primary first; `monitor` is the index of the one the
+  window is on and `setMonitor(index)` moves the window there (centred when windowed, covering it when full screen or
+  borderless). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
+  a machine without it lists the whole screen as one monitor). Elsewhere `monitors()` has one entry and `setMonitor`
+  throws; on macOS it also throws while the window is in its native full screen. Two identical monitors have the same
+  `name`: show the index too. A saved choice should keep the name, since indices change when a monitor is unplugged.
 - `size` (Vec2, window pixels without the title bar) and `setSize(width, height)` (whole numbers, 160 to 16384). Setting
   the size while full screen throws: leave full screen first. `displaySize` is the monitor's size.
   `resolutions()` lists `[{ width, height }]`, smallest first: 16:9 and 16:10 sizes that fit the monitor plus the game's
@@ -362,9 +378,15 @@ editor's game view), so check `window.available` first or offer the option only 
   `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation. Read `window.supports("frameCap")`
   first and hide the option where it is false instead of catching the Error.
 - `supports(feature)`: `"frameCap"`, `"fullscreen"` and `"resize"` are true in a game window on a desktop (they are false
-  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere; `"clipboard"` is
+  headless and on phones and tablets, where their setters throw); `"borderless"` is true in a desktop game window
+  (Windows, macOS, Linux), `"monitors"` where the monitors can be listed and chosen (the same three; it is true with one
+  monitor too, so offer the choice when `window.monitors().length > 1`); `"renderScale"` is true everywhere; `"clipboard"` is
   true on Windows, macOS, Linux and the web, and in headless runs and tests (an in-memory clipboard), false on phones
   and tablets. An unknown name throws with a "did you mean".
+- Window modes and monitor choice, checked by hand on: nothing yet (the script layer is covered by tests with a fake set
+  of monitors). To be checked: macOS (borderless, native full screen, a second monitor), Windows (two monitors, windowed
+  and full screen moves) and Linux X11 (two monitors with XRandR; `_NET_WM_FULLSCREEN_MONITORS` depends on the window
+  manager).
 - `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
   of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
   tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
@@ -401,9 +423,9 @@ const canCap = window.supports("frameCap");                      // hide the fra
 ```
 ```js
 import { window, storage } from "factoria";
-const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
+const s = storage.get("video", { windowMode: "windowed", vsync: true, cap: 0 });
 if (window.available) {
-  window.setFullscreen(s.fullscreen);
+  window.setMode(s.windowMode);   // "windowed" | "borderless" | "fullscreen"; window.setMonitor(i) first to pick the monitor
   window.setVsync(s.vsync);
   window.frameCap = s.cap;
 }
@@ -552,6 +574,17 @@ tweens a plain number; `ease` holds the easing functions (`ease.quadOut`; the na
 `onUpdate`, `onComplete`. Tweens run on the game's clock: they pause with `time.scale = 0` and are deterministic in tests.
 `entity.animator` controls the `Animator` component (skinned glTF clips, cross-fades, clip events, state machine).
 Both are described with examples in [ANIMATION.md](ANIMATION.md).
+
+### entity.tilemap
+`entity.tilemap` edits the `Tilemap` component one tile at a time, in place. Do not read `tiles`, change one entry and
+write the whole array back: that copies the grid on every call.
+- `getTile(col, row)` returns the tile index (`-1` for an empty tile or a cell outside the map). Row 0 is the top row.
+- `setTile(col, row, id)` writes one tile: `-1` empties it, otherwise a tile index (with the flip/rotate flags that
+  `scene.import_ascii` writes). It returns `false`, and changes nothing, for a cell outside the map or a bad value.
+- `width` and `height` are the map size in tiles.
+2D physics sees the change on the next step and rebuilds only the colliders of the tiles that changed, so `setTile(x, y,
+-1)` opens a hole a body falls through. The same edit from outside a script is the command `tilemap.set_tile`
+(`{id, col, row, tile}`). Writing the whole `tiles` array still works and rebuilds the colliders.
 
 ### entity.video
 `entity.video` controls the `Video` component (an `.mpg` drawn in a UI rectangle, [ASSETS.md](ASSETS.md), "Video"). It plays
@@ -726,7 +759,7 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
   unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
   logs nothing when the store rejects.
-- `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
+- `scene.load(path, props?)` (deferred to frame end) · `scene.reload()` · `scene.current` · `game.sceneProps()` (see "Scene props")
 - `game.today()` (see "The date") · `game.focused` · `game.on("gamepadConnected" | "gamepadDisconnected", fn)` (see "Pads plugged in and out") · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
   see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
   app is in the background) · `game.on("quit", fn)`: see "Window close" below
@@ -1038,6 +1071,23 @@ test("dump the menu layout", () => {
   fa.call("fs.write", { path: "build/menu_layout.json", content: JSON.stringify(ui.state(), null, 2) });
 });
 ```
+
+### Scene props
+
+`scene.load(path, { level: 3 })` starts the scene with props: a plain JSON object (numbers, strings, booleans, arrays, objects;
+not functions) that the new scene's scripts read with `game.sceneProps()`, from their first `onStart`. Each call returns a
+fresh copy, so changing it changes nothing. `factoria run --props '{"level":3}'` (or a `.json` file) starts the first scene with
+props; `game.load(path, props)` and `game.loadJson(scene, props)` do the same in a test.
+
+```js
+onStart() { const level = game.sceneProps().level ?? 1; }
+```
+
+- A **reload** (`scene.reload()`, the `scene.reload` command, hot reload of the scene you are running) keeps the props.
+- A load **without props** (`scene.load(path)`, `game.load(path)`) gives the new scene `{}`: props never leak into the next
+  scene by themselves. Pass them again to keep them: `scene.load(path, game.sceneProps())`.
+- When several loads are asked in one frame, the last one wins, props included.
+- `scene.load` command: `props` is an object argument with the same meaning.
 
 **`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
 of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next

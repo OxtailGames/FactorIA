@@ -137,6 +137,8 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
         fields["tileSize"][0].is_number() && fields["tileSize"][1].is_number())
         tm.tileSize = {fields["tileSize"][0].get<float>(), fields["tileSize"][1].get<float>()};
     if (fields.contains("columns") && fields["columns"].is_number_integer()) tm.columns = fields["columns"].get<int>();
+    if (fields.contains("margin") && fields["margin"].is_number_integer()) tm.margin = fields["margin"].get<int>();
+    if (fields.contains("spacing") && fields["spacing"].is_number_integer()) tm.spacing = fields["spacing"].get<int>();
     const int count = tileset_tile_count(tm, img->width, img->height);
     if (count <= 0) return;
     // First offending tile (flat or rows form) and how many there are.
@@ -160,7 +162,8 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
     }
     if (offenders == 0) return;
     // `columns` unset (0) is derived from the image, so a mismatch can only come from an explicit value.
-    const int tilesX = std::max(0, int(float(img->width) / tm.tileSize.x));
+    const Tilemap packed = [&] { Tilemap p = tm; p.columns = 0; return p; }();
+    const int tilesX = tileset_columns(packed, img->width);
     const int columns = tileset_columns(tm, img->width);
     std::string hint = "Tile indices count from 0, left-to-right then top-to-bottom, so valid indices are 0.." + std::to_string(count - 1) + ".";
     if (tm.columns > 0 && tm.columns != tilesX && tilesX > 0)

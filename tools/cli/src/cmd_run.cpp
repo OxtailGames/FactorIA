@@ -48,7 +48,8 @@ Command make_run_command() {
         "Headless (--headless): no window; steps exactly 1/fixedHz per frame, so the same --seed and --input always\n"
         "give the same state and pixels. Prints a report; with --json it is machine-readable and lists the PNG\n"
         "paths so an AI can open them. Exit code 1 if scripts raised errors.\n\n"
-        "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}\n\n"
+        "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}\n"
+        "(record one from a running game with the input.record command, docs/DEBUGGING.md).\n\n"
         "File paths: an INPUT file (--input) is looked up in the current directory first, then in the project folder, so\n"
         "'factoria run games/x --headless --input replays/jump.json' works from anywhere; the error lists both places.\n"
         "OUTPUT files (--state-out, --screenshot-pattern, --record-audio, --record-video) are relative to the current directory; the\n"
@@ -56,6 +57,7 @@ Command make_run_command() {
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"scene", "PATH", "Start scene override (default: project mainScene)."},
+               {"props", "JSON|FILE", "Props of the start scene: a JSON object ('{\"level\":3}') or a .json file (looked up in the current directory, then the project). The scene's scripts read them with game.sceneProps() from their first start(); a reload keeps them. Windowed or headless."},
                {"width", "W", "Override the design/window width."},
                {"height", "H", "Override the design/window height."},
                {"headless", "", "No window: deterministic offscreen run."},
@@ -83,6 +85,22 @@ Command make_run_command() {
         std::string dir = resolve_project_dir(ctx, 0);
         fs::set_project_root(dir);
         EngineConfig cfg = project_engine_config(dir, a.str("scene"), a.uinteger("seed", 1), date_flag(a));
+        if (a.has("props")) {
+            std::string text = a.str("props");
+            std::string where = "--props";
+            if (text.find_first_not_of(" \t\r\n") == std::string::npos || text[text.find_first_not_of(" \t\r\n")] != '{') {
+                const std::string file = resolve_input_path(text, dir, "the --props file");
+                auto loaded = fs::read_text(file);
+                if (!loaded.ok()) throw UsageError("--props: " + loaded.error().to_string());
+                text = loaded.value();
+                where = file;
+            }
+            auto parsed = parse_json(text, where);
+            if (!parsed.ok()) throw UsageError("--props: " + parsed.error().to_string(), "Pass a JSON object like '{\"level\":3}' or a .json file that holds one.");
+            if (!parsed.value().is_object())
+                throw UsageError("--props must be a JSON object like '{\"level\":3}', got " + describe_json_value(parsed.value()) + ".");
+            cfg.sceneProps = parsed.value();
+        }
         cfg.width = a.integer("width", 0);
         cfg.height = a.integer("height", 0);
         if (!a.has("headless")) {

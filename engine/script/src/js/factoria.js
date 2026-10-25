@@ -494,6 +494,11 @@
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
       return new AnimatorApi(this.$h);
     }
+    get tilemap() {
+      if (!N.hasComp(this.$h, "Tilemap"))
+        throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.import_ascii`);
+      return new TilemapApi(this.$h);
+    }
     get video() {
       if (!N.hasComp(this.$h, "Video"))
         throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
@@ -541,6 +546,26 @@
     set loop(v) { this.component.loop = v; }
     get playing() { return this.component.playing; }
     set playing(v) { this.component.playing = v; }
+  }
+
+  // ======================================================================================================== tilemap
+  // entity.tilemap: reads and writes single tiles of a Tilemap component in place (the tiles array is not copied or
+  // replaced), so a script can dig, build or open doors every frame. 2D physics rebuilds only the colliders it changes.
+  class TilemapApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("Tilemap")); }
+    // The size drawing and collision use, read natively: `tiles` is not copied to the script.
+    get width() { return N.tileDims(this.$h)[0]; }
+    get height() { return N.tileDims(this.$h)[1]; }
+    getTile(x, y) {
+      if (typeof x !== "number" || typeof y !== "number") throw new Error(`tilemap.getTile(x, y) expects two cell numbers, got ${inspect(x)}, ${inspect(y)}`);
+      return N.tileGet(this.$h, x, y);
+    }
+    setTile(x, y, tile) {
+      if (typeof x !== "number" || typeof y !== "number" || typeof tile !== "number")
+        throw new Error(`tilemap.setTile(x, y, tile) expects three numbers (cell column, cell row, tile index or -1), got ${inspect(x)}, ${inspect(y)}, ${inspect(tile)}`);
+      N.tileSet(this.$h, x, y, tile);
+    }
   }
 
   // ========================================================================================================== video
@@ -1007,7 +1032,24 @@
   const windowApi = {
     get available() { return N.windowInfo().available; },
     get fullscreen() { return N.windowInfo().fullscreen; },
-    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on); },
+    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on ? "fullscreen" : "windowed"); },
+    get mode() { return N.windowInfo().mode; },
+    setMode(mode) {
+      const modes = ["windowed", "borderless", "fullscreen"];
+      if (!modes.includes(mode)) {
+        const sug = typeof mode === "string" ? closest(mode, modes) : "";
+        throw new Error(`window.setMode(mode) expects "windowed", "borderless" or "fullscreen", e.g. window.setMode("borderless"), but got ${inspect(mode)}${sug ? ` (did you mean "${sug}"?)` : ""}`);
+      }
+      winSet("setMode", 0, mode);
+    },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
+    setMonitor(index) {
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error(`window.setMonitor(index) expects the number of a monitor from window.monitors(), counted from 0, e.g. window.setMonitor(1), but got ${inspect(index)}`);
+      }
+      winSet("setMonitor", 4, index);
+    },
     get size() { const w = N.windowInfo(); return new Vec2(w.width, w.height); },
     get displaySize() { const w = N.windowInfo(); return new Vec2(w.displayWidth, w.displayHeight); },
     setSize(width, height) {
@@ -1046,18 +1088,20 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
-    // supports("frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
+    // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
     // with a "did you mean".
     supports(feature) {
-      const names = ["frameCap", "renderScale", "fullscreen", "resize", "clipboard"];
+      const names = ["frameCap", "renderScale", "fullscreen", "borderless", "monitors", "resize", "clipboard"];
       if (!names.includes(feature)) {
         const sug = typeof feature === "string" ? closest(feature, names) : "";
         throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
       }
       if (feature === "renderScale") return true;
       if (feature === "clipboard") return N.clipboardSupported();
+      if (feature === "borderless") return N.windowInfo().supportsModes;
+      if (feature === "monitors") return N.windowInfo().supportsMonitors;
       return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
     },
   };
@@ -1347,7 +1391,8 @@
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
       return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
     },
-    load(path) { N.requestScene(path); },
+    // load(path, props?): props is a plain object the new scene's scripts read with game.sceneProps() from their first start().
+    load(path, props) { N.requestScene(path, props); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
   };
@@ -1362,6 +1407,9 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
+    // The props the running scene was started with (scene.load(path, props), `factoria run --props`, game.load(path, props)): a
+    // fresh plain object every call, {} when there are none. Valid from the first onStart.
+    sceneProps() { return N.sceneProps(); },
     // The calendar date: { year, month, day, weekday (0 = Sunday), hour, minute, second (the local time of day), utcOffsetMinutes,
     // iso: "YYYY-MM-DD", utc: { year, month, day, iso } (the date in UTC, the day stores use for their daily boards) }. The player's
     // real local date and time in a game with a window (read again about once a minute, see game.on("dayChanged")); a fixed date
@@ -2262,8 +2310,8 @@
     resume() { N.testAppEvent(1); },
     focus() { N.testAppEvent(2); },
     blur() { N.testAppEvent(3); },
-    load(path) {
-      const err = N.testLoad(path);
+    load(path, props) {
+      const err = N.testLoad(path, props);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
     },
     setStorageText(text) { N.testStorageText(text === null || text === undefined ? null : String(text)); },
@@ -2401,8 +2449,8 @@
     // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
     // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
     fileReads() { return N.testDiskReads(); },
-    loadJson(scene) {
-      const err = N.testLoadJson(plain(scene));
+    loadJson(scene, props) {
+      const err = N.testLoadJson(plain(scene), props === undefined ? undefined : plain(props));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
     },
     touchStart(p, id = 1) { const a = posArg(p, "game.touchStart"); N.testTouch(0, id, a[0], a[1]); },

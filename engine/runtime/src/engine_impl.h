@@ -4,12 +4,14 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <string>
 #include <vector>
 
 #include "fa/core/i18n.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/input_recorder.h"
 #include "fa/scene/serialize.h"
 #include "fa/services/platform.h"
 #include "fa/ui/ui.h"
@@ -22,12 +24,16 @@ constexpr double kMaxFrameDt = 0.25;  // Engine::frame clamps dt to this (a repl
 // for a game that owns a window (not headless, not the editor's game view); window_control.cpp.
 class AppWindowControl final : public WindowControl {
 public:
-    bool fullscreen() const override;
+    std::string mode() const override;
+    bool supports_modes() const override;
+    bool supports_monitors() const override;
+    std::vector<WindowMonitor> monitors() const override;
     void size(int& width, int& height) const override;
     void display_size(int& width, int& height) const override;
     bool vsync() const override;
     int frame_cap() const override { return cap_; }
-    std::string set_fullscreen(bool on) override;
+    std::string set_mode(const std::string& mode) override;
+    std::string set_monitor(int index) override;
     std::string set_size(int width, int height) override;
     std::string set_vsync(bool on) override;
     std::string set_frame_cap(int fps) override;
@@ -51,8 +57,10 @@ public:
     std::string get() override {
         std::string text = system_ ? system_clipboard().get() : memory_.get();
         if (logging_) reads_.push_back(text);
+        if (recorder_) recorder_->clipboard_read(text);
         return text;
     }
+    void set_recorder(InputRecorder* recorder) { recorder_ = recorder; }
     void set(const std::string& text) override {
         if (system_) system_clipboard().set(text);
         else memory_.set(text);
@@ -66,6 +74,7 @@ public:
 private:
     bool system_ = false;
     bool logging_ = false;
+    InputRecorder* recorder_ = nullptr;  // the input recorder: a read is part of the replay
     MemoryClipboard memory_;
     std::vector<std::string> reads_;
 };
@@ -92,6 +101,14 @@ struct Engine::Impl {
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
     EngineClipboard clipboard;
+    InputRecorder recorder;  // the Input observer; records only between start_input_recording and stop_input_recording
+
+    // Scene props (scene.load(path, {props}), `factoria run --props`): the running scene's, and the ones the next load takes.
+    // A load takes `nextProps` when there are some; else a reload (keepProps) keeps the current ones; else a load gives {}.
+    Json sceneProps = Json::object();
+    std::optional<Json> nextProps;
+    bool pendingKeepProps = false;  // the scene change scheduled for the end of the frame is a reload
+    void take_scene_props(bool keepProps);
 
     double heldScale = 1.0;         // Engine::hold_render_scale: the render scale between captures
     bool renderStale = false;       // OnDemand: simulated since the last draw
@@ -128,7 +145,7 @@ struct Engine::Impl {
     void finish_scene_load(const LoadReport& report, const std::string& label, std::string* error);
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
     void end_of_frame(double dt);
-    bool load_scene_impl(const std::string& path, std::string* error);
+    bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
     // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
