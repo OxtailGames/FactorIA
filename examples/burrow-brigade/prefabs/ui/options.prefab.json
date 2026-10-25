@@ -50,7 +50,7 @@
                 "autoSize": true,
                 "text": "Video",
                 "key": "options.tab.video",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302,
                 "autoFocus": true
               }
@@ -63,7 +63,7 @@
                 "autoSize": true,
                 "text": "Audio",
                 "key": "options.tab.audio",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -75,7 +75,7 @@
                 "autoSize": true,
                 "text": "Controls",
                 "key": "options.tab.controls",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -87,7 +87,7 @@
                 "autoSize": true,
                 "text": "Access",
                 "key": "options.tab.access",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -99,7 +99,7 @@
                 "autoSize": true,
                 "text": "Language",
                 "key": "options.tab.language",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -347,7 +347,7 @@
         },
         "children": [
           {
-            "id": "sound_captions",
+            "id": "sound_captions_toggle",
             "components": {
               "Toggle": {
                 "autoSize": true,

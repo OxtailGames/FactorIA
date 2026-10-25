@@ -150,8 +150,8 @@ export default class Options extends Behaviour {
   // keyboard, a gamepad or the mouse like every widget of the panel; each is applied at once and saved.
   setupAccess() {
     this.holdSeat = 0;
-    world.find("sound_captions").get("Toggle").value = this.s.soundCaptions;
-    ui.on("change", "sound_captions", (e) => {
+    world.find("sound_captions_toggle").get("Toggle").value = this.s.soundCaptions;
+    ui.on("change", "sound_captions_toggle", (e) => {
       this.s.soundCaptions = e.value;
       settings.applySubtitles(this.s);
       settings.save(this.s);

@@ -542,6 +542,72 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0025",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "major",
+      "title": "No layered or synced music, and a playing voice's volume cannot change",
+      "missing": "audio.music is one stream and the volume of a voice that plays cannot be changed, so a danger layer and a fight layer cannot fade in over the track of the stratum",
+      "workaround": "scripts/game/music.js plays one-bar loops of each layer on the bar lines of a real-time clock and starts or stops them as a chase rises or falls; the layers never fade, they come and go on the bar",
+      "workaroundFiles": [
+        "scripts/game/music.js",
+        "assets/src/make_music_layers.py"
+      ],
+      "suggestion": "audio.musicLayers({name: path}) with setLayer(name, volume, fadeSeconds), all layers sample-synced; or a volume that audio.setVoiceVolume(handle, v, fade) can change",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0026",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "major",
+      "title": "No bus effects, ducking or snapshots",
+      "missing": "The audio API has bus volumes only: no low-pass filter, reverb, ducking or named mixer snapshots, so a paused game, water or a big cave cannot change the sound",
+      "workaround": "scripts/game/mix.js owns the four bus volumes (user volume x snapshot factor x duck) and eases them; muffling is just quieter and the cavern echo is a delayed, quieter replay of the clip in scripts/game/sound.js",
+      "workaroundFiles": [
+        "scripts/game/mix.js",
+        "scripts/game/sound.js"
+      ],
+      "suggestion": "audio.bus(name).lowpass / reverb / duck({by, depth, seconds}) and audio.snapshot(name, {fadeSeconds}) over a table the game defines",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0027",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "The window API has no borderless mode and no monitor choice",
+      "missing": "window.setFullscreen takes a boolean (the window covering the monitor), so Options cannot offer windowed / borderless / exclusive fullscreen, or choose the monitor",
+      "workaround": "Options > Video offers windowed and full screen only, and shows the monitor's size as text (scripts/ui/options.js)",
+      "workaroundFiles": [
+        "scripts/ui/options.js",
+        "scripts/settings.js"
+      ],
+      "suggestion": "window.setMode('windowed' | 'borderless' | 'fullscreen') and window.monitors / window.setMonitor(i)",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
