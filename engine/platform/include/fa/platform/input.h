@@ -191,6 +191,10 @@ public:
     // On-screen keyboard wanted (phones and tablets; desktop ignores it). Default false.
     bool keyboard_shown() const { return keyboardShown_; }
     void set_keyboard_shown(bool shown) { keyboardShown_ = shown; }
+    // The platform shows its own keyboard for the focused TextField (a native plugin took it: docs/EXTENDING.md, "Native
+    // plugins"), so the game's on-screen keyboard stays closed. Set by the UI; scripts read it as input.platformKeyboard.
+    bool platform_keyboard() const { return platformKeyboard_; }
+    void set_platform_keyboard(bool shown) { platformKeyboard_ = shown; }
 
     // -------- vibration (the REQUESTED pulses, in seconds, oldest first; the windowed runtime plays them on a phone and
     // clears the list, headless runs and tests keep them so they can check what the game asked for)
@@ -329,7 +333,7 @@ private:
     std::vector<TouchControl> touchControls_;
     float deadzone_ = 0.2f;
     InputDevice lastDevice_ = InputDevice::Keyboard;
-    bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false;
+    bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false, platformKeyboard_ = false;
     bool backEdge_ = false;
     std::vector<float> vibrations_;
     Json projectActions_;  // what the last set_actions() was given (reset_bindings)

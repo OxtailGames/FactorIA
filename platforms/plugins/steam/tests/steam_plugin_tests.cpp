@@ -34,7 +34,10 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/runtime/engine.h"
+#include "fa/platform/input.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/components.h"
+#include "fa/ui/ui.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -200,7 +203,8 @@ struct SteamGame {
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"SteamTest","plugins":{"steam":{"path":"native/steam"}},"platform":)"
                                              << kCatalog << "}";
-        std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[]})";
+        std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[
+            {"id":"name_field","components":{"TextField":{"size":[200,30],"text":"Ann","maxLength":8}}}]})";
         if (!appId.empty()) std::ofstream(dir / "steam_appid.txt") << appId << "\n";
         stdfs::copy_file(FA_STEAM_PLUGIN_FILE, native / kPluginFile, stdfs::copy_options::overwrite_existing);
         if (library != Library::None) {
@@ -382,6 +386,95 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     CHECK(status.result["statsLoaded"] == true);
     CHECK(status.result["dlc"] == 2);
     expect_clean(s, mock);
+}
+
+// A gamepad player focuses the name field, as the menu does with the d-pad.
+void focus_with_pad(Session& s) {
+    s.engine.input().set_last_device(InputDevice::Gamepad);
+    Entity field = s.engine.world().find("name_field");
+    REQUIRE(field != kNullEntity);
+    REQUIRE(s.engine.ui()->set_focus(s.engine.world(), field));
+    s.engine.step(2);
+}
+std::string field_text(Session& s) { return s.engine.world().get<TextField>(s.engine.world().find("name_field"))->text; }
+
+TEST_CASE("steam services: nothing opens Steam's keyboard on a desktop Steam") {
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    Session s(game);
+    focus_with_pad(s);
+    CHECK(mock.count_calls("ShowFloatingGamepadTextInput") == 0);
+    CHECK(mock.count_calls("ShowGamepadTextInput") == 0);
+    CHECK_FALSE(s.engine.input().platform_keyboard());  // the game's own keyboard serves the pad
+    expect_clean(s, mock);
+}
+
+TEST_CASE("steam services: the floating keyboard opens over the field on a Steam Deck and closes with the focus") {
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    mock.set(Json{{"onDeck", true}});
+    Session s(game);
+    focus_with_pad(s);
+    REQUIRE(mock.count_calls("ShowFloatingGamepadTextInput") == 1);
+    const std::string call = [&] {
+        for (const std::string& c : mock.calls())
+            if (c.rfind("ShowFloatingGamepadTextInput", 0) == 0) return c;
+        return std::string();
+    }();
+    CHECK_MESSAGE(has(call, "ShowFloatingGamepadTextInput 0 "), call);  // single line
+    const bool sized = call.size() >= 8 && call.substr(call.size() - 7) == " 200 30";
+    CHECK_MESSAGE(sized, call);  // the field is 200 x 30
+    CHECK(s.engine.input().platform_keyboard());
+    CHECK(mock.count_calls("ShowGamepadTextInput") == 0);
+
+    // The player confirms in Steam's keyboard: it closes by itself, the focus stays, and so does the claim on the keyboard.
+    mock.fire("floatingDismissed");
+    s.engine.step(2);
+    CHECK(mock.count_calls("ShowFloatingGamepadTextInput") == 1);
+
+    // Leaving the field takes the keyboard down.
+    s.engine.ui()->set_focus(s.engine.world(), kNullEntity);
+    s.engine.step(2);
+    CHECK(mock.count_calls("DismissFloatingGamepadTextInput") == 0);  // it had closed already
+    CHECK_FALSE(s.engine.input().platform_keyboard());
+    expect_clean(s, mock);
+    mock.set(Json{{"onDeck", false}});
+}
+
+TEST_CASE("steam services: Big Picture uses the modal keyboard when the floating one is not offered, and its text fills the field") {
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    mock.set(Json{{"bigPicture", true}, {"floatingOffered", false}});
+    Session s(game);
+    s.engine.input().set_last_device(InputDevice::Gamepad);
+    focus_with_pad(s);
+    CHECK(mock.count_calls("ShowFloatingGamepadTextInput") == 1);  // tried first
+    REQUIRE(mock.count_calls("ShowGamepadTextInput") == 1);
+    CHECK(mock.called("ShowGamepadTextInput 0 0 Enter text 8 [Ann]"));  // normal, single line, the field's maxLength, its text
+    CHECK(s.engine.input().platform_keyboard());
+
+    mock.fire("gamepadText", Json{{"submitted", true}, {"text", "Bartholomew"}});
+    s.engine.step(2);
+    CHECK(field_text(s) == "Bartholo");  // cut to maxLength 8
+    CHECK(s.engine.input().platform_keyboard());
+
+    // A cancelled keyboard changes nothing.
+    mock.fire("gamepadText", Json{{"submitted", false}, {"text", "ignored"}});
+    s.engine.step(2);
+    CHECK(field_text(s) == "Bartholo");
+
+    // Text that arrives after the field lost the focus goes nowhere.
+    s.engine.ui()->set_focus(s.engine.world(), kNullEntity);
+    s.engine.step(2);
+    mock.fire("gamepadText", Json{{"submitted", true}, {"text", "late"}});
+    s.engine.step(2);
+    CHECK(field_text(s) == "Bartholo");
+    CHECK_FALSE(s.engine.input().platform_keyboard());
+    expect_clean(s, mock);
+    mock.set(Json{{"bigPicture", false}, {"floatingOffered", true}});
 }
 
 TEST_CASE("steam services: achievements unlock, report progress, list and reset") {

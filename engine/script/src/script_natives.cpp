@@ -1590,7 +1590,7 @@ NATIVE(testVibrations) {
     return I->from_json(Json(I->host->input().vibrations()));
 }
 
-NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown, value?): sets when given; returns the state
+NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only), value?): sets when given; returns the state
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     Input& in = I->host->input();
@@ -1598,9 +1598,10 @@ NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown, va
         bool v = arg_bool(ctx, argc, argv, 1);
         if (kind == 0) in.set_mouse_visible(v);
         else if (kind == 1) in.set_mouse_locked(v);
-        else in.set_keyboard_shown(v);
+        else if (kind == 2) in.set_keyboard_shown(v);
     }
-    return JS_NewBool(ctx, kind == 0 ? in.mouse_visible() : kind == 1 ? in.mouse_locked() : in.keyboard_shown());
+    return JS_NewBool(ctx, kind == 0 ? in.mouse_visible() : kind == 1 ? in.mouse_locked()
+                                                          : kind == 3 ? in.platform_keyboard() : in.keyboard_shown());
 }
 
 // ---- window -----------------------------------------------------------------------------------------------------------
