@@ -43,7 +43,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         "for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), "
         "CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "
         "\"plugins\": {\"<name>\": {\"path\", \"platforms\", \"optional\"}} to factoria.json "
-        "(`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build).The plugin adds the script function plugins.<name>.add(a, b) and "
+        "(`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and "
         "the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "
         "\"basic\") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the "
         "engine; docs/PLATFORM.md, \"Writing a backend\"). The name: lower-case "
