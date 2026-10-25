@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "engine_impl.h"
+#include "fa/audio/snapshots.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
@@ -89,6 +90,33 @@ void Engine::Impl::apply_project_settings() {
         FA_WARN("platform", "{}", problem);
         startupProblems.push_back(problem);
         platform.set_catalog(PlatformCatalog{});
+    }
+    // The audio snapshots. A section with errors counts as empty (audio.snapshot then says there is none); the problems are
+    // logged here and `factoria validate` lists them all.
+    AudioSettingsParse audioSettings = parse_audio_settings(project.raw.is_object() && project.raw.contains("audio") ? project.raw["audio"] : Json());
+    if (audioSettings.ok()) {
+        audio.set_snapshots(std::move(audioSettings.snapshots));
+    } else {
+        const AudioIssue& first = audioSettings.issues.front();
+        const std::string problem = "audio: the snapshot catalog is ignored: factoria.json#" + first.pointer + ": " + first.message +
+                                    " (hint: " + first.hint + ")" +
+                                    (audioSettings.issues.size() > 1 ? " and " + std::to_string(audioSettings.issues.size() - 1) +
+                                                                           " more (`factoria validate` lists them all)"
+                                                                     : std::string());
+        FA_WARN("audio", "{}", problem.substr(7));
+        startupProblems.push_back(problem);
+        audio.set_snapshots(AudioSnapshots{});
+    }
+    // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
+    auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
+    if (network.ok()) {
+        platform.set_network(std::move(network.value()));
+    } else {
+        const std::string problem = "network: the declaration is ignored: " + network.error().to_string() +
+                                    " (`factoria validate` lists every problem)";
+        FA_WARN("platform", "{}", problem);
+        startupProblems.push_back(problem);
+        platform.set_network(NetworkPolicy{});
     }
 }
 
@@ -547,6 +575,17 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_DEBUG("platform", "{}", choice.adsWhy);
         I.platform.set_ads_backend(nullptr, choice.adsWhy);  // platform.state's adsWhy says why no ads plugin is in use
     }
+    // http.fetch: the system's HTTP client, except in headless runs, tests, `factoria call` and the MCP server (they ask for the fake
+    // backend, which answers what game.platform.respond scripted and never touches the network).
+    if (config.platformBackend != "fake") {
+        auto client = make_system_http_client();
+        std::string why = "the system's HTTP client (" + client->name() + ")";
+        if (!client->available()) {
+            why = client->unavailable_reason();  // the sentence http.fetch's "unavailable" answer carries
+            FA_INFO("platform", "http.fetch is not available on this computer: {}", why);
+        }
+        I.platform.set_http_backend(make_http_backend(std::move(client)), why);
+    }
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     if (!I.scripts.init(*this, &serr)) {
@@ -560,6 +599,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.recorder.set_frame_source(&I.frame);  // the input recorder hears every event of the game (start_input_recording)
     I.input.set_observer(&I.recorder);
     I.clipboard.set_recorder(&I.recorder);
+    I.platform.set_frame_clock(&I.frame);  // the frame of each http.fetch request, for the recorder
 
     // Start scene (errors are kept for game.state / script.errors; they do not abort init).
     std::string scenePath = config.scene.empty() ? I.project.mainScene : config.scene;
@@ -853,6 +893,8 @@ void Engine::start_input_recording() {
     Impl& I = *impl_;
     const std::uint64_t f = I.frame;
     I.recorder.start(f);
+    I.platform.log_http(false);  // http.fetch answers go into the replay too, from the requests made from now on
+    I.platform.log_http(true);
     const CalendarDate today = I.scripts.today();
     I.recorder.set_date(today.iso(), today.utcOffsetMinutes, today.iso_time());
     // What is held now is part of the session: the replay starts from nothing.
@@ -873,8 +915,12 @@ void Engine::start_input_recording() {
     for (const Touch& t : in.touches()) I.recorder.touch_begin(f, t.id, t.position);
 }
 Json Engine::stop_input_recording() {
-    impl_->recorder.stop();
-    return impl_->recorder.input();
+    Impl& I = *impl_;
+    if (I.recorder.recording())
+        for (const HttpLogEntry& e : I.platform.take_http_log()) I.recorder.http(e.frame, e.answer);  // the answered requests
+    I.platform.log_http(false);
+    I.recorder.stop();
+    return I.recorder.input();
 }
 bool Engine::input_recording() const { return impl_->recorder.recording(); }
 std::size_t Engine::input_recording_frames() const { return impl_->recorder.frame_count(); }

@@ -30,7 +30,13 @@
       "controls": "التحكم",
       "language": "اللغة"
     },
-    "fullscreen": "ملء الشاشة",
+    "windowMode": "وضع النافذة: {mode}",
+    "mode": {
+      "windowed": "نافذة",
+      "borderless": "بلا حدود",
+      "fullscreen": "ملء الشاشة"
+    },
+    "monitor": "الشاشة: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "حجم النافذة: {width} x {height}",
     "windowSizeFullscreen": "حجم النافذة: ملء الشاشة",

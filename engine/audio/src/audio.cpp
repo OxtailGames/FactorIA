@@ -18,6 +18,7 @@
 #include <set>
 
 #include "audio_decoder.h"
+#include "bus_fx.h"
 #include "fa/audio/analysis.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
@@ -35,6 +36,7 @@ namespace fa {
 namespace {
 
 using audio_detail::Stream;
+using audio_detail::Ramp;
 
 constexpr int kRate = audio_detail::kMixRate;
 constexpr std::size_t kMaxVoices = 64;
@@ -44,6 +46,33 @@ constexpr std::size_t kMaxPlayLog = 4096;
 
 enum Bus { BusSfx = 0, BusMusic = 1, BusUi = 2, BusCount = 3 };
 const char* const kBusNames[BusCount] = {"sfx", "music", "ui"};
+constexpr int kMasterBus = BusCount;      // the effects of the master are bus[kMasterBus]
+constexpr int kFxBuses = BusCount + 1;
+constexpr float kDuckThreshold = 0.01f;   // -40 dBFS: a bus that peaks above this ducks the buses that listen to it
+constexpr float kLowpassOpen = 20000.0f;  // where a cutoff slides from or to when the filter is switched on or off
+constexpr float kMaxBusVolume = 4.0f;
+constexpr double kReverbTail = 4.0;       // seconds the reverb keeps running after its bus went silent (it decays to -100 dB)
+
+// The state of one bus: its gain, its effects and its ducking. [kMasterBus] is the master.
+struct BusFx {
+    Ramp vol;   // the volume (the player's options; audio.setVolume)
+    Ramp snap;  // the scale a snapshot sets
+    // Low-pass: the cutoff moves in octaves (log2 of Hz); lpHz is the target in Hz (0 = off).
+    bool lpOn = false, lpOffAtEnd = false, lpDirty = false;
+    Ramp lpLog;
+    float lpHz = 0.0f;
+    audio_detail::Lowpass lp;
+    // Reverb: allocated the first time it is switched on (never on the audio thread).
+    bool rvOn = false, rvOffAtEnd = false;
+    Ramp rvMix{0.0f, 0.0f, 0.0f, 0};
+    std::unique_ptr<audio_detail::Reverb> rv;
+    long rvQuiet = 0;  // frames since the bus last had a voice
+    // Ducking.
+    int duckBy = -1;
+    DuckSettings duck;
+    float duckAttack = 0.0f, duckRelease = 0.0f;  // one-pole coefficients
+    float duckGain = 1.0f, duckEnv = 0.0f;
+};
 
 struct Clip {
     std::string path;
@@ -148,8 +177,11 @@ struct Audio::Impl {
 
     std::vector<Voice> voices;
     VoiceId nextVoice = 1;
-    float busVol[BusCount] = {1, 1, 1};
-    float master = 1.0f;
+    BusFx bus[kFxBuses];
+    std::vector<float> busBuf[BusCount];     // the sum of each bus's voices, before the master
+    std::vector<float> duckGains[BusCount];  // the ducking gain of each bus for the block being mixed
+    AudioSnapshots snapshots;
+    std::string snapshotName;
     VoiceId musicVoice = 0;
     std::string musicPath;
     float layerVolume = 0.6f;   // the `volume` musicLayers got: a layer plays at layerVolume * its level
@@ -343,6 +375,13 @@ struct Audio::Impl {
         return it->second;
     }
 
+    // ------------------------------------------------------------- bus effects
+    long ramp_frames(float seconds, bool declick) const;
+    void set_lowpass_locked(BusFx& fx, float hz, float fadeSeconds);
+    void set_reverb_locked(BusFx& fx, float mix, float fadeSeconds);
+    void set_duck_locked(BusFx& fx, int by, const DuckSettings& duck);
+    Json bus_state_json(const BusFx& fx) const;
+
     // ------------------------------------------------------------- voices
     static int bus_index(std::string_view name) {
         for (int i = 0; i < BusCount; ++i) if (name == kBusNames[i]) return i;
@@ -437,14 +476,14 @@ struct Audio::Impl {
     }
 
     // ------------------------------------------------------------- mixing
-    // Adds a PCM voice into `out`: the same pan law, bus and fade as a clip voice. A dry queue makes silence, not an end.
+    // Adds a PCM voice into `out` (its bus's buffer): the same pan law and fade as a clip voice. A dry queue makes silence, not an end.
     void mix_pcm_locked(Voice& v, float* out, int frames) {
         PcmFeed& p = *v.pcm;
         const double step = double(p.rate) / double(deviceRate);
         const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
         const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
         const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-        const float base = busVol[v.bus] * master;
+        const float base = 1.0f;  // the bus and master volumes are applied to the sum of the bus
         const float* d = p.queue.data() + p.head;
         const std::size_t avail = p.frames();
         for (int f = 0; f < frames; ++f) {
@@ -475,17 +514,109 @@ struct Audio::Impl {
         }
     }
 
-    // Mixes `frames` stereo frames into `out` (overwrites). Caller holds mu.
+    // The effects of one bus on its buffer, in order: low-pass, reverb. `used` = a voice wrote into the buffer this block.
+    // Returns whether the buffer can hold sound (a voice, or a reverb tail). A bus without an effect does no work here.
+    bool run_effects(BusFx& fx, float* buf, int frames, bool used) {
+        if (fx.lpOn) {
+            if (fx.lpLog.moving()) {
+                fx.lpLog.skip(frames);
+                fx.lpDirty = true;
+            }
+            if (fx.lpDirty) {
+                fx.lp.set_cutoff(std::exp2(fx.lpLog.cur), float(deviceRate));
+                fx.lpDirty = false;
+            }
+            if (used) fx.lp.process(buf, frames);
+            else fx.lp.clear();
+            if (!fx.lpLog.moving() && fx.lpOffAtEnd) {
+                fx.lpOn = false;
+                fx.lpOffAtEnd = false;
+                fx.lp.clear();
+            }
+        }
+        bool live = used;
+        if (fx.rvOn && fx.rv) {
+            fx.rvMix.skip(frames);
+            fx.rvQuiet = used ? 0 : std::min(fx.rvQuiet + frames, long(1) << 40);
+            if (used || double(fx.rvQuiet) <= kReverbTail * deviceRate) {
+                fx.rv->process(buf, frames, clamp(fx.rvMix.cur, 0.0f, 1.0f));
+                live = true;
+            }
+            if (!fx.rvMix.moving() && fx.rvOffAtEnd) {
+                fx.rvOn = false;
+                fx.rvOffAtEnd = false;
+                fx.rv->clear();
+            }
+        }
+        return live;
+    }
+
+    // The volume of a bus (the player's setting times the snapshot's scale) on its buffer; the ramps keep time on a silent bus.
+    static void apply_bus_gain(BusFx& fx, float* buf, int frames, bool live) {
+        if (!live) {
+            fx.vol.skip(frames);
+            fx.snap.skip(frames);
+            return;
+        }
+        if (!fx.vol.moving() && !fx.snap.moving()) {
+            const float g = fx.vol.cur * fx.snap.cur;
+            if (g != 1.0f)
+                for (int i = 0; i < frames * 2; ++i) buf[i] *= g;
+            return;
+        }
+        for (int f = 0; f < frames; ++f) {
+            const float g = fx.vol.next() * fx.snap.next();
+            buf[2 * f] *= g;
+            buf[2 * f + 1] *= g;
+        }
+    }
+
+    // The ducking gain of bus `d` for this block, from the loudness of the bus it listens to: a peak detector (instant attack,
+    // 10 ms release) says whether that bus is above the threshold, and the gain follows the target with the attack and release
+    // times. Writes the gain per frame into duckGains[d]; the detector and the gain keep their state across blocks.
+    void compute_duck(int d, int frames) {
+        BusFx& fx = bus[d];
+        const float* src = busBuf[fx.duckBy].data();
+        std::vector<float>& g = duckGains[d];
+        g.resize(std::size_t(frames));
+        const float detRelease = std::exp(-1.0f / (0.010f * float(deviceRate)));
+        const float low = 1.0f - fx.duck.amount;
+        float env = fx.duckEnv, gain = fx.duckGain;
+        for (int f = 0; f < frames; ++f) {
+            env = std::max(std::max(std::fabs(src[2 * f]), std::fabs(src[2 * f + 1])), env * detRelease);
+            const float target = env > kDuckThreshold ? low : 1.0f;
+            const float k = target < gain ? fx.duckAttack : fx.duckRelease;
+            gain = target + (gain - target) * k;
+            g[std::size_t(f)] = gain;
+        }
+        // Settle the tails so a bus that is back at full volume stops costing anything.
+        if (env < kDuckThreshold * 1e-3f) env = 0.0f;
+        if (gain > 0.99999f) gain = 1.0f;
+        fx.duckEnv = env;
+        fx.duckGain = gain;
+    }
+
+    // Mixes `frames` stereo frames into `out` (overwrites). Caller holds mu. Every voice is summed into the buffer of its bus;
+    // each bus gets its effects, volume and ducking; the buses are summed into `out`, which gets the master's.
     void mix_locked(float* out, int frames) {
-        std::memset(out, 0, sizeof(float) * std::size_t(frames) * 2);
+        const std::size_t n = std::size_t(frames) * 2;
+        std::memset(out, 0, sizeof(float) * n);
         const double rateRatio = double(kRate) / double(deviceRate);
+        bool used[BusCount] = {false, false, false};
+        for (int b = 0; b < BusCount; ++b) {
+            busBuf[b].resize(n);
+            std::memset(busBuf[b].data(), 0, sizeof(float) * n);
+        }
         for (Voice& v : voices) {
             if (paused) break;
+            float* const dst = busBuf[v.bus].data();
             if (v.pcm) {
-                mix_pcm_locked(v, out, frames);
+                used[v.bus] = true;
+                mix_pcm_locked(v, dst, frames);
                 continue;
             }
             if (v.dead || !v.clip || v.clip->frames == 0) { v.dead = true; continue; }
+            used[v.bus] = true;
             const Clip& c = *v.clip;
             Stream* const stream = v.stream.get();
             const double n = double(c.frames);
@@ -494,7 +625,7 @@ struct Audio::Impl {
             // Equal-power pan law normalised to unity at the centre (gain capped at 1 on the loud side).
             const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
             const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-            const float base = busVol[v.bus] * master * c.gain;
+            const float base = c.gain;  // the bus and master volumes are applied to the sum of the bus
             for (int f = 0; f < frames; ++f) {
                 float l, r;
                 if (stream) {
@@ -514,8 +645,8 @@ struct Audio::Impl {
                     r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * t;
                 }
                 float g = base * v.volume * v.fade;
-                out[2 * f] += l * gl * g;
-                out[2 * f + 1] += r * gr * g;
+                dst[2 * f] += l * gl * g;
+                dst[2 * f + 1] += r * gr * g;
                 v.pos += step;
                 step_volume(v);
                 if (v.fadeFrames > 0) {
@@ -528,6 +659,39 @@ struct Audio::Impl {
             }
         }
         voices.erase(std::remove_if(voices.begin(), voices.end(), [](const Voice& v) { return v.dead; }), voices.end());
+        if (!paused) {
+            bool live[BusCount];
+            bool anyLive = false;
+            for (int b = 0; b < BusCount; ++b) {
+                live[b] = run_effects(bus[b], busBuf[b].data(), frames, used[b]);
+                apply_bus_gain(bus[b], busBuf[b].data(), frames, live[b]);
+            }
+            // Ducking reads the buses as they are before any ducking is applied, so two buses can listen to each other.
+            bool ducking[BusCount];
+            for (int b = 0; b < BusCount; ++b) {
+                const BusFx& fx = bus[b];
+                ducking[b] = fx.duckBy >= 0 && (live[b] || live[fx.duckBy] || fx.duckGain != 1.0f || fx.duckEnv != 0.0f);
+                if (ducking[b]) compute_duck(b, frames);
+            }
+            for (int b = 0; b < BusCount; ++b) {
+                if (ducking[b] && live[b]) {
+                    float* buf = busBuf[b].data();
+                    const float* g = duckGains[b].data();
+                    for (int f = 0; f < frames; ++f) {
+                        buf[2 * f] *= g[f];
+                        buf[2 * f + 1] *= g[f];
+                    }
+                }
+                if (live[b]) {
+                    anyLive = true;
+                    const float* buf = busBuf[b].data();
+                    for (std::size_t i = 0; i < n; ++i) out[i] += buf[i];
+                }
+            }
+            BusFx& master = bus[kMasterBus];
+            const bool masterLive = run_effects(master, out, frames, anyLive);
+            apply_bus_gain(master, out, frames, masterLive);
+        }
         float peak = 0.0f;
         for (int i = 0; i < frames * 2; ++i) {
             float s = out[i];
@@ -753,29 +917,244 @@ void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds) {
     if (Voice* v = impl_->find_voice(voice)) impl_->start_volume_ramp(*v, volume, fadeSeconds);
 }
 
-void Audio::set_bus_volume(std::string_view bus, float volume) {
-    volume = std::max(volume, 0.0f);
+namespace {
+
+// "sfx", "music", "ui" or "master" -> its index in Impl::bus; -1 for anything else.
+int fx_bus_index(std::string_view name) {
+    if (name == "master") return kMasterBus;
+    for (int i = 0; i < BusCount; ++i)
+        if (name == kBusNames[i]) return i;
+    return -1;
+}
+
+// The error for a bus name no bus has: what to use, with a "did you mean".
+Error unknown_bus_error(std::string_view name, bool allowMaster) {
+    std::vector<std::string> names(kBusNames, kBusNames + BusCount);
+    if (allowMaster) names.push_back("master");
+    std::string list;
+    for (const std::string& n : names) list += (list.empty() ? "\"" : ", \"") + n + "\"";
+    return make_error("Unknown audio bus '" + std::string(name) + "'. " + did_you_mean(name, names),
+                      "Use one of " + list + (allowMaster ? "" : " (the master has no ducking)") + ".");
+}
+
+}  // namespace
+
+// Frames of a fade of `seconds`; no fade (<= 0) is the short ramp that keeps a jump from clicking.
+long Audio::Impl::ramp_frames(float seconds, bool declick) const {
+    if (seconds > 0.0f) return std::max(1L, long(std::lround(double(seconds) * deviceRate)));
+    return declick ? std::max(1L, long(deviceRate / 100)) : 0L;
+}
+
+void Audio::set_bus_volume(std::string_view bus, float volume, float fadeSeconds) {
+    volume = clamp(volume, 0.0f, kMaxBusVolume);
     std::lock_guard<std::mutex> lk(impl_->mu);
-    if (bus == "master") { impl_->master = volume; return; }
-    int b = Impl::bus_index(bus);
+    const int b = fx_bus_index(bus);
     if (b < 0) {
-        std::vector<std::string> names = {"sfx", "music", "ui", "master"};
-        FA_ERROR("audio", "Unknown audio bus '{}'. {}", bus, did_you_mean(bus, names));
+        FA_ERROR("audio", "{}", unknown_bus_error(bus, true).message);
         return;
     }
-    impl_->busVol[b] = volume;
+    impl_->bus[b].vol.set(volume, impl_->ramp_frames(fadeSeconds, true));
 }
 
 float Audio::bus_volume(std::string_view bus) const {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    if (bus == "master") return impl_->master;
-    const int b = Impl::bus_index(bus);
-    return b < 0 ? -1.0f : impl_->busVol[b];
+    const int b = fx_bus_index(bus);
+    return b < 0 ? -1.0f : impl_->bus[b].vol.target;
 }
 
-void Audio::set_master_volume(float volume) {
+void Audio::set_master_volume(float volume) { set_bus_volume("master", volume, 0.0f); }
+
+Result<void> Audio::set_bus_lowpass(std::string_view bus, float hz, float fadeSeconds) {
+    const int b = fx_bus_index(bus);
+    if (b < 0) return unknown_bus_error(bus, true);
+    if (!std::isfinite(hz) || hz < 0.0f)
+        return make_error("A low-pass cutoff is a frequency in Hz, got " + std::to_string(hz),
+                          "Use 20..20000 Hz, or 0 (or null in a script) to switch the filter off.");
     std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->master = std::max(volume, 0.0f);
+    impl_->set_lowpass_locked(impl_->bus[b], hz, fadeSeconds);
+    return {};
+}
+
+void Audio::Impl::set_lowpass_locked(BusFx& fx, float hz, float fadeSeconds) {
+    const long frames = ramp_frames(fadeSeconds, false);
+    if (hz <= 0.0f) {
+        fx.lpHz = 0.0f;
+        if (!fx.lpOn) return;
+        if (frames <= 0) {
+            fx.lpOn = false;
+            fx.lp.clear();
+        } else {
+            fx.lpLog.set(std::log2(kLowpassOpen), frames);
+            fx.lpOffAtEnd = true;
+        }
+        return;
+    }
+    const float top = std::min(kLowpassOpen, 0.49f * float(deviceRate));
+    hz = clamp(hz, 20.0f, top);
+    if (!fx.lpOn) {
+        fx.lpOn = true;
+        fx.lp.clear();
+        fx.lpLog.set(std::log2(top), 0);  // a new filter starts open
+    }
+    fx.lpHz = hz;
+    fx.lpOffAtEnd = false;
+    fx.lpLog.set(std::log2(hz), frames);
+    fx.lpDirty = true;
+}
+
+Result<void> Audio::set_bus_reverb(std::string_view bus, float mix, float fadeSeconds) {
+    const int b = fx_bus_index(bus);
+    if (b < 0) return unknown_bus_error(bus, true);
+    if (!std::isfinite(mix) || mix < 0.0f || mix > 1.0f)
+        return make_error("A reverb mix is a number from 0 to 1, got " + std::to_string(mix),
+                          "0 is no reverb (and switches it off), 0.3 is a touch of room, 1 is all wet.");
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->set_reverb_locked(impl_->bus[b], mix, fadeSeconds);
+    return {};
+}
+
+void Audio::Impl::set_reverb_locked(BusFx& fx, float mix, float fadeSeconds) {
+    const long frames = ramp_frames(fadeSeconds, false);
+    if (mix <= 0.0f) {
+        if (!fx.rvOn) return;
+        if (frames <= 0) {
+            fx.rvOn = false;
+            fx.rvMix.set(0.0f, 0);
+            if (fx.rv) fx.rv->clear();
+        } else {
+            fx.rvMix.set(0.0f, frames);
+            fx.rvOffAtEnd = true;
+        }
+        return;
+    }
+    if (!fx.rv) fx.rv = std::make_unique<audio_detail::Reverb>(float(deviceRate));
+    if (!fx.rvOn) {
+        fx.rvOn = true;
+        fx.rv->clear();
+        fx.rvQuiet = 0;
+        fx.rvMix.set(0.0f, 0);
+    }
+    fx.rvOffAtEnd = false;
+    fx.rvMix.set(mix, frames);
+}
+
+Result<void> Audio::set_bus_duck(std::string_view bus, const DuckSettings& duck) {
+    const int b = fx_bus_index(bus);
+    if (b < 0 || b == kMasterBus) return unknown_bus_error(bus, false);
+    int by = -1;
+    if (!std::isfinite(duck.amount) || duck.amount < 0.0f || duck.amount > 1.0f)
+        return make_error("A duck amount is the fraction of the volume removed, 0..1, got " + std::to_string(duck.amount),
+                          "0.5 halves the bus while the other one plays, 1 silences it, 0 turns ducking off.");
+    if (!duck.by.empty() && duck.amount > 0.0f) {
+        by = fx_bus_index(duck.by);
+        if (by < 0 || by == kMasterBus) return unknown_bus_error(duck.by, false);
+        if (by == b)
+            return make_error("The bus '" + std::string(bus) + "' cannot duck itself",
+                              "Name the other bus, for example the voice-over bus that should push the music down.");
+        if (!std::isfinite(duck.attack) || !std::isfinite(duck.release) || duck.attack < 0.0f || duck.release < 0.0f)
+            return make_error("Duck attack and release are times in seconds, 0 or more",
+                              "Typical values: attack 0.05, release 0.5.");
+    }
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->set_duck_locked(impl_->bus[b], by, duck);
+    return {};
+}
+
+void Audio::Impl::set_duck_locked(BusFx& fx, int by, const DuckSettings& duck) {
+    fx.duckBy = by;
+    if (by < 0) {
+        fx.duck = DuckSettings{};
+        return;  // the gain and the detector settle back to 1 and 0 by themselves
+    }
+    fx.duck = duck;
+    const auto coef = [&](float seconds) { return seconds <= 0.0f ? 0.0f : std::exp(-1.0f / (seconds * float(deviceRate))); };
+    fx.duckAttack = coef(duck.attack);
+    fx.duckRelease = coef(duck.release);
+}
+
+Json Audio::bus_state(std::string_view bus) const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const int b = fx_bus_index(bus);
+    if (b < 0) return Json();
+    return impl_->bus_state_json(impl_->bus[b]);
+}
+
+Json Audio::Impl::bus_state_json(const BusFx& fx) const {
+    Json j = Json::object();
+    j["volume"] = fx.vol.target;
+    j["snapshotVolume"] = fx.snap.target;
+    j["lowpass"] = fx.lpHz;
+    j["reverb"] = fx.rvOn ? fx.rvMix.target : 0.0f;
+    if (fx.duckBy >= 0) {
+        j["duck"] = Json::object({{"by", kBusNames[fx.duckBy]}, {"amount", fx.duck.amount}, {"attack", fx.duck.attack},
+                                  {"release", fx.duck.release}});
+    } else {
+        j["duck"] = nullptr;
+    }
+    return j;
+}
+
+void Audio::set_snapshots(AudioSnapshots catalog) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->snapshots = std::move(catalog);
+}
+
+std::vector<std::string> Audio::snapshot_names() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    std::vector<std::string> names;
+    for (const auto& [name, snap] : impl_->snapshots) names.push_back(name);
+    return names;
+}
+
+std::string Audio::current_snapshot() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->snapshotName;
+}
+
+Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl& im = *impl_;
+    auto it = im.snapshots.find(std::string(name));
+    if (it == im.snapshots.end()) {
+        std::vector<std::string> names;
+        for (const auto& [n, snap] : im.snapshots) names.push_back(n);
+        if (names.empty())
+            return make_error("There is no audio snapshot '" + std::string(name) + "': the game declares none",
+                              "Add \"audio\": {\"snapshots\": {\"" + std::string(name) +
+                                  "\": {\"buses\": {\"music\": {\"lowpass\": 800}}}}} to factoria.json (docs/SCRIPTING.md, \"Audio buses\").");
+        return make_error("Unknown audio snapshot '" + std::string(name) + "'. " + did_you_mean(name, names),
+                          "The snapshots of factoria.json \"audio.snapshots\" are: " + join(names, ", ") + ".");
+    }
+    const AudioSnapshot& snap = it->second;
+    const float fade = fadeSeconds >= 0.0f ? fadeSeconds : snap.fade;
+    static const BusSnapshot neutral;
+    for (int b = 0; b < kFxBuses; ++b) {
+        auto entry = snap.buses.find(b == kMasterBus ? "master" : kBusNames[b]);
+        const BusSnapshot& want = entry != snap.buses.end() ? entry->second : neutral;
+        BusFx& fx = im.bus[b];
+        fx.snap.set(want.volume, im.ramp_frames(fade, true));
+        im.set_lowpass_locked(fx, want.lowpass, fade);
+        im.set_reverb_locked(fx, want.reverb, fade);
+        int by = -1;
+        if (want.duck && b != kMasterBus && want.duck->amount > 0.0f) by = fx_bus_index(want.duck->by);
+        if (by >= 0 && by != kMasterBus && by != b) im.set_duck_locked(fx, by, *want.duck);
+        else im.set_duck_locked(fx, -1, DuckSettings{});
+    }
+    im.snapshotName = std::string(name);
+    return {};
+}
+
+void Audio::reset_bus_effects() {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    for (BusFx& fx : impl_->bus) {
+        fx.snap.set(1.0f, 0);
+        impl_->set_lowpass_locked(fx, 0.0f, 0.0f);
+        impl_->set_reverb_locked(fx, 0.0f, 0.0f);
+        impl_->set_duck_locked(fx, -1, DuckSettings{});
+        fx.duckGain = 1.0f;
+        fx.duckEnv = 0.0f;
+    }
+    impl_->snapshotName.clear();
 }
 
 void Audio::play_music(std::string_view clipPath, float volume, float fadeSeconds, bool persist) {
@@ -1027,10 +1406,17 @@ Json Audio::stats() const {
     j["decodedBytes"] = decoded;
     j["streamedClips"] = streamed;
     j["peak"] = im.lastPeak;
-    j["master"] = im.master;
+    j["master"] = im.bus[kMasterBus].vol.target;
     Json buses = Json::object();
-    for (int i = 0; i < BusCount; ++i) buses[kBusNames[i]] = im.busVol[i];
+    Json effects = Json::object();
+    for (int i = 0; i < BusCount; ++i) {
+        buses[kBusNames[i]] = im.bus[i].vol.target;
+        effects[kBusNames[i]] = im.bus_state_json(im.bus[i]);
+    }
+    effects["master"] = im.bus_state_json(im.bus[kMasterBus]);
     j["buses"] = buses;
+    j["busEffects"] = effects;
+    j["snapshot"] = im.snapshotName;
     j["music"] = im.musicPath;
     j["recording"] = im.recording;
     j["recordedSeconds"] = double(im.rec.size() / 2) / double(im.recRate);

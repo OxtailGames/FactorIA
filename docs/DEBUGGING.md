@@ -236,7 +236,8 @@ no recording running is an error that says to start one. Starting again restarts
 Play .. Stop with the same recorder (docs/EDITOR.md, "Play sessions").
 
 - It records keys, mouse position and buttons, gamepads (connections, buttons, axes), touches, the Back press, the
-  clipboard text the game read, the frame times (`timing`) and the calendar date, so the replay plays to the same state.
+  clipboard text the game read, the answers of `http.fetch` (docs/NETWORKING.md, "Replays"), the frame times (`timing`) and
+  the calendar date, so the replay plays to the same state.
   What was held when the recording started (a key, a pad button) is part of frame 0.
 - Frame numbers count from the start of the recording; an entry applies before its frame runs.
 - Not recorded: the mouse wheel, the locked-mouse movement and typed text (`TextField`s); a key pressed and released inside

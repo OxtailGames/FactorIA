@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/platform/http.h"
 #include "fa/runtime/plugins.h"
 #include "fa/services/platform.h"
 
@@ -26,6 +27,11 @@ struct BackendChoice {
     // plugin): logged as warnings and listed in the startup problems.
     std::vector<std::string> warnings;
 };
+
+// The backend that serves http.fetch with `client` (null = this platform's system client, make_system_http_client()). Not part of
+// choose_platform_backend: any run that is not headless gets it, whatever store backend runs (docs/NETWORKING.md). It offers the
+// "http" service only when the client can run on this computer.
+std::unique_ptr<PlatformBackend> make_http_backend(std::unique_ptr<HttpClient> client = nullptr);
 
 // Chooses the backend for `platform` ("windows", "macos", ...).
 //   requested  EngineConfig::platformBackend: "" = automatic, "fake", "none", or the name of a plugin that has a backend.
