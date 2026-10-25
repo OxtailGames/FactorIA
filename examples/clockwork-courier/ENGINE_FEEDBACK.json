@@ -517,9 +517,10 @@
       "notes": [
         "Fixed in 4832aa4 (M26.17): a focused TextField raises the phone's keyboard; docs/MENUS.md has an on-screen keyboard kit (prefab, script, test) for gamepad players. The Steam Deck's own keyboard stays with M12. The name screen uses the kit (project.add_menu_kit {parts: [\"keyboard\"]}) instead of its 36-button letter grid: touch and keyboards type into the field, a gamepad types with the kit's keyboard.",
         "2026-10-22: The name field accepts the system keyboard on a PC and phone; the letter grid stays Latin.",
-        "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks."
+        "2026-10-22 triage: confirmed open, and verifying it found a bug: a focused TextField does not raise the phone's keyboard (only input.showKeyboard does), although docs/MOBILE.md says it does. Both are work package M26.17 (Text entry on every device) in feedback/ROADMAP.md; the Steam Deck's own keyboard is M12's, with Steamworks.",
+        "Fixed in 06294a1 (M27.4): plugin API 3 adds add_text_input and submit_text; the Steam plugin opens Steam's floating keyboard over a TextField on a Steam Deck or in Big Picture, and input.platformKeyboard keeps the kit's on-screen keyboard closed meanwhile. A real Steam Deck has not been tried (docs/PLATFORM.md has the steps)."
       ],
-      "engineIssue": "#171"
+      "engineIssue": "#184"
     },
     {
       "id": "FB-0021",
@@ -730,9 +731,11 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; the API, the catalog's placements, consent and platform.release with the fake backend are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; the real backends (Google UMP and AdMob, Apple ATT, the GDPR/COPPA screen) are M12's next package.",
-        "Fixed in 3669375 (M26.9): platform.ads (available, showRewarded, consent), the catalog's platform.ads.placements and platform.release; the fake shows a scripted test ad (game.platform.ad). scripts/ad_stub.js is gone, scripts/ads.js and more_time.js sit on platform.ads. The real networks (UMP, AdMob, ATT) are M12's next package."
+        "Fixed in 3669375 (M26.9): platform.ads (available, showRewarded, consent), the catalog's platform.ads.placements and platform.release; the fake shows a scripted test ad (game.platform.ad). scripts/ad_stub.js is gone, scripts/ads.js and more_time.js sit on platform.ads. The real networks (UMP, AdMob, ATT) are M12's next package.",
+        "Fixed in bb4dcc9 (M27.1): ads on Android. platform.add_backend {\"backend\":\"admob\"} writes and builds the admob plugin: Google's consent form (UMP) first, then the Mobile Ads SDK and one kept rewarded ad per placement; the audience (children, mixed, adults) sets the COPPA and under-age flags, and runs that are not platform.release use Google's test ids. Courier's scripts/ads.js needs no change; its more_time placement has no AdMob ids yet (they come with an AdMob account).",
+        "Fixed in 35b0277 (M27.2): ads on iOS. The same admob plugin shows Google's consent form (UMP), then Apple's tracking sheet (ATT, only with platform.ads.trackingPrompt, ads allowed and an adult player) and a rewarded ad; the export writes GADApplicationIdentifier, SKAdNetworkItems and the translated NSUserTrackingUsageDescription. platform.add_backend admob with Google's SDK zip builds it; the SDK never enters the repository. No real AdMob account has been tried."
       ],
-      "engineIssue": "#163"
+      "engineIssue": "#185"
     },
     {
       "id": "FB-0029",
@@ -786,9 +789,10 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: confirmed open; periods in the catalog, the API and the fake are work package M26.9 (Ads and leaderboard periods: the API and the fake) in feedback/ROADMAP.md; periods on the real store backends are M12's.",
-        "Fixed in 3669375 (M26.9): a leaderboard takes period allTime, daily or weekly; the fake keeps one board per game.today() day or week. daily_route is now period daily and services.js needs nothing else. Periods on the real stores are M12's."
+        "Fixed in 3669375 (M26.9): a leaderboard takes period allTime, daily or weekly; the fake keeps one board per game.today() day or week. daily_route is now period daily and services.js needs nothing else. Periods on the real stores are M12's.",
+        "Fixed in 24d1d4f (M27.3): periods on the real stores too. Steam keeps one board per period (\"<storeId> <periodKey>\", made with FindOrCreateLeaderboard), Game Center uses a recurring board at its current occurrence or reads a classic one with the today or week time scope, and Play Games uses its daily and weekly time spans; answers carry periodStart and periodEnd when the store gives them (docs/PLATFORM.md, \"Leaderboard periods\", has each store's boundaries). daily_route needs nothing else."
       ],
-      "engineIssue": "#163"
+      "engineIssue": "#180"
     },
     {
       "id": "FB-0031",
@@ -1326,12 +1330,13 @@
       "suggestion": "A Video component (mp4/webm with the platform decoder) and an --record-video output that is already H.264 mp4 when the OS offers an encoder (VideoToolbox, Media Foundation, MediaCodec).",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-22 triage: holds in part: --record-video trailer.mp4 already writes H.264 + AAC when ffmpeg is found (b54e313, before this report; docs/CLI.md); installing ffmpeg is work package M26.19 (Export and store material checks) in feedback/ROADMAP.md, and playing a video is M19's video item in feedback/ROADMAP.md.",
-        "Fixed in 069466c (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md). SHIPPING.md records the trailer with factoria setup ffmpeg and --record-video trailer.mp4; the studio intro stays an animated scene until the engine plays video."
+        "Fixed in 069466c (M26.19) in part: `factoria setup ffmpeg` (setup.install component ffmpeg, listed by setup.status) installs a pinned ffmpeg so --record-video trailer.mp4 writes H.264 + AAC with no manual step. Still open: playing a video in a game (M19's video item in feedback/ROADMAP.md). SHIPPING.md records the trailer with factoria setup ffmpeg and --record-video trailer.mp4; the studio intro stays an animated scene until the engine plays video.",
+        "Fixed in c3d102b (M27.5): a Video component plays an MPEG-1 + MP2 .mpg (pl_mpeg, decoded on the CPU, the same on every platform) on the game clock, fit contain / cover / stretch, with sound through the audio mixer; entity.video has play, pause, stop, seek, time, duration, playing and an \"ended\" event; assets.import converts mp4, m4v, mov, webm, mkv and avi to .mpg with ffmpeg, and factoria validate checks Video files. The studio intro is now a video: scenes/intro.scene.json plays assets/video/studio_intro.mpg (640x360, 4.8 s, 495 KB), recorded from the animated scene kept in store/intro/ (SHIPPING.md, \"Studio intro\"), and any button skips it (tests/intro.test.js). The trailer stays recorded with factoria setup ffmpeg and --record-video trailer.mp4 (M26.19)."
       ],
-      "engineIssue": "#164"
+      "engineIssue": "#182"
     },
     {
       "id": "FB-0052",
@@ -1459,10 +1464,12 @@
       "suggestion": "Off-mesh links on NavMesh3D (two points and a cost, one-way or both ways), and a collider flag that keeps a kinematic platform or a bridge in the mesh, re-marked as it moves like a navObstacle.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-24 triage (M26 close-out): holds; docs/NAVIGATION.md, \"Limits\", already plans an off-mesh link list. Ranked in M19 (pathfinding), after the video player."
-      ]
+        "2026-10-24 triage (M26 close-out): holds; docs/NAVIGATION.md, \"Limits\", already plans an off-mesh link list. Ranked in M19 (pathfinding), after the video player.",
+        "Fixed in a4e2d36 (M27.6): a NavLink3D joins two parts of a NavMesh3D (one way or both, with a cost) and nav.findPath lists the links it takes (links: [{point, entity}]) so a script can jump or climb there; Collider3D.navWalkable keeps a kinematic or jointed body (a bridge plank, the seesaw, a moving platform) in the mesh and re-marks it as it moves, so a path across it reports disconnected while it is away. The mover and seesaw prefabs and the rope bridges are navWalkable, a dog follows the courier across a bridge (tests/mechanics.test.js), and dog.js makes one query, closest: true, without the second one to the nearest point."
+      ],
+      "engineIssue": "#179"
     }
   ]
 }

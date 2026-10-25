@@ -1416,6 +1416,160 @@ any scene, language or text scale. Its tests reset with `game.resetState`, pick 
 `--allow-player-mismatch`. The game has 458 headless tests. CC/FB-0051 (playing a video) stays open for M19, and moving
 onto the navmesh found CC/FB-0056 (no bridge or moving platform in the mesh), ranked in M19 too.
 
+## M27. What the games asked of M12 and M19 — DONE (PRs #179, #180, #182-#185 and the `m27/bookkeeping` PR)
+
+Planned 2026-10-24, against `cf6852c`: the first three packages of M12's ranking and the first two of M19's, the only
+ones a game asked for. Ads are two packages, one per platform. Each ships with its doctest or JS test and its docs.
+Packages that edit the same files say so: one worker after the other, never two at once. When one merges, its entries
+get a `Fixed in <commit>` note (the bookkeeping PR at the end) and Clockwork Courier drops what it no longer needs.
+Order of work: M27.1, M27.5 and M27.6 first (three builds at once); M27.3 when one of them is done; M27.2 after M27.1;
+M27.4 after M27.3.
+
+### M27.1 Ads with consent on Android: Google UMP and AdMob (L) — CC/FB-0028
+
+Done (#183, merge `bb4dcc9`): a plugin backend that offers only `ads` runs next to the store backend (`adsBackend`
+and `adsWhy` in `platform.state`); the `admob` plugin for Android (UMP, then the Mobile Ads SDK, one kept rewarded ad
+per placement); `platform.ads.audience`, `setUnderAge`, `privacyOptions`; the kit's `ageGate` part and its "Ad
+privacy settings" button; the app id in the manifest, Google's test ids in a development export, validate's
+warnings; `admob.status`. Checked by hand on a Pixel 7 API 35 emulator: the consent form and Google's test rewarded ad.
+
+- **An ads backend next to the store's.** A plugin backend that offers only `["ads"]` is an ads backend: the engine
+  sends `ads.*` to it and everything else to the store backend, so a game on Google Play has both. `platform.ads.backend`
+  picks one when several load; `platform.state` shows `adsBackend` and why. Development and tests keep the fake.
+- **`platforms/plugins/admob`** (the `"admob"` template, `platform.add_backend {"backend": "admob"}`): a C bridge (JNI,
+  like googleplay's) and a Gradle module on the Google Mobile Ads SDK and the User Messaging Platform. On start it asks
+  UMP for consent (Google's GDPR form where it applies), then starts Mobile Ads; `ads.available` loads and keeps one
+  rewarded ad per placement, `ads.showRewarded` answers `{rewarded: true}` only on the reward callback, `ads.consent`
+  maps UMP's status (`tracking` is `"notRequired"` on Android). The AdMob app id is in the catalog
+  (`platform.ads.appIds.android`) and the export writes it into the manifest (the SDK stops the app without it). A run
+  that is not `platform.release` always uses Google's test app id and test ad units, so development never shows a live
+  ad; `factoria validate` warns about a release export with Google's sample ids or no app id.
+- **COPPA and privacy options.** `platform.ads.audience`: `"general"` (default), `"children"` (every request tagged
+  child-directed) or `"mixed"`: the game asks the age first with the menu kit's new `ageGate` part (a neutral birth-year
+  screen, `project.add_menu_kit {"parts": ["ageGate"]}`) that calls `platform.ads.setUnderAge(bool)`; the engine keeps
+  the answer and sends it to UMP and AdMob (under the age of consent, child-directed). `platform.ads.privacyOptions()`
+  opens UMP's privacy options form when `consent().privacyOptions` is `"required"`; the kit's options screen shows that
+  button only then. The fake answers all of it.
+- Docs: PLATFORM.md's ads section (setup, test ids, release, consent, COPPA, manual checks), MENUS.md (the age gate),
+  MOBILE.md (the manifest entry).
+
+Acceptance: platform tests: an ads-only plugin backend gets `ads.*` while the store backend gets the rest;
+`setUnderAge(true)` reaches the backend's requests; the kit's age gate test. Tooling tests: `add_backend` (dry run and
+real), the manifest of an export with the app id, validate's warnings. Manual check on an emulator with Google Play
+services (a Google APIs image): an exported Clockwork Courier shows Google's test rewarded ad and grants the 20 s (steps
+in PLATFORM.md; CI's emulator has no Play services, so it checks that the bridge answers, like googleplay's).
+
+### M27.2 Ads with consent on iOS: AdMob, UMP and App Tracking Transparency (M-L) — CC/FB-0028
+
+Done (#185, merge `35b0277`): the plugin's Swift side (UMP, then Apple's tracking sheet only with `trackingPrompt`
+and never for a player under age, then the SDK); `xcframeworks` and `infoPlist` in a plugin's `ios/plugin.json`;
+`GADApplicationIdentifier`, `SKAdNetworkItems` and a translated `NSUserTrackingUsageDescription` in the export;
+`add_backend {"sdk"}` copies Google's two XCFrameworks (git ignores them); `ids.admob_ios`. Checked by hand on the
+iOS simulator: UMP's form with the EEA debug geography, the tracking sheet, Google's test rewarded ad.
+
+After M27.1 (same plugin).
+- iOS plugins take vendored XCFrameworks (M11 left this open): `"xcframeworks"` in `ios/plugin.json` (paths in the
+  plugin folder), linked and embedded by the iOS export. Google's SDK is a download, never in the repository:
+  `add_backend {"backend": "admob", "sdk": <zip or folder>}` copies it in, like Steam's.
+- The plugin's iOS side (Swift, like the apple plugin): UMP first, then the App Tracking Transparency prompt only when
+  `platform.ads.trackingPrompt` is true and only after UMP's form; `tracking` in `ads.consent` maps the ATT status.
+  Info.plist gets `GADApplicationIdentifier`, `NSUserTrackingUsageDescription` (from the catalog, translated like the
+  other plist texts) and Google's `SKAdNetworkItems`. Rewarded ads and test ids as on Android.
+- macOS has no AdMob SDK: there the plugin offers no ads and `platform.has("ads")` is false.
+
+Acceptance: tooling tests: an export with a stub XCFramework links and embeds it, and the plist has the keys. Manual
+check on the iOS simulator: Clockwork Courier shows Google's test rewarded ad, the ATT prompt and UMP's form with the
+EEA debug geography (steps in PLATFORM.md).
+
+### M27.3 Leaderboard periods on the store backends (M) — CC/FB-0030
+
+Done (#180, merge `24d1d4f`): Steam keeps one board per period (`<storeId> <periodKey>`, a handle cache of 64
+names), Game Center uses a recurring board's current occurrence or a classic board's `.today` / `.week` scope, Play
+Games `TIME_SPAN_DAILY` / `TIME_SPAN_WEEKLY`; `submit` and `entries` carry `periodStart` and `periodEnd` when the
+store gives them; PLATFORM.md has each store's period boundaries.
+
+- Steam has no periods: a daily or weekly board is one Steam board per period, `<storeId> <periodKey>`, made with
+  `FindOrCreateLeaderboard` with the board's sort order; `entries` reads the current one.
+- Game Center: a board whose `ids.apple` names a recurring leaderboard (set up in App Store Connect) is used as it is
+  (its current occurrence); a classic one is read with the `.today` or `.week` time scope.
+- Play Games: `TIME_SPAN_DAILY` and `TIME_SPAN_WEEKLY` of the same board.
+- Each store starts a period at its own time (Apple's recurring boards when App Store Connect says, Google's at midnight
+  Pacific time, the engine's at the player's midnight): answers carry `periodStart` and `periodEnd` when the store gives
+  them, and PLATFORM.md has a table. These three backends stop rejecting periods with `unavailable`.
+
+Acceptance: `steam_plugin_*` tests against the mock (two days give two boards, the second empty; a weekly board keeps
+its week); `apple_backend_tests` send a daily board and get a signed-out answer, not `unavailable`; the Java builds in
+the `android-apk` job.
+
+### M27.4 The Steam Deck's own keyboard (M) — CC/FB-0020
+
+Done (#184, merge `06294a1`): plugin API 3 (`add_text_input`, `submit_text`), `input.platformKeyboard`, the
+Steam plugin's floating keyboard on a Deck or in Big Picture and the full-screen one where the floating one is not
+offered; the kit's on-screen keyboard stays closed while a platform keyboard has the field. `TextField` has no
+`multiline` or `password` yet, so the handler gets 0 for both.
+
+After M27.3 (both edit the Steam plugin and its mock).
+- Plugin API version 3: `add_text_input` registers a handler the engine calls when a `TextField` takes or loses the
+  focus with a gamepad (the field's rectangle in window pixels, its text, `multiline`, `maxLength`, whether it is a
+  password); the handler answers whether the platform shows its own keyboard. `submit_text` hands text back to the
+  focused field (on the game thread, at the next frame). Version 2 plugins are unchanged.
+- The Steam plugin, on a Steam Deck or in Big Picture, opens Steam's floating keyboard (`ShowFloatingGamepadTextInput`:
+  Steam types into the window as key presses) and, where that is not offered, `ShowGamepadTextInput`, whose text comes
+  back through `GamepadTextInputDismissed_t` and `GetEnteredGamepadTextInput`.
+- When the platform keyboard took the field, the menu kit's on-screen keyboard stays closed (a flag the kit's script
+  reads); otherwise it opens as today.
+
+Acceptance: runtime tests with a test plugin (a pad focus calls the handler with the rectangle; `submit_text` fills the
+field; a version 2 plugin sees nothing); `steam_plugin_*` tests against the mock for both keyboards and the dismissed
+text; the kit keyboard's test with a platform keyboard. A real Deck is a manual check (PLATFORM.md).
+
+### M27.5 Video player (L) — CC/FB-0051
+
+Done (#182, merge `c3d102b`): the `Video` component and `entity.video` (`play`, `pause`, `stop`, `seek`, `time`,
+`duration`, `playing`, `on("ended")`), pl_mpeg vendored in `external/`, sound through the mixer, time on the game
+clock; `assets.import` converts mp4, m4v, mov, webm, mkv and avi with ffmpeg; `factoria validate` checks Video files;
+MENUS.md's studio-intro recipe. Clockwork Courier's intro is a 4.8 s, 495 KB `.mpg` recorded from the animated scene
+kept in `store/intro/`. To keep the courier's perf budgets on software renderers, plain textured quads use a shader
+without the glyph, shape and 2D-light branches, and an opaque `Video` skips its background and blending (about half
+the cost of a full-screen video on llvmpipe and WARP); the courier's baselines were refreshed for the video.
+
+- A `Video` component: on a UI entity it fills the control like an image (`fit`: contain, cover or stretch), with
+  `path`, `autoplay`, `loop`, `volume` and `bus`; scripts play, pause, stop and seek it and read `time`, `duration` and
+  `playing`, and get an `ended` event.
+- Decoding with pl_mpeg (MIT, one header, vendored in `external/` with its VERSIONS.md row and its notice): MPEG-1 video
+  and MP2 sound in an `.mpg`, the same on every platform, the web included, with no OS decoder. Each new picture is
+  converted into a texture; the sound plays through the engine's mixer on the chosen bus.
+- Time follows the game clock (it pauses with the game), so tests and replays are deterministic; headless runs keep the
+  same time and events.
+- `assets.import` of an `.mp4`, `.mov` or `.webm` converts it to `.mpg` with ffmpeg (`factoria setup ffmpeg`, M26.19)
+  and records its provenance; without ffmpeg the error names the setup command. `factoria validate` checks the videos
+  scenes reference. MENUS.md gets a studio-intro recipe (any button skips it).
+
+Acceptance: a doctest decodes a small committed `.mpg` fixture to the expected colours at known times; a script test
+plays it, sees `time` follow the game clock, `ended` once, and a loop; a render test draws a frame into a UI rectangle.
+Clockwork Courier's studio intro is a short video made from its animated intro scene, and its tests and perf budgets
+pass.
+
+### M27.6 Off-mesh links and walkable moving bodies on NavMesh3D (M) — CC/FB-0056
+
+Done (#179, merge `a4e2d36`): `NavLink3D` (one way or both, with a cost; `nav.findPath` lists `links`),
+`Collider3D.navWalkable` re-marked incrementally where the body is, `links` and `walkableBodies` in `nav.bake` and
+`nav.info`, links drawn by the editor's Show navmesh. Clockwork Courier's mover, seesaw and bridges are walkable, a
+dog follows the courier across a bridge, and `dog.js` makes one query.
+
+- Off-mesh links: a `NavLink3D` component (its entity's position and an `end` point, `bidirectional`, `cost`) joins the
+  cells under its two ends; `nav.findPath` may take it, and the result says where (`links`: the index of the point where
+  the link starts and the link's entity) so a script can jump or climb there.
+- `Collider3D.navWalkable` on a kinematic body or a body held by a joint (a rope-bridge plank, a seesaw, a moving
+  platform): left out of the static bake like `navObstacle`, its top surface is added as walkable cells and re-marked as
+  it moves (only the cells it left and entered), joined to the ground around it within `stepHeight`.
+- `nav.info` and the editor's Show navmesh draw links and walkable bodies; NAVIGATION.md's limits follow.
+
+Acceptance: `fa_test_physics` cases: a link joins two islands (a one-way link refuses the way back); a path across a
+walkable plank bridge; a moving platform joins the path when it docks and gives `disconnected` when it is away; the
+same path twice is the same bits. Clockwork Courier marks its bridges, seesaw and platforms `navWalkable`, a dog follows
+the courier across a bridge, and `dog.js` drops its second query to the nearest point; its perf budgets pass.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

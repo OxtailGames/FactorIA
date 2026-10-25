@@ -4,45 +4,29 @@ Status: the four jam-sized example games reported 73 entries, all verified fixed
 reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
 (M24.1-M24.16, 2026-10-20), two of them found on the way, M21 three, M22 two, M20 one and M23 the last one (MSIX,
-2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play
-backends; M16 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22),
-M21 (docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25 and M26 are done; M23 has the Mac
-App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 is not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores).
-M25, the second reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055
-came from the CI fix of its rope bridges), triaged 2026-10-22: one was fixed on the way (CC/FB-0033), two were already
-fixed before the report (CC/FB-0007, CC/FB-0022; their docs are added), two are duplicates, and 50 are open, ranked below
-(11 major, 35 minor, 4 nice-to-have, no blocker). M26's 23 packages fixed 49 of them (2026-10-24) and the game dropped
-their workarounds; CC/FB-0051 (playing a video) stays open for M19, and the close-out found CC/FB-0056 (the navmesh
-over bridges and moving platforms), also M19. The same triage moved two M19 items into M26 and
-ranked the rest of M19 and of M12: their first packages are M27 (planned 2026-10-24).
+2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API, the Steam, Apple and
+Google Play backends, AdMob ads with consent, leaderboard periods on the stores and the Steam Deck's keyboard (M27); M16
+(mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22), M21
+(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26 and M27 are done; M23
+has the Mac App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 has the video player
+and the navmesh's off-mesh links and walkable bodies (M27), the rest is not started (M10-M23 come from an external
+evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). M25, the second
+reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055 came from the CI
+fix of its rope bridges), triaged 2026-10-22: one was fixed on the way (CC/FB-0033), two were already fixed before the
+report (CC/FB-0007, CC/FB-0022; their docs are added), two are duplicates, and 50 were open (11 major, 35
+minor, 4 nice-to-have, no blocker). M26's 23 packages fixed 49 of them (2026-10-24) and the game dropped their
+workarounds; M27 (2026-10-25) fixed the last one, CC/FB-0051 (playing a video), the parts of three left to M12 (the real
+ads, the stores' leaderboard periods, the Steam Deck's keyboard) and CC/FB-0056 (the navmesh over bridges and moving
+platforms), found by M26's close-out: no entry is open. What is left of M12 and M19 is ranked in their sections and
+waits for a game that asks for it.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-2 entries from 6 project(s), 2 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+0 entries from 6 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-## 1. The navmesh holds no rope bridge, seesaw or moving platform
-
-- **Category:** physics
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0056
-- **Suggestion:** Off-mesh links on NavMesh3D (two points and a cost, one-way or both ways), and a collider flag that keeps a kinematic platform or a bridge in the mesh, re-marked as it moves like a navObstacle.
-- **Workarounds seen:**
-  - nav.findPath with closest: true (and, when the goal is off the mesh, a second query to the result's nearest point): the dog goes to the nearest reachable ground instead of following the courier across.
-
-## 2. No video playback, and --record-video writes a very large AVI
-
-- **Category:** assets
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0051
-- **Suggestion:** A Video component (mp4/webm with the platform decoder) and an --record-video output that is already H.264 mp4 when the OS offers an encoder (VideoToolbox, Media Foundation, MediaCodec).
-- **Workarounds seen:**
-  - The intro is an animated scene (scenes/intro.scene.json, scripts/intro.js). The trailer is a scripted director scene recorded with --record-video; SHIPPING.md has the ffmpeg command to make the mp4.
+_No open feedback entries._
 
 # Next engine milestones
 
@@ -123,6 +107,12 @@ paints, the hand resets between tests). CC/FB-0051 stays open for M19's video pl
 ranking. Moving the game onto the navmesh found one more entry, CC/FB-0056 (no rope bridge, seesaw or moving platform in
 the mesh, no off-mesh links), ranked second in M19. M27 takes what the games asked of M12 and M19.
 
+Re-triage 2026-10-25, after M27 (#179, #180, #182-#185; each package's merge commit is in ROADMAP_DONE.md): CC/FB-0051
+and CC/FB-0056 are fixed, and so are the parts of CC/FB-0020, CC/FB-0028 and CC/FB-0030 left to M12; each has a
+`Fixed in <commit>` note. Clockwork Courier's studio intro is a video (#182), its dogs cross the bridges (#179), and its
+name screen's keyboard is the kit's again, which stays closed under Steam's (the `m27/bookkeeping` PR). No entry of any
+example game is open: the ranked list above is empty.
+
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK, clockwork-courier = CC).
 
@@ -199,6 +189,16 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   spawn index outside the parent's children is an error, and a root takes no index. The simulation uses only
   `fa::det::` maths with no floating-point contraction, and CI compares one committed replay hash on every desktop job.
   `project.add_menu_kit` never replaces a key or a file the game edited unless asked (`overwrite`).
+- M27 (2026-10-25): a plugin backend that offers only `ads` is an ads backend next to the store backend
+  (`platform.ads.backend` picks one); development runs and tests keep the fake, and an export without `--release`
+  always uses Google's test app id and ad units. Apple's tracking sheet comes only after Google's consent form, only
+  with `trackingPrompt`, and never for a player under age; a `mixed` audience requests nothing until the game tells the
+  age. A daily or weekly board is one Steam board per period. A platform keyboard takes a `TextField` through plugin API
+  3 (versions 1 and 2 load unchanged) and the kit's keyboard stays closed while `input.platformKeyboard` is true. Video
+  is MPEG-1 + MP2 decoded by pl_mpeg on the CPU, the same on every platform, on the game clock; other formats are
+  converted at import, never played. An opaque `Video` skips its background and blending, and plain textured quads use
+  a shader without the glyph, shape and light branches. A `navWalkable` body is left out of the static bake and
+  re-marked where it is; off-mesh links are `NavLink3D` entities, and a path lists where it takes them.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -332,12 +332,8 @@ Left open (Steam):
   so struct layouts, callback ids and interface versions rest on the public Steamworks headers (SDK 1.58a to 1.64); a real
   SDK 1.65 library (it replaced `ISteamUtils::IsRunningOnSteamDeck`) has not been tried either. Whether
   Steam's overlay appears over the engine's Metal (macOS), OpenGL (Linux) and Direct3D 11 (Windows) windows is unchecked.
-- **The Steam Deck on-screen keyboard for `TextField` is not wired.** The plugin API has no hook for it: it needs (1) a
-  notification to the plugin when a text field takes or loses focus (with the field's rectangle, its text and whether it
-  is multi-line; `Input::keyboard_shown()` is today applied by the windowed runtime to the phone soft keyboard only) so the
-  Steam plugin can call `ISteamUtils::ShowFloatingGamepadTextInput` / `ShowGamepadTextInput`, and (2) a call for the plugin
-  to hand text back to the focused field (`FloatingGamepadTextInputDismissed_t` / `GamepadTextInputDismissed_t` and
-  `GetEnteredGamepadTextInput`). Players on the Deck can use Steam's own keyboard (Steam + X).
+- ~~The Steam Deck on-screen keyboard for `TextField` is not wired~~: done in M27.4 (plugin API 3, Steam's floating
+  and full-screen keyboards, `input.platformKeyboard`), tested against the mock, not on a real Deck.
 - Steam Inventory, microtransactions (`ISteamMicroTxn`), Steam Input and the workshop are not wrapped; there is no `SteamAPI_RestartAppIfNecessary`
   (a shipped game started outside Steam runs without platform services); prices of DLC are not shown (Steam gives them on its store page).
 - On Windows the plugin does not call `SteamAPI_Shutdown` at exit (a DLL's exit handlers run after Steam's own DLL is gone);
@@ -398,9 +394,9 @@ Play Console app, a build on a testing track, license testers and a phone with G
 API, no cloud project number, so an app distributed outside Play cannot get tokens). Apple's App Attest is not an
 `integrity` backend yet.
 
-Left open (the next M12 packages): Epic Online Services and GOG Galaxy, ads with consent (and the GDPR/COPPA consent
-screen, moved here from M22), analytics and remote config, push
-notifications and deep links, the Android stores outside Play. `PlatformServices` keeps no receipts or entitlement cache: a
+Left open (the next M12 packages): Epic Online Services and GOG Galaxy, analytics and remote config, push
+notifications and deep links, the Android stores outside Play (ads with consent and the GDPR/COPPA screen are done in
+M27.1-M27.2). `PlatformServices` keeps no receipts or entitlement cache: a
 backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
 Cloud saves take JSON values only (no binary blobs, no conflict resolution beyond "last write wins" in the fake).
@@ -409,7 +405,8 @@ Next M12 packages, ranked 2026-10-22 with Clockwork Courier's entries: 1. ads wi
 Google UMP and AdMob, Apple ATT and the GDPR/COPPA screen (CC/FB-0028); 2. leaderboard periods on Steam, Game Center and
 Play Games (CC/FB-0030); 3. the Steam Deck's keyboard with Steamworks (CC/FB-0020; M26.17 makes the in-game one);
 4. analytics and remote config (after M19's networking); 5. push notifications and deep links; 6. Epic Online Services
-and GOG Galaxy; 7. the Android stores outside Play. A game asked for the first three only: they are M27.1-M27.4.
+and GOG Galaxy; 7. the Android stores outside Play. A game asked for the first three only: they are M27.1-M27.4, done
+2026-10-25. The other four wait for a game that asks for them.
 
 ## M13. Store-ready desktop export (M-L, high) — DONE (PRs #65, #66, #67, #68 and the `m13/sign` PR)
 
@@ -532,9 +529,9 @@ Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14,
 - Networking: `http.fetch` (a Promise) and WebSocket in JS on every platform; real-time multiplayer later.
 - Saves: slots with their menu (on M10), a version field with a migration hook, optional encryption, cloud through
   M12's `platform`.
-- Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, off-mesh links and walkable moving
-  platforms on `NavMesh3D` (CC/FB-0056), a behaviour-tree helper module.
-- Video: a video player component for logos and cut-scenes (e.g. pl_mpeg, MIT).
+- Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, ~~off-mesh links and walkable moving
+  platforms on `NavMesh3D`~~ (CC/FB-0056, done in M27.6), a behaviour-tree helper module.
+- ~~Video: a video player component for logos and cut-scenes~~ (CC/FB-0051, done in M27.5 with pl_mpeg).
 - ~~`scene.loadAsync` with progress~~ (done as `scene.preload`, M26.7).
 - Split screen: a viewport rectangle on Camera (four gamepads already work).
 - Audio: effects on the buses (low-pass, reverb), ducking and snapshots.
@@ -546,7 +543,8 @@ The rest, in this order: 1. video, for a studio intro (CC/FB-0051; recording an 
 walkable bridges and moving platforms on `NavMesh3D` (CC/FB-0056, added 2026-10-24: Courier's dogs stop at a bridge); 3.
 save slots with a version and a migration hook (every store game saves); 4. networking (M12's analytics and remote
 config need it); 5. audio effects, ducking and snapshots; 6. grid A* on a Tilemap and the behaviour-tree helper (they
-can share M26.10's search); 7. split screen. A game asked for the first two only: they are M27.5 and M27.6.
+can share M26.10's search); 7. split screen. A game asked for the first two only: they are M27.5 and M27.6, done
+2026-10-25. The other five wait for a game that asks for them.
 
 ## M20. Editor and tooling (L, medium-high) — DONE (PRs #134-#142, the `m20/debugger` and `m20/finish` PRs)
 
@@ -692,9 +690,9 @@ tests reset their state with `game.resetState`, and `ui.check_layout` finds no i
 
 Left open:
 - CC/FB-0051: the engine records a trailer as an .mp4 (`factoria setup ffmpeg`, M26.19) but plays no video in a game;
-  that is M19's video player, first in its ranking.
+  that is M19's video player, first in its ranking. Done in M27.5.
 - M12: the real ad networks and the leaderboard periods of the real stores (CC/FB-0028, CC/FB-0030; M26.9 made the API
-  and the fake) and the Steam Deck's own keyboard (CC/FB-0020), first in M12's ranking.
+  and the fake) and the Steam Deck's own keyboard (CC/FB-0020), first in M12's ranking. Done in M27.1-M27.4.
 - M26.7: preloading reads whole files on the main thread within a time budget per frame; a worker thread is later (L).
 - M26.13: numbers and stopwatch times only (no currency, percentages or spelled-out durations); a language outside the
   table (hi, th, vi...) is written like English.
@@ -706,130 +704,37 @@ Left open:
 - The trailer replays of `rooftops_3` and `market_3` still drift after about 700 frames (M25; the game's SHIPPING.md,
   "Trailer").
 - CC/FB-0056, found by the close-out: the navmesh bakes static colliders only, so a guard dog never crosses a rope
-  bridge, the seesaw or a moving platform, and there are no off-mesh links; second in M19's ranking.
+  bridge, the seesaw or a moving platform, and there are no off-mesh links; second in M19's ranking. Done in M27.6.
 
 Next: the first three packages of M12 and M19's first two (video, off-mesh links), the only ones a game asked for
 (ranked in their sections): M27. M23's consoles wait for a game that needs them. Two ranked entries are open
 (CC/FB-0051, CC/FB-0056).
 
-## M27. What the games asked of M12 and M19 (M-L each, high; CC/FB-0028, 0030, 0020, 0051, 0056)
+## M27. What the games asked of M12 and M19 (M-L each, high; CC/FB-0028, 0030, 0020, 0051, 0056) — DONE (PRs #179, #180, #182-#185 and the `m27/bookkeeping` PR)
 
-Planned 2026-10-24, against `cf6852c`: the first three packages of M12's ranking and the first two of M19's, the only
-ones a game asked for. Ads are two packages, one per platform. Each ships with its doctest or JS test and its docs.
-Packages that edit the same files say so: one worker after the other, never two at once. When one merges, its entries
-get a `Fixed in <commit>` note (the bookkeeping PR at the end) and Clockwork Courier drops what it no longer needs.
-Order of work: M27.1, M27.5 and M27.6 first (three builds at once); M27.3 when one of them is done; M27.2 after M27.1;
-M27.4 after M27.3.
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M27 (M27.1-M27.6). The last Clockwork Courier entries are fixed: rewarded
+ads with consent on Android and iOS through AdMob (an ads-only backend next to the store's), daily and weekly
+leaderboards on Steam, Game Center and Play Games, the Steam Deck's own keyboard through plugin API 3, a `Video`
+component (the game's studio intro is now a video) and off-mesh links and walkable moving bodies on `NavMesh3D` (a dog
+crosses the rope bridges). No entry of any example game is open.
 
-### M27.1 Ads with consent on Android: Google UMP and AdMob (L) — CC/FB-0028
+Left open:
+- Nothing ran against a real store account or device: Google's test ads only (an Android emulator with Google Play
+  services and the iOS simulator), no real ad unit or published consent message; the leaderboard periods and both
+  Steam keyboards are tested against the Steam mock only; no Game Center or Play Games account, no Steam Deck. The
+  steps are in PLATFORM.md (the Steam, Apple, Google Play and ads sections). Not tried either: a refused tracking sheet,
+  the `children` audience on iOS, the translated tracking sentence on a device. No CI job loads Google's iOS SDK.
+- M27.2: macOS has no AdMob SDK, so a Mac game shows no ads (`platform.has("ads")` is false there).
+- M27.3: each store starts a period at its own time (Apple's recurring boards when App Store Connect says, Google's at
+  midnight Pacific time, the fake at the player's midnight), so one daily board resets at different hours per store.
+- M27.4: `TextField` has no `multiline` or `password` yet, so a platform keyboard always gets a one-line, visible field.
+- M27.5: MPEG-1 + MP2 only (bigger files than H.264 for the same picture, no OS decoder), decoded on the CPU, drawn on
+  a UI entity only (no video on a 3D surface). A full-screen video still costs about 15 ms of CPU a frame on llvmpipe
+  (sampling the scaled-up picture and uploading it each frame) and well under 1 ms on Metal.
 
-- **An ads backend next to the store's.** A plugin backend that offers only `["ads"]` is an ads backend: the engine
-  sends `ads.*` to it and everything else to the store backend, so a game on Google Play has both. `platform.ads.backend`
-  picks one when several load; `platform.state` shows `adsBackend` and why. Development and tests keep the fake.
-- **`platforms/plugins/admob`** (the `"admob"` template, `platform.add_backend {"backend": "admob"}`): a C bridge (JNI,
-  like googleplay's) and a Gradle module on the Google Mobile Ads SDK and the User Messaging Platform. On start it asks
-  UMP for consent (Google's GDPR form where it applies), then starts Mobile Ads; `ads.available` loads and keeps one
-  rewarded ad per placement, `ads.showRewarded` answers `{rewarded: true}` only on the reward callback, `ads.consent`
-  maps UMP's status (`tracking` is `"notRequired"` on Android). The AdMob app id is in the catalog
-  (`platform.ads.appIds.android`) and the export writes it into the manifest (the SDK stops the app without it). A run
-  that is not `platform.release` always uses Google's test app id and test ad units, so development never shows a live
-  ad; `factoria validate` warns about a release export with Google's sample ids or no app id.
-- **COPPA and privacy options.** `platform.ads.audience`: `"general"` (default), `"children"` (every request tagged
-  child-directed) or `"mixed"`: the game asks the age first with the menu kit's new `ageGate` part (a neutral birth-year
-  screen, `project.add_menu_kit {"parts": ["ageGate"]}`) that calls `platform.ads.setUnderAge(bool)`; the engine keeps
-  the answer and sends it to UMP and AdMob (under the age of consent, child-directed). `platform.ads.privacyOptions()`
-  opens UMP's privacy options form when `consent().privacyOptions` is `"required"`; the kit's options screen shows that
-  button only then. The fake answers all of it.
-- Docs: PLATFORM.md's ads section (setup, test ids, release, consent, COPPA, manual checks), MENUS.md (the age gate),
-  MOBILE.md (the manifest entry).
-
-Acceptance: platform tests: an ads-only plugin backend gets `ads.*` while the store backend gets the rest;
-`setUnderAge(true)` reaches the backend's requests; the kit's age gate test. Tooling tests: `add_backend` (dry run and
-real), the manifest of an export with the app id, validate's warnings. Manual check on an emulator with Google Play
-services (a Google APIs image): an exported Clockwork Courier shows Google's test rewarded ad and grants the 20 s (steps
-in PLATFORM.md; CI's emulator has no Play services, so it checks that the bridge answers, like googleplay's).
-
-### M27.2 Ads with consent on iOS: AdMob, UMP and App Tracking Transparency (M-L) — CC/FB-0028
-
-After M27.1 (same plugin).
-- iOS plugins take vendored XCFrameworks (M11 left this open): `"xcframeworks"` in `ios/plugin.json` (paths in the
-  plugin folder), linked and embedded by the iOS export. Google's SDK is a download, never in the repository:
-  `add_backend {"backend": "admob", "sdk": <zip or folder>}` copies it in, like Steam's.
-- The plugin's iOS side (Swift, like the apple plugin): UMP first, then the App Tracking Transparency prompt only when
-  `platform.ads.trackingPrompt` is true and only after UMP's form; `tracking` in `ads.consent` maps the ATT status.
-  Info.plist gets `GADApplicationIdentifier`, `NSUserTrackingUsageDescription` (from the catalog, translated like the
-  other plist texts) and Google's `SKAdNetworkItems`. Rewarded ads and test ids as on Android.
-- macOS has no AdMob SDK: there the plugin offers no ads and `platform.has("ads")` is false.
-
-Acceptance: tooling tests: an export with a stub XCFramework links and embeds it, and the plist has the keys. Manual
-check on the iOS simulator: Clockwork Courier shows Google's test rewarded ad, the ATT prompt and UMP's form with the
-EEA debug geography (steps in PLATFORM.md).
-
-### M27.3 Leaderboard periods on the store backends (M) — CC/FB-0030
-
-- Steam has no periods: a daily or weekly board is one Steam board per period, `<storeId> <periodKey>`, made with
-  `FindOrCreateLeaderboard` with the board's sort order; `entries` reads the current one.
-- Game Center: a board whose `ids.apple` names a recurring leaderboard (set up in App Store Connect) is used as it is
-  (its current occurrence); a classic one is read with the `.today` or `.week` time scope.
-- Play Games: `TIME_SPAN_DAILY` and `TIME_SPAN_WEEKLY` of the same board.
-- Each store starts a period at its own time (Apple's recurring boards when App Store Connect says, Google's at midnight
-  Pacific time, the engine's at the player's midnight): answers carry `periodStart` and `periodEnd` when the store gives
-  them, and PLATFORM.md has a table. These three backends stop rejecting periods with `unavailable`.
-
-Acceptance: `steam_plugin_*` tests against the mock (two days give two boards, the second empty; a weekly board keeps
-its week); `apple_backend_tests` send a daily board and get a signed-out answer, not `unavailable`; the Java builds in
-the `android-apk` job.
-
-### M27.4 The Steam Deck's own keyboard (M) — CC/FB-0020
-
-After M27.3 (both edit the Steam plugin and its mock).
-- Plugin API version 3: `add_text_input` registers a handler the engine calls when a `TextField` takes or loses the
-  focus with a gamepad (the field's rectangle in window pixels, its text, `multiline`, `maxLength`, whether it is a
-  password); the handler answers whether the platform shows its own keyboard. `submit_text` hands text back to the
-  focused field (on the game thread, at the next frame). Version 2 plugins are unchanged.
-- The Steam plugin, on a Steam Deck or in Big Picture, opens Steam's floating keyboard (`ShowFloatingGamepadTextInput`:
-  Steam types into the window as key presses) and, where that is not offered, `ShowGamepadTextInput`, whose text comes
-  back through `GamepadTextInputDismissed_t` and `GetEnteredGamepadTextInput`.
-- When the platform keyboard took the field, the menu kit's on-screen keyboard stays closed (a flag the kit's script
-  reads); otherwise it opens as today.
-
-Acceptance: runtime tests with a test plugin (a pad focus calls the handler with the rectangle; `submit_text` fills the
-field; a version 2 plugin sees nothing); `steam_plugin_*` tests against the mock for both keyboards and the dismissed
-text; the kit keyboard's test with a platform keyboard. A real Deck is a manual check (PLATFORM.md).
-
-### M27.5 Video player (L) — CC/FB-0051
-
-- A `Video` component: on a UI entity it fills the control like an image (`fit`: contain, cover or stretch), with
-  `path`, `autoplay`, `loop`, `volume` and `bus`; scripts play, pause, stop and seek it and read `time`, `duration` and
-  `playing`, and get an `ended` event.
-- Decoding with pl_mpeg (MIT, one header, vendored in `external/` with its VERSIONS.md row and its notice): MPEG-1 video
-  and MP2 sound in an `.mpg`, the same on every platform, the web included, with no OS decoder. Each new picture is
-  converted into a texture; the sound plays through the engine's mixer on the chosen bus.
-- Time follows the game clock (it pauses with the game), so tests and replays are deterministic; headless runs keep the
-  same time and events.
-- `assets.import` of an `.mp4`, `.mov` or `.webm` converts it to `.mpg` with ffmpeg (`factoria setup ffmpeg`, M26.19)
-  and records its provenance; without ffmpeg the error names the setup command. `factoria validate` checks the videos
-  scenes reference. MENUS.md gets a studio-intro recipe (any button skips it).
-
-Acceptance: a doctest decodes a small committed `.mpg` fixture to the expected colours at known times; a script test
-plays it, sees `time` follow the game clock, `ended` once, and a loop; a render test draws a frame into a UI rectangle.
-Clockwork Courier's studio intro is a short video made from its animated intro scene, and its tests and perf budgets
-pass.
-
-### M27.6 Off-mesh links and walkable moving bodies on NavMesh3D (M) — CC/FB-0056
-
-- Off-mesh links: a `NavLink3D` component (its entity's position and an `end` point, `bidirectional`, `cost`) joins the
-  cells under its two ends; `nav.findPath` may take it, and the result says where (`links`: the index of the point where
-  the link starts and the link's entity) so a script can jump or climb there.
-- `Collider3D.navWalkable` on a kinematic body or a body held by a joint (a rope-bridge plank, a seesaw, a moving
-  platform): left out of the static bake like `navObstacle`, its top surface is added as walkable cells and re-marked as
-  it moves (only the cells it left and entered), joined to the ground around it within `stepHeight`.
-- `nav.info` and the editor's Show navmesh draw links and walkable bodies; NAVIGATION.md's limits follow.
-
-Acceptance: `fa_test_physics` cases: a link joins two islands (a one-way link refuses the way back); a path across a
-walkable plank bridge; a moving platform joins the path when it docks and gives `disconnected` when it is away; the
-same path twice is the same bits. Clockwork Courier marks its bridges, seesaw and platforms `navWalkable`, a dog follows
-the courier across a bridge, and `dog.js` drops its second query to the nearest point; its perf budgets pass.
+Next: no example game has an open entry. What is left of M12 and M19 is ranked in their sections and waits for a game
+that asks for it, like M23's consoles; the manual checks against real stores and devices (M8, M9, M12 and the list
+above) need accounts and hardware this machine does not have.
 
 ## Out of scope: Roblox
 
