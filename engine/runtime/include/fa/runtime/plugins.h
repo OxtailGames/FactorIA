@@ -63,6 +63,9 @@ struct PluginInstall {
     std::vector<std::string> failed;      // the names of those plugins
     std::vector<PluginBackend> backends;  // of the plugins that loaded, in the order of factoria.json "plugins"
     std::vector<PluginTextInput> textInputs;  // the same, for the plugins that registered a text input handler
+    // What the plugins said with api->set_device_fact("steamDeck", v) (ABI version 4): -1 nobody said, else 0 or 1 (a plugin that
+    // says 1 wins).
+    int steamDeck = -1;
 };
 
 // What Engine::init does: loads (once per process) the plugins `project` declares for this platform and installs what

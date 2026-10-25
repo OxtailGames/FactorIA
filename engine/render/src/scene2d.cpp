@@ -416,8 +416,9 @@ void gather_2d(World& world, Frame& f) {
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
         if (!entity_active(world, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
-        // The same grid 2D physics collides with (rows form: the rows; flat form: width/height).
-        const TilemapGrid grid = tilemap_grid(tm);
+        // The same size 2D physics collides with (rows form: the rows; flat form: width/height). The tiles are read in
+        // place from the component each frame: nothing is copied out of the Json.
+        const TilemapSize grid = tilemap_size(tm);
         if (grid.empty()) return;
         const int w = grid.width, h = grid.height;
         TextureAsset* tex = assets.texture(tm.tileset);
@@ -435,7 +436,7 @@ void gather_2d(World& world, Frame& f) {
         view.x -= 1; view.y -= 1; view.w += 2; view.h += 2;
         for (int r = 0; r < h; ++r) {
             for (int c = 0; c < w; ++c) {
-                const int value = grid.tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
+                const int value = tilemap_tile_at(tm, grid, c, r);
                 if (value < 0) continue;
                 const int idx = tile_index(value), flags = tile_flags(value);
                 float x0 = float(c) * tw, y1 = -float(r) * th, x1 = x0 + tw, y0 = y1 - th;
@@ -444,7 +445,8 @@ void gather_2d(World& world, Frame& f) {
                     Rect box{std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(a.x - b.x), std::fabs(a.y - b.y)};
                     if (!box.overlaps(view)) continue;
                 }
-                float px = float(idx % cols) * tw, py = float(idx / cols) * th;
+                float px = float(tm.margin) + float(idx % cols) * (tw + float(tm.spacing));
+                float py = float(tm.margin) + float(idx / cols) * (th + float(tm.spacing));
                 if (tm.lit) {  // a turned tile turns its normals with it
                     Vec2 right, up;
                     tile_axes(flags, right, up);

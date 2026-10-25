@@ -4,6 +4,7 @@
 #include "fa/tooling/menu_kit.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <map>
 #include <set>
@@ -27,6 +28,9 @@ Error err(std::string message, std::string hint = {}) { return Error{std::move(m
 struct Part {
     std::string name, description;
     std::vector<std::string> requires_, files, localeKeys;
+    // Optional part -> ids of the scene entities (and their children) that only make sense with it; left out of this part's
+    // scenes and prefabs when that part is not added. Scripts do the same with trailing "// @kit:<part>" comment markers.
+    std::map<std::string, std::vector<std::string>> prunes;
 };
 
 std::vector<std::string> strings_of(const Json& j, const char* key) {
@@ -51,6 +55,8 @@ Result<std::vector<Part>> load_parts() {
             part.requires_ = strings_of(p, "requires");
             part.files = strings_of(p, "files");
             part.localeKeys = strings_of(p, "localeKeys");
+            if (auto pr = p.find("prunes"); pr != p.end() && pr->is_object())
+                for (auto it = pr->begin(); it != pr->end(); ++it) part.prunes[it.key()] = strings_of(*pr, it.key().c_str());
             parts.push_back(std::move(part));
         }
     }
@@ -90,6 +96,46 @@ std::string merge_leaf(Json& doc, const std::string& dotted, const Json& value) 
     if (node->contains(path.back())) return "exists";
     (*node)[path.back()] = value;
     return "";
+}
+
+// Removes every entity whose "id" is in `ids`, at any depth of "entities" / "children".
+void prune_entities(Json& node, const std::set<std::string>& ids) {
+    for (const char* key : {"entities", "children"}) {
+        auto it = node.find(key);
+        if (it == node.end() || !it->is_array()) continue;
+        Json kept = Json::array();
+        for (Json& e : *it) {
+            if (e.is_object() && e.contains("id") && e["id"].is_string() && ids.count(e["id"].get<std::string>())) continue;
+            prune_entities(e, ids);
+            kept.push_back(std::move(e));
+        }
+        *it = std::move(kept);
+    }
+}
+
+// A script line that ends with "// @kit:<part>" belongs to that part: dropped when the part is not added, the marker
+// removed when it is (the game's copy reads as if written for it).
+std::string apply_kit_markers(const std::string& text, const std::set<std::string>& wanted) {
+    std::string out;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t end = text.find('\n', pos);
+        const bool hasNewline = end != std::string::npos;
+        if (!hasNewline) end = text.size();
+        std::string line = text.substr(pos, end - pos);
+        pos = end + (hasNewline ? 1 : 0);
+        const std::size_t m = line.rfind("// @kit:");
+        if (m != std::string::npos) {
+            std::string part = line.substr(m + 8);
+            while (!part.empty() && std::isspace(static_cast<unsigned char>(part.back()))) part.pop_back();
+            if (!wanted.count(part)) continue;
+            line.erase(m);
+            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) line.pop_back();
+        }
+        out += line;
+        if (hasNewline) out += '\n';
+    }
+    return out;
 }
 
 std::string base_language(const std::string& tag) { return tag.substr(0, tag.find('-')); }
@@ -165,11 +211,16 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
             if (!source) return err(who + "the kit file " + rel + " is missing from this build of factoria", "This is a packaging bug.");
             std::string text = *source;
             const bool scene = is_scene_or_prefab_file(rel);
+            if (!scene && rel.size() > 3 && rel.compare(rel.size() - 3, 3, ".js") == 0) text = apply_kit_markers(text, wanted);
             Json sourceDoc;
             if (scene) {
                 auto doc = parse_json(*source, rel);
                 if (!doc.ok()) return err(who + doc.error().message, "This is a bug in the kit.");
                 sourceDoc = *doc;
+                std::set<std::string> drop;
+                for (const auto& [optional, ids] : p->prunes)
+                    if (!wanted.count(optional)) drop.insert(ids.begin(), ids.end());
+                if (!drop.empty()) prune_entities(sourceDoc, drop);
                 text = dump_scene_json(sourceDoc);
             }
             const stdfs::path target = dir / rel;
@@ -302,9 +353,9 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
     if (wanted.count("pause"))
         next.push_back("Add one entity with the script scripts/pause_menu.js to every level scene: { \"id\": \"pause_menu\", \"components\": { \"Script\": { \"path\": \"scripts/pause_menu.js\" } } }.");
     if (wanted.count("options"))
-        next.push_back("Set Options.actions in prefabs/ui/options.prefab.json to the actions the player may rebind (the kit lists move_left, move_right, jump and pause; the Controls tab leaves out the ones the game does not have), and add a string options.action.<action> to every locales/<language>.json for each.");
+        next.push_back("The Controls tab of the options lists every input action of the game except the ui_* ones, labelled with the action's name. Add a string options.action.<action> to every locales/<language>.json for a readable label, and to choose and order the actions set the \"actions\" property of the Script in prefabs/ui/options.prefab.json: \"props\": { \"actions\": [\"move\", \"jump\"] }.");
     if (wanted.count("ageGate"))
-        next.push_back("Set platform.ads.audience to \"mixed\" in factoria.json when children and adults play: the main menu then opens the age gate once, before any ad, and gives the answer to platform.ads.setUnderAge() (a game with another audience never shows it). A game without the main-menu part calls openAgeGate() of scripts/ui/age_gate.js from its first scene.");
+        next.push_back("Set platform.ads.audience to \"mixed\" in factoria.json when children and adults play: the main menu (when it is added too) then opens the age gate once, before any ad, and gives the answer to platform.ads.setUnderAge() (a game with another audience never shows it). A game without the main-menu part calls openAgeGate() of scripts/ui/age_gate.js from its first scene.");
     if (wanted.count("keyboard"))
         next.push_back("Add one entity with scripts/ui/keyboard.js to every scene that has a TextField.");
     next.push_back("Run `factoria validate`, then `factoria test`" + std::string(wanted.count("main-menu") ? " (tests/recipe.test.js drives the main menu with a gamepad)." : "."));
@@ -331,7 +382,7 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
         "The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game "
         "(scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of "
         "factoria.json \"localization\" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts "
-        "that others need come along (the main menu needs core, options, credits, shop and ageGate) and are listed in `requiredBy`. A kit file the game already "
+        "that others need come along (the main menu needs core, options and credits) and are listed in `requiredBy`. The shop and ageGate parts are optional for the main menu: its Shop button, shop panel and age gate call are written only when those parts are added (all parts by default). A kit file the game already "
         "has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so "
         "running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing "
         "ones are added. A language the kit has no texts for gets the English ones. The \"pause\" part also adds the input action \"pause\" to "

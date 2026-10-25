@@ -167,6 +167,15 @@ GamepadType gamepad_type_from_ids(std::uint16_t vendorId, std::string_view name)
     return GamepadType::Generic;
 }
 
+std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::string_view name, std::string_view unique) {
+    std::string id = std::format("{:04x}:{:04x}:{}", vendor, product, name);
+    if (!unique.empty()) {
+        id += '#';
+        id += unique;
+    }
+    return id;
+}
+
 // ---------------------------------------------------------------------------
 // Frame lifecycle + event feed
 // ---------------------------------------------------------------------------
@@ -377,12 +386,43 @@ std::string Input::text_utf8() const {
     return utf8;
 }
 
+void Input::mark_connected(int index) {
+    Pad& pad = pads_[size_t(index)];
+    pad.connected = true;
+    if (pad.announced) return;
+    pad.announced = true;
+    if (pad.info.id.empty()) {  // nobody said who this is (a test, a replay, a backend without ids)
+        pad.info.name = "Gamepad";
+        pad.info.id = make_gamepad_id(0, 0, pad.info.name, "slot " + std::to_string(index));
+        pad.info.type = pad.type;
+    }
+    auto& memory = padSlotMemory_;
+    std::erase_if(memory, [&](const auto& e) { return e.first == pad.info.id; });
+    memory.emplace_back(pad.info.id, index);
+    if (memory.size() > 16) memory.erase(memory.begin());
+    if (padEvents_.size() >= 64) padEvents_.erase(padEvents_.begin());
+    padEvents_.push_back(GamepadEvent{true, index, pad.info});
+}
+
 void Input::on_gamepad_connected(int index, bool connected) {
     if (InputObserver* o = tap()) o->observe_gamepad_connected(index, connected);
     if (index < 0 || index >= kMaxGamepads) return;
     Pad& pad = pads_[size_t(index)];
-    pad.connected = connected;
-    if (connected) return;
+    if (connected) {
+        mark_connected(index);
+        return;
+    }
+    release_pad(index);
+    if (pad.announced) {
+        pad.announced = false;
+        if (padEvents_.size() >= 64) padEvents_.erase(padEvents_.begin());
+        padEvents_.push_back(GamepadEvent{false, index, pad.info});
+    }
+}
+
+void Input::release_pad(int index) {
+    Pad& pad = pads_[size_t(index)];
+    pad.connected = false;
     for (size_t i = 0; i < pad.buttons.size(); ++i) {
         if (pad.buttons[i]) pad.releasedEdge[i] = true;
         pad.buttons[i] = false;
@@ -390,11 +430,36 @@ void Input::on_gamepad_connected(int index, bool connected) {
     pad.axes.fill(0.0f);
 }
 
+void Input::set_gamepad_info(int index, GamepadInfo info) {
+    if (index < 0 || index >= kMaxGamepads) return;
+    Pad& pad = pads_[size_t(index)];
+    if (info.id.empty()) info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "slot " + std::to_string(index));
+    if (info.name.empty()) info.name = "Gamepad";
+    pad.type = info.type;
+    pad.info = std::move(info);
+}
+
+const GamepadInfo& Input::gamepad_info(int index) const {
+    static const GamepadInfo none;
+    return index >= 0 && index < kMaxGamepads ? pads_[size_t(index)].info : none;
+}
+
+int Input::choose_gamepad_slot(std::string_view id, std::span<const bool> occupied) const {
+    auto free = [&](int i) { return i >= 0 && i < kMaxGamepads && (size_t(i) >= occupied.size() || !occupied[size_t(i)]); };
+    for (const auto& [rememberedId, slot] : padSlotMemory_)
+        if (rememberedId == id && free(slot)) return slot;
+    for (int i = 0; i < kMaxGamepads; ++i)
+        if (free(i)) return i;
+    return -1;
+}
+
+std::vector<GamepadEvent> Input::take_gamepad_events() { return std::exchange(padEvents_, {}); }
+
 void Input::on_gamepad_button(int index, GamepadButton button, bool down) {
     if (InputObserver* o = tap()) o->observe_gamepad_button(index, button, down);
     if (index < 0 || index >= kMaxGamepads || size_t(button) >= size_t(GamepadButton::Count)) return;
     Pad& pad = pads_[size_t(index)];
-    pad.connected = true;
+    mark_connected(index);
     size_t i = size_t(button);
     if (down && !pad.buttons[i]) {
         pad.pressedEdge[i] = true;
@@ -408,7 +473,7 @@ void Input::on_gamepad_axis(int index, GamepadAxis axis, float value) {
     if (InputObserver* o = tap()) o->observe_gamepad_axis(index, axis, value);
     if (index < 0 || index >= kMaxGamepads || size_t(axis) >= size_t(GamepadAxis::Count)) return;
     Pad& pad = pads_[size_t(index)];
-    pad.connected = true;
+    mark_connected(index);
     bool trigger = axis == GamepadAxis::LeftTrigger || axis == GamepadAxis::RightTrigger;
     if (!(value == value)) value = 0.0f;  // NaN from a broken driver or script
     value = std::clamp(value, trigger ? 0.0f : -1.0f, 1.0f);
@@ -418,7 +483,9 @@ void Input::on_gamepad_axis(int index, GamepadAxis axis, float value) {
 }
 
 void Input::set_gamepad_type(int index, GamepadType type) {
-    if (index >= 0 && index < kMaxGamepads) pads_[size_t(index)].type = type;
+    if (index < 0 || index >= kMaxGamepads) return;
+    pads_[size_t(index)].type = type;
+    pads_[size_t(index)].info.type = type;
 }
 
 GamepadType Input::gamepad_type(int index) const {
@@ -432,7 +499,13 @@ void Input::reset_options() {
     backEdge_ = false;
     vibrations_.clear();
     lastDevice_ = InputDevice::Keyboard;
-    for (Pad& pad : pads_) pad.type = GamepadType::Generic;
+    for (Pad& pad : pads_) {
+        pad.type = GamepadType::Generic;
+        pad.info = {};
+        pad.announced = false;  // a new test starts with no pad announced, whatever the last one left plugged in
+    }
+    padEvents_.clear();
+    padSlotMemory_.clear();
 }
 
 void Input::release_all() {
@@ -450,7 +523,7 @@ void Input::release_all() {
     touches_.clear();
     touchDown_ = false;
     primaryTouchDown_ = false;  // its mouse button was released above
-    for (int i = 0; i < kMaxGamepads; ++i) on_gamepad_connected(i, false);
+    for (int i = 0; i < kMaxGamepads; ++i) release_pad(i);  // not announced: the pad is still plugged in
     for (TouchControl& c : touchControls_) {
         c.down = false;
         c.value = {};
