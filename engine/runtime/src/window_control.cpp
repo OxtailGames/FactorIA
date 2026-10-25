@@ -51,7 +51,30 @@ void sleep_for(std::chrono::nanoseconds d) {
 
 }  // namespace
 
-bool AppWindowControl::fullscreen() const { return app_is_fullscreen(); }
+std::string AppWindowControl::mode() const {
+    switch (app_window_mode()) {
+        case WindowMode::Borderless: return "borderless";
+        case WindowMode::Fullscreen: return "fullscreen";
+        default: return "windowed";
+    }
+}
+
+bool AppWindowControl::supports_modes() const { return app_has_window_modes(); }
+
+bool AppWindowControl::supports_monitors() const { return !app_monitors().empty(); }
+
+std::vector<WindowMonitor> AppWindowControl::monitors() const {
+    std::vector<WindowMonitor> list;
+    for (const MonitorInfo& m : app_monitors()) list.push_back({m.name, m.width, m.height, m.primary, m.current});
+    if (list.empty()) {  // phones, tablets, the web: the one display the window is on
+        WindowMonitor one;
+        one.name = "Display";
+        display_size(one.width, one.height);
+        one.primary = one.current = true;
+        list.push_back(std::move(one));
+    }
+    return list;
+}
 
 void AppWindowControl::size(int& width, int& height) const { app_window_size(width, height); }
 
@@ -61,20 +84,44 @@ void AppWindowControl::display_size(int& width, int& height) const {
 
 bool AppWindowControl::vsync() const { return app_vsync(); }
 
-std::string AppWindowControl::set_fullscreen(bool on) {
+std::string AppWindowControl::set_mode(const std::string& mode) {
+    WindowMode m;
+    if (mode == "windowed") m = WindowMode::Windowed;
+    else if (mode == "borderless") m = WindowMode::Borderless;
+    else if (mode == "fullscreen") m = WindowMode::Fullscreen;
+    else return "unknown mode \"" + mode + "\"; use \"windowed\", \"borderless\" or \"fullscreen\"";
     if (app_is_mobile())
-        return on ? std::string()
-                  : std::string(kAlwaysFullscreen) + ", so there is no windowed mode to go back to. Hide the full screen option "
-                                                     "when window.fullscreen is already true on a phone or tablet.";
-    app_set_fullscreen(on);
+        return m == WindowMode::Fullscreen
+                   ? std::string()
+                   : std::string(kAlwaysFullscreen) + ", so there is no windowed or borderless mode to go to. Hide the option "
+                                                      "when window.supports(\"borderless\") is false.";
+    if (!app_has_window_modes())
+        return m == WindowMode::Windowed || m == WindowMode::Fullscreen
+                   ? (app_set_window_mode(m), std::string())
+                   : std::string("this platform (") + platform_label() + ") has no borderless mode: use \"windowed\" or \"fullscreen\". "
+                                                                         "Offer it only when window.supports(\"borderless\") is true.";
+    return app_set_window_mode(m);
+}
+
+std::string AppWindowControl::set_monitor(int index) {
+    if (!supports_monitors())
+        return std::string("this platform (") + platform_label() + ") shows the game on the one display it runs on. Offer a "
+               "monitor choice only when window.supports(\"monitors\") is true.";
+    const int count = static_cast<int>(app_monitors().size());
+    if (index < 0 || index >= count)
+        return "there is no monitor " + std::to_string(index) + "; this computer has " + std::to_string(count) +
+               " (window.monitors() lists them, numbered from 0).";
+    if (!app_move_to_monitor(index))
+        return "the window cannot move to monitor " + std::to_string(index) + " right now. On macOS a window in its full screen "
+               "Space stays where it is: call window.setMode(\"windowed\") first, then window.setMonitor(" + std::to_string(index) + ").";
     return {};
 }
 
 std::string AppWindowControl::set_size(int width, int height) {
     if (app_is_mobile())
         return std::string(kAlwaysFullscreen) + ", so there is no window to resize. Offer window.setSize() only on desktop.";
-    if (app_is_fullscreen())
-        return "the window is full screen. Call window.setFullscreen(false) first, then window.setSize(" + std::to_string(width) +
+    if (app_window_mode() != WindowMode::Windowed)
+        return "the window is full screen or borderless. Call window.setMode(\"windowed\") first, then window.setSize(" + std::to_string(width) +
                ", " + std::to_string(height) + "); or leave full screen as it is and let the game letterbox.";
     if (!app_set_window_size(width, height)) return std::string("this platform (") + platform_label() + ") cannot resize the window.";
     return {};

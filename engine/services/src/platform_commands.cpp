@@ -32,7 +32,7 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
     commands.add(
         {"platform.state",
          "Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.",
-         "Returns {backend, why, adsBackend, adsWhy, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
+         "Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
          "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the "
          "backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, "
          "leaderboards: {id: best} (a daily or weekly board: \"id@periodKey\"), cloud: {key: text}, cloudModified: {key: unix seconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}], "
@@ -41,12 +41,20 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
          "included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads "
          "plugin such as admob, the store backend when it offers ads, or \"none\") and `adsWhy` says why; `audience` is factoria.json "
          "platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). "
+         "`httpBackend` is what answers http.fetch (the system HTTP client such as curl or winhttp in a windowed run or a shipped game, the fake in tests and headless runs, or \"none\"), `httpWhy` says why (also why a client cannot run) and `networkHosts` is the hosts factoria.json \"network\" declares. "
          "Example: platform.state {}",
          schema(R"({"type":"object","properties":{}})"), true, "platform"},
         [&platform](const Json&) {
             Json out = platform.info();
             out["why"] = platform.backend_why();
             out["adsWhy"] = platform.ads_why();
+            std::string httpWhy = platform.http_why();
+            if (httpWhy.empty() && !platform.http_backend())
+                httpWhy = platform.has_service("http")
+                              ? "the " + out.value("backend", std::string()) +
+                                    " backend answers from what game.platform.respond scripted; it never reaches the network"
+                              : "no backend offers http.fetch";
+            out["httpWhy"] = httpWhy;
             out["catalog"] = platform.catalog().ids_json();
             if (FakeBackend* fake = platform.fake()) out["fake"] = fake->state();
             return out;

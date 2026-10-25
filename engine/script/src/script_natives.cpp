@@ -1732,8 +1732,13 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     int w = display.value("width", 1280), h = display.value("height", 720);
     bool fullscreen = display.value("fullscreen", false), vsync = display.value("vsync", true);
     int dw = w, dh = h, cap = 0;
+    std::string mode = fullscreen ? "fullscreen" : "windowed";
+    bool modes = false, monitors = false;
     if (win) {
-        fullscreen = win->fullscreen();
+        mode = win->mode();
+        fullscreen = mode != "windowed";
+        modes = win->supports_modes();
+        monitors = win->supports_monitors();
         win->size(w, h);
         win->display_size(dw, dh);
         vsync = win->vsync();
@@ -1742,6 +1747,9 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "available", JS_NewBool(ctx, win != nullptr));
     JS_SetPropertyStr(ctx, o, "fullscreen", JS_NewBool(ctx, fullscreen));
+    JS_SetPropertyStr(ctx, o, "mode", JS_NewString(ctx, mode.c_str()));
+    JS_SetPropertyStr(ctx, o, "supportsModes", JS_NewBool(ctx, modes));
+    JS_SetPropertyStr(ctx, o, "supportsMonitors", JS_NewBool(ctx, monitors));
     JS_SetPropertyStr(ctx, o, "width", JS_NewInt32(ctx, w));
     JS_SetPropertyStr(ctx, o, "height", JS_NewInt32(ctx, h));
     JS_SetPropertyStr(ctx, o, "displayWidth", JS_NewInt32(ctx, dw));
@@ -1751,7 +1759,32 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     return o;
 }
 
-NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> "" or the reason it did not happen
+NATIVE(windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
+    SETUP;
+    (void)argc;
+    (void)argv;
+    std::vector<WindowMonitor> list;
+    if (WindowControl* win = I->host->window()) {
+        list = win->monitors();
+    } else {
+        Json p = I->host->project_settings();
+        const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+        list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true});
+    }
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < list.size(); ++i) {
+        JSValue m = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, m, "name", JS_NewString(ctx, list[i].name.c_str()));
+        JS_SetPropertyStr(ctx, m, "width", JS_NewInt32(ctx, list[i].width));
+        JS_SetPropertyStr(ctx, m, "height", JS_NewInt32(ctx, list[i].height));
+        JS_SetPropertyStr(ctx, m, "primary", JS_NewBool(ctx, list[i].primary));
+        JS_SetPropertyStr(ctx, m, "current", JS_NewBool(ctx, list[i].current));
+        JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), m);
+    }
+    return arr;
+}
+
+NATIVE(windowSet) {  // (kind 0 mode|1 size|2 vsync|3 frame cap|4 monitor, a, b) -> "" or the reason it did not happen
     SETUP;
     WindowControl* win = I->host->window();
     if (!win)
@@ -1759,9 +1792,10 @@ NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> 
                                  "apply to a windowed run (factoria run, an exported game); check window.available first.");
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     std::string err;
-    if (kind == 0) err = win->set_fullscreen(arg_bool(ctx, argc, argv, 1));
+    if (kind == 0) err = win->set_mode(arg_str(ctx, argc, argv, 1));
     else if (kind == 1) err = win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
     else if (kind == 2) err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
+    else if (kind == 4) err = win->set_monitor(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     else err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     return JS_NewString(ctx, err.c_str());
 }
@@ -1906,6 +1940,66 @@ NATIVE(audioLog) {  // (clear) -> play log entries, oldest first
     return I->from_json(list);
 }
 
+// Bus effects (docs/SCRIPTING.md, "Audio buses"): the audio.bus(name) handle and audio.snapshot call in factoria.js check
+// their arguments; these natives throw the Audio error (what is wrong and what to use) for anything that gets past them.
+JSValue throw_audio_error(JSContext* ctx, const Error& e) {
+    return throw_err(ctx, e.hint.empty() ? e.message : e.message + " " + e.hint);
+}
+NATIVE(audioBusVolume) {  // (bus, volume, fade)
+    SETUP;
+    const std::string bus = arg_str(ctx, argc, argv, 0);
+    Audio& a = I->host->audio();
+    if (a.bus_volume(bus) < 0) return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    a.set_bus_volume(bus, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_UNDEFINED;
+}
+NATIVE(audioBusLowpass) {  // (bus, hz, fade): hz 0 = off
+    SETUP;
+    const auto r = I->host->audio().set_bus_lowpass(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                                    static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusReverb) {  // (bus, mix, fade): mix 0 = off
+    SETUP;
+    const auto r = I->host->audio().set_bus_reverb(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                                   static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusDuck) {  // (bus, by, amount, attack, release): by "" = off
+    SETUP;
+    DuckSettings d;
+    d.by = arg_str(ctx, argc, argv, 1);
+    d.amount = static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5));
+    d.attack = static_cast<float>(arg_num(ctx, argc, argv, 3, 0.05));
+    d.release = static_cast<float>(arg_num(ctx, argc, argv, 4, 0.5));
+    const auto r = I->host->audio().set_bus_duck(arg_str(ctx, argc, argv, 0), d);
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusState) {  // (bus) -> { volume, snapshotVolume, lowpass, reverb, duck }
+    SETUP;
+    const std::string bus = arg_str(ctx, argc, argv, 0);
+    const Json s = I->host->audio().bus_state(bus);
+    if (!s.is_null()) return I->from_json(s);
+    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, std::vector<std::string>{"master", "sfx", "music", "ui"}) +
+                              " Use \"master\", \"sfx\", \"music\" or \"ui\".");
+}
+NATIVE(audioSnapshot) {  // (name, fade): fade < 0 = the snapshot's own
+    SETUP;
+    const auto r = I->host->audio().apply_snapshot(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, -1)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioSnapshots) {  // () -> { names, current }
+    SETUP;
+    Json names = Json::array();
+    for (const std::string& n : I->host->audio().snapshot_names()) names.push_back(n);
+    return I->from_json(Json::object({{"names", names}, {"current", I->host->audio().current_snapshot()}}));
+}
+NATIVE(audioFxReset) {  // () the test harness: every effect off, snapshot scales back to 1
+    SETUP;
+    I->host->audio().reset_bus_effects();
+    return JS_UNDEFINED;
+}
+
 // ---- physics ------------------------------------------------------------------------------------------------------
 JSValue hit_to_js(JSContext* ctx, const std::optional<RaycastHit>& hit) {
     if (!hit) return JS_NULL;
@@ -1989,6 +2083,20 @@ NATIVE(navFindPath) {  // ({ from: [x,y,z], to: [x,y,z], radius?, snap?, closest
     auto r = I->host->physics().nav_find_path(W, pt("from"), pt("to"), o);
     if (!r.ok()) return throw_err(ctx, "nav.findPath(from, to): " + r.error().to_string());
     return I->from_json(r.value().to_json());
+}
+NATIVE(navFindTilePath) {  // ({ tilemap | grid, from, to, costs?, diagonals?, maxNodes?, closest?, allowBlockedGoal? })
+    SETUP;
+    auto r = nav_tile_query(W, I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
+NATIVE(tileVersion) {  // (entity) -> how many tiles set_tilemap_tile wrote on this Tilemap so far
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    return JS_NewUint32(ctx, tm->version);
 }
 NATIVE(navBake) {  // (mesh)
     SETUP;
@@ -2678,11 +2786,13 @@ const Reg kRegs[] = {
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
+    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
-    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
+    R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
+    R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

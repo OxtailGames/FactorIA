@@ -15,6 +15,7 @@
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
 #include "fa/platform/local_date.h"
+#include "fa/services/fake_platform.h"
 #include "fa/runtime/play_session.h"
 
 namespace fa {
@@ -277,11 +278,11 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back and clipboard.");
+                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard and http.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -295,6 +296,20 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
         // What the player had copied: clipboard.read() and a TextField's Ctrl+V give it from this frame on.
         if (entry["clipboard"].is_string()) I.clipboard.set(entry["clipboard"].get<std::string>());
         else note("'clipboard' must be a string, the text on the clipboard");
+    }
+    if (entry.contains("http")) {
+        // The answers to the http.fetch calls the game makes from this frame on (first in, first out): what the server said when the
+        // session was recorded. Each is what game.platform.respond("http.fetch", ...) takes.
+        if (!entry["http"].is_array()) {
+            note("'http' must be an array of answers like [{\"result\": {\"status\": 200, \"headers\": {}, \"text\": \"{}\"}}]");
+        } else if (FakeBackend* fake = I.platform.fake()) {
+            for (const Json& answer : entry["http"]) {
+                auto r = fake->respond("http.fetch", answer, 1);
+                if (!r.ok()) note("'http': " + r.error().message);
+            }
+        } else {
+            note("'http' needs the fake platform backend (headless runs have it): the answers were ignored");
+        }
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
     if (entry.contains("mouse") && !entry["mouse"].is_object()) note("'mouse' must be an object like {\"position\": [10, 20], \"left\": true}");

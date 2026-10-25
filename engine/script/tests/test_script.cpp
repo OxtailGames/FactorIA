@@ -1086,6 +1086,77 @@ test("persist is accepted", () => {
     for (const auto& c : rep.cases) CHECK_MESSAGE(c.passed, c.message);
 }
 
+TEST_CASE("audio script API: bus effects and snapshots") {
+    TestHost h("audiofx", Json::parse(R"({"audio": {"snapshots": {
+        "underwater": {"fade": 0.8, "buses": {"sfx": {"lowpass": 600, "reverb": 0.3}, "music": {"volume": 0.5, "lowpass": 400}}},
+        "normal": {}}}})"));
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+test("a bus handle sets and reads effects, and chains", () => {
+  const music = audio.bus("music");
+  expect(music.name).toBe("music");
+  expect(music.lowpass(800).reverb(0.25)).toBe(music);
+  const s = music.state();
+  expect(s.lowpass).toBe(800);
+  expect(s.reverb).toBeCloseTo(0.25, 3);
+  expect(s.duck).toBe(null);
+  music.lowpass(null);
+  expect(music.state().lowpass).toBe(0);
+  music.duck("sfx", 0.6, 0.02, 0.3);
+  expect(music.state().duck.by).toBe("sfx");
+  expect(music.state().duck.amount).toBeCloseTo(0.6, 3);
+  music.unduck();
+  expect(music.state().duck).toBe(null);
+  music.duck("sfx").duck(null);
+  expect(music.state().duck).toBe(null);
+  audio.bus("sfx").volume(0.5, { fade: 1 });
+  expect(audio.bus("sfx").state().volume).toBeCloseTo(0.5, 3);
+  expect(audio.getVolume("sfx")).toBeCloseTo(0.5, 3);
+  audio.setVolume("sfx", 1);
+});
+test("the effects start from nothing in every test, the harness resets them", () => {
+  expect(audio.bus("music").state().reverb).toBe(0);
+  expect(audio.snapshots().current).toBe("");
+});
+test("bad calls teach", () => {
+  let m = "";
+  try { audio.bus("musci"); } catch (e) { m = String(e.message); }
+  expect(m).toContain("Did you mean 'music'?");
+  expect(() => audio.bus("music").lowpass("high")).toThrow();
+  expect(() => audio.bus("music").lowpass(800, { fade: -1 })).toThrow();
+  expect(() => audio.bus("music").reverb(2)).toThrow();
+  expect(() => audio.bus("music").duck("music")).toThrow();
+  expect(() => audio.bus("master").duck("sfx")).toThrow();
+  expect(() => audio.bus(3)).toThrow();
+  let d = "";
+  try { audio.bus("music").duck("sfx", 0.5, 0.05, 0.5).duck(5); } catch (e) { d = String(e.message); }
+  expect(d).toContain("Pass null to switch ducking off");
+});
+test("a snapshot moves the buses and a missing bus goes back to neutral", () => {
+  audio.bus("ui").reverb(0.4);
+  audio.snapshot("underwater", { fade: 0 });
+  expect(audio.snapshots().current).toBe("underwater");
+  expect(audio.snapshots().names).toEqual(["normal", "underwater"]);
+  expect(audio.bus("sfx").state().lowpass).toBe(600);
+  expect(audio.bus("music").state().snapshotVolume).toBeCloseTo(0.5, 3);
+  expect(audio.bus("ui").state().reverb).toBe(0);
+  audio.snapshot("normal");
+  expect(audio.bus("sfx").state().lowpass).toBe(0);
+  expect(audio.bus("music").state().snapshotVolume).toBe(1);
+  let m = "";
+  try { audio.snapshot("underwatr"); } catch (e) { m = String(e.message); }
+  expect(m).toContain("Did you mean 'underwater'?");
+  expect(() => audio.snapshot("normal", { fade: "slow" })).toThrow();
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    for (const auto& c : rep.cases) CHECK_MESSAGE(c.passed, c.message);
+}
+
 // ======================================================================================================================
 // rng.create: independent seeded generators (mulberry32)
 // ======================================================================================================================

@@ -36,34 +36,6 @@ Send an event to the game as the store would: a purchase, the overlay opening or
 | `event` | string ["purchase","overlay","player"] | yes | The event name. |
 | `data` | object | no | The event's data. Default {}. |
 
-## `platform.remote_play_connect` (modifies state)
-
-Not released yet (on main after 0.2.0).
-
-A guest joins the fake platform's Remote Play Together session, as Steam would tell the game.
-
-Adds a session that remotePlay.sessions() lists and sends the game {status: "connected", session} at the start of the next frame (game.step), which platform.on("remotePlay", fn) listeners receive. `session` is {id (numbered from 1), guestName, guestId, deviceName, formFactor, resolution: {width, height}}; what you leave out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080). Returns the session. A guest's input is NOT simulated here: drive the pad the guest would use with game.gamepad(i). Fails when the game runs a real store backend. Example: platform.remote_play_connect {"guestName":"Ana","formFactor":"phone"}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `guestName` | string | no | The guest's name on the store (Steam's persona name). |
-| `guestId` | string | no | The guest's account id on the store (a SteamID as decimal text). |
-| `deviceName` | string | no | The name of the guest's device. |
-| `formFactor` | string ["unknown","phone","tablet","computer","tv","vr"] | no | The kind of device the guest plays on. |
-| `resolution` | object | no | The guest's screen in pixels: {width, height}. |
-
-## `platform.remote_play_disconnect` (modifies state)
-
-Not released yet (on main after 0.2.0).
-
-A guest leaves the fake platform's Remote Play Together session.
-
-Removes the session from remotePlay.sessions() and sends the game {status: "disconnected", session} (the session as it was) at the start of the next frame (game.step). Fails when no guest has that session id (the message lists the connected ones) or when the game runs a real store backend. Example: platform.remote_play_disconnect {"id":1}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `id` | integer | yes | The session id platform.remote_play_connect returned. |
-
 ## `platform.reset` (modifies state)
 
 Since 0.2.0.
@@ -117,16 +89,15 @@ Script what the fake platform backend's test ad does: watched to the end, closed
 
 Since 0.2.0.
 
-Change how the fake platform backend behaves: signed in or out, how many frames it holds its answers, and the time of its cloud saves.
+Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers.
 
-`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` holds each answer for n engine frames (0, the default, answers at once), so a test can look at the "waiting" state of a screen and game.step() until the answer arrives. Give any of them. `cloudClock: n` sets the time (Unix seconds) the next cloud.save gets as its modified time, which cloud.stat reports; it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up by one second with each save, so saves are ordered without the wall clock. `backend: "none"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. Example: platform.set_fake {"delayFrames":2}
+`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` holds each answer for n engine frames (0, the default, answers at once), so a test can look at the "waiting" state of a screen and game.step() until the answer arrives. Give any of them. `backend: "none"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. Example: platform.set_fake {"delayFrames":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `signedIn` | boolean | no | false: the player is not signed in. |
 | `backend` | string ["fake","none"] | no | "none": behave as the none backend until platform.reset. |
 | `delayFrames` | integer | no | Frames each answer is held (0 = at once). |
-| `cloudClock` | integer | no | Unix seconds the next cloud.save is stamped with (cloud.stat's modified). |
 
 ## `platform.state`
 
@@ -134,5 +105,5 @@ Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 
-Returns {backend, why, adsBackend, adsWhy, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, cloudModified: {key: unix seconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads plugin such as admob, the store backend when it offers ads, or "none") and `adsWhy` says why; `audience` is factoria.json platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). Example: platform.state {}
+Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads plugin such as admob, the store backend when it offers ads, or "none") and `adsWhy` says why; `audience` is factoria.json platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). `httpBackend` is what answers http.fetch (the system HTTP client such as curl or winhttp in a windowed run or a shipped game, the fake in tests and headless runs, or "none"), `httpWhy` says why (also why a client cannot run) and `networkHosts` is the hosts factoria.json "network" declares. Example: platform.state {}
 

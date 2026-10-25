@@ -23,7 +23,13 @@ public:
     FakeBackend();
 
     std::string name() const override { return none_ ? "none" : "fake"; }
-    std::vector<std::string> services() const override { return none_ ? std::vector<std::string>{} : platform_services_all(); }
+    // The eight store services and "http" (http.fetch: answered from what respond() scripted, never from the network).
+    std::vector<std::string> services() const override {
+        if (none_) return {};
+        std::vector<std::string> all = platform_services_all();
+        all.push_back("http");
+        return all;
+    }
     void attach(const PlatformSink& sink) override { sink_ = sink; }
     void request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) override;
     void frame() override;
@@ -32,6 +38,9 @@ public:
     //   {"error": code, "message"?, "hint"?}   reject with that error (code: one of platform_error_codes())
     //   {"result": value}                      resolve with exactly that value
     //   any other object                       shallow-merged into the default result: {"status": "cancelled"}
+    // http.fetch has no default answer: a request nobody scripted is rejected "network", so a test never depends on a server. Its
+    // default result for a merge is {status: 200, headers: {}, text: ""}, and {"json": value} sets text to the JSON of the value
+    // (and a content-type header).
     // A scripted answer changes the fake's state only when it is a success the default would also apply: a cancelled
     // purchase owns nothing.
     Result<void> respond(const std::string& method, const Json& answer, int times = 1);

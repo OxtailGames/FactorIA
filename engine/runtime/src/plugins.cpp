@@ -181,6 +181,9 @@ int add_backend(const FaPluginApi* api, const FaBackendDesc* d) {
     for (const Json& item : parsed.value()) {
         const std::string service = item.is_string() ? item.get<std::string>() : "";
         const auto& all = platform_services_all();
+        if (service == "http")
+            return refuse(*p, "add_backend", "'" + name + "' lists 'http', which a plugin cannot offer: the engine serves http.fetch itself "
+                                                 "with the system's HTTP client (docs/NETWORKING.md)");
         if (std::find(all.begin(), all.end(), service) == all.end())
             return refuse(*p, "add_backend", "'" + name + "' lists " + (item.is_string() ? "'" + service + "'" : item.dump()) +
                                                  ", which is not a platform service. " + did_you_mean(service, all));

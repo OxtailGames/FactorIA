@@ -17,7 +17,8 @@ function defaults() {
   const system = game.accessibility;
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-    fullscreen: null, // null: keep factoria.json display.fullscreen
+    windowMode: null, // "windowed" | "borderless" | "fullscreen", or null: keep factoria.json display.fullscreen
+    monitor: null, // { index, name } of the monitor the player chose (see monitorChoice), or null: where the OS opens the window
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
@@ -34,12 +35,24 @@ function defaults() {
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
+  if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
   return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
 }
 
 export function save(s) {
   storage.set("settings", s);
+}
+
+/** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
+export function monitorChoice(index) {
+  return { index, name: window.monitors()[index]?.name ?? "" };
+}
+
+/** The index in window.monitors() of the monitor the player chose: the same name (the same place when several share it), or -1 when it is not connected now. */
+function savedMonitorIndex(choice) {
+  const same = window.monitors().filter((m) => m.name === choice.name);
+  return same.length ? (same.find((m) => m.index === choice.index) ?? same[0]).index : -1;
 }
 
 /** Camera.colorFilter of the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
@@ -87,7 +100,15 @@ export function apply(s = load()) {
       console.warn(`settings: ${what} was not applied: ${e.message}`);
     }
   };
-  if (s.fullscreen !== null) tryApply("full screen", () => window.setFullscreen(s.fullscreen));
+  // The monitor first: a full screen or borderless window covers the monitor it is on when it switches.
+  if (s.monitor && window.supports("monitors")) {
+    const index = savedMonitorIndex(s.monitor);
+    if (index >= 0 && index !== window.monitor) tryApply("monitor", () => window.setMonitor(index));
+  }
+  if (s.windowMode !== null) {
+    const mode = s.windowMode === "borderless" && !window.supports("borderless") ? "fullscreen" : s.windowMode;
+    tryApply("window mode", () => window.setMode(mode));
+  }
   if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
   if (s.frameCap) tryApply("frame cap", () => (window.frameCap = s.frameCap));

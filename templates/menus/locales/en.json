@@ -30,7 +30,13 @@
       "controls": "Controls",
       "language": "Language"
     },
-    "fullscreen": "Full screen",
+    "windowMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Window size: {width} x {height}",
     "windowSizeFullscreen": "Window size: full screen",

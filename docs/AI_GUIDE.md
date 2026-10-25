@@ -139,6 +139,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
 | `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. |
 | `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
+| `audio_bus`, `audio_snapshot` | `audio.bus`, `audio.snapshot` | The mixer. `audio_bus {"bus":"music","lowpass":800,"fade":0.5}` sets only the keys you pass (`volume`, `lowpass` in Hz with 0 or null = off, `reverb` 0..1, `duck` `{by, amount, attack, release}` or null) and returns the bus state; with just `bus` it reads it. `audio_snapshot {"name":"underwater"}` applies a snapshot of factoria.json `audio.snapshots`; without `name` it lists them. Section 9.7. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. Cleared by `scene_load`/`scene_reload`. |
 | `script_reload` | `script.reload` | Re-import scripts edited on disk without reloading the scene (`scene_load`/`scene_reload` already do it, and re-read the input actions of `factoria.json`). `{"force":true}` re-imports every module. |
@@ -622,6 +623,29 @@ Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in
 A scene load stops every sound and the music, and then starts the new scene's `settings.music` (the same track again when both scenes name it). Music that should play across scenes (a menu theme into the first level) is started by a script with `audio.music(path, { persist: true })`: it survives scene loads, and a scene whose `settings.music` is the same track does not restart it.
 
 Change a sound while it plays with `audio.setVoiceVolume(id, volume, fadeSeconds)` (`id` from `audio.play`; wind that swells, an engine hum). For music in layers (drums that come in when the fight starts) use `audio.musicLayers({ base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, { levels: { drums: 0 } })` and then `audio.setLayer("drums", 1, 2)`: the layers start on the same sample and stay in step while they loop, as long as the clips have the same length.
+
+Make the mix follow the game with bus effects (SCRIPTING.md, "Audio buses"). Music that ducks under every sound effect, and a muffled underwater level:
+
+```js
+audio.bus("music").duck("sfx", 0.5);              // music at half volume while any sound effect plays
+audio.bus("music").lowpass(600).reverb(0.2);      // muffled music in a room
+audio.bus("music").lowpass(null, { fade: 1 });    // opens again over a second
+```
+
+For a state that changes several buses at once, name it in factoria.json and apply it by name (a bus the snapshot does not list goes back to neutral, so `"normal": {}` is the way back):
+
+```json
+"audio": { "snapshots": {
+  "underwater": { "fade": 0.8, "buses": { "sfx": { "lowpass": 600, "reverb": 0.3 }, "music": { "volume": 0.5, "lowpass": 400 } } },
+  "normal": {} } }
+```
+
+```js
+audio.snapshot("underwater");                     // or audio.snapshot("underwater", { fade: 2 })
+audio.snapshot("normal");                         // when the player surfaces
+```
+
+Effects stay across scene loads, like volumes, so apply `normal` when you leave. `project_validate` checks the catalog (a misspelled bus or key gets a "did you mean"). To check it from outside, call `audio_bus {"bus":"music"}` or `audio_snapshot {}`; the mix is deterministic, so `factoria run --headless --record-audio out.wav` records what the effect does.
 
 Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
@@ -1392,6 +1416,53 @@ j.enableMotor = true; j.motorSpeed = 180;        // a wheel starts spinning
 if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(this.entity); // a rope that takes too much
 ```
 
+### 9.27 Enemies that think and find their way: `bt` plus `nav.findTilePath`
+
+A behaviour tree (`bt`, SCRIPTING.md "AI: behaviour trees") picks WHAT the enemy does; `nav.findTilePath` (NAVIGATION.md,
+section 7) says WHERE to step on a tile map. Search again only when the goal's cell changed or the map did
+(`nav.tileVersion(map)`), not every frame.
+
+```js
+import { Behaviour, bt, nav, world } from "factoria";
+const { RUNNING, FAILURE, selector, sequence, condition, action } = bt;
+
+export default class Enemy extends Behaviour {
+  speed = 40;                                   // world units per second
+  onStart() {
+    this.map = world.find("ground");            // a Tilemap whose solidTiles are the walls
+    this.player = world.find("player");
+    this.path = []; this.goalKey = ""; this.version = -1;
+    this.tree = new bt.Tree(selector(
+      sequence(condition((e) => e.distanceTo(e.player) < 200), action((e, dt) => e.chase(dt))),   // sees the player
+      action(() => RUNNING),                                                                      // otherwise idle
+    ), this);                                   // the blackboard is this behaviour
+  }
+  onUpdate(dt) { this.tree.tick(dt); }
+  distanceTo(other) { return other.position.sub(this.entity.position).length(); }
+  cellOf(p) {                                   // world position -> { col, row } (the map's top-left corner is its position)
+    const o = this.map.position, t = this.map.component.tileSize;
+    return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
+  }
+  chase(dt) {
+    const goal = this.cellOf(this.player.position), key = `${goal.col},${goal.row}`;
+    if (key !== this.goalKey || this.version !== nav.tileVersion(this.map)) {
+      const r = nav.findTilePath(this.map, this.cellOf(this.entity.position), goal, { diagonals: true, closest: true });
+      this.path = r.found ? r.points.slice(1) : [];                 // points[0] is the cell we stand on
+      this.goalKey = key; this.version = nav.tileVersion(this.map);
+    }
+    if (this.path.length === 0) return FAILURE;
+    const to = this.path[0], p = this.entity.position, dx = to.x - p.x, dy = to.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 1) { this.path.shift(); return RUNNING; }
+    const step = Math.min(d, this.speed * dt);
+    this.entity.position = [p.x + dx / d * step, p.y + dy / d * step, p.z];
+    return RUNNING;
+  }
+}
+```
+
+Digging or building (`entity.tilemap.setTile`) bumps the version, so the next `chase` finds the new way. A game whose real
+map is not a Tilemap passes its own `{width, height, cost}` grid instead of `this.map`.
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -1422,6 +1493,7 @@ The `game` object under test:
 - Touch: `touch(screenPos, frames)` for a finger held for some frames, `touchStart(screenPos, id?)`, `touchMove(screenPos, id?)`, `touchEnd(id?)`. `input.touches[0].pressed` is true on the first frame only. As on a device, the first finger also moves the mouse and holds the left button (`input.mouse.pressed("left")` is true on that first frame), so a touch test also covers the mouse branch of your code: do not add a `click` to simulate it. A script that handles both the mouse and `input.touches` sees one tap twice, so make the second handling harmless (for example, act on the target cell only if it is not already taken).
 - Queries: `find(idOrName)`, `world`, `time`, `state()`, `screenshot(path)` (needs graphics).
 - Store: `game.platform` controls the fake store every test run uses (not the `game.platform` of the `factoria` module, which is the OS name): `respond(method, answer, times = 1)` makes the next `"purchases.buy"` fail (`{ error: "network" }`), cancel (`{ status: "cancelled" }`) or answer something else, `emit("purchase" | "overlay" | "player", data)`, `set({ signedIn, delayFrames, backend })` (`backend: "none"` plays a game without a store until `reset()`: `platform.has` is false and calls reject `unavailable`), `state()`, `calls()`, `reset()`; `await platform.purchases.buy(...)` works in a test (`docs_read {"name":"platform"}`).
+- Web requests: `http.fetch(url, { method, headers, body, timeout })` (`import { http } from "factoria"`) needs the hosts in `factoria.json` `"network": {"hosts": ["api.example.com"], "purpose": "..."}` (https only; an undeclared host throws). Tests never reach the network: `game.platform.respond("http.fetch", { status: 200, json: {...} })` (or `{ error: "network" }`) scripts the next answer, `game.platform.calls()` shows the requests. The answer may come after the scene changed: check `scene.current` before using it (`docs_read {"name":"networking"}`).
 - Sound: `audioLog()` lists the sounds played since the test started (`{frame, time, path, volume, pitch, pan, bus, loop, music, source, ok}`, oldest first); it is cleared before each test, and `clearAudioLog()` clears it by hand.
 
 Assert sounds with `toContainPlayed` (alias `toHavePlayed`). The path can be the full project path, just the file name, or a RegExp; options `times` (exact count), `bus` and `source` (entity or id) narrow it. Plays whose clip failed to load do not count, and the failure message lists what did play:
@@ -1468,6 +1540,7 @@ For your game: do not assert an exact frame count or an exact position after a l
 | `script.errors` | `script_errors` | Exceptions thrown by scripts, with file, line and stack. |
 | `game.logs` | `game_logs` | Log lines. `console.log/warn/error` in scripts appear with category `script`. |
 | `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
+| `audio.bus`, `audio.snapshot` | `audio_bus`, `audio_snapshot` | The mixer's effects and snapshots: what a bus is set to, and which snapshot is applied. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
 | `script.trace` | `script_trace` | Run the project headless and record the stack, locals and watch expressions every time given script lines run (with an optional condition), or collect logpoint lines: `{"points":[{"file":"scripts/player.js","line":17,"condition":"this.body.velocity.y > 0","watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}`. Returns `hits`, `logs`, `errors`, `framesRun`, `truncated`. Use it instead of adding `console.log` and re-running. `docs_read {"name":"debugging"}`. |
@@ -1505,6 +1578,7 @@ Inside `script.eval`, the globals are the `"factoria"` names: `world`, `input`, 
 - `mouse`: `{"position": [x, y], "left": true, "right": false, "middle": false}` in design pixels.
 - `gamepad`: `{"index": 0, "buttons": {"A": true, "DpadLeft": false}, "axes": {"LeftX": -1, "RightTrigger": 0.5}}`, or an array of those for several pads. `index` is 0 to 3 (default 0), `"connected": false` unplugs the pad. Buttons are `A B X Y Start Back Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes are `LeftX LeftY RightX RightY` (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). The state stays until a later frame sets it again, so set an axis back to 0 to release the stick.
 - `clipboard`: a string put on the (in-memory) clipboard before the frame; a focused TextField reads it when `keys` presses Ctrl+V.
+- `http`: an array of answers to the game's `http.fetch` calls from this frame on, first in first out: `{"result": {"status": 200, "headers": {}, "text": "{}"}}` or `{"error": "network", "message": "timed out", "hint": "Try again."}`. The headless run uses the fake backend, so a request nobody has an answer for is rejected with `network`. Editor play sessions record what the server said ([NETWORKING.md](NETWORKING.md), "Replays").
 - `touch`: `{"id": 1, "position": [x, y], "down": true}`, or an array for several fingers. `down` defaults to true: a new `id` begins a finger, a known `id` moves it; `"down": false` lifts it (`position` is not needed then). The first finger also drives the mouse, as on a device.
 
 ```json
@@ -1558,7 +1632,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`).
+- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`). 2D tile maps: `nav.findTilePath(map, from, to)` (A* over a Tilemap or your own cost grid) and `import { bt } from "factoria"` for behaviour trees, section 9.27.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more

@@ -64,6 +64,14 @@ if(FA_BUILD_TESTS)
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu")
 
+        # factoria_player --input / --dump-state / --screenshot: an exported build plays a replay headless and its state and
+        # screenshot equal `factoria run`'s (offscreen GPU: label gpu).
+        add_test(NAME cli_player_replay
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/player_replay_test.py $<TARGET_FILE:factoria>
+                    $<TARGET_FILE:factoria_player>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_player_replay PROPERTIES TIMEOUT 300 LABELS "gpu")
+
         # factoria dap: the Debug Adapter Protocol server driven over stdio (breakpoint, stack, locals, evaluate, step, logpoint,
         # test mode, disconnect). Headless GPU may be created for test mode: label gpu.
         add_test(NAME cli_dap

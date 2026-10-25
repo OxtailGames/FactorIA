@@ -718,6 +718,40 @@ declare module "factoria" {
   }
 
   /**
+   * A handle on one audio bus, from audio.bus(name): its effects (docs/SCRIPTING.md, "Audio buses"). Every method returns the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. A bus with no effect does no effect work (it only costs one add per sample into the master while it plays).
+   */
+  export interface AudioBus {
+    /**
+     * The bus this handle controls.
+     */
+    readonly name: "master" | "sfx" | "music" | "ui";
+    /**
+     * A 12 dB per octave low-pass filter at `hz` (20..20000; a muffled, underwater sound is 400..800). 0 or null switches it off. With `fade` (seconds) the cutoff slides (in octaves) from where it is; a bus with no filter starts open. Costs one biquad per channel: five multiply-adds per sample of the bus.
+     */
+    lowpass(hz: number | null, opts?: { fade?: number }): AudioBus;
+    /**
+     * A small room reverb: the bus is heard as (1 - mix) dry + mix wet, mix 0..1 (0 switches it off, 0.3 is a touch of room). The tail rings out for about 4 seconds after the bus goes silent, then the work stops. With `fade` the mix slides. Costs several times a low-pass (eight comb and four all-pass filters per channel) and some memory for its delay lines.
+     */
+    reverb(mix: number, opts?: { fade?: number }): AudioBus;
+    /**
+     * Lowers this bus by `amount` (the fraction removed, 0.5 default: half as loud) while `byBus` is louder than -40 dBFS, e.g. audio.bus("music").duck("sfx", 0.5) pushes the music down under every sound effect. `attack` (0.05 s) and `release` (0.5 s) are time constants in seconds: the bus covers 63% of the way down (or back up) in that time, about 95% in three times it. null switches ducking off (so does unduck()); the master cannot duck. Costs a peak detector on `byBus` and one multiply per sample here.
+     */
+    duck(byBus: "sfx" | "music" | "ui" | null, amount?: number, attack?: number, release?: number): AudioBus;
+    /**
+     * Switches ducking off.
+     */
+    unduck(): AudioBus;
+    /**
+     * The bus volume, like audio.setVolume (the player's volume: snapshots scale on top of it and leave it alone). With `fade` (seconds) it moves in a straight line; without it, it still ramps over about 10 ms so it does not click.
+     */
+    volume(volume: number, opts?: { fade?: number }): AudioBus;
+    /**
+     * The settings the bus is moving to (a fade in progress shows its end value): `lowpass` is 0 when off, `snapshotVolume` is the scale the last snapshot put on `volume`.
+     */
+    state(): { volume: number, snapshotVolume: number, lowpass: number, reverb: number, duck: { by: string, amount: number, attack: number, release: number } | null };
+  }
+
+  /**
    * Sound playback.
    */
   export interface AudioAPI {
@@ -758,6 +792,18 @@ declare module "factoria" {
      * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
      */
     getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
+    /**
+     * A handle on a bus to set its effects: low-pass, reverb, ducking and volume (see AudioBus). Throws for an unknown name, with a "did you mean". The effects stay across scene loads, like volumes (a snapshot or the handle changes them).
+     */
+    bus(name: "master" | "sfx" | "music" | "ui"): AudioBus;
+    /**
+     * Moves every bus to the named snapshot of factoria.json "audio"."snapshots" (volume scale, low-pass, reverb and ducking; a bus the snapshot does not list goes back to neutral, so { "normal": {} } is the way back). `fade` is the seconds the move takes; without it the snapshot's own "fade" (0.5 when it has none). Low-pass, reverb and volume slide, ducking switches at once; the volumes the player set with setVolume are not touched. Throws for an unknown name, with a "did you mean". `factoria validate` checks the catalog.
+     */
+    snapshot(name: string, opts?: { fade?: number }): void;
+    /**
+     * The snapshot names of factoria.json and the one applied last ("" = none).
+     */
+    snapshots(): { names: string[], current: string };
   }
 
   /**
@@ -833,13 +879,129 @@ declare module "factoria" {
   }
 
   /**
-   * Path finding on the baked NavMesh3D (docs/NAVIGATION.md). The mesh is baked from the static colliders when the scene loads.
+   * A cell of a tile map: 0-based column and row, row 0 = the top row.
+   */
+  export interface NavCell {
+    /**
+     * Column, 0 = left.
+     */
+    col: number;
+    /**
+     * Row, 0 = top.
+     */
+    row: number;
+  }
+
+  /**
+   * A plain cost grid for nav.findTilePath, for maps that are not a Tilemap (a game's own grid).
+   */
+  export interface NavTileGrid {
+    /**
+     * Cells per row.
+     */
+    width: number;
+    /**
+     * Number of rows.
+     */
+    height: number;
+    /**
+     * width * height numbers, row-major, row 0 = top: the cost of ENTERING the cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined = blocked.
+     */
+    cost: readonly (number | null | undefined)[];
+    /**
+     * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     */
+    origin?: Vec2Like;
+    /**
+     * Size of a cell in the world (default 1); used for `points` and `length`.
+     */
+    cellSize?: number | Vec2Like;
+  }
+
+  /**
+   * Options of nav.findTilePath.
+   */
+  export interface NavTileOptions {
+    /**
+     * Tilemap only: cost of entering a cell per tile index (flip flags ignored). Infinity or null blocks. A solid tile listed here becomes walkable at that cost; key -1 sets empty cells. Default: solidTiles block, every other cell costs 1.
+     */
+    costs?: { [tileIndex: number]: number };
+    /**
+     * Allow 8-way steps (default false). A diagonal costs sqrt(2) times the cell entered and never cuts a corner: both cells it passes between must be open.
+     */
+    diagonals?: boolean;
+    /**
+     * Most cells the search expands before it gives up with reason "too_far" (default 100000).
+     */
+    maxNodes?: number;
+    /**
+     * When the goal cannot be reached, return the path to the reachable cell nearest to it (found true, complete false).
+     */
+    closest?: boolean;
+    /**
+     * A blocked goal cell can still be entered (at cost 1): a path that ends ON the wall or the enemy being chased.
+     */
+    allowBlockedGoal?: boolean;
+  }
+
+  /**
+   * Result of nav.findTilePath.
+   */
+  export interface NavTilePath {
+    /**
+     * True when `cells` holds a path (check `complete` for closest).
+     */
+    found: boolean;
+    /**
+     * False when only the path to the cell nearest the goal was found (options.closest).
+     */
+    complete: boolean;
+    /**
+     * The path from the start cell to the end cell, both included.
+     */
+    cells: NavCell[];
+    /**
+     * The centres of those cells in the world (a Tilemap's transform applied; for a grid origin + (col + 0.5, -(row + 0.5)) * cellSize).
+     */
+    points: Vec2[];
+    /**
+     * Sum of the entering costs along the path.
+     */
+    cost: number;
+    /**
+     * Distance along the cell centres in the map's own units (tile size times cells for a Tilemap, before the entity's scale; cellSize for a grid).
+     */
+    length: number;
+    /**
+     * Why there is no path (found false).
+     */
+    reason?: "start_off_map" | "goal_off_map" | "goal_blocked" | "blocked" | "too_far";
+    /**
+     * What is wrong, with the cells.
+     */
+    message?: string;
+    /**
+     * How to fix it.
+     */
+    hint?: string;
+  }
+
+  /**
+   * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
    */
   export interface NavAPI {
     /**
      * Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];
      */
     findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
+    /**
+     * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost }. 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     */
+    findTilePath(map: Entity | string | NavTileGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * How many tiles were written to the Tilemap with setTile or tilemap.set_tile so far (a counter, cheap). Compare it with the value from when you searched to know a cached path is stale. Writes that replace `tiles` as a whole are not counted; starts at 0 on every scene load.
+     */
+    tileVersion(tilemap: Entity | string): number;
     /**
      * Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise.
      */
@@ -1099,6 +1261,37 @@ declare module "factoria" {
   }
 
   /**
+   * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.
+   */
+  export type WindowMode = "windowed" | "borderless" | "fullscreen";
+
+  /**
+   * One monitor, from window.monitors().
+   */
+  export interface MonitorInfo {
+    /**
+     * Its place in window.monitors(), the number window.setMonitor() takes. The primary monitor is 0.
+     */
+    index: number;
+    /**
+     * What the OS calls it ("DELL U2723QE", "Built-in Retina Display", "HDMI-1"; Windows gives the graphics driver's text, often "Generic PnP Monitor"). Two identical monitors have the same name: show the index too.
+     */
+    name: string;
+    /**
+     * Its size in logical pixels.
+     */
+    size: Vec2;
+    /**
+     * The OS's main monitor (the one with the taskbar or menu bar).
+     */
+    primary: boolean;
+    /**
+     * The game window is on it now.
+     */
+    current: boolean;
+  }
+
+  /**
    * A window size in logical pixels, from window.resolutions().
    */
   export interface Resolution {
@@ -1119,9 +1312,29 @@ declare module "factoria" {
      */
     readonly fullscreen: boolean;
     /**
-     * Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     * Enters or leaves full screen: `setMode("fullscreen")` for true, `setMode("windowed")` for false. `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
      */
     setFullscreen(on: boolean): void;
+    /**
+     * "windowed", "borderless" or "fullscreen" ("fullscreen" when the project's display.fullscreen is on and there is no window, and always on phones and tablets). `window.fullscreen` is true for both borderless and fullscreen.
+     */
+    readonly mode: WindowMode;
+    /**
+     * Chooses how the window is shown. "windowed" has a frame and the size window.setSize() gave. "borderless" has no frame and covers the monitor the window is on. "fullscreen" covers it too, and where the OS has a native full screen it uses it: on macOS that is the OS's own full screen Space (the menu bar slides in, Mission Control shows it as a Space; borderless instead hides the menu bar and the Dock but stays on the desktop's Space); on Windows and Linux the engine has no exclusive mode, so fullscreen and borderless are the same frameless window over the monitor and the two names only keep what the player picked. On macOS going from fullscreen straight to borderless throws (the Space takes a moment to leave): go through "windowed" and wait a second. Use window.supports("borderless") before offering borderless. Throws without a window, on an unknown name, and on phones and tablets for anything but "fullscreen".
+     */
+    setMode(mode: WindowMode): void;
+    /**
+     * The monitors, primary first. A run without a window, phones, tablets and the web answer with one entry, the display the game runs on (a run without a window: the project's display size). Linux lists the connected XRandR outputs (one entry for the whole screen when libXrandr is missing).
+     */
+    monitors(): MonitorInfo[];
+    /**
+     * The index in window.monitors() of the monitor the window is on (0 when there is only one).
+     */
+    readonly monitor: number;
+    /**
+     * Moves the window to monitor `index` of window.monitors(): a windowed window is centred on it, a fullscreen or borderless one covers it. Works on Windows, macOS and Linux; throws on other platforms, without a window, for an index that does not exist, and on macOS while the window is in its native full screen Space (leave it with setMode("windowed") first). `window.displaySize` and `window.resolutions()` describe the new monitor afterwards (on Linux a moment later, when the window manager has moved the window). Check window.supports("monitors") first.
+     */
+    setMonitor(index: number): void;
     /**
      * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
      */
@@ -1155,9 +1368,9 @@ declare module "factoria" {
      */
     renderScale: number;
     /**
-     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". borderless needs a desktop window (Windows, macOS, Linux; not the web), monitors needs a desktop window that can list and move between monitors (Windows, macOS, Linux; true with one monitor too: offer the choice when window.monitors().length > 1). Read window.supports("frameCap") before offering window.frameCap.
      */
-    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): boolean;
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): boolean;
   }
 
   /**
@@ -1451,9 +1664,9 @@ declare module "factoria" {
   }
 
   /**
-   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
+   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable". "http" is http.fetch: it is offered when the system's HTTP client can run (always in tests, which answer from game.platform.respond).
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "remotePlay";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "http";
 
   /**
    * Who is signed in to the store.
@@ -1610,60 +1823,6 @@ declare module "factoria" {
   }
 
   /**
-   * A guest connected through Steam's Remote Play Together, as the store describes the session.
-   */
-  export interface PlatformRemotePlaySession {
-    /**
-     * The session id Steam gave the guest's connection (the fake numbers them from 1). It identifies the session in the "disconnected" event too.
-     */
-    readonly id: number;
-    /**
-     * The guest's name on the store (Steam's persona name); "" when the store does not say.
-     */
-    readonly guestName: string;
-    /**
-     * The guest's account id on the store (a SteamID as decimal text); "" when unknown.
-     */
-    readonly guestId: string;
-    /**
-     * The name of the guest's device, as Steam reports it.
-     */
-    readonly deviceName: string;
-    /**
-     * The kind of device the guest plays on: a phone or a tablet has no keyboard and a small screen, so a game may show bigger touch-free prompts.
-     */
-    readonly formFactor: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr";
-    /**
-     * The guest's screen in pixels; null when Steam does not know it.
-     */
-    readonly resolution: { width: number; height: number } | null;
-  }
-
-  /**
-   * The payload of platform.on("remotePlay").
-   */
-  export interface PlatformRemotePlayEvent {
-    /**
-     * connected: a guest joined; disconnected: the guest left (the session is as it was when they were connected).
-     */
-    readonly status: "connected" | "disconnected";
-    /**
-     * The guest's session. It says who is connected, not which pad is theirs: the guest's input arrives as one more gamepad (input.gamepad(i), game.on("gamepadConnected")), and the engine does not map a session to a pad index.
-     */
-    readonly session: PlatformRemotePlaySession;
-  }
-
-  /**
-   * Remote Play Together: friends who join the game through Steam and play on their own device. Offered by the Steam backend (check platform.has("remotePlay")); the fake backend simulates guests in tests (game.platform.remotePlayConnect). Steam shows each guest's controller to the game as one more gamepad, so a local multiplayer game already works with them; this API tells who is connected.
-   */
-  export interface PlatformRemotePlayAPI {
-    /**
-     * The guests connected now (an empty array when nobody is). Guests already connected when the game starts are listed here but no "remotePlay" event announces them: read this list at the start. Rejects with code "unavailable" when the backend has no remotePlay service.
-     */
-    sessions(): Promise<PlatformRemotePlaySession[]>;
-  }
-
-  /**
    * Cloud saves: small named values the store keeps for the player across devices.
    */
   export interface PlatformCloudAPI {
@@ -1683,10 +1842,6 @@ declare module "factoria" {
      * Deletes a key.
      */
     remove(key: string): Promise<void>;
-    /**
-     * Reads the size and modified time of a key without returning its text: { exists: false } for a key that is not there (not an error), else size (bytes of the saved JSON text) and modified (Unix seconds, a number you can compare, or null when the store keeps no time: Apple's iCloud key-value store). Steam answers the file's time, Google Play the snapshot's last modified time, the fake a counter that starts at 1767225600 and goes up one second with each save (game.platform.set({ cloudClock }) sets it). A store's time comes from the clock of the device that saved, which may be wrong: to decide which of two saves is newer, keep a revision counter inside the saved value and use `modified` only as a hint.
-     */
-    stat(key: string): Promise<{ exists: false } | { exists: true; size: number; modified: number | null }>;
   }
 
   /**
@@ -1798,7 +1953,7 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -1810,7 +1965,7 @@ declare module "factoria" {
      */
     readonly adsBackend: string;
     /**
-     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion.
+     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion. platform.has("http") tells whether http.fetch can run: false when this computer has no HTTP client (a Linux without libcurl).
      */
     has(service: PlatformService): boolean;
     /**
@@ -1833,10 +1988,6 @@ declare module "factoria" {
      * The signed-in player changed.
      */
     on(event: "player", fn: (e: PlatformPlayer) => void): () => void;
-    /**
-     * A guest joined or left through Remote Play Together ({ status, session }). Only a backend with the "remotePlay" service (Steam; the fake in tests) sends it.
-     */
-    on(event: "remotePlay", fn: (e: PlatformRemotePlayEvent) => void): () => void;
     readonly achievements: PlatformAchievementsAPI;
     readonly stats: PlatformStatsAPI;
     readonly leaderboards: PlatformLeaderboardsAPI;
@@ -1845,12 +1996,69 @@ declare module "factoria" {
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
     readonly integrity: PlatformIntegrityAPI;
-    readonly remotePlay: PlatformRemotePlayAPI;
     readonly ads: PlatformAdsAPI;
     /**
      * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
      */
     readonly release: boolean;
+  }
+
+  /**
+   * The options of http.fetch. Every field is optional.
+   */
+  export interface HttpFetchOptions {
+    /**
+     * The HTTP method, "GET" by default (lower case works too). Another method throws with a suggestion. PATCH works on every platform (Android sends it as POST with X-HTTP-Method-Override).
+     */
+    method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+    /**
+     * Request headers: at most 32, string values, no duplicates (names ignore case). Host, Content-Length, Connection, Transfer-Encoding, Upgrade, Expect, TE, Trailer, Keep-Alive, Proxy-* and Sec-* are set by the system and throw.
+     */
+    headers?: Record<string, string>;
+    /**
+     * The request body, at most 1 MB, not for GET or HEAD. A string is sent as it is; an object or array is sent as JSON, with Content-Type application/json unless you set a content type yourself.
+     */
+    body?: string | Json;
+    /**
+     * Seconds to wait for the whole request, above 0 and at most 120. Default 15. A request that takes longer rejects with code "network".
+     */
+    timeout?: number;
+  }
+
+  /**
+   * What http.fetch resolves with: the server's answer, whatever its status. Immutable.
+   */
+  export interface HttpResponse {
+    /**
+     * The HTTP status code: 200, 404, 500...
+     */
+    readonly status: number;
+    /**
+     * True for a status from 200 to 299.
+     */
+    readonly ok: boolean;
+    /**
+     * The response headers with lower-case names; a header the server sent twice is joined with ", ".
+     */
+    readonly headers: Readonly<Record<string, string>>;
+    /**
+     * The body as text (UTF-8; bytes that are not valid UTF-8 become U+FFFD). At most 4 MB: a bigger answer rejects with code "network".
+     */
+    readonly text: string;
+    /**
+     * The body parsed as JSON. Throws an Error that shows the start of the body when it is not JSON; check ok and the content-type header first when the server may answer an error page.
+     */
+    json(): any;
+  }
+
+  /**
+   * HTTP requests to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md): a leaderboard server, a news feed, a daily seed. Only https:// URLs (plain http:// only to localhost, for development); a host that is not declared throws at once. Works the same on Windows, macOS, iOS, Linux, Android and the web; in tests and headless runs the fake answers what game.platform.respond scripted and never touches the network. Example: `const r = await http.fetch("https://api.example.com/scores"); if (r.ok) show(r.json());`.
+   */
+  export interface HttpAPI {
+    /**
+     * Sends one request. Resolves with the server's answer even for 404 or 500 (look at response.ok); rejects with an Error that has `code` ("network": no connection, DNS, TLS, timeout, too big an answer; "unavailable": no HTTP client on this computer) and `hint`. A mistake in the call (a host factoria.json "network" does not declare, a http:// URL, a bad header or body) throws at once with what to change. Redirects are followed, to https only, at most 5. The answer settles at the start of an engine frame, maybe long after your code ran: a script that awaits it must check that its scene is still the current one (scene.current, entity.alive) before it uses the answer. Example: `const r = await http.fetch(url, { method: "POST", body: { name, score } });`.
+     */
+    fetch(url: string, options?: HttpFetchOptions): Promise<HttpResponse>;
   }
 
   /**
@@ -1947,6 +2155,11 @@ declare module "factoria" {
   export const nav: NavAPI;
 
   /**
+   * Behaviour trees (bt.Tree, bt.sequence, bt.selector...), ticked by your script.
+   */
+  export const bt: BtAPI;
+
+  /**
    * Game clock.
    */
   export const time: TimeAPI;
@@ -2032,9 +2245,14 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
+
+  /**
+   * http.fetch(url, options): HTTP requests to the hosts declared in factoria.json "network" (docs/NETWORKING.md).
+   */
+  export const http: HttpAPI;
 
   /**
    * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
@@ -2232,6 +2450,119 @@ declare module "factoria" {
     readonly bounceIn: EaseFn;
     readonly bounceOut: EaseFn;
     readonly bounceInOut: EaseFn;
+  }
+
+  /**
+   * What a behaviour tree node returns each tick: bt.SUCCESS, bt.FAILURE or bt.RUNNING.
+   */
+  export type BtStatus = "success" | "failure" | "running";
+
+  /**
+   * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter and bt.succeeder.
+   */
+  export interface BtNode {
+    /**
+     * sequence, selector, condition, action, wait, cooldown, inverter or succeeder.
+     */
+    readonly type: string;
+  }
+
+  /**
+   * Hooks of bt.action.
+   */
+  export interface BtActionHooks {
+    /**
+     * Runs when the action starts (the first tick it is reached, or after it finished or was interrupted).
+     */
+    onEnter?: (blackboard: any) => void;
+    /**
+     * Runs when the action returns SUCCESS or FAILURE, or with "aborted" when a tick did not reach it (a selector chose an earlier child) or the tree was reset.
+     */
+    onExit?: (blackboard: any, status: BtStatus | "aborted") => void;
+  }
+
+  /**
+   * A behaviour tree with its own memory per node: ten enemies can each run a Tree built from the same node description.
+   */
+  export interface BtTree {
+    /**
+     * The root node.
+     */
+    readonly root: BtNode;
+    /**
+     * The object every condition and action receives.
+     */
+    blackboard: any;
+    /**
+     * Seconds the tree has run: the sum of the dt it was ticked with.
+     */
+    readonly clock: number;
+    /**
+     * Result of the last tick.
+     */
+    readonly status: BtStatus;
+    /**
+     * Runs the tree one step; call it once per frame with the dt of onUpdate. A node that was not ticked on the previous tick starts fresh (a sequence goes back to its first child, a wait to zero).
+     */
+    tick(dt: number): BtStatus;
+    /**
+     * Forgets what every node remembers (running actions get onExit with "aborted").
+     */
+    reset(): void;
+  }
+
+  /**
+   * Behaviour trees in plain JS, ticked by your script with a dt you pass (deterministic). Example: const tree = new bt.Tree(bt.selector(bt.sequence(bt.condition((b) => b.sees), bt.action((b, dt) => { b.chase(dt); return bt.RUNNING; })), bt.action((b, dt) => { b.wander(dt); return bt.RUNNING; })), enemy); in onUpdate(dt): tree.tick(dt).
+   */
+  export interface BtAPI {
+    /**
+     * Status: the node finished well.
+     */
+    readonly SUCCESS: "success";
+    /**
+     * Status: the node failed or its condition was false.
+     */
+    readonly FAILURE: "failure";
+    /**
+     * Status: the node needs more ticks.
+     */
+    readonly RUNNING: "running";
+    /**
+     * Creates a tree for one agent.
+     */
+    readonly Tree: new (root: BtNode, blackboard?: any) => BtTree;
+    /**
+     * Ticks the children in order: FAILURE as soon as one fails, RUNNING while one runs (the next tick resumes at that child without asking the earlier conditions again), SUCCESS when all succeeded.
+     */
+    sequence(...children: BtNode[]): BtNode;
+    /**
+     * Ticks the children in order from the FIRST one every tick, so a more important child can interrupt a running one; returns the first result that is not FAILURE.
+     */
+    selector(...children: BtNode[]): BtNode;
+    /**
+     * Truthy = SUCCESS, falsy = FAILURE. Never RUNNING.
+     */
+    condition(fn: (blackboard: any) => unknown): BtNode;
+    /**
+     * Does something and returns bt.SUCCESS, bt.FAILURE or bt.RUNNING (anything else throws).
+     */
+    action(fn: (blackboard: any, dt: number, tree: BtTree) => BtStatus, hooks?: BtActionHooks): BtNode;
+    /**
+     * RUNNING for that many seconds of tick dt, then SUCCESS. Starts over when it was not ticked on the previous tick.
+     */
+    wait(seconds: number): BtNode;
+    /**
+     * Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once.
+     */
+    cooldown(seconds: number, child: BtNode): BtNode;
+    /**
+     * Swaps SUCCESS and FAILURE; RUNNING stays.
+     */
+    inverter(child: BtNode): BtNode;
+    /**
+     * SUCCESS whenever the child finishes, either way.
+     */
+    succeeder(child: BtNode): BtNode;
   }
 
   /**
@@ -5396,7 +5727,7 @@ declare module "factoria:test" {
    */
   export interface TestPlatform {
     /**
-     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion.
+     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion. For "http.fetch" there is no default answer: a request nobody scripted rejects with code "network", so a test never depends on a server. Script it with { status: 200, json: { ... } } (json becomes the text, with a content-type header), { status: 404, text: "not found", headers: { "Retry-After": "5" } }, or { error: "network" } for an offline player; status 200, no headers and an empty text fill what you leave out. See docs/NETWORKING.md.
      */
     respond(method: string, answer: Json, times?: number): void;
     /**
@@ -5412,23 +5743,15 @@ declare module "factoria:test" {
      */
     ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
-     * A guest joins Remote Play Together: platform.remotePlay.sessions() lists the session and platform.on("remotePlay") listeners get { status: "connected", session } at the next game.step(). What info leaves out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080); the sessions are numbered from 1. Returns the session. The guest's input is not simulated: drive the pad they would use with game.gamepad(i). An unknown field or form factor throws with a suggestion.
-     */
-    remotePlayConnect(info?: { guestName?: string; guestId?: string; deviceName?: string; formFactor?: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr"; resolution?: { width: number; height: number } }): PlatformRemotePlaySession;
-    /**
-     * The guest with that session id leaves: sessions() no longer lists it and listeners get { status: "disconnected", session } at the next game.step(). Throws, listing the connected ids, when no guest has that id.
-     */
-    remotePlayDisconnect(id: number): PlatformRemotePlaySession;
-    /**
-     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in, no Remote Play guests.
+     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
      */
     reset(): void;
     /**
-     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer. cloudClock n (Unix seconds) is the modified time the next cloud.save gets, which cloud.stat() reports: it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up one second with each save, so saves are ordered without the wall clock.
+     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
      */
-    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none"; cloudClock?: number }): void;
+    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none" }): void;
     /**
-     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, cloudModified, remotePlay, owned, unfinished, presence, scripted, calls... } }.
+     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
      */
     state(): Json;
     /**
