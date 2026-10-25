@@ -913,6 +913,52 @@ NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     return a;
 }
 
+// Tilemap tile access of entity.tilemap: (entity, col, row[, tile]). The array of `tiles` is neither copied to JS nor
+// replaced: one element changes in place (see set_tilemap_tile).
+Tilemap* script_tilemap(Impl* I, JSContext* ctx, Entity e, JSValue* exc) {
+    Tilemap* tm = I->host->world().get<Tilemap>(e);
+    if (!tm) *exc = throw_err(ctx, "entity '" + I->host->world().id_of(e) + "' has no Tilemap component; add one: entity.add(\"Tilemap\", {tileset: \"assets/tiles.png\", tileSize: [16, 16], width: 8, height: 8, tiles: [...]})");
+    return tm;
+}
+
+NATIVE(tileGet) {  // (entity, col, row) -> tile value (index + flag bits), -1 = empty or outside the map
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_NewInt32(ctx, tilemap_tile_at(*tm, tilemap_size(*tm), col, row));
+}
+
+NATIVE(tileDims) {  // (entity) -> [width, height] in tiles, the size drawing and collision use (tilemap_size)
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const TilemapSize size = tilemap_size(*tm);
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewInt32(ctx, size.width));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewInt32(ctx, size.height));
+    return a;
+}
+
+NATIVE(tileSet) {  // (entity, col, row, tile) -> void; throws when outside the map or the value is not a tile
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const double c = arg_num(ctx, argc, argv, 1, 0), r = arg_num(ctx, argc, argv, 2, 0), v = arg_num(ctx, argc, argv, 3, -1);
+    if (!set_tilemap_tile(*tm, static_cast<int>(std::floor(c)), static_cast<int>(std::floor(r)), static_cast<int>(v))) {
+        const TilemapSize size = tilemap_size(*tm);
+        return throw_err(ctx, std::format("tilemap.setTile({}, {}, {}) failed: the cell must be inside the {} x {} map (0-based, row 0 = top) and the tile -1 (empty) or a tile index (plus optional flip flags)",
+                                          c, r, v, size.width, size.height));
+    }
+    return JS_UNDEFINED;
+}
+
 // ---- components ---------------------------------------------------------------------------------------------------
 NATIVE(hasComp) {
     SETUP;
@@ -1220,13 +1266,29 @@ NATIVE(scenePath) {
 NATIVE(requestScene) {
     SETUP;
     std::string path = arg_str(ctx, argc, argv, 0);
-    if (path.empty()) path = W.scene_path();
+    const bool reload = path.empty();
+    if (reload) path = W.scene_path();
     if (!fs::exists(path)) {
         std::vector<std::string> scenes = fs::list("scenes", true, ".json");
         return throw_err(ctx, "scene '" + path + "' does not exist. " + did_you_mean(path, scenes));
     }
-    I->host->request_scene_change(path);
+    if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        Json props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return throw_err(ctx, "scene.load(path, props): props must be a plain object like { level: 3, difficulty: \"hard\" }, got " +
+                                      describe_json_value(props));
+        I->host->request_scene_change_with_props(path, props);
+    } else if (reload) {
+        I->host->request_scene_reload(path);  // a reload keeps the props the scene was started with
+    } else {
+        I->host->request_scene_change(path);  // a load without props: the next scene has none
+    }
     return JS_UNDEFINED;
+}
+
+NATIVE(sceneProps) {
+    SETUP;
+    return I->from_json(I->host->scene_props());
 }
 
 NATIVE(rngFloat) {
@@ -1531,6 +1593,15 @@ NATIVE(inPadType) {  // (index)
     return JS_NewString(ctx, gamepad_type_name(I->host->input().gamepad_type(i)));
 }
 
+NATIVE(inPadInfo) {  // (index): { id, name } of the pad in that slot (the last one it had when it is unplugged)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    const GamepadInfo& info = I->host->input().gamepad_info(i);
+    return I->from_json(Json::object({{"id", info.id}, {"name", info.name}}));
+}
+
 NATIVE(inButtonName) {  // (bindingOrAction, pad)
     SETUP;
     std::string n = arg_str(ctx, argc, argv, 0);
@@ -1661,8 +1732,13 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     int w = display.value("width", 1280), h = display.value("height", 720);
     bool fullscreen = display.value("fullscreen", false), vsync = display.value("vsync", true);
     int dw = w, dh = h, cap = 0;
+    std::string mode = fullscreen ? "fullscreen" : "windowed";
+    bool modes = false, monitors = false;
     if (win) {
-        fullscreen = win->fullscreen();
+        mode = win->mode();
+        fullscreen = mode != "windowed";
+        modes = win->supports_modes();
+        monitors = win->supports_monitors();
         win->size(w, h);
         win->display_size(dw, dh);
         vsync = win->vsync();
@@ -1671,6 +1747,9 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "available", JS_NewBool(ctx, win != nullptr));
     JS_SetPropertyStr(ctx, o, "fullscreen", JS_NewBool(ctx, fullscreen));
+    JS_SetPropertyStr(ctx, o, "mode", JS_NewString(ctx, mode.c_str()));
+    JS_SetPropertyStr(ctx, o, "supportsModes", JS_NewBool(ctx, modes));
+    JS_SetPropertyStr(ctx, o, "supportsMonitors", JS_NewBool(ctx, monitors));
     JS_SetPropertyStr(ctx, o, "width", JS_NewInt32(ctx, w));
     JS_SetPropertyStr(ctx, o, "height", JS_NewInt32(ctx, h));
     JS_SetPropertyStr(ctx, o, "displayWidth", JS_NewInt32(ctx, dw));
@@ -1680,7 +1759,32 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     return o;
 }
 
-NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> "" or the reason it did not happen
+NATIVE(windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
+    SETUP;
+    (void)argc;
+    (void)argv;
+    std::vector<WindowMonitor> list;
+    if (WindowControl* win = I->host->window()) {
+        list = win->monitors();
+    } else {
+        Json p = I->host->project_settings();
+        const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+        list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true});
+    }
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < list.size(); ++i) {
+        JSValue m = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, m, "name", JS_NewString(ctx, list[i].name.c_str()));
+        JS_SetPropertyStr(ctx, m, "width", JS_NewInt32(ctx, list[i].width));
+        JS_SetPropertyStr(ctx, m, "height", JS_NewInt32(ctx, list[i].height));
+        JS_SetPropertyStr(ctx, m, "primary", JS_NewBool(ctx, list[i].primary));
+        JS_SetPropertyStr(ctx, m, "current", JS_NewBool(ctx, list[i].current));
+        JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), m);
+    }
+    return arr;
+}
+
+NATIVE(windowSet) {  // (kind 0 mode|1 size|2 vsync|3 frame cap|4 monitor, a, b) -> "" or the reason it did not happen
     SETUP;
     WindowControl* win = I->host->window();
     if (!win)
@@ -1688,9 +1792,10 @@ NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> 
                                  "apply to a windowed run (factoria run, an exported game); check window.available first.");
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     std::string err;
-    if (kind == 0) err = win->set_fullscreen(arg_bool(ctx, argc, argv, 1));
+    if (kind == 0) err = win->set_mode(arg_str(ctx, argc, argv, 1));
     else if (kind == 1) err = win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
     else if (kind == 2) err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
+    else if (kind == 4) err = win->set_monitor(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     else err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     return JS_NewString(ctx, err.c_str());
 }
@@ -2355,7 +2460,14 @@ NATIVE(testLoad) {
     SETUP;
     std::string path = arg_str(ctx, argc, argv, 0);
     if (path.empty()) path = W.scene_path();
-    std::string err = I->host->load_scene_now(path);
+    Json props;
+    const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
+    if (hasProps) {
+        props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return JS_NewString(ctx, ("game.load(path, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+    }
+    std::string err = hasProps ? I->host->load_scene_now_with_props(path, props) : I->host->load_scene_now(path);
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
@@ -2374,7 +2486,15 @@ NATIVE(testLoadJson) {
     SETUP;
     Json scene = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
     if (!scene.is_object()) return JS_NewString(ctx, "game.loadJson(scene) expects a scene object like { format: \"factoria.scene/1\", entities: [...] }");
-    std::string err = I->host->load_scene_json_now(scene, "game.loadJson");
+    Json props;
+    const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
+    if (hasProps) {
+        props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return JS_NewString(ctx, ("game.loadJson(scene, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+    }
+    std::string err = hasProps ? I->host->load_scene_json_now_with_props(scene, "game.loadJson", props)
+                               : I->host->load_scene_json_now(scene, "game.loadJson");
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
@@ -2392,7 +2512,7 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     return JS_UNDEFINED;
 }
 
-NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type, index, name, value)
+NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type|6 validate a pad type, index, name, value, info)
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     int i = 0;
@@ -2409,13 +2529,30 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 se
         if (!pad_axis_name(ctx, name, a, exc)) return exc;
         if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
         in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
+    } else if (kind == 6) {  // only checks that `name` is a pad family
+        GamepadType t{};
+        if (!gamepad_type_from_name(name, t))
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").connect: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
     } else if (kind == 5) {
         GamepadType t{};
         if (!gamepad_type_from_name(name, t))
             return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
+        in.set_gamepad_type(i, t);  // first: a pad that is announced by this call carries its type
         in.on_gamepad_connected(i, true);  // a type only means something for a pad that is there
-        in.set_gamepad_type(i, t);
     } else {
+        if (kind == 3 && argc > 4 && JS_IsObject(argv[4])) {  // connect(info): who the pad is, before it is announced
+            const Json j = I->to_json(argv[4]);
+            GamepadInfo info = in.gamepad_info(i);
+            if (j.contains("name")) info.name = j["name"].get<std::string>();
+            if (j.contains("vendor")) info.vendor = std::uint16_t(j["vendor"].get<int>());
+            if (j.contains("product")) info.product = std::uint16_t(j["product"].get<int>());
+            if (j.contains("type")) gamepad_type_from_name(j["type"].get<std::string>(), info.type);
+            info.id = j.contains("id") ? j["id"].get<std::string>() : std::string();  // empty: made from the ids and the name
+            if (info.id.empty() && (j.contains("name") || j.contains("vendor") || j.contains("product")))
+                info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
+            if (info.id.empty()) info.id = in.gamepad_info(i).id;
+            in.set_gamepad_info(i, std::move(info));
+        }
         in.on_gamepad_connected(i, kind == 3);
     }
     return JS_UNDEFINED;
@@ -2570,19 +2707,19 @@ const Reg kRegs[] = {
     R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
     R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
-    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
+    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
-    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
+    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
+    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

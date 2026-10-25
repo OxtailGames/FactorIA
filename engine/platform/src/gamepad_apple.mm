@@ -1,5 +1,5 @@
 // macOS / iOS gamepads through the GameController framework (extended gamepads: Xbox, PlayStation, MFi...).
-// A pad keeps its slot while it stays connected: a new pad takes the first free slot, an unplugged pad frees its own
+// A pad keeps its slot while it stays connected: a new pad takes the slot it had before when that is free (else the first free one), an unplugged pad frees its own
 // (the others keep their numbers), like the Android and Linux backends. Controllers without an extended profile are
 // skipped. The framework names the buttons by position (buttonA is the bottom face button on every pad), which is the
 // engine's convention, so there is no mapping table.
@@ -33,10 +33,20 @@ GamepadType type_of(GCController* c) {
     return gamepad_type_from_ids(0, name);
 }
 
+// GameController gives a name (vendorName, productCategory) and no USB ids or serial number: the id is the name, so two
+// pads of one model share an id and take the slots in plugging order.
+GamepadInfo info_of(GCController* c) {
+    GamepadInfo info;
+    info.name = describe(c);
+    info.type = type_of(c);
+    info.id = make_gamepad_id(0, 0, info.name, "");
+    return info;
+}
+
 void feed(Input& in, int i, GCController* c) {
     GCExtendedGamepad* g = c.extendedGamepad;
+    in.set_gamepad_info(i, info_of(c));
     in.on_gamepad_connected(i, true);
-    in.set_gamepad_type(i, type_of(c));
     in.on_gamepad_button(i, GamepadButton::A, g.buttonA.isPressed);
     in.on_gamepad_button(i, GamepadButton::B, g.buttonB.isPressed);
     in.on_gamepad_button(i, GamepadButton::X, g.buttonX.isPressed);
@@ -84,9 +94,9 @@ void poll_gamepads(Input& in) {
         bool known = false;
         for (int i = 0; i < kMaxGamepads && !known; ++i) known = g_slots[i] == c;
         if (known) continue;
-        int free = -1;
-        for (int i = 0; i < kMaxGamepads && free < 0; ++i)
-            if (g_slots[i] == nil) free = i;
+        bool occupied[kMaxGamepads];
+        for (int i = 0; i < kMaxGamepads; ++i) occupied[i] = g_slots[i] != nil;
+        const int free = in.choose_gamepad_slot(info_of(c).id, occupied);  // its old slot when that is free
         if (free < 0) break;  // four pads already
         g_slots[free] = c;
         FA_INFO("gamepad", "pad {} connected: {}", free, describe(c));

@@ -591,6 +591,12 @@ The platform layer maps touches to the same `Input` object scripts use:
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
   report their real state again afterwards.
 
+### Device and pads
+
+`game.device.handheld` is true on a phone or tablet (and on a Steam Deck); `game.on("gamepadConnected" | "gamepadDisconnected")`
+reports Bluetooth pads on Android and iOS, with an id that is stable per pad (Android: the InputDevice descriptor). See
+docs/SCRIPTING.md, "Pads plugged in and out".
+
 ### On-screen gamepad
 
 A game that plays with a gamepad plays on a phone with two UI components and no change to its scripts. A `TouchStick` is

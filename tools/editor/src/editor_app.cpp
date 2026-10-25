@@ -586,7 +586,6 @@ void Editor::on_event(const sapp_event* e) {
             if (gameActive && vpFocused_ && !io.WantTextInput && !(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_repeat) &&
                 e->key_code != SAPP_KEYCODE_F9) {  // F9 marks a problem (build_ui): the game does not see it
                 engine_->input().on_key(map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
-                run_.rec.key(engine_->frame_index(), map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
             }
             break;
         case SAPP_EVENTTYPE_CHAR:
@@ -596,7 +595,6 @@ void Editor::on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_MOUSE_MOVE:
             if (gameActive && (vpHovered_ || vpMouseCaptured_[0] || vpMouseCaptured_[1] || vpMouseCaptured_[2])) {
                 engine_->input().on_mouse_move(to_design(e->mouse_x, e->mouse_y));
-                run_.rec.mouse_position(engine_->frame_index(), to_design(e->mouse_x, e->mouse_y));
             }
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
@@ -608,13 +606,10 @@ void Editor::on_event(const sapp_event* e) {
                 if (gameActive && vpHovered_) {
                     engine_->input().on_mouse_move(to_design(e->mouse_x, e->mouse_y));
                     engine_->input().on_mouse_button(mb, true);
-                    run_.rec.mouse_position(engine_->frame_index(), to_design(e->mouse_x, e->mouse_y));
-                    run_.rec.mouse_button(engine_->frame_index(), mb, true);
                     vpMouseCaptured_[b] = true;
                 }
             } else if (vpMouseCaptured_[b]) {
                 engine_->input().on_mouse_button(mb, false);
-                run_.rec.mouse_button(engine_->frame_index(), mb, false);
                 vpMouseCaptured_[b] = false;
             }
             break;
@@ -625,7 +620,6 @@ void Editor::on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_UNFOCUSED:
         case SAPP_EVENTTYPE_ICONIFIED:
             engine_->input().release_all();
-            run_.rec.release_all(engine_->frame_index());
             break;
         case SAPP_EVENTTYPE_FILES_DROPPED:
             ai_on_files_dropped();  // pictures dropped on the window go to the AI Assistant's message (ai_panel.cpp)
@@ -775,8 +769,7 @@ void Editor::on_frame(double dt) {
         const bool slicing = bool(slicedJob_);
         sync_scene_path();
         ai_drain_events();
-        const std::uint64_t frameBefore = engine_->frame_index(), stepBefore = engine_->fixed_step_index();
-        double frameDt = engine_->fixed_dt();  // dt of the last frame run here (step(1) runs one fixed dt)
+        const std::uint64_t frameBefore = engine_->frame_index();
         if (stepPending_ > 0) {
             --stepPending_;
             engine_->step(1);
@@ -784,16 +777,7 @@ void Editor::on_frame(double dt) {
             // a sliced game.step/project.test owns the simulation: extra frames would change its result
         } else {
             engine_->frame(dt);
-            frameDt = dt;
             if (play_ == PlayState::Playing) session_frame(dt, frameBefore);
-        }
-        for (const std::string& text : engine_->take_clipboard_reads())
-            if (run_.active) run_.rec.clipboard(frameBefore, text);
-        for (const HttpLogEntry& e : engine_->take_http_answers())
-            if (run_.active) run_.rec.http(e.frame, e.answer);
-        if (run_.active && engine_->frame_index() > frameBefore) {
-            const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
-            run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());
         }
         profile_tick(frameBefore);
     }
@@ -954,7 +938,6 @@ void Editor::pause() {
     engine_->set_paused(true);
     play_ = PlayState::Paused;
     engine_->input().release_all();
-    run_.rec.release_all(engine_->frame_index());
 }
 
 void Editor::step_once() {

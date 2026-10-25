@@ -175,8 +175,9 @@ To try the real thing against a server on your own machine, declare `"localhost"
 
 ## 5. Replays
 
-A play session in the editor records what the server said, so that its replay is the same run without a network. The
-recording puts each answer in the **`http`** field of the frame where the request was made, in request order:
+An input recording (the `input.record` command, and every editor play session, docs/DEBUGGING.md) records what the
+server said, so that its replay is the same run without a network. The recording puts each answer in the **`http`** field
+of the frame where the request was made, in request order:
 
 ```json
 { "frames": { "120": { "http": [
@@ -186,8 +187,8 @@ recording puts each answer in the **`http`** field of the frame where the reques
 
 `factoria run --headless --input <file>` queues the answers into the fake, and the game's
 requests take them in order, whatever frame they happen in. An entry whose `http` is not an array, or an answer the
-fake cannot use, is reported in the run's `problems`. Answers of requests that were still waiting when the recording
-ended are not recorded; the replay rejects such requests with `network`. See [AI_GUIDE.md](AI_GUIDE.md) and
+fake cannot use, is reported in the run's `problems`. A request that was still waiting when the recording ended is not
+recorded, nor are the ones made after it; the replay rejects such requests with `network`. See [AI_GUIDE.md](AI_GUIDE.md) and
 [CLI.md](CLI.md) for the rest of the replay format.
 
 ## 6. Per platform

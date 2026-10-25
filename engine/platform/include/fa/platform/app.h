@@ -114,6 +114,31 @@ bool app_is_fullscreen();
 // Enters or leaves full screen when the state differs (desktop). app_is_fullscreen() follows the request at once, even
 // where the window manager (X11) takes a moment to resize the window. Does nothing on mobile.
 void app_set_fullscreen(bool on);
+// The three ways a desktop window can be shown. Windowed has a frame and a size of its own; Borderless and Fullscreen cover
+// the whole monitor. They differ only where the OS has two kinds: macOS runs Fullscreen as its native full screen (a Space
+// of its own, the menu bar slides in) and Borderless as a frameless window over the monitor that hides the menu bar and the
+// Dock; Windows and Linux have one full screen window (a frameless window over the monitor, no exclusive mode), so the two
+// modes look the same there and only app_window_mode() remembers which one was asked for. Phones and tablets are Fullscreen.
+enum class WindowMode { Windowed, Borderless, Fullscreen };
+// false: this platform has no window modes to choose from (phones, tablets and the web).
+bool app_has_window_modes();
+WindowMode app_window_mode();
+// "" when done, else the reason it was refused (macOS cannot go from its native full screen straight to Borderless).
+std::string app_set_window_mode(WindowMode mode);
+
+// One monitor, in logical pixels. `x`, `y` is its corner in the desktop space.
+struct MonitorInfo {
+    std::string name;
+    int x = 0, y = 0, width = 0, height = 0;
+    bool primary = false;
+    bool current = false;  // the window is on it
+};
+// The monitors, primary first. Empty: this platform cannot list them (phones, tablets, web).
+std::vector<MonitorInfo> app_monitors();
+// Moves the window to monitor `index` of app_monitors(): centred when windowed, covering it when full screen. false: no such
+// monitor, or not possible now (a macOS window in its native full screen stays where it is).
+bool app_move_to_monitor(int index);
+
 // The client size of the window now.
 void app_window_size(int& width, int& height);
 // The size of the monitor the window is on. false: unknown on this platform (width and height are left alone).

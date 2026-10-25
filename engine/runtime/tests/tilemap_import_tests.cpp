@@ -1407,3 +1407,24 @@ TEST_CASE("ascii_edit reads the ground from the scene's Tilemap when the file ha
     auto written = load_json_file((s.project.dir / "levels/m.json").generic_string());
     CHECK(written.value()["rows"][2] == ".....o....");
 }
+
+TEST_CASE("tilemap.set_tile changes one tile of the running map in place and refuses bad cells") {
+    Session s("set_tile");
+    REQUIRE(s.import(level()).ok);
+    const Tilemap* tm = s.engine.world().get<Tilemap>(s.engine.world().find("tilemap"));
+    REQUIRE(tm);
+    const TilemapSize size = tilemap_size(*tm);
+    REQUIRE(size.width > 2);
+    const int was = tilemap_tile_at(*tm, size, 1, 0);
+    auto r = s.call("tilemap.set_tile", Json{{"id", "tilemap"}, {"col", 1}, {"row", 0}, {"tile", 3}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["tile"] == 3);
+    CHECK(r.result["previous"] == was);
+    CHECK(tilemap_tile_at(*tm, size, 1, 0) == 3);
+    auto bad = s.call("tilemap.set_tile", Json{{"id", "tilemap"}, {"col", size.width}, {"row", 0}, {"tile", 1}});
+    CHECK_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "col is 0.."));
+    auto none = s.call("tilemap.set_tile", Json{{"id", "cam"}, {"col", 0}, {"row", 0}, {"tile", 1}});
+    CHECK_FALSE(none.ok);
+    CHECK(contains(error_text(none), "no Tilemap"));
+}

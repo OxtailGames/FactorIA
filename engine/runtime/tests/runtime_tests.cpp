@@ -1425,7 +1425,7 @@ test('the render scale is back at 1 in the next test', () => {
 });
 
 test('device fields are fixed headless', () => {
-  expect(g.device).toEqual({ formFactor: 'desktop', gpuBackend: 'headless', memoryGB: 8, tier: 'high' });
+  expect(g.device).toEqual({ formFactor: 'desktop', gpuBackend: 'headless', memoryGB: 8, tier: 'high', steamDeck: false, handheld: false });
   expect(window.supports('renderScale')).toBe(true);
   expect(window.supports('frameCap')).toBe(false);
   expect(() => window.supports('frameCapp')).toThrow('did you mean "frameCap"');

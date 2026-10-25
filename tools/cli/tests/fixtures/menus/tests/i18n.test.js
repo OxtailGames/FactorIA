@@ -62,7 +62,6 @@ test("the Language tab switches every Text and widget that has a key, at once", 
   expect(text("Title")).toBe("Opciones");
   expect(button("tab_audio")).toBe("Audio");
   expect(button("tab_language")).toBe("Idioma");
-  expect(game.find("fullscreen").get("Toggle").label).toBe("Pantalla completa");
   expect(game.find("master_volume").get("Slider").label).toBe("General");
   expect(game.find("music_volume").get("Slider").label).toBe("Música");
   expect(button("reset_controls")).toBe("Restablecer valores");
@@ -75,6 +74,7 @@ test("the Language tab switches every Text and widget that has a key, at once", 
   game.step(1); // the "change" event reaches the script, which writes its own texts again
   expect(button("language")).toBe("Idioma: Español");
   expect(button("frame_cap")).toBe("Límite de fotogramas: sin límite");
+  expect(button("window_mode")).toBe("Modo de ventana: ventana");
   expect(button("bind_jump")).toContain("Saltar:");
 
   pad.tap("A"); // Español -> العربية

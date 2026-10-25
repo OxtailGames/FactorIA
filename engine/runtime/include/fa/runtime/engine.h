@@ -56,6 +56,9 @@ enum class RenderMode { Always, OnDemand };
 struct EngineConfig {
     std::string projectDir = ".";  // folder containing factoria.json
     std::string scene;             // start scene override ("" = project mainScene)
+    // Props of the start scene (a JSON object; null = none): what its scripts read with game.sceneProps() from their first
+    // start(). `factoria run --props` sets it. Like scene.load(path, {props}), a reload keeps them.
+    Json sceneProps;
     bool headless = false;         // no window; offscreen GPU (HeadlessGpu)
     bool graphics = true;          // false = no GPU at all (pure logic tests); renderer() == nullptr
     bool audioDevice = true;       // false = null audio device (always false when headless)
@@ -120,12 +123,25 @@ public:
     // Deterministic frames of exactly 1/fixedHz (headless, tests, AI agents).
     void step(int frames = 1);
 
-    bool load_scene(std::string_view path, std::string* error);  // immediate
+    bool load_scene(std::string_view path, std::string* error);  // immediate; the scene has no props
+    // Immediate, and the scene starts with `props` (a JSON object, see EngineConfig::sceneProps): game.sceneProps().
+    bool load_scene(std::string_view path, const Json& props, std::string* error);
     // Replaces the world with a scene given as JSON (immediate; `sourceName` is only used in messages). Unlike
     // load_scene it does NOT change the current scene path (engine.info / game.state / scene.save / scene.reload keep
     // pointing at the file being edited), so editors can restore snapshots without temp files.
     bool load_scene_json(const Json& scene, std::string_view sourceName, std::string* error);
-    void reload_scene();
+    void reload_scene();  // keeps the scene's props
+
+    // Input recording (docs/DEBUGGING.md, the `input.record` command): from now on every key, mouse, touch, gamepad and Back
+    // event the game receives, the frame times, the clipboard reads and the answers of http.fetch are written in the input
+    // replay format. Starting again drops what was recorded. Start and stop BETWEEN frames: the frame that is running is not
+    // replayed whole. stop_input_recording() returns the replay (what `factoria run --headless --input` plays), also when
+    // nothing was recorded; frames are numbered from the start. What is held at the start (keys, buttons, pads) is part of
+    // the replay. A request still waiting for its answer at the stop is not in it, nor are the ones made after it.
+    void start_input_recording();
+    Json stop_input_recording();
+    bool input_recording() const;
+    std::size_t input_recording_frames() const;  // frames recorded so far
 
     // State
     bool paused() const;
@@ -179,17 +195,15 @@ public:
     // records them as the "clipboard" of the frame they happened in. Off by default; set false to stop logging.
     void log_clipboard_reads(bool on);
     std::vector<std::string> take_clipboard_reads();
-    // Recording for replays, like the clipboard reads: while on, the http.fetch requests the game makes are kept with the frame of
-    // the request and their answers ({"result": {status, headers, text}} or {"error": code, "message", "hint"}, what the replay's
-    // "http" entry field takes), in request order, once each is answered. take_http_answers() hands over what is complete.
-    void log_http_answers(bool on);
-    std::vector<HttpLogEntry> take_http_answers();
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
     const I18n* i18n() override;
     std::string set_language(std::string_view language) override;
     double preload_time_budget_ms() const override;
     void request_scene_change(std::string_view scenePath) override;
+    void request_scene_change_with_props(std::string_view scenePath, const Json& props) override;
+    void request_scene_reload(std::string_view scenePath) override;
+    const Json& scene_props() const override;
     void request_quit() override;
     void step_frames(int n) override;
     void set_text_scale(float scale) override;  // also the renderer's
@@ -198,6 +212,8 @@ public:
     Json device_info() const override;          // a game window reports the real device; headless runs the fixed values
     Json render_stats_now() override;
     std::string load_scene_now(std::string_view scenePath) override;
+    std::string load_scene_now_with_props(std::string_view scenePath, const Json& props) override;
+    std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) override;
     std::string load_scene_json_now(const Json& scene, std::string_view sourceName) override;
 
     ScriptSystem& scripts();
