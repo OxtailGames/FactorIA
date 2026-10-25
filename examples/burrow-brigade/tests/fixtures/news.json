@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "items": [
+    { "id": "patch-2", "date": "2026-10-20", "title": "Patch 0.2", "body": "The Crystal Caves got three new cave-in layouts." },
+    { "id": "daily-live", "date": "2026-10-24", "title": { "en": "The daily dig is live", "ru": "Ежедневный забег" }, "body": { "en": "A new mine every day. Compare your cash on the boards." } },
+    { "id": "old", "date": "2026-09-01", "title": "Launch day", "body": "Welcome to the mine." },
+    { "id": "older", "date": "2026-08-01", "title": "Beta ends", "body": "Thanks for playing." },
+    { "id": "", "date": "2026-10-25", "title": "No id: dropped" },
+    { "id": "no-title", "date": "2026-10-25", "title": "", "body": "dropped too" }
+  ]
+}

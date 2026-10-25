@@ -1,0 +1,226 @@
+{
+  "format": "factoria.project/1",
+  "name": "Burrow Brigade",
+  "id": "com.oxtailgames.burrowbrigade",
+  "version": "0.1.0",
+  "engine": "0.2.0",
+  "mainScene": "scenes/menu.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": false
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
+  "input": {
+    "actions": {
+      "move_left": [
+        "A",
+        "Left",
+        "GamepadDpadLeft",
+        "GamepadLeftStickLeft"
+      ],
+      "move_right": [
+        "D",
+        "Right",
+        "GamepadDpadRight",
+        "GamepadLeftStickRight"
+      ],
+      "move_up": [
+        "W",
+        "Up",
+        "GamepadDpadUp",
+        "GamepadLeftStickUp"
+      ],
+      "move_down": [
+        "S",
+        "Down",
+        "GamepadDpadDown",
+        "GamepadLeftStickDown"
+      ],
+      "dig": [
+        "Space",
+        "J",
+        "GamepadA",
+        "GamepadX"
+      ],
+      "torch": [
+        "T",
+        "GamepadB",
+        "GamepadY"
+      ],
+      "pause": [
+        "Escape",
+        "P",
+        "GamepadStart"
+      ]
+    }
+  },
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "localization": {
+    "defaultLanguage": "en",
+    "languages": [
+      "en",
+      "ru",
+      "th"
+    ],
+    "fallbackFonts": [
+      "assets/fonts/NotoSansThai-Regular-subset.ttf"
+    ]
+  },
+  "platform": {
+    "achievements": [
+      {
+        "id": "first_ore",
+        "nameKey": "achievements.first_ore.name",
+        "descriptionKey": "achievements.first_ore.description",
+        "ids": {
+          "steam": "ACH_FIRST_ORE"
+        }
+      },
+      {
+        "id": "mole_rescuer",
+        "nameKey": "achievements.mole_rescuer.name",
+        "descriptionKey": "achievements.mole_rescuer.description",
+        "ids": {
+          "steam": "ACH_MOLE_RESCUER"
+        }
+      },
+      {
+        "id": "mole_king",
+        "nameKey": "achievements.mole_king.name",
+        "descriptionKey": "achievements.mole_king.description",
+        "ids": {
+          "steam": "ACH_MOLE_KING"
+        }
+      },
+      {
+        "id": "bright_stratum",
+        "nameKey": "achievements.bright_stratum.name",
+        "descriptionKey": "achievements.bright_stratum.description",
+        "ids": {
+          "steam": "ACH_BRIGHT_STRATUM"
+        }
+      },
+      {
+        "id": "full_house",
+        "nameKey": "achievements.full_house.name",
+        "descriptionKey": "achievements.full_house.description",
+        "ids": {
+          "steam": "ACH_FULL_HOUSE"
+        }
+      },
+      {
+        "id": "bug_squasher",
+        "nameKey": "achievements.bug_squasher.name",
+        "descriptionKey": "achievements.bug_squasher.description",
+        "ids": {
+          "steam": "ACH_BUG_SQUASHER"
+        }
+      }
+    ],
+    "stats": [
+      {
+        "id": "oreDug",
+        "type": "int",
+        "ids": {
+          "steam": "NumOreDug"
+        }
+      },
+      {
+        "id": "molesRescued",
+        "type": "int",
+        "ids": {
+          "steam": "NumMolesRescued"
+        }
+      },
+      {
+        "id": "floorsCleared",
+        "type": "int",
+        "ids": {
+          "steam": "NumFloorsCleared"
+        }
+      },
+      {
+        "id": "enemiesDefeated",
+        "type": "int",
+        "ids": {
+          "steam": "NumEnemiesDefeated"
+        }
+      }
+    ],
+    "leaderboards": [
+      {
+        "id": "best_run_cash",
+        "nameKey": "boards.name.best_run_cash",
+        "order": "descending",
+        "period": "allTime",
+        "ids": {
+          "steam": "BestRunCash"
+        }
+      },
+      {
+        "id": "daily_run_cash",
+        "nameKey": "boards.name.daily_run_cash",
+        "order": "descending",
+        "period": "daily",
+        "ids": {
+          "steam": "DailyRunCash"
+        }
+      }
+    ]
+  },
+  "icon": "assets/icon.png",
+  "export": {
+    "scriptBytecode": true,
+    "exclude": [
+      "store/**",
+      "tools/**",
+      "tests/**",
+      "screenshots/**",
+      "assets/fonts/make_subset.py",
+      "perf.json",
+      "scenes/busiest.scene.json",
+      "scripts/game/busiest.js",
+      "SHIPPING.md"
+    ],
+    "macos": {
+      "category": "public.app-category.games",
+      "minimumSystemVersion": "11.0",
+      "copyright": "Copyright 2026 Oxtail Games"
+    },
+    "linux": {
+      "categories": [
+        "Game",
+        "ArcadeGame"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foreground": "assets/icon_fg.png",
+        "background": "#141428"
+      }
+    }
+  },
+  "publish": {
+    "steam": {
+      "account": "FAKE_steam_build_account",
+      "depots": {
+        "windows": 9000001,
+        "macos": 9000002,
+        "linux": 9000003
+      }
+    }
+  }
+}

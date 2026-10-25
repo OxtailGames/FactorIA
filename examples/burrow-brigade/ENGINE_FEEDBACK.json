@@ -1,0 +1,854 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "Burrow Brigade",
+  "engineVersion": "0.2.0",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "major",
+      "title": "Light2D has no occlusion, so unexplored mine stays visible",
+      "missing": "A Light2D shines through solid Tilemap tiles: a miner's lamp lights the dirt behind the tunnel wall and, with the 16-lights cap, there is no fog of war or line of sight. A game whose point is exploring in the dark (Burrow Brigade) cannot keep the unseen parts black.",
+      "workaround": "A small lamp radius (96 world units, 20 when nearly dry), falloff 1.5 and SceneSettings.ambientLight 0.07, so the walls beyond a few tiles fall to near black. Walls next to the lamp still light up on the far side; a hand-made fog layer was not attempted in P1. P2: the fog of war grew on it: scripts/game/fog.js tracks seen tiles per miner and paints them on a second Tilemap.",
+      "workaroundFiles": [
+        "scripts/game/miner.js",
+        "scenes/shift.scene.json",
+        "scripts/game/fog.js"
+      ],
+      "suggestion": "Let a Light2D (or a Tilemap) opt into shadows from the solid tiles (a 2D shadow cast from Tilemap.solidTiles), or give Tilemap a per-tile 'explored' mask / fog-of-war layer that scripts can set.",
+      "effort": "large",
+      "occurrences": 2,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Tilemap tileset has no margin or spacing",
+      "missing": "Tilemap.tileset is cut into tileSize cells with no margin or spacing field. Kenney's Roguelike Caves & Dungeons sheet has a 1 px gap between tiles, so using it directly shows bleeding edges and shifted tiles.",
+      "workaround": "assets/src/make_atlases.py cuts the tiles out of the source sheets and re-packs them margin-free into assets/tiles_topsoil.png, tiles_crystal.png and tiles_magma.png and assets/sprites.png (run once, output committed).",
+      "workaroundFiles": [
+        "assets/src/make_atlases.py",
+        "assets/tiles_topsoil.png"
+      ],
+      "suggestion": "Add Tilemap.margin and Tilemap.spacing (vec2, texture pixels), and the same for Sprite sheets in assets.generate_sprite_sheet / the editor tile picker.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "Changing one tile rewrites the whole Tilemap tiles array",
+      "missing": "Tilemap.tiles is one JSON value: digging a single tile means building and setting the full width*height array (up to 96x64 = 6144 integers here) through entity.set, and the renderer rebuilds the tilemap. There is no setTile.",
+      "workaround": "The shift keeps its own array, marks it dirty on every MineMap change and writes it once per frame in onLateUpdate, so several tiles dug in one frame cost one write. P2: the fog Tilemap and the flood and magma spreading rewrite tiles too, so scripts/game/fog.js and hazards.js batch their changes and write once per frame.",
+      "workaroundFiles": [
+        "scripts/game/shift.js",
+        "scripts/game/fog.js",
+        "scripts/game/hazards.js"
+      ],
+      "suggestion": "Expose a tile API on the Tilemap view: tilemap.setTile(tx, ty, index) / getTile, with a dirty-rect rebuild.",
+      "effort": "medium",
+      "occurrences": 2,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Menu kit always adds the shop and the age gate",
+      "missing": "project.add_menu_kit creates a Shop button and panel, an age-gate script and prefab, shop strings and a purchases/ads check in main_menu.js even for a game with no store and no ads, and has no option to leave them out. validate does not complain about them but a first-time reader has to work out what to delete.",
+      "workaround": "Deleted the shop and age-gate files by hand, removed their imports, the shop_button handler and the 'ageGate' and 'shop' locale blocks from scripts/main_menu.js, scenes/menu.scene.json and locales/en.json.",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scenes/menu.scene.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Give project.add_menu_kit flags such as {\"shop\": false, \"ageGate\": false}, default true only when factoria.json declares purchases or ads.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Options Controls tab lists a hard-coded jump action",
+      "missing": "The kit's options.js rebinding list is a fixed array ['move_left','move_right','jump','pause'] with matching options.action.* strings, so a game with other actions (dig, move_up, move_down) shows a dead 'Jump' row and no rows for its own actions until the script and locale are edited.",
+      "workaround": "Edited the 'actions' list in scripts/ui/options.js and added options.action.move_up, move_down and dig to locales/en.json.",
+      "workaroundFiles": [
+        "scripts/ui/options.js",
+        "locales/en.json"
+      ],
+      "suggestion": "Build the list from input.actions() minus the ui_* ones, taking the label from options.action.<name> and falling back to the action name.",
+      "effort": "small",
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-25: Replaced the tab with a per-player page (a button cycles Player 1 to 4, six rows from controls.ACTIONS)."
+      ]
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "Per-gamepad input cannot use actions, so co-op pads are not rebindable",
+      "missing": "Actions bound to Gamepad* names react to ANY connected pad. For local co-op each player needs their own pad, which only input.gamepad(i).axis/down answer, with raw button and axis names; those cannot go through the Options Controls rebinding or the per-action bindings in factoria.json.",
+      "workaround": "scripts/game/miner_input.js has three device kinds: 'any' (the project's actions: keyboard and every pad, one player), 'keys' (a fixed key block) and 'pad' (input.gamepad(i) with hard-coded left stick, d-pad and A/X). P2 added the torch button (B or Y on a pad, T on the keyboard) to the same three device kinds.",
+      "workaroundFiles": [
+        "scripts/game/miner_input.js",
+        "scripts/game/players.js",
+        "scripts/game/controls.js",
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "Per-player action sets: input.gamepad(i).down('dig') resolving the project's binding for that action, or input.player(i).axis(...) with a rebind per player.",
+      "effort": "medium",
+      "occurrences": 3,
+      "status": "open",
+      "notes": [
+        "2026-10-25: scripts/game/controls.js keeps a binding table per seat in settings.playerBindings (keys and pad families), miner_input.js reads it with input.keyDown and input.gamepad(i).down/axis by binding name; the Options Controls page is per player and captures input.lastPressed()."
+      ]
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "nice-to-have",
+      "title": "assets.synth_sound presets come out much louder than the validator accepts",
+      "missing": "Sounds from assets.synth_sound (ore, oil, lamp_out, rescue) measure between -3.8 and -7 LUFS, so 'factoria validate' warns 'very loud' and that they differ by 16 LU from the quieter presets.",
+      "workaround": "Set defaults.audio {normalize: true, targetLufs: -18} in assets.json so every effect plays at the same loudness.",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Have synth_sound normalise its output to about -18 LUFS, or write the normalize import setting to assets.json itself.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "major",
+      "title": "Light2D is capped at 16 per frame",
+      "missing": "Only 16 Light2D reach the shader per frame; more are dropped with no message and no way to choose which. A mine with torches, crystals and four miners' lamps goes past 16 at once.",
+      "workaround": "scripts/game/lights.js keeps a pool of 16 minus one per miner and gives it to the sources nearest the miners, switching the others off; tests count the active Light2D entities.",
+      "workaroundFiles": [
+        "scripts/game/lights.js",
+        "tests/light.test.js"
+      ],
+      "suggestion": "Pick the 16 lights that matter on the engine side (nearest the camera, brightest) and say so in the Light2D docs; or raise the cap with a tiled/clustered 2D lighting pass.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "renderStats().lights does not count Light2D",
+      "missing": "factoria:test renderStats().lights counts only 3D lights, so a test cannot assert how many Light2D are drawn or that the cap of 16 holds.",
+      "workaround": "tests/helpers/world.js activeLights() counts the active entities that carry a Light2D component instead of the lights the renderer uses.",
+      "workaroundFiles": [
+        "tests/helpers/world.js",
+        "tests/light.test.js"
+      ],
+      "suggestion": "Add lights2d (counted) and lights2dDropped to renderStats().",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "No 2D or tile pathfinding",
+      "missing": "The engine has no path search for tile maps: enemies that chase a miner through tunnels that change as the miners dig need A* on the Tilemap that reacts to edits.",
+      "workaround": "scripts/game/pathfinding.js: A* over the mine grid (with dig cost, danger tiles, a path follower and a nav.version counter that tells followers when digging changed the map); tested in tests/pathfinding.test.js.",
+      "workaroundFiles": [
+        "scripts/game/pathfinding.js",
+        "tests/pathfinding.test.js"
+      ],
+      "suggestion": "A nav module: nav.findPath(tilemap, from, to, opts) with a passable callback and an invalidation counter fed by Tilemap edits.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No behaviour tree or other AI module",
+      "missing": "The engine has no AI building blocks: enemies need sequences, selectors, cooldowns and interruption, and every game has to write them.",
+      "workaround": "scripts/game/behavior_tree.js is a small generic tree (sequence, selector, condition, action with hooks, wait, cooldown, inverter, succeeder); scripts/game/enemy_brains.js builds the beetle, thief and Mole King trees on it.",
+      "workaroundFiles": [
+        "scripts/game/behavior_tree.js",
+        "scripts/game/enemy_brains.js",
+        "tests/behavior_tree.test.js"
+      ],
+      "suggestion": "Ship a behaviour-tree helper in the scripting module, or document the pattern in AI_GUIDE.md.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Audio docs do not say a scene load stops the music",
+      "missing": "docs/AUDIO.md and the audio API say nothing about audio.music after a scene load. Only a paragraph on scene editing in AI_GUIDE.md says loading a scene stops the audio, so a track started in one scene silently ends in the next.",
+      "workaround": "scripts/game/music.js starts the stratum's track at every shift (play() always calls audio.music) and reports whether the track changed.",
+      "workaroundFiles": [
+        "scripts/game/music.js",
+        "tests/strata.test.js"
+      ],
+      "suggestion": "Say in the audio.music doc string and in AUDIO.md what a scene load does to music, and offer a persistent music option.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "major",
+      "title": "No split screen: one camera, no viewports",
+      "missing": "Only one Camera renders per frame; a second Camera, a viewport rectangle or a render target do not exist (docs list split-screen as roadmap). A co-op game cannot split into 2 to 4 views when the players part.",
+      "workaround": "scripts/game/camera_views.js computes the split plan (clusters, viewports, zoom, hysteresis) and follow_camera.js zooms one shared camera out up to a limit; a leash (limitMove) stops miners going farther than the largest view. The plan is published and tested but not drawn.",
+      "workaroundFiles": [
+        "scripts/game/camera_views.js",
+        "scripts/game/follow_camera.js",
+        "scripts/game/miner.js"
+      ],
+      "suggestion": "Camera.viewport [x,y,w,h] normalised, several primary cameras per frame, each with its own Light2D culling and HUD space.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "major",
+      "title": "No gamepad connect/disconnect events and no stable pad identity",
+      "missing": "input.gamepad(i).connected can only be polled, there is no event, and a pad that is unplugged and plugged in may come back in another slot with nothing to tell which pad it was.",
+      "workaround": "pad_watch.js polls connected every frame, pauses with a prompt, resumes on reconnect and lets a free pad (A) or the keyboard (Enter) take the miner over; join.js polls the four slots.",
+      "workaroundFiles": [
+        "scripts/game/pad_watch.js",
+        "scripts/join.js"
+      ],
+      "suggestion": "input.on('gamepadConnected'|'gamepadDisconnected', {index, id}) and a stable pad id string (vendor/product/serial) on input.gamepad(i).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Steam Remote Play Together guests are not exposed",
+      "missing": "Steam shows a Remote Play guest's controller as one more gamepad, but the game cannot tell it from a local pad, nor ask Steam which seats are guests, nor use Steam Input glyphs per player.",
+      "workaround": "join.js and pad_watch.js treat every pad the same and poll, so a guest pad that appears mid-lobby joins with A; tested with a pad connected during the lobby on the test API (no fake Steam store hook exists for it).",
+      "workaroundFiles": [
+        "scripts/join.js",
+        "scripts/game/pad_watch.js"
+      ],
+      "suggestion": "platform.steam.remotePlay: {guests: [{index, name}]} plus an event, and the fake store able to add guests.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "Scripts cannot read or write the system clipboard",
+      "missing": "No clipboard API in the factoria module and no paste shortcut in TextField, so a seed code cannot be copied to another program or pasted from one",
+      "workaround": "scripts/game/clipboard.js keeps a session buffer behind copy()/paste() and a useSystem({write,read}) hook; the camp and results say honestly when the code only stayed in the game; the title has a Paste button that reads the buffer; scripts/game/text_entry.js (P5) cleans a typed code to an alphabet without 0/O/1/I, so a code read aloud or from a screen is typed back without mistakes",
+      "workaroundFiles": [
+        "scripts/game/clipboard.js",
+        "scripts/camp.js",
+        "scripts/results.js",
+        "scripts/ui/title_flow.js",
+        "scripts/game/text_entry.js"
+      ],
+      "suggestion": "clipboard.read()/clipboard.write(text) in the factoria module (async on web), and Ctrl+V / Cmd+V in a focused TextField",
+      "effort": "medium",
+      "occurrences": 2,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "game.today() has no time of day, so the UTC date is not derivable",
+      "missing": "game.today() answers the local calendar date and utcOffsetMinutes, but no hour or minute, so a daily seed that must roll over at the same instant for every player (UTC midnight) cannot be computed",
+      "workaround": "scripts/game/daily.js keys the daily dig on the local date (game.today().iso); players in other time zones roll over at their own midnight, and the README says so",
+      "workaroundFiles": [
+        "scripts/game/daily.js"
+      ],
+      "suggestion": "add utcIso (the UTC date) or hour/minute to game.today(), still fixed by game.setDate in tests",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "platform.cloud has no modified time or conflict signal",
+      "missing": "cloud.load answers only the value: no modified time, device id or conflict notice, so two devices that played offline cannot be told apart by the store",
+      "workaround": "scripts/game/cloud.js stores a revision counter in every save and the revision last synced per slot (burrow.cloudBase.N), settles a conflict by play time and keeps the loser as burrow.backup.N",
+      "workaroundFiles": [
+        "scripts/game/cloud.js",
+        "scripts/game/save.js"
+      ],
+      "suggestion": "cloud.stat(key) answering { modified, size } and a conflict event where the store has one (Steam Cloud, iCloud)",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.click on a widget of a panel opened in the same frame silently does nothing",
+      "missing": "Right after a panel becomes active, ui.rectOf answers the default rectangle until one game.step has laid it out, and game.click(id) then hits nothing without any message",
+      "workaround": "tests step twice after opening a panel before clicking in it (tests/cloud.test.js, tests/saves.test.js)",
+      "workaroundFiles": [
+        "tests/cloud.test.js"
+      ],
+      "suggestion": "game.click throws 'widget not laid out yet: step once after activating it'",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "networking",
+      "severity": "major",
+      "title": "No HTTP, news, remote-config or analytics API",
+      "missing": "A game script cannot fetch a JSON file or post an event: there is no http/fetch API, no news feed, no remote config and no analytics service in the engine",
+      "workaround": "scripts/game/online.js is a transport seam (offline by default, a fake in tests); news, balance and analytics go through it, and every feature works offline. A real transport has to be plugged in when the engine offers one",
+      "workaroundFiles": [
+        "scripts/game/online.js",
+        "scripts/game/news.js",
+        "scripts/game/balance.js",
+        "scripts/game/analytics.js"
+      ],
+      "suggestion": "A promise-based http module with timeouts and a test fake (game.http), plus a consent-aware analytics.track",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "A daily leaderboard cannot be targeted by date",
+      "missing": "A leaderboard with period daily picks its day from game.today() at the moment of the post, and leaderboards.submit has no way to name a day, so a daily-seed try that began before midnight and ends after it posts to the next day's board, and a game that keys its daily seed by UTC (the usual choice for a worldwide daily) cannot post to the matching board",
+      "workaround": "scripts/game/boards.js posts to the daily board only when run.dailyKey (the local date the try began on, scripts/game/daily.js) is within one day of game.today().iso and records lastPost.daily.skipped otherwise",
+      "workaroundFiles": [
+        "scripts/game/boards.js"
+      ],
+      "suggestion": "leaderboards.submit(id, score, {day:'YYYY-MM-DD'}) or game.today() with a utc option",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No Steam Deck detection API",
+      "missing": "No platform.isSteamDeck or device query; only a connected pad of type steamdeck says the game runs on a Deck",
+      "workaround": "scripts/game/deck.js isDeck() looks for a connected pad of type steamdeck, so a Deck driven by the keyboard or touch is not detected",
+      "workaroundFiles": [
+        "scripts/game/deck.js"
+      ],
+      "suggestion": "platform.device with {steamDeck, handheld}",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0023",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "No quit or window-close event",
+      "missing": "game.on has suspend and resume but no quit event, so a game cannot send a last message when the window closes",
+      "workaround": "Only the Quit button of the title flushes the analytics (scripts/main_menu.js quit()); closing the window loses the unsent events, which stay queued only in memory",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scripts/game/analytics.js"
+      ],
+      "suggestion": "game.on('quit', fn) with a short grace period",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0024",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The test runner cannot press Enter on a TextField",
+      "missing": "game.press only takes input actions and TextField ignores ui_submit, so a test cannot submit a TextField",
+      "workaround": "tests/deck.test.js checks onChange only; onSubmit in text_entry.js is used the same way and is untested",
+      "workaroundFiles": [
+        "tests/deck.test.js"
+      ],
+      "suggestion": "game.pressKey('Enter') or game.submit(id)",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0025",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "major",
+      "title": "No layered or synced music, and a playing voice's volume cannot change",
+      "missing": "audio.music is one stream and the volume of a voice that plays cannot be changed, so a danger layer and a fight layer cannot fade in over the track of the stratum",
+      "workaround": "scripts/game/music.js plays one-bar loops of each layer on the bar lines of a real-time clock and starts or stops them as a chase rises or falls; the layers never fade, they come and go on the bar",
+      "workaroundFiles": [
+        "scripts/game/music.js",
+        "assets/src/make_music_layers.py"
+      ],
+      "suggestion": "audio.musicLayers({name: path}) with setLayer(name, volume, fadeSeconds), all layers sample-synced; or a volume that audio.setVoiceVolume(handle, v, fade) can change",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0026",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "major",
+      "title": "No bus effects, ducking or snapshots",
+      "missing": "The audio API has bus volumes only: no low-pass filter, reverb, ducking or named mixer snapshots, so a paused game, water or a big cave cannot change the sound",
+      "workaround": "scripts/game/mix.js owns the four bus volumes (user volume x snapshot factor x duck) and eases them; muffling is just quieter and the cavern echo is a delayed, quieter replay of the clip in scripts/game/sound.js",
+      "workaroundFiles": [
+        "scripts/game/mix.js",
+        "scripts/game/sound.js"
+      ],
+      "suggestion": "audio.bus(name).lowpass / reverb / duck({by, depth, seconds}) and audio.snapshot(name, {fadeSeconds}) over a table the game defines",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0027",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "The window API has no borderless mode and no monitor choice",
+      "missing": "window.setFullscreen takes a boolean (the window covering the monitor), so Options cannot offer windowed / borderless / exclusive fullscreen, or choose the monitor",
+      "workaround": "Options > Video offers windowed and full screen only, and shows the monitor's size as text (scripts/ui/options.js)",
+      "workaroundFiles": [
+        "scripts/ui/options.js",
+        "scripts/settings.js"
+      ],
+      "suggestion": "window.setMode('windowed' | 'borderless' | 'fullscreen') and window.monitors / window.setMonitor(i)",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "renderStats, perf.measure and maxLights do not count Light2D",
+      "missing": "renderStats().lights counts 3D lights only. In a 2D game with 16 Light2D lamps perf.measure reports lights 0 and the maxLights budget guards nothing",
+      "workaround": "tests/render_budget.test.js counts the active Light2D entities itself (cap 16) on the busiest floor, next to the draw call and entity budgets",
+      "workaroundFiles": [
+        "tests/render_budget.test.js",
+        "perf.json"
+      ],
+      "suggestion": "Count Light2D in renderStats().lights (or add light2d) and let perf.json maxLights apply to both",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "The exported player has no input replay, state dump or screenshot option",
+      "missing": "factoria_player accepts only [projectDir|game.pak] --scene --fullscreen --frames --version, so an exported build cannot be driven by a replay or asked for its state; 'it starts and takes input' cannot be proven on the exported binary itself",
+      "workaround": "SHIPPING.md: the exported app is smoke-tested with --frames (exit 0, logs the scene load), input is proven by factoria run --headless --input with a state dump on the same project and scripts; the real keyboard and pad run on the exported build is a manual check",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Give factoria_player --input FILE, --state-out FILE and --screenshot-at in a release build too (headless or windowed), or document that the player is not testable",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "No way to start a scene with parameters or to record an input replay",
+      "missing": "A scene cannot be given arguments from the command line or factoria call, and nothing records the keys and pads of a real or bot-driven session into a replay JSON",
+      "workaround": "A generated scene per shot (store/make_store.py) holds a script with literal props; store/record.test.js drives MinerBots under factoria test and prints @@REPLAY lines the script turns into replays; scripts/game/busiest.js reads an override export for tests",
+      "workaroundFiles": [
+        "store/make_store.py",
+        "store/record.test.js",
+        "scripts/game/busiest.js"
+      ],
+      "suggestion": "factoria run --prop name=value (read through an engine API) and input.record(path) that writes the replay format",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "A declared Steam plugin without Valve's library logs an ERROR on every run and blocks the other platforms' exports",
+      "missing": "platform.add_backend steam writes plugins/steam, but the library libsteam_api for each OS comes from Valve's SDK, which is not redistributable. Without it every run logs an ERROR and validate warns that the windows and linux plugin builds are missing",
+      "workaround": "plugins/steam is not committed (.gitignore); SHIPPING.md says to run platform.add_backend with sdk on each build machine before exporting. Without it the game runs with platform services off",
+      "workaroundFiles": [
+        ".gitignore",
+        "SHIPPING.md"
+      ],
+      "suggestion": "Let a plugin be optional per platform (skip with an INFO when the library is missing) or keep the backend declaration apart from the build of the library",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The installed windows, linux and mobile players carry no build fingerprint",
+      "missing": "Players in ~/.factoria/players/0.2.0 for windows, linux and mobile have no build fingerprint, so export refuses them as a mismatch with this factoria",
+      "workaround": "export with --allow-player-mismatch for windows and linux and say in SHIPPING.md that those two builds were not run",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Stamp the fingerprint when a player is built or fetched, or compare by engine version when it is absent",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "publish.steam refuses app 480 even in a dry run",
+      "missing": "A project that uses Valve's test app 480 (the only id available before paying the Steam fee) cannot see the upload plan: the dry run fails with 'a build cannot be uploaded to it'",
+      "workaround": "The dry run is shown with an explicit appId placeholder (factoria call publish.steam '{\"dryRun\":true,\"appId\":1234567}'); steam_appid.txt keeps 480 for the Spacewar check",
+      "workaroundFiles": [
+        "SHIPPING.md",
+        "steam_appid.txt"
+      ],
+      "suggestion": "Allow dryRun with app 480 (print the plan and a warning) and refuse only the real upload",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "No way to frame a still of the game from a camera that follows the players",
+      "missing": "The key art needs the four miners, their lights and the camp in one composed frame, but the camera follows the miners and the capsule logo covers the middle; assets.draw_capsules only crops the key art by a focus point",
+      "workaround": "store/make_store.py renders a staged keyart scene, lifts the picture with PIL (KEYART_LIFT) so the logo sits below the miners, then calls assets.draw_capsules",
+      "workaroundFiles": [
+        "store/make_store.py",
+        "store/scenes/keyart.scene.json"
+      ],
+      "suggestion": "assets.draw_capsules option for a safe area or a logo anchor so the focus keeps the subject clear of the logo",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A test cannot write a file, so a recording has to go through stdout",
+      "missing": "factoria test scripts have no file-writing API, so a bot session cannot save the replay it produced",
+      "workaround": "store/record.test.js prints one @@REPLAY JSON line per floor and make_store.py parses them out of the test output",
+      "workaroundFiles": [
+        "store/record.test.js",
+        "store/make_store.py"
+      ],
+      "suggestion": "A files.write under the project's build/ folder available to tests (tools already have project files)",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "Text wrapping cannot break Thai (or Khmer, Lao, Burmese) at word boundaries",
+      "missing": "The text engine wraps only at an ASCII space, U+3000 and between CJK characters. A Thai sentence is written without spaces, so it is one unbreakable run: it overflows its maxWidth or is cut. ZWSP, thin and hair spaces are not break opportunities either",
+      "workaround": "The Thai table writes a real space between phrases and keeps every space-free run under 17 base letters, checked by a test and by tools/thai_spaces.py",
+      "workaroundFiles": [
+        "locales/th.json",
+        "tools/thai_spaces.py",
+        "tests/languages.test.js"
+      ],
+      "suggestion": "Break opportunities at ZWSP (U+200B) and WORD JOINER-free runs, or a dictionary-free Thai/Khmer/Lao/Burmese break iterator (ICU-style); then a locale could carry ZWSP between words",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "localization validate's glyph check misses U+0E4D that Thai sara am (U+0E33) needs",
+      "missing": "Thai sara am is drawn as U+0E4D + U+0E32 by the text engine, but validate's glyph check only looks for U+0E33, so a font subset without U+0E4D passes validate and shows a missing-glyph box at run time",
+      "workaround": "The font subset script keeps U+0E4D explicitly and checks the decomposed forms (assets/fonts/make_subset.py --check)",
+      "workaroundFiles": [
+        "assets/fonts/make_subset.py"
+      ],
+      "suggestion": "Run the glyph check on the characters the shaper actually draws (after the decomposition), or document it in docs/LOCALIZATION.md",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0038",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "ui.check_layout ignores ScrollList clipping and sees only scenes as they settle",
+      "missing": "check_layout reports an overlap for a widget inside a ScrollList that is clipped away (the Russian camp at 200 % reports a shop row under the buttons below the list), and it cannot see the panels a script opens later (slots, Options, boards, credits, pause)",
+      "workaround": "tests/helpers/layout.js reads ui.state (rectangles, overflowed) and clips by ScrollList ancestors; tests/layout.test.js drives every script-opened panel; the one known false positive is filtered by name",
+      "workaroundFiles": [
+        "tests/helpers/layout.js",
+        "tests/layout.test.js"
+      ],
+      "suggestion": "Clip a widget's rectangle by its ScrollList ancestors in check_layout, and accept a list of steps (clicks) per scene to reach a state before checking",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
+}

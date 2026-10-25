@@ -7,7 +7,11 @@ the order that costs least. Each section is a short recipe with real code from *
 reference doc instead of a copy of it. Paths in the snippets are relative to the game's folder. For a 3D game made for
 phones, **Clockwork Courier** (`examples/clockwork-courier`) is the second model: on-screen controls, haptics, pause on
 suspend, Android Back, a Japanese font cut to the game's characters (`assets/fonts/make_subset.py`) and every screen
-checked at 200 % text.
+checked at 200 % text. For a desktop game for several players at one screen, **Burrow Brigade**
+(`examples/burrow-brigade`) is the third: a join screen, per-player rebinding, save slots whose format changed once
+(with the migration and fixtures of both versions), a game speed and hold-or-toggle for assist, a Thai fallback font
+(its `tools/thai_spaces.py` puts spaces between Thai words, since lines break only at spaces), and `SHIPPING.md` for
+Steam and the desktop exports.
 
 Do the sections in order: the menu comes first because options, saves and languages all live behind it; tests come last
 but each section ends with the test that keeps it true. Export and the store steps are after the checklist at the end.

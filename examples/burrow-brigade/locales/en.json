@@ -1,0 +1,366 @@
+{
+  "$name": "English",
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.",
+    "art": "Art: Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), CC0. The moles, the beetles, the thief, the Mole King, the torches, the fog, the lift arrows, the cracks and the tint of the three strata are drawn for this game.",
+    "sounds": "Sound effects and music: made for this game with FactorIA's sound synthesiser and a small script, CC0."
+  },
+  "loading": {
+    "progress": "Loading... {percent}%"
+  },
+  "menu": {
+    "title": "Burrow Brigade",
+    "play": "Play",
+    "options": "Options",
+    "credits": "Credits",
+    "quit": "Quit",
+    "back": "Back",
+    "continue": "Continue",
+    "daily": "Daily dig",
+    "code": "Seed code",
+    "dailyInfo": {
+      "one": "Daily dig {key}: {tries} try, deepest {depth} m",
+      "other": "Daily dig {key}: {tries} tries, deepest {depth} m"
+    },
+    "boards": "Boards"
+  },
+  "options": {
+    "title": "Options",
+    "tab": {
+      "video": "Video",
+      "audio": "Audio",
+      "controls": "Controls",
+      "language": "Language",
+      "access": "Access"
+    },
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "colorFilter": "Color filter: {filter}",
+    "filter": {
+      "none": "off",
+      "greyscale": "greyscale",
+      "highContrast": "high contrast",
+      "protanopia": "protanopia (red)",
+      "deuteranopia": "deuteranopia (green)",
+      "tritanopia": "tritanopia (blue)"
+    },
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": {
+      "master": "Master",
+      "music": "Music",
+      "effects": "Effects",
+      "interface": "Interface"
+    },
+    "action": {
+      "move_left": "Move left",
+      "move_right": "Move right",
+      "move_up": "Move up",
+      "move_down": "Move down",
+      "dig": "Dig",
+      "pause": "Pause",
+      "torch": "Place torch",
+      "left": "Left",
+      "right": "Right",
+      "up": "Up",
+      "down": "Down"
+    },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language: {language}",
+    "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
+    "on": "on",
+    "off": "off",
+    "percent": {
+      "one": "{value} percent",
+      "other": "{value} percent"
+    },
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "playerPress": "{action}: press a key or a button (Esc cancels)",
+    "analytics": "Send anonymous play statistics",
+    "displayMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {width} x {height}",
+    "soundCaptions": "Sound captions",
+    "holdMode": "Dig: {mode}",
+    "holdModeHold": "hold",
+    "holdModeToggle": "press to start, press to stop",
+    "gameSpeed": "Game speed: {percent} percent",
+    "gameSpeedNote": "A slower shift does not post to the boards.",
+    "reducedFlashing": "Reduced flashing",
+    "accessNote": "Ore and hazards also carry a shape, so they read without colour.",
+    "readToggle": "{label}, {state}",
+    "readSlider": "{label}, {value}"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "mainMenu": "Main menu"
+  },
+  "hud": {
+    "ore": "Ore: {count}  (worth {value})",
+    "moles": "Moles: {rescued} / {total}",
+    "depth": "Floor {floor} - {depth} m deep",
+    "time": "Shift {time}",
+    "lampLow": "Your lamp is running low! Find oil or ride the lift up.",
+    "lampOut": "Lamp out! Everything goes dark.",
+    "moleRescued": "A mole is free!",
+    "liftWait": "On the lift. Waiting for the others...",
+    "shiftLift": "Back on the lift. Good shift!",
+    "shiftDark": "Lost in the dark...",
+    "torches": "Torches: {count}",
+    "playerDown": "A miner is down!",
+    "flood": "Water is pouring into the tunnels!",
+    "magma": "Magma is breaking through!",
+    "caveIn": "The roof is shaking! Run!",
+    "oreStolen": "A thief took some ore! Catch it!",
+    "thiefEscaped": "The thief got away with the ore.",
+    "oreRecovered": "Ore recovered.",
+    "bossStarted": "The Mole King wakes!",
+    "bossDefeated": "The Mole King falls! The lift is free.",
+    "exitJammed": "The Mole King jams the lift!",
+    "shiftAllDown": "Every miner is down...",
+    "playerRevived": "A miner is back on their feet!",
+    "reviving": "Hold dig next to a downed friend to get them up."
+  },
+  "strata": {
+    "topsoil": "Topsoil",
+    "crystalCaves": "Crystal Caves",
+    "magmaDeep": "Magma Deep"
+  },
+  "results": {
+    "titleLift": "Shift {shift} done",
+    "titleDark": "Lost in the dark",
+    "noteLift": "The lift brought everyone and the ore back up.",
+    "noteDark": "The lamps went out. The ore stayed behind.",
+    "copper": "Copper: {count}",
+    "silver": "Silver: {count}",
+    "gold": "Gold: {count}",
+    "gem": "Gems: {count}",
+    "value": "Ore value: {value}  (banked: {banked})",
+    "time": "Time: {time}",
+    "moles": "Moles rescued: {rescued} / {total}",
+    "cash": "Cash: {cash}",
+    "toTitle": "Back to title",
+    "titleAllDown": "Everyone is down",
+    "titleVictory": "The Mole King is beaten!",
+    "noteAllDown": "No miner was left standing. The ore stayed behind.",
+    "noteVictory": "The lift carries the brigade home. The mine is yours.",
+    "next": "Next: {stratum}, floor {floor}",
+    "nextBoss": "Next: {stratum}, floor {floor} - the Mole King waits",
+    "retry": "Again: {stratum}, floor {floor}",
+    "victoryEnd": "Back to the surface",
+    "nextFloor": "To the camp",
+    "retryFloor": "To the camp, then try again",
+    "newRun": "New run",
+    "seed": "Mine code: {code}",
+    "copy": "Copy code",
+    "copied": "Code {code} copied to the clipboard.",
+    "copiedSession": "Code {code} kept for this session only: this build has no system clipboard, so write it down."
+  },
+  "join": {
+    "title": "Who is digging?",
+    "noPlayers": "Nobody has joined yet.",
+    "slotEmpty": "{player}: press A (gamepad) or Enter (keyboard) to join",
+    "slotPad": "{player} - Gamepad {pad}",
+    "slotPadHost": "{player} - Gamepad {pad} - Start begins the shift",
+    "slotKeyboard": "{player} - Keyboard",
+    "slotKeyboardHost": "{player} - Keyboard - Enter begins the shift",
+    "hint": "A / Enter: join.   B / Esc: leave (or go back to the title).   The first player presses Start / Enter to begin. Up to 4 players: a keyboard and three gamepads, or four gamepads."
+  },
+  "pads": {
+    "lost": "Reconnect the controller for {player}",
+    "handOver": "Press A on another controller (or Enter on the keyboard) to give {player}'s miner to it.",
+    "drop": "Or another player presses Y (Backspace on the keyboard) to drop {player} from the shift."
+  },
+  "camp": {
+    "title": "The camp",
+    "cash": "Cash: {cash}",
+    "hint": "Spend your cash on upgrades, then go down.",
+    "next": "Next: {stratum}, floor {floor}",
+    "seed": "Mine code: {code}",
+    "copy": "Copy code",
+    "descend": "Down to the mine",
+    "toTitle": "Back to title",
+    "buy": "{name}: {now}  >  {next}  (cost {cost})",
+    "buyMax": "{name}: {now}  (best)",
+    "bought": "Bought {name}: {now}.",
+    "refused": "{message}. {hint}.",
+    "name": {
+      "pickTier": "Pick hardness",
+      "pickSpeed": "Pick speed",
+      "lampOil": "Lamp oil",
+      "lampRadius": "Lamp light",
+      "walkSpeed": "Boots",
+      "torches": "Torches"
+    },
+    "unit": {
+      "tier": "tier {value}",
+      "times": "x{value}",
+      "seconds": "{value} s",
+      "count": "{value}"
+    },
+    "copied": "Code {code} copied to the clipboard.",
+    "copiedSession": "Code {code} kept for this session only: this build has no system clipboard, so write it down."
+  },
+  "slots": {
+    "title": "Choose a slot",
+    "empty": "Slot {slot}: empty - new run",
+    "filled": {
+      "one": "Slot {slot}: {stratum}, floor {floor} - {cash} cash - {time} - best {best} m",
+      "other": "Slot {slot}: {stratum}, floor {floor} - {cash} cash - {time} - best {best} m"
+    },
+    "broken": "Slot {slot}: cannot be read",
+    "delete": "Delete",
+    "sync": "Sync with the cloud",
+    "syncing": "Syncing with the cloud...",
+    "confirm": "Delete slot {slot}? This cannot be undone.",
+    "yes": "Yes, delete it",
+    "no": "No, keep it",
+    "deleted": "Slot {slot} deleted.",
+    "synced": {
+      "unavailable": "This build has no cloud saves.",
+      "none": "Nothing to sync.",
+      "inSync": "Slots and cloud are the same.",
+      "uploaded": "Slot {slot} sent to the cloud.",
+      "downloaded": "Slot {slot} came down from the cloud.",
+      "conflict": "Slot {slot} was changed in two places: the one with more play time won ({winner}); the other is kept as a backup.",
+      "waiting": "Slot {slot} waits.",
+      "blocked": "{message}. {hint}.",
+      "error": "{message}. {hint}."
+    },
+    "storageDamaged": "The save folder was damaged; the game kept a copy and started empty. Sync with the cloud may bring your slots back.",
+    "imported": "Your old save is now slot {slot}.",
+    "legacy": "An old save could not be imported: {message}. {hint}.",
+    "problem": "{message}. {hint}."
+  },
+  "code": {
+    "title": "Seed code",
+    "prompt": "Type or paste a mine code, like {example}",
+    "paste": "Paste",
+    "play": "Play this mine",
+    "placeholder": "XXXX-XXXX",
+    "pasteEmpty": "Nothing to paste yet: copy a code first, or type it.",
+    "invalid": "{message}. {hint}.",
+    "ok": "Code accepted: {stratum}, floor {floor}."
+  },
+  "achievements": {
+    "first_ore": {
+      "name": "First Strike",
+      "description": "Dig up your first piece of ore."
+    },
+    "mole_rescuer": {
+      "name": "Mole Rescuer",
+      "description": "Free 10 trapped moles."
+    },
+    "mole_king": {
+      "name": "Long Live the Brigade",
+      "description": "Beat the Mole King."
+    },
+    "bright_stratum": {
+      "name": "Lamps Lit",
+      "description": "Clear the last floor of a stratum without a single lamp going out in it."
+    },
+    "full_house": {
+      "name": "Full House",
+      "description": "Finish a shift on the lift with 4 miners."
+    },
+    "bug_squasher": {
+      "name": "Bug Squasher",
+      "description": "Defeat 25 enemies."
+    }
+  },
+  "stats": {
+    "oreDug": "Ore dug",
+    "molesRescued": "Moles rescued",
+    "floorsCleared": "Floors cleared",
+    "enemiesDefeated": "Enemies defeated"
+  },
+  "boards": {
+    "title": "Boards",
+    "tabAllTime": "All time",
+    "tabDaily": "Daily dig",
+    "tabTrophies": "Trophies",
+    "name": {
+      "best_run_cash": "Best run cash",
+      "daily_run_cash": "Daily dig cash"
+    },
+    "loading": "Loading...",
+    "empty": "No scores yet. Bank some ore on the lift!",
+    "unavailable": "The boards are not available here.",
+    "row": "{rank}. {name}   {score}",
+    "dailyNote": "The board of {date}. Start a daily dig from the camp to post here.",
+    "numbers": "Your numbers",
+    "posted": "Score {score} posted.",
+    "dailySkipped": "The daily dig crossed midnight: its score was not posted to today's board.",
+    "rowYou": "{rank}. {name} (you)   {score}",
+    "trophyUnlocked": "{name}\n{description}",
+    "trophyLocked": "{name}   (Locked)\n{description}",
+    "trophyProgress": "{name}   (Locked)\n{description}   {value} / {goal}",
+    "stat": "{label}: {value}"
+  },
+  "presence": {
+    "menu": "In the main menu",
+    "boards": "Looking at the boards",
+    "shift": {
+      "one": "Digging in the {stratum}, floor {floor} (1 miner)",
+      "other": "Digging in the {stratum}, floor {floor} ({count} miners)"
+    },
+    "boss": {
+      "one": "Fighting the Mole King (1 miner)",
+      "other": "Fighting the Mole King ({count} miners)"
+    },
+    "resultsLift": "Back on the lift after shift {shift}",
+    "resultsDown": "Lost shift {shift} down the mine"
+  },
+  "online": {
+    "consentTitle": "Anonymous play statistics",
+    "consentBody": "Help improve the game by sending when a shift ends, which floor you reach and when you quit. No name, no device, nothing you typed. You can change this in Options.",
+    "consentYes": "Yes, send",
+    "consentNo": "No, thanks",
+    "hintSelect": "Select",
+    "hintBack": "Back",
+    "newsLine": "News: {line}",
+    "hintLine": "{button}: {action}"
+  },
+  "textEntry": {
+    "keyboard": "Type the code, then press Enter.",
+    "pad": "Press {button} to type the code.",
+    "deck": "Press {button}: Steam's keyboard opens."
+  },
+  "caption": {
+    "where": "{text} ({dir})",
+    "dir": {
+      "left": "left",
+      "right": "right",
+      "up": "above",
+      "down": "below",
+      "here": "close"
+    },
+    "bite": "Beetle bite!",
+    "beetle": "A beetle hisses",
+    "roar": "Something roars",
+    "steal": "Thief grabs ore!",
+    "crash": "Rocks crash down",
+    "rumble": "The roof rumbles",
+    "splash": "Water floods in",
+    "sizzle": "Magma sizzles",
+    "lampLow": "Lamp running low",
+    "lampOut": "Lamp out",
+    "mole": "A mole calls for help",
+    "rescue": "Mole freed",
+    "lift": "Lift hums",
+    "defeat": "The Mole King falls"
+  }
+}

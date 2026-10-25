@@ -1,0 +1,1048 @@
+{
+  "format": "factoria.assets/1",
+  "defaults": {
+    "audio": {
+      "normalize": true,
+      "targetLufs": -18
+    }
+  },
+  "assets": {
+    "assets/achievements/bright_stratum.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/bug_squasher.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/first_ore.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/full_house.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/mole_king.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/mole_rescuer.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/beetle_alert.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 5,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset screech, 0.40 s, seed 5",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/bite.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset growl, 0.35 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/blocked.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset click, 0.04 s, seed 3",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/crash.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset explosion, 0.50 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/defeat.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 4,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset explosion, 0.40 s, seed 4",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/dig.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset footstep, 0.14 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/dig2.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 4,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset footstep, 0.14 s, seed 4",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/dug.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset hit, 0.18 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/lamp_low.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset error, 0.50 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/lamp_out.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset error, 0.40 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/lift.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset whoosh, 0.60 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/mole_call.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset meow, 0.40 s, seed 3",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/oil.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset pickup, 0.25 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/ore.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset coin, 0.35 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/rescue.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset powerup, 0.60 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/roar.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 5,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset growl, 0.90 s, seed 5",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/rumble.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset explosion, 1.20 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/sizzle.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset whoosh, 0.50 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/splash.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset splash, 0.50 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/steal.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset laser, 0.25 s, seed 3",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/swing.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset hit, 0.18 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/torch.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset click, 0.04 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/fog.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/fonts/NotoSansThai-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosansthai",
+        "license": "OFL-1.1",
+        "author": "The Noto Project Authors (Noto Sans Thai)",
+        "notes": "Variable font NotoSansThai[wdth,wght].ttf instanced to wght 400 and wdth 100 and subset to the characters of locales/*.json with assets/fonts/make_subset.py. Used for Thai through localization.fallbackFonts. Licence text: assets/fonts/OFL.txt."
+      }
+    },
+    "assets/glyphs/nintendo/a.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/b.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/l.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/minus.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/plus.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/r.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/x.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/y.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/zl.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/zr.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/circle.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/create.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/cross.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/l1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/l2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/options.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/r1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/r2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/square.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/triangle.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/a.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/b.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/l1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/l2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/menu.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/r1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/r2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/view.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/x.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/y.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/a.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/b.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/lb.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/lt.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/menu.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/rb.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/rt.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/view.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/x.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/y.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-25",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
+        "provider": "tools/icon.json (assets.draw_icon)",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project"
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-25",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
+        "provider": "tools/icon.json (assets.draw_icon)",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project"
+      }
+    },
+    "assets/music/music_crystal.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
+    "assets/music/music_crystal_danger.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_crystal_fight.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_magma.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
+    "assets/music/music_magma_danger.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_magma_fight.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_topsoil.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
+    "assets/music/music_topsoil_danger.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/music/music_topsoil_fight.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music_layers.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "one-bar music layer, python3 -I assets/src/make_music_layers.py"
+      }
+    },
+    "assets/sprites.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/tiles_crystal.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/tiles_magma.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/tiles_topsoil.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "store/keyart.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "store/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "a headless render of the game itself (Kenney CC0 tiles and the game art), lifted and cropped by the script; the Steam and itch.io capsules and the store screenshots are built from it and from real play",
+        "date": "2026-10-25"
+      }
+    }
+  }
+}

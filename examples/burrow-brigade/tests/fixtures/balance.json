@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "values": {
+    "beetle.hp": 5,
+    "thief.stealShare": 0.4,
+    "king.hp": 14,
+    "hazards.drownTime": 6,
+    "hazards.waveTiles": 2,
+    "beetle.sight": 5000,
+    "thief.hp": 2.5,
+    "king.chaseSpeed": "fast",
+    "hazards.drownTim": 7,
+    "king.chargeMinDist": 400,
+    "king.chargeMaxDist": 100
+  }
+}

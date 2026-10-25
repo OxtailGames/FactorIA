@@ -1570,6 +1570,63 @@ walkable plank bridge; a moving platform joins the path when it docks and gives 
 same path twice is the same bits. Clockwork Courier marks its bridges, seesaw and platforms `navWalkable`, a dog follows
 the courier across a bridge, and `dog.js` drops its second query to the nearest point; its perf budgets pass.
 
+## M28. A third reference game: couch co-op on the desktop — DONE (the `m28/reference-game` PR)
+
+Lantern Keep (M21) is a 2D platformer for one player and Clockwork Courier (M25) a 3D phone game, so the feedback loop
+had never seen several players at one screen, a world that changes under the players' feet, levels generated from a
+seed, a dark world lit by many lights, online features, or the desktop and the Steam Deck as the main target. **Burrow
+Brigade** (`examples/burrow-brigade`, its README and `SHIPPING.md`; feedback ids `BB/FB-n`) is that game: one to four
+miners dig down through a mine seen from above, gather ore, rescue trapped moles and ride the lift back up before their
+lamps burn out, while beetles, goblin thieves and, at the bottom, the Mole King hunt them through the tunnels they dig.
+It was built like the other two, by game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and
+the public commands, no engine change, in eight packages (planned 2026-10-25 against `e9384f7`):
+
+- P1 miner, digging and the mine: one miner on a top-down `Tilemap`, digging dirt and rock, ore, the lamp and its oil,
+  darkness and a fog of unexplored tiles, the mine generator (rooms, tunnels, veins, the lift; one seed gives the same
+  mine and hash everywhere), the shift flow, the HUD, and the contracts the other packages build on (generator, map,
+  players, game events, run state).
+- P2 world and enemies: the Topsoil, the Crystal Caves and the Magma Deep with water that floods an opened pocket,
+  cave-ins and magma, torches and glowing crystals sharing the 16 lights, beetles, goblin thieves and the Mole King on
+  the game's own A* over the dug grid and its own behaviour trees, music per stratum, and a bot that clears floors of
+  every stratum from fixed seeds, alone and with four players.
+- P3 couch co-op: a join screen for four pads or a keyboard and three pads, each player's device and colour, per-player
+  bindings and their rebinding, a shared camera that zooms out with a leash (no split screen), downed miners revived by a
+  friend, a pad unplugged mid-game, Remote Play Together guests treated as pads.
+- P4 camp, progress and saves: the camp and its upgrades, three save slots whose format went from v1 to v2 with a
+  migration (fixtures of both in the tests), cloud copies with a revision and a conflict rule, the daily dig and
+  eight-character seed codes through a session clipboard.
+- P5 Steam and online: achievements, stats and all-time and daily leaderboards on the fake store, rich presence, the
+  Steam Deck checks and its keyboard, button glyphs per pad, and a news panel, remote balance values and opt-in analytics
+  behind a transport seam that works offline.
+- P6 sound, options and accessibility: music layers that rise in a chase, a mix with ducking and snapshots (muffled and
+  echo faked by volume and a delayed replay), captioned sound cues, display options, hold or toggle for dig, a game speed
+  for assist (not posted to the boards), ore and hazard markers readable without colour, reduced flashing near magma.
+- P7 shipping: the icon, key art and Steam and itch.io capsules, store texts in English, Russian and Thai, store
+  screenshots and a trailer rebuilt by scripts from four bots' input replays (not in git), the Steam settings (Valve's
+  test app 480 for the manual check), the Windows, Linux and macOS exports, the render and perf budgets of the busiest
+  floor (four miners, every torch), `SHIPPING.md`.
+- P8 languages: Russian (its plural forms) and Thai (a Noto Sans Thai subset as a fallback font; the engine breaks lines
+  only at spaces, so a tool puts one between words, BB/FB-0036), every screen at 100 % and 200 % text in the three
+  languages.
+
+Assets are CC0 only and recorded in `assets.json`: Kenney's Tiny Dungeon and Roguelike Caves and Dungeons, cut,
+recoloured and extended by `assets/src/make_atlases.py`; the sounds come from `assets.synth_sound`, and the music, the
+achievement and online art and the icon from the project's own scripts. `factoria test` runs 475 tests; ctest runs
+the game as `example_burrow-brigade_*` (validate, test, perf).
+
+It reported 38 entries (14 major, 22 minor, 2 nice-to-have), none a blocker: a co-op desktop game still needs
+workarounds the engine should remove (the ranked list in [ROADMAP.md](ROADMAP.md)). The biggest are a dark world
+(`Light2D` has no occlusion and stops at 16 lights, and the render stats do not count them), tile pathfinding and AI,
+split screen, gamepad connect events and a stable pad identity, the system clipboard, HTTP for news, remote values and
+analytics, layered music and bus effects, and an exported player that cannot take an input replay. Their triage is the
+next milestone.
+
+Acceptance: the bot clears floors of every stratum from fixed seeds, alone and with four players, and a test pins the
+hash of a seed's mine on every desktop job; four simulated pads join, play a shift and revive a friend, and
+keyboard-only and gamepad-only tests drive the menus; the three exports are made and the macOS one starts (input on it
+is a by-hand check, ROADMAP.md); the busiest floor stays under its draw-call and light budgets in a headless run;
+`factoria feedback collect` includes the game.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

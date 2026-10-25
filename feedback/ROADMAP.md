@@ -7,7 +7,7 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API, the Steam, Apple and
 Google Play backends, AdMob ads with consent, leaderboard periods on the stores and the Steam Deck's keyboard (M27); M16
 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22), M21
-(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26 and M27 are done; M23
+(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26, M27 and M28 are done; M23
 has the Mac App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 has the video player
 and the navmesh's off-mesh links and walkable bodies (M27), the rest is not started (M10-M23 come from an external
 evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). M25, the second
@@ -18,15 +18,433 @@ minor, 4 nice-to-have, no blocker). M26's 23 packages fixed 49 of them (2026-10-
 workarounds; M27 (2026-10-25) fixed the last one, CC/FB-0051 (playing a video), the parts of three left to M12 (the real
 ads, the stores' leaderboard periods, the Steam Deck's keyboard) and CC/FB-0056 (the navmesh over bridges and moving
 platforms), found by M26's close-out: no entry is open. What is left of M12 and M19 is ranked in their sections and
-waits for a game that asks for it.
+waits for a game that asks for it. M28, the third reference game (Burrow Brigade: 2D, couch co-op, desktop and Steam
+first, 2026-10-25), reported 38 entries (14 major, 22 minor, 2 nice-to-have, no blocker), all open and not triaged
+yet: their triage is the next milestone, and it ranks what is left of M19 and M12.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
-Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
+Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-0 entries from 6 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+38 entries from 7 project(s), 38 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-_No open feedback entries._
+## 1. Light2D has no occlusion, so unexplored mine stays visible
+
+- **Category:** rendering-2d
+- **Severity:** major (score 8)
+- **Total occurrences:** 2
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0001
+- **Suggestion:** Let a Light2D (or a Tilemap) opt into shadows from the solid tiles (a 2D shadow cast from Tilemap.solidTiles), or give Tilemap a per-tile 'explored' mask / fog-of-war layer that scripts can set.
+- **Workarounds seen:**
+  - A small lamp radius (96 world units, 20 when nearly dry), falloff 1.5 and SceneSettings.ambientLight 0.07, so the walls beyond a few tiles fall to near black. Walls next to the lamp still light up on the far side; a hand-made fog layer was not attempted in P1. P2: the fog of war grew on it: scripts/game/fog.js tracks seen tiles per miner and paints them on a second Tilemap.
+
+## 2. Scripts cannot read or write the system clipboard
+
+- **Category:** scripting
+- **Severity:** major (score 8)
+- **Total occurrences:** 2
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0016
+- **Suggestion:** clipboard.read()/clipboard.write(text) in the factoria module (async on web), and Ctrl+V / Cmd+V in a focused TextField
+- **Workarounds seen:**
+  - scripts/game/clipboard.js keeps a session buffer behind copy()/paste() and a useSystem({write,read}) hook; the camp and results say honestly when the code only stayed in the game; the title has a Paste button that reads the buffer; scripts/game/text_entry.js (P5) cleans a typed code to an alphabet without 0/O/1/I, so a code read aloud or from a screen is typed back without mistakes
+
+## 3. Per-gamepad input cannot use actions, so co-op pads are not rebindable
+
+- **Category:** input
+- **Severity:** minor (score 6)
+- **Total occurrences:** 3
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0006
+- **Suggestion:** Per-player action sets: input.gamepad(i).down('dig') resolving the project's binding for that action, or input.player(i).axis(...) with a rebind per player.
+- **Workarounds seen:**
+  - scripts/game/miner_input.js has three device kinds: 'any' (the project's actions: keyboard and every pad, one player), 'keys' (a fixed key block) and 'pad' (input.gamepad(i) with hard-coded left stick, d-pad and A/X). P2 added the torch button (B or Y on a pad, T on the keyboard) to the same three device kinds.
+
+## 4. A daily leaderboard cannot be targeted by date
+
+- **Category:** platform
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0021
+- **Suggestion:** leaderboards.submit(id, score, {day:'YYYY-MM-DD'}) or game.today() with a utc option
+- **Workarounds seen:**
+  - scripts/game/boards.js posts to the daily board only when run.dailyKey (the local date the try began on, scripts/game/daily.js) is within one day of game.today().iso and records lastPost.daily.skipped otherwise
+
+## 5. A declared Steam plugin without Valve's library logs an ERROR on every run and blocks the other platforms' exports
+
+- **Category:** platform
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0031
+- **Suggestion:** Let a plugin be optional per platform (skip with an INFO when the library is missing) or keep the backend declaration apart from the build of the library
+- **Workarounds seen:**
+  - plugins/steam is not committed (.gitignore); SHIPPING.md says to run platform.add_backend with sdk on each build machine before exporting. Without it the game runs with platform services off
+
+## 6. Changing one tile rewrites the whole Tilemap tiles array
+
+- **Category:** performance
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0003
+- **Suggestion:** Expose a tile API on the Tilemap view: tilemap.setTile(tx, ty, index) / getTile, with a dirty-rect rebuild.
+- **Workarounds seen:**
+  - The shift keeps its own array, marks it dirty on every MineMap change and writes it once per frame in onLateUpdate, so several tiles dug in one frame cost one write. P2: the fog Tilemap and the flood and magma spreading rewrite tiles too, so scripts/game/fog.js and hazards.js batch their changes and write once per frame.
+
+## 7. Light2D is capped at 16 per frame
+
+- **Category:** rendering-2d
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0008
+- **Suggestion:** Pick the 16 lights that matter on the engine side (nearest the camera, brightest) and say so in the Light2D docs; or raise the cap with a tiled/clustered 2D lighting pass.
+- **Workarounds seen:**
+  - scripts/game/lights.js keeps a pool of 16 minus one per miner and gives it to the sources nearest the miners, switching the others off; tests count the active Light2D entities.
+
+## 8. No 2D or tile pathfinding
+
+- **Category:** scripting
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0010
+- **Suggestion:** A nav module: nav.findPath(tilemap, from, to, opts) with a passable callback and an invalidation counter fed by Tilemap edits.
+- **Workarounds seen:**
+  - scripts/game/pathfinding.js: A* over the mine grid (with dig cost, danger tiles, a path follower and a nav.version counter that tells followers when digging changed the map); tested in tests/pathfinding.test.js.
+
+## 9. No HTTP, news, remote-config or analytics API
+
+- **Category:** networking
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0020
+- **Suggestion:** A promise-based http module with timeouts and a test fake (game.http), plus a consent-aware analytics.track
+- **Workarounds seen:**
+  - scripts/game/online.js is a transport seam (offline by default, a fake in tests); news, balance and analytics go through it, and every feature works offline. A real transport has to be plugged in when the engine offers one
+
+## 10. No bus effects, ducking or snapshots
+
+- **Category:** audio
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0026
+- **Suggestion:** audio.bus(name).lowpass / reverb / duck({by, depth, seconds}) and audio.snapshot(name, {fadeSeconds}) over a table the game defines
+- **Workarounds seen:**
+  - scripts/game/mix.js owns the four bus volumes (user volume x snapshot factor x duck) and eases them; muffling is just quieter and the cavern echo is a delayed, quieter replay of the clip in scripts/game/sound.js
+
+## 11. No gamepad connect/disconnect events and no stable pad identity
+
+- **Category:** input
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0014
+- **Suggestion:** input.on('gamepadConnected'|'gamepadDisconnected', {index, id}) and a stable pad id string (vendor/product/serial) on input.gamepad(i).
+- **Workarounds seen:**
+  - pad_watch.js polls connected every frame, pauses with a prompt, resumes on reconnect and lets a free pad (A) or the keyboard (Enter) take the miner over; join.js polls the four slots.
+
+## 12. No layered or synced music, and a playing voice's volume cannot change
+
+- **Category:** audio
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0025
+- **Suggestion:** audio.musicLayers({name: path}) with setLayer(name, volume, fadeSeconds), all layers sample-synced; or a volume that audio.setVoiceVolume(handle, v, fade) can change
+- **Workarounds seen:**
+  - scripts/game/music.js plays one-bar loops of each layer on the bar lines of a real-time clock and starts or stops them as a chase rises or falls; the layers never fade, they come and go on the bar
+
+## 13. No split screen: one camera, no viewports
+
+- **Category:** rendering-2d
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0013
+- **Suggestion:** Camera.viewport [x,y,w,h] normalised, several primary cameras per frame, each with its own Light2D culling and HUD space.
+- **Workarounds seen:**
+  - scripts/game/camera_views.js computes the split plan (clusters, viewports, zoom, hysteresis) and follow_camera.js zooms one shared camera out up to a limit; a leash (limitMove) stops miners going farther than the largest view. The plan is published and tested but not drawn.
+
+## 14. No way to start a scene with parameters or to record an input replay
+
+- **Category:** tooling
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0030
+- **Suggestion:** factoria run --prop name=value (read through an engine API) and input.record(path) that writes the replay format
+- **Workarounds seen:**
+  - A generated scene per shot (store/make_store.py) holds a script with literal props; store/record.test.js drives MinerBots under factoria test and prints @@REPLAY lines the script turns into replays; scripts/game/busiest.js reads an override export for tests
+
+## 15. Options Controls tab lists a hard-coded jump action
+
+- **Category:** ui
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0005
+- **Suggestion:** Build the list from input.actions() minus the ui_* ones, taking the label from options.action.<name> and falling back to the action name.
+- **Workarounds seen:**
+  - Edited the 'actions' list in scripts/ui/options.js and added options.action.move_up, move_down and dig to locales/en.json.
+
+## 16. Text wrapping cannot break Thai (or Khmer, Lao, Burmese) at word boundaries
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0036
+- **Suggestion:** Break opportunities at ZWSP (U+200B) and WORD JOINER-free runs, or a dictionary-free Thai/Khmer/Lao/Burmese break iterator (ICU-style); then a locale could carry ZWSP between words
+- **Workarounds seen:**
+  - The Thai table writes a real space between phrases and keeps every space-free run under 17 base letters, checked by a test and by tools/thai_spaces.py
+
+## 17. The exported player has no input replay, state dump or screenshot option
+
+- **Category:** tooling
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0029
+- **Suggestion:** Give factoria_player --input FILE, --state-out FILE and --screenshot-at in a release build too (headless or windowed), or document that the player is not testable
+- **Workarounds seen:**
+  - SHIPPING.md: the exported app is smoke-tested with --frames (exit 0, logs the scene load), input is proven by factoria run --headless --input with a state dump on the same project and scripts; the real keyboard and pad run on the exported build is a manual check
+
+## 18. Audio docs do not say a scene load stops the music
+
+- **Category:** docs
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0012
+- **Suggestion:** Say in the audio.music doc string and in AUDIO.md what a scene load does to music, and offer a persistent music option.
+- **Workarounds seen:**
+  - scripts/game/music.js starts the stratum's track at every shift (play() always calls audio.music) and reports whether the track changed.
+
+## 19. Menu kit always adds the shop and the age gate
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0004
+- **Suggestion:** Give project.add_menu_kit flags such as {"shop": false, "ageGate": false}, default true only when factoria.json declares purchases or ads.
+- **Workarounds seen:**
+  - Deleted the shop and age-gate files by hand, removed their imports, the shop_button handler and the 'ageGate' and 'shop' locale blocks from scripts/main_menu.js, scenes/menu.scene.json and locales/en.json.
+
+## 20. No Steam Deck detection API
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0022
+- **Suggestion:** platform.device with {steamDeck, handheld}
+- **Workarounds seen:**
+  - scripts/game/deck.js isDeck() looks for a connected pad of type steamdeck, so a Deck driven by the keyboard or touch is not detected
+
+## 21. No behaviour tree or other AI module
+
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0011
+- **Suggestion:** Ship a behaviour-tree helper in the scripting module, or document the pattern in AI_GUIDE.md.
+- **Workarounds seen:**
+  - scripts/game/behavior_tree.js is a small generic tree (sequence, selector, condition, action with hooks, wait, cooldown, inverter, succeeder); scripts/game/enemy_brains.js builds the beetle, thief and Mole King trees on it.
+
+## 22. No quit or window-close event
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0023
+- **Suggestion:** game.on('quit', fn) with a short grace period
+- **Workarounds seen:**
+  - Only the Quit button of the title flushes the analytics (scripts/main_menu.js quit()); closing the window loses the unsent events, which stay queued only in memory
+
+## 23. No way to frame a still of the game from a camera that follows the players
+
+- **Category:** rendering-2d
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0034
+- **Suggestion:** assets.draw_capsules option for a safe area or a logo anchor so the focus keeps the subject clear of the logo
+- **Workarounds seen:**
+  - store/make_store.py renders a staged keyart scene, lifts the picture with PIL (KEYART_LIFT) so the logo sits below the miners, then calls assets.draw_capsules
+
+## 24. Steam Remote Play Together guests are not exposed
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0015
+- **Suggestion:** platform.steam.remotePlay: {guests: [{index, name}]} plus an event, and the fake store able to add guests.
+- **Workarounds seen:**
+  - join.js and pad_watch.js treat every pad the same and poll, so a guest pad that appears mid-lobby joins with A; tested with a pad connected during the lobby on the test API (no fake Steam store hook exists for it).
+
+## 25. The installed windows, linux and mobile players carry no build fingerprint
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0032
+- **Suggestion:** Stamp the fingerprint when a player is built or fetched, or compare by engine version when it is absent
+- **Workarounds seen:**
+  - export with --allow-player-mismatch for windows and linux and say in SHIPPING.md that those two builds were not run
+
+## 26. The test runner cannot press Enter on a TextField
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0024
+- **Suggestion:** game.pressKey('Enter') or game.submit(id)
+- **Workarounds seen:**
+  - tests/deck.test.js checks onChange only; onSubmit in text_entry.js is used the same way and is untested
+
+## 27. The window API has no borderless mode and no monitor choice
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0027
+- **Suggestion:** window.setMode('windowed' | 'borderless' | 'fullscreen') and window.monitors / window.setMonitor(i)
+- **Workarounds seen:**
+  - Options > Video offers windowed and full screen only, and shows the monitor's size as text (scripts/ui/options.js)
+
+## 28. Tilemap tileset has no margin or spacing
+
+- **Category:** rendering-2d
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0002
+- **Suggestion:** Add Tilemap.margin and Tilemap.spacing (vec2, texture pixels), and the same for Sprite sheets in assets.generate_sprite_sheet / the editor tile picker.
+- **Workarounds seen:**
+  - assets/src/make_atlases.py cuts the tiles out of the source sheets and re-packs them margin-free into assets/tiles_topsoil.png, tiles_crystal.png and tiles_magma.png and assets/sprites.png (run once, output committed).
+
+## 29. game.click on a widget of a panel opened in the same frame silently does nothing
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0019
+- **Suggestion:** game.click throws 'widget not laid out yet: step once after activating it'
+- **Workarounds seen:**
+  - tests step twice after opening a panel before clicking in it (tests/cloud.test.js, tests/saves.test.js)
+
+## 30. game.today() has no time of day, so the UTC date is not derivable
+
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0017
+- **Suggestion:** add utcIso (the UTC date) or hour/minute to game.today(), still fixed by game.setDate in tests
+- **Workarounds seen:**
+  - scripts/game/daily.js keys the daily dig on the local date (game.today().iso); players in other time zones roll over at their own midnight, and the README says so
+
+## 31. localization validate's glyph check misses U+0E4D that Thai sara am (U+0E33) needs
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0037
+- **Suggestion:** Run the glyph check on the characters the shaper actually draws (after the decomposition), or document it in docs/LOCALIZATION.md
+- **Workarounds seen:**
+  - The font subset script keeps U+0E4D explicitly and checks the decomposed forms (assets/fonts/make_subset.py --check)
+
+## 32. platform.cloud has no modified time or conflict signal
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0018
+- **Suggestion:** cloud.stat(key) answering { modified, size } and a conflict event where the store has one (Steam Cloud, iCloud)
+- **Workarounds seen:**
+  - scripts/game/cloud.js stores a revision counter in every save and the revision last synced per slot (burrow.cloudBase.N), settles a conflict by play time and keeps the loser as burrow.backup.N
+
+## 33. publish.steam refuses app 480 even in a dry run
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0033
+- **Suggestion:** Allow dryRun with app 480 (print the plan and a warning) and refuse only the real upload
+- **Workarounds seen:**
+  - The dry run is shown with an explicit appId placeholder (factoria call publish.steam '{"dryRun":true,"appId":1234567}'); steam_appid.txt keeps 480 for the Spacewar check
+
+## 34. renderStats().lights does not count Light2D
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0009
+- **Suggestion:** Add lights2d (counted) and lights2dDropped to renderStats().
+- **Workarounds seen:**
+  - tests/helpers/world.js activeLights() counts the active entities that carry a Light2D component instead of the lights the renderer uses.
+
+## 35. renderStats, perf.measure and maxLights do not count Light2D
+
+- **Category:** performance
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0028
+- **Suggestion:** Count Light2D in renderStats().lights (or add light2d) and let perf.json maxLights apply to both
+- **Workarounds seen:**
+  - tests/render_budget.test.js counts the active Light2D entities itself (cap 16) on the busiest floor, next to the draw call and entity budgets
+
+## 36. ui.check_layout ignores ScrollList clipping and sees only scenes as they settle
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0038
+- **Suggestion:** Clip a widget's rectangle by its ScrollList ancestors in check_layout, and accept a list of steps (clicks) per scene to reach a state before checking
+- **Workarounds seen:**
+  - tests/helpers/layout.js reads ui.state (rectangles, overflowed) and clips by ScrollList ancestors; tests/layout.test.js drives every script-opened panel; the one known false positive is filtered by name
+
+## 37. A test cannot write a file, so a recording has to go through stdout
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0035
+- **Suggestion:** A files.write under the project's build/ folder available to tests (tools already have project files)
+- **Workarounds seen:**
+  - store/record.test.js prints one @@REPLAY JSON line per floor and make_store.py parses them out of the test output
+
+## 38. assets.synth_sound presets come out much louder than the validator accepts
+
+- **Category:** audio
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Burrow Brigade
+- **Entries:** Burrow Brigade/FB-0007
+- **Suggestion:** Have synth_sound normalise its output to about -18 LUFS, or write the normalize import setting to assets.json itself.
+- **Workarounds seen:**
+  - Set defaults.audio {normalize: true, targetLufs: -18} in assets.json so every effect plays at the same loudness.
 
 # Next engine milestones
 
@@ -732,9 +1150,26 @@ Left open:
   a UI entity only (no video on a 3D surface). A full-screen video still costs about 15 ms of CPU a frame on llvmpipe
   (sampling the scaled-up picture and uploading it each frame) and well under 1 ms on Metal.
 
-Next: no example game has an open entry. What is left of M12 and M19 is ranked in their sections and waits for a game
-that asks for it, like M23's consoles; the manual checks against real stores and devices (M8, M9, M12 and the list
-above) need accounts and hardware this machine does not have.
+Next: M28 below, the third reference game, reported 38 open entries; their triage is the next milestone and ranks what
+is left of M12 and M19. The manual checks against real stores and devices (M8, M9, M12 and the list above) need
+accounts and hardware this machine does not have.
+
+## M28. A third reference game: couch co-op on the desktop (L, high) — DONE (the `m28/reference-game` PR)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M28. Burrow Brigade (`examples/burrow-brigade`) is a 2D mining game for one
+to four players on one screen, for the desktop and Steam first, built in eight packages by game-maker AIs with no
+engine change.
+
+Left open:
+- Its 38 entries (14 major, 22 minor, 2 nice-to-have; the ranked list above) are not triaged yet: their triage is the next milestone, and it ranks
+  what is left of M19 (split screen, tile pathfinding and behaviour trees, audio effects, networking) and M12 (HTTP,
+  remote config and analytics, Steam beyond the basics).
+- The Windows and Linux exports were made but not started (no machine here; their installed players carry no build
+  fingerprint, BB/FB-0032). The macOS app starts, renders and exits on this Mac, but input on the exported binary was
+  not checked: the player takes no input replay (BB/FB-0029), so it is the by-hand step in the game's `SHIPPING.md`.
+- Nothing ran against Valve's library: app 480, the overlay, rich presence, Remote Play Together, a real upload. The
+  online features ran against the game's fake server only, and no Steam Deck was tried.
+- The Russian and Thai texts (game and store) were not read by a native speaker.
 
 ## Out of scope: Roblox
 

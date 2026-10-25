@@ -1,0 +1,245 @@
+{
+  "background": {
+    "color": "#1a120c",
+    "colorBottom": "#3b2514",
+    "shape": "square"
+  },
+  "layers": [
+    {
+      "type": "polygon",
+      "points": [
+        [
+          0,
+          100
+        ],
+        [
+          0,
+          78
+        ],
+        [
+          22,
+          70
+        ],
+        [
+          40,
+          80
+        ],
+        [
+          62,
+          68
+        ],
+        [
+          100,
+          82
+        ],
+        [
+          100,
+          100
+        ]
+      ],
+      "fill": "#120c08",
+      "foreground": false
+    },
+    {
+      "type": "polygon",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          0
+        ],
+        [
+          100,
+          14
+        ],
+        [
+          78,
+          20
+        ],
+        [
+          58,
+          12
+        ],
+        [
+          30,
+          22
+        ],
+        [
+          0,
+          14
+        ]
+      ],
+      "fill": "#120c08",
+      "foreground": false
+    },
+    {
+      "type": "circle",
+      "x": 50,
+      "y": 50,
+      "radius": 40,
+      "fill": "#ffa82e80",
+      "softness": 22
+    },
+    {
+      "type": "polygon",
+      "points": [
+        [
+          18,
+          82
+        ],
+        [
+          23,
+          87
+        ],
+        [
+          84,
+          26
+        ],
+        [
+          79,
+          21
+        ]
+      ],
+      "fill": "#7a4a22"
+    },
+    {
+      "type": "polygon",
+      "points": [
+        [
+          16,
+          21
+        ],
+        [
+          21,
+          16
+        ],
+        [
+          84,
+          79
+        ],
+        [
+          79,
+          84
+        ]
+      ],
+      "fill": "#7a4a22"
+    },
+    {
+      "type": "polygon",
+      "points": [
+        [
+          66,
+          14
+        ],
+        [
+          80,
+          12
+        ],
+        [
+          96,
+          28
+        ],
+        [
+          94,
+          38
+        ],
+        [
+          82,
+          24
+        ],
+        [
+          68,
+          24
+        ]
+      ],
+      "fill": "#c3cad2"
+    },
+    {
+      "type": "polygon",
+      "points": [
+        [
+          34,
+          14
+        ],
+        [
+          20,
+          12
+        ],
+        [
+          4,
+          28
+        ],
+        [
+          6,
+          38
+        ],
+        [
+          18,
+          24
+        ],
+        [
+          32,
+          24
+        ]
+      ],
+      "fill": "#c3cad2"
+    },
+    {
+      "type": "ellipse",
+      "x": 50,
+      "y": 54,
+      "rx": 25,
+      "ry": 22,
+      "fill": "#f5b81a",
+      "fillBottom": "#d28a0a"
+    },
+    {
+      "type": "rect",
+      "x": 25,
+      "y": 54,
+      "w": 50,
+      "h": 12,
+      "fill": "#f0ae14"
+    },
+    {
+      "type": "rect",
+      "x": 46,
+      "y": 33,
+      "w": 8,
+      "h": 32,
+      "fill": "#e09a12"
+    },
+    {
+      "type": "roundRect",
+      "x": 19,
+      "y": 62,
+      "w": 62,
+      "h": 11,
+      "radius": 5,
+      "fill": "#c98410",
+      "outline": "#6b3f08",
+      "outlineWidth": 1.5
+    },
+    {
+      "type": "circle",
+      "x": 50,
+      "y": 49,
+      "radius": 10,
+      "fill": "#fff7cf",
+      "outline": "#6b3f08",
+      "outlineWidth": 2.5
+    },
+    {
+      "type": "circle",
+      "x": 50,
+      "y": 49,
+      "radius": 5,
+      "fill": "#ffffff"
+    }
+  ],
+  "path": "assets/icon.png",
+  "foreground": "assets/icon_fg.png"
+}
