@@ -614,15 +614,16 @@ TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder
     VideoTexture& v = it->second;
     v.seen = true;
     TextureAsset& t = *v.tex;
-    if (!v.uploaded || v.serial != decoder->picture_serial()) {
-        // sokol has no update of an image's pixels here (fonts do the same): make the image again from the new picture.
+    const VideoInfo& info = decoder->info();
+    if (!t.image.id || t.width != info.width || t.height != info.height) {
+        // One image per video, written in place: making an image for each picture cost a 60 fps video tens of
+        // milliseconds a frame on a software renderer (llvmpipe). sokol keeps a copy per frame in flight.
         destroy_texture(t);
-        const VideoInfo& info = decoder->info();
         sg_image_desc d{};
+        d.usage.write_transient = true;
         d.width = info.width;
         d.height = info.height;
         d.pixel_format = SG_PIXELFORMAT_RGBA8;
-        d.data.mip_levels[0] = {decoder->picture(), std::size_t(info.width) * std::size_t(info.height) * 4};
         d.label = "video";
         t.image = make_image(d);
         sg_view_desc vd{};
@@ -632,9 +633,17 @@ TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder
         t.width = info.width;
         t.height = info.height;
         t.format = SG_PIXELFORMAT_RGBA8;
-        t.bytes = std::size_t(info.width) * std::size_t(info.height) * 4;
-        v.serial = decoder->picture_serial();
-        v.uploaded = true;
+        t.bytes = std::size_t(info.width) * std::size_t(info.height) * 4 * SG_NUM_INFLIGHT_FRAMES;
+        v.writtenFrame = 0;
+    }
+    // A write-transient image is written in every sokol frame that draws it, once and before it is bound: a second
+    // draw before the commit (editor screenshots, render_now) shows what the first one wrote.
+    if (v.writtenFrame != gpu_.frame() + 1) {
+        sg_write_image_desc w{};
+        w.src.data = {decoder->picture(), std::size_t(info.width) * std::size_t(info.height) * 4};
+        w.dst.image = t.image;
+        sg_write_image_transient(&w);
+        v.writtenFrame = gpu_.frame() + 1;
     }
     return &t;
 }

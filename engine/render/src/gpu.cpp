@@ -106,10 +106,13 @@ bool Gpu::init(int sampleCount, std::string* error) {
     tb.data = {tri, sizeof(tri)};
     tb.label = "fullscreen-triangle";
     fsTriangle_ = sg_make_buffer(&tb);
+    listening_ = sg_add_commit_listener(sg_commit_listener{&Gpu::count_commit, this});
     return true;
 }
 
 void Gpu::shutdown() {
+    if (listening_) sg_remove_commit_listener(sg_commit_listener{&Gpu::count_commit, this});
+    listening_ = false;
     for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p);
     pipelines_.clear();
     for (auto& t : transient_) sg_destroy_buffer(t.buf);
