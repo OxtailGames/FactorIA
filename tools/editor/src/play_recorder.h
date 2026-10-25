@@ -4,7 +4,7 @@
 // the events received between two frames mean. Each frame's dt and fixed-step count go to "timing": [[dt, steps], ...],
 // so the headless replay runs the same frames (exact even when the editor ran slower or faster than the fixed rate).
 // No ImGui, no Editor: tests feed it directly.
-// Not recorded (the replay format has no field for them): mouse wheel, typed text. Clipboard reads are. The editor feeds no gamepad or touch.
+// Not recorded (the replay format has no field for them): mouse wheel, typed text. Clipboard reads and http.fetch answers are. The editor feeds no gamepad or touch.
 #pragma once
 
 #include <cstdint>
@@ -42,6 +42,9 @@ public:
         Json& e = entry(frame);
         if (!e.contains("clipboard")) e["clipboard"] = text;
     }
+    // An answered http.fetch of the session ("http" of the replay entry of the frame the request was made in): the replay queues it
+    // for the fake backend, so the game gets what the server said then. Answers arrive in request order, as Engine::take_http_answers gives them.
+    void http(std::uint64_t frame, const Json& answer) { entry(frame)["http"].push_back(answer); }
     // Everything held is let go (the editor does this on Pause / focus loss, the engine does the same to its input).
     void release_all(std::uint64_t frame) {
         for (Key k : std::set<Key>(keys_)) key(frame, k, false);

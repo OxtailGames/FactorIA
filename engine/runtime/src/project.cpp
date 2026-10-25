@@ -792,6 +792,25 @@ constexpr const char* kSchemaText =
       }
     },
 )JSON"
+    R"JSON(    "network": {
+      "type": "object",
+      "description": "The network use of the game: the hosts `http.fetch` may call (docs/NETWORKING.md). A game without this section has no network: every http.fetch throws and says what to declare. Declaring hosts also adds the INTERNET permission to an Android export and tells you what to write in the privacy policy (docs/LEGAL.md). Only https:// addresses are sent (plain http:// only to localhost, for development), and only to a declared host. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "description": "The host names the game calls, as in the URL: \"api.example.com\" (that host only), \"*.cdn.example.com\" (every subdomain of cdn.example.com, not cdn.example.com itself), \"localhost\" (development; also the only way to call http:// there). No scheme, port or path.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "purpose": {
+          "type": "string",
+          "description": "What the game sends and why, in one or two sentences for the privacy policy, e.g. \"Sends the player's name and score to the leaderboard server, and reads the daily challenge.\" `factoria validate` warns when hosts are declared without it."
+        }
+      }
+    },
+)JSON"
     R"JSON(    "platform": {
       "type": "object",
       "description": "Store and platform services of the game: achievements, stats, leaderboards, cloud saves and in-app purchases behind one scripting API (`platform` from \"factoria\", docs/PLATFORM.md). This section declares what the game has, so that ids are checked before a request leaves the game and each store gets its own id for the same entry (\"ids\"). Every key is optional. Which store answers is chosen by the native plugins the game declares (\"plugins\") and by \"backend\"; development runs, tests and the MCP server use a deterministic fake store. `factoria validate` reports every problem with how to fix it.",

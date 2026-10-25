@@ -199,6 +199,32 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
     CHECK_FALSE(any_contains(r->warnings, "No icon is set"));
 }
 
+TEST_CASE("android export: INTERNET is requested when the game declares network hosts, and once") {
+    const std::string internet = "<uses-permission android:name=\"android.permission.INTERNET\" />";
+    {
+        testing::TempDir tmp;
+        const std::string game = make_game(tmp, R"("network": {"hosts": ["api.example.com"], "purpose": "Daily challenge."})");
+        auto r = export_project(options(game, tmp, "gradle"));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string manifest = testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml");
+        const std::size_t first = manifest.find(internet);
+        CHECK(first != std::string::npos);
+        CHECK(manifest.find(internet, first + 1) == std::string::npos);
+    }
+    {
+        // Already listed by the game: not added twice.
+        testing::TempDir tmp;
+        const std::string game = make_game(tmp, R"("network": {"hosts": ["api.example.com"], "purpose": "x"},
+            "export": {"android": {"permissions": ["android.permission.INTERNET"]}})");
+        auto r = export_project(options(game, tmp, "gradle"));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string manifest = testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml");
+        const std::size_t first = manifest.find(internet);
+        CHECK(first != std::string::npos);
+        CHECK(manifest.find(internet, first + 1) == std::string::npos);
+    }
+}
+
 TEST_CASE("android export: no icon means the default icon and a warning; no signing means no properties") {
     testing::TempDir tmp;
     const std::string game = make_game(tmp);
