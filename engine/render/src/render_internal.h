@@ -15,6 +15,7 @@
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/video.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/world.h"
 
@@ -264,6 +265,8 @@ struct QuadItem {
     Rect clip{};  // screen-space scissor rectangle in target pixels; w <= 0 = none (ScrollList content)
     bool lit = false;                 // shaded by the 2D lights (kModeLit quads)
     TextureAsset* normal = nullptr;   // lit: the normal map laid out like `tex`; null = a flat surface
+    bool plain = true;                // every quad is kModeTextured (QuadList::quad clears it)
+    bool opaque = false;              // QuadList::set_opaque(): the quads hide what is under them
 };
 
 struct QuadBatch {
@@ -275,6 +278,12 @@ struct QuadBatch {
     Rect clip{};  // batches only merge with an equal clip
     bool lit = false;                // lit batches only merge with the same texture and normal map
     TextureAsset* normal = nullptr;
+    // Only plain textured quads (kModeTextured, not lit, not BlendMode::Multiply): drawn with the lean quad_plain shader.
+    // Merging never waits on it: a batch that takes in one other quad is drawn with the full shader.
+    bool plain = true;
+    // Only opaque BlendMode::Alpha items (QuadList::set_opaque): drawn without blending, the same pixels for less work on
+    // software rasterizers. Batches only merge with an equal `opaque`.
+    bool opaque = false;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -288,6 +297,9 @@ public:
     void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
     // Marks the item opened by begin_item() as lit: its quads are kModeLit and `normal` (may be null) is the normal map.
     void set_lit(TextureAsset* normal) { cur_.lit = true; cur_.normal = normal; }
+    // Marks the item opened by begin_item() as opaque: every pixel its quads cover is replaced, at full alpha (an opaque
+    // picture with an opaque tint, such as a Video's). It is drawn without blending when its blend mode is Alpha.
+    void set_opaque() { cur_.opaque = true; }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
@@ -361,6 +373,13 @@ public:
     // Makes a texture from CPU pixels (RGBA8) with an optional mip chain.
     TextureAsset* make_texture(const std::string& name, const Image& img, bool mips);
 
+    // The texture that shows the current picture of a Video's decoder: made on first use (one write-transient image, made
+    // again only when the picture size changes; the TextureAsset pointer stays valid) and written with the decoder's
+    // picture once per sokol frame that draws it. Never null. end_video_frame() frees the textures of decoders no
+    // video_texture() asked for since the last call (call it once per drawn frame).
+    TextureAsset* video_texture(const std::shared_ptr<VideoDecoder>& decoder);
+    void end_video_frame();
+
 private:
     friend class MeshLoader;
     struct Failure { std::string kind, path, message, hint; };
@@ -379,6 +398,13 @@ private:
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
+    struct VideoTexture {
+        std::weak_ptr<VideoDecoder> decoder;
+        std::unique_ptr<TextureAsset> tex;
+        std::uint64_t writtenFrame = 0;  // Gpu::frame() + 1 of the last write of the picture into the image, 0 = never
+        bool seen = false;
+    };
+    std::unordered_map<const VideoDecoder*, VideoTexture> videoTextures_;
     std::unique_ptr<TextureAsset> white_;
     std::unique_ptr<TextureAsset> placeholderTex_;
     std::unique_ptr<MeshAsset> placeholderMesh_;
@@ -434,7 +460,10 @@ public:
     void shutdown();
 
     sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
-    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
+    // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
+    // `opaque` = blending off (QuadBatch::opaque).
+    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
+                              bool opaque = false);
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
     // `shader` = a program of a custom material (the pipeline is keyed by it); default = the built-in mesh program.
@@ -472,13 +501,16 @@ public:
     void note_commit() { committed_ = true; }
     // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
     bool committed() const { return committed_; }
+    // The sokol frame being recorded: the sg_commit() calls made so far by anyone, the editor's included (a commit
+    // listener counts them). A write-transient image is written once in it, before it is bound (Assets::video_texture).
+    std::uint64_t frame() const { return frame_; }
 
     bool depth_zero_to_one() const { return zeroToOne_; }
     bool is_gl() const { return isGl_; }
     int sample_count() const { return sampleCount_; }
     bool shadows_supported() const { return shadowsSupported_; }
 
-    sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
+    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
@@ -497,6 +529,9 @@ private:
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
     bool committed_ = true;
+    std::uint64_t frame_ = 0;
+    bool listening_ = false;  // count_commit is registered as a commit listener
+    static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }
 };
 
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.

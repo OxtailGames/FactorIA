@@ -472,6 +472,19 @@ tweens a plain number; `ease` holds the easing functions (`ease.quadOut`; the na
 `entity.animator` controls the `Animator` component (skinned glTF clips, cross-fades, clip events, state machine).
 Both are described with examples in [ANIMATION.md](ANIMATION.md).
 
+### entity.video
+`entity.video` controls the `Video` component (an `.mpg` drawn in a UI rectangle, [ASSETS.md](ASSETS.md), "Video"). It plays
+by itself when the scene starts (`autoplay`) and follows the game clock: it pauses with `time.scale = 0` and a test steps
+it with `game.step`.
+- `play()` plays (or restarts after the end), `pause()`, `stop()` (pause and back to the start), `seek(seconds)`.
+- Read: `time`, `duration` (0 until the file is open), `playing`, `ended`. Read and write: `loop`, `volume`. A script
+  that sets `entity.get("Video").path` opens another file.
+- `on("ended", fn)` calls `fn({id, path})` when a video that does not loop reaches its end, once, and returns the function
+  that unsubscribes. It is the game event `video.ended`, so `world.on("video.ended", ...)` hears every video. A
+  handler that loads a scene should check `scene.current` first: the answer can arrive after the scene was left.
+- A file that cannot be opened logs one error and the `Video` draws only its `color`; `duration` stays 0.
+A studio intro that any button skips: [MENUS.md](MENUS.md).
+
 ### particles / ui
 - `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.

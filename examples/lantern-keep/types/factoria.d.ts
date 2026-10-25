@@ -397,6 +397,10 @@ declare module "factoria" {
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      */
     readonly animator: AnimatorAPI;
+    /**
+     * Playback of this entity's Video component (play, pause, stop, seek, time, duration, the "ended" event). Throws if the entity has no Video; entity.get("Video") answers null instead.
+     */
+    readonly video: VideoAPI;
   }
 
   /**
@@ -1977,6 +1981,60 @@ declare module "factoria" {
      * The Animator component view (model, params, states, transitions, events...).
      */
     readonly component: Components["Animator"];
+  }
+
+  /**
+   * Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on("ended", () => scene.load("scenes/menu.scene.json"))`; `intro.video.seek(10)`.
+   */
+  export class VideoAPI {
+    /**
+     * Plays, or resumes after pause(). After the end it starts over from the first picture.
+     */
+    play(): void;
+    /**
+     * Stops advancing and keeps the picture; the sound goes silent.
+     */
+    pause(): void;
+    /**
+     * Pauses and returns to the first picture.
+     */
+    stop(): void;
+    /**
+     * Jumps to `seconds` (clamped to the length) and shows the picture there. Keeps playing if it was playing; no "ended" event comes from a seek.
+     */
+    seek(seconds: number): void;
+    /**
+     * Listens to the "ended" event of THIS entity's video: a video that does not loop reached its end (once per play). Returns the unsubscribe function. world.on("video.ended", fn) hears every Video.
+     */
+    on(event: "ended", fn: (data: { id: string; path: string }, source: Entity | null) => void): () => void;
+    /**
+     * Seconds into the video.
+     */
+    readonly time: number;
+    /**
+     * Length in seconds; 0 until the file is open (the first fixed step after the scene loads).
+     */
+    readonly duration: number;
+    /**
+     * True while it advances.
+     */
+    readonly playing: boolean;
+    /**
+     * True after it reached its end, until a seek or play() starts it again.
+     */
+    readonly ended: boolean;
+    /**
+     * Wrap to the first picture at the end instead of ending.
+     */
+    loop: boolean;
+    /**
+     * Loudness of the sound, 0..1.
+     */
+    volume: number;
+    /**
+     * The Video component view (path, autoplay, fit, tint, bus...).
+     */
+    readonly component: Components["Video"];
   }
 
   /**
@@ -3603,7 +3661,7 @@ declare module "factoria" {
    */
   export interface PanelComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -3712,7 +3770,7 @@ declare module "factoria" {
    */
   export interface ButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -3854,7 +3912,7 @@ declare module "factoria" {
    */
   export interface ToggleComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -3999,7 +4057,7 @@ declare module "factoria" {
    */
   export interface SliderComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -4179,7 +4237,7 @@ declare module "factoria" {
    */
   export interface TextFieldComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -4314,7 +4372,7 @@ declare module "factoria" {
    */
   export interface ScrollListComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -4398,7 +4456,7 @@ declare module "factoria" {
    */
   export interface TouchStickComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -4482,7 +4540,7 @@ declare module "factoria" {
    */
   export interface TouchButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -4601,7 +4659,7 @@ declare module "factoria" {
    */
   export interface CaptionsComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -4693,6 +4751,115 @@ declare module "factoria" {
      * @since 0.2.0
      */
     readonly lines: any;
+  }
+  /**
+   * A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
+   * 
+   * Category: UI
+   * @since unreleased
+   */
+  export interface VideoComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since unreleased
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since unreleased
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since unreleased
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since unreleased
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since unreleased
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A file that is missing or is not MPEG-1 video is logged once and the entity draws only its background. (asset path: video)
+     * @since unreleased
+     */
+    path: string;
+    /**
+     * true (default): `playing` becomes true as soon as the file is open. false: it waits for `entity.video.play()` or `playing = true`, showing the first picture.
+     * @since unreleased
+     */
+    autoplay: boolean;
+    /**
+     * true: at the end the video starts over from the beginning, picture and sound (no `video.ended` event). false: it stops on its last picture and fires `video.ended`.
+     * @since unreleased
+     */
+    loop: boolean;
+    /**
+     * Loudness of the sound, 0 (silent) to 1 (full), before the bus volume.
+     * @since unreleased
+     */
+    volume: number;
+    /**
+     * Mixer bus of the sound: "sfx" (default), "music" or "ui". The bus volumes of a Settings menu apply to it like to any other sound. Any other name plays on sfx.
+     * @since unreleased
+     */
+    bus: string;
+    /**
+     * How the picture fills the rectangle: contain (default) shows all of it, with bars of `color` where the shapes differ; cover fills the rectangle and cuts off what overflows; stretch fills it and distorts the picture.
+     * @since unreleased
+     */
+    fit: "contain" | "cover" | "stretch";
+    /**
+     * Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the video over what is behind it. `color` (the background) is a separate colour.
+     * @since unreleased
+     */
+    get tint(): Color;
+    set tint(value: ColorLike);
+    /**
+     * Runtime: true while the video advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the video ends.
+     * @since unreleased
+     */
+    playing: boolean;
+    /**
+     * Runtime: true once the video reached its end (never while `loop`); false again after a seek or a restart. Read-only.
+     * @since unreleased
+     */
+    readonly ended: boolean;
+    /**
+     * Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there).
+     * @since unreleased
+     */
+    time: number;
+    /**
+     * Runtime: length of the video in seconds; 0 while the file is not open. Read-only.
+     * @since unreleased
+     */
+    readonly duration: number;
   }
   /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
@@ -4798,6 +4965,7 @@ declare module "factoria" {
     TouchStick: TouchStickComponent;
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
+    Video: VideoComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -4837,6 +5005,7 @@ declare module "factoria" {
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
+    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
   }

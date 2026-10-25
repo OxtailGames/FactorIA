@@ -17,10 +17,13 @@ void QuadList::begin_item(int layer, float secondary, TextureAsset* tex, Sampler
     cur_.clip = clip;
     cur_.lit = false;
     cur_.normal = nullptr;
+    cur_.plain = true;
+    cur_.opaque = false;
     open_ = true;
 }
 
 void QuadList::quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d) {
+    if (a.mode != float(kModeTextured)) cur_.plain = false;  // the four corners of a quad share its mode
     raw.push_back(a);
     raw.push_back(b);
     raw.push_back(c);
@@ -48,15 +51,18 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
                 if (out[i].mode < float(kModeLit)) out[i].mode += 16.0f;
         if (it.blend == BlendMode::Multiply)  // shader variant: output mix(1, rgb, a) for the multiply blend
             for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) out[i].mode += 8.0f;
+        const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
+        const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
         // Textures packed into one atlas share its GPU image, so their quads batch together.
         // Lit quads also need the same normal map, and (their uv transform depends on it) the same texture object.
         if (!batches.empty() && batches.back().tex->gpu_view().id == it.tex->gpu_view().id && batches.back().smp == it.smp &&
             batches.back().blend == it.blend && batches.back().clip == it.clip && batches.back().lit == it.lit &&
             (!it.lit || (batches.back().tex == it.tex && batches.back().normal == it.normal)) &&
-            batches.back().firstQuad + batches.back().quadCount == firstQuad) {
+            batches.back().opaque == opaque && batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
+            batches.back().plain = batches.back().plain && plain;
         } else {
-            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal});
+            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain, opaque});
         }
     }
 }
