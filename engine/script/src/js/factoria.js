@@ -1076,7 +1076,31 @@
       return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0);
     },
     stop: (id) => N.audioStop(id), stopAll: () => N.audioStopAll(),
-    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5); },
+    // music(path, { volume, fade, persist }): looping music on the "music" bus. A scene load stops it unless persist is true.
+    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0); },
+    // musicLayers({ name: path }, { volume, fade, persist, levels }) -> true when every layer started. All layers start on the
+    // same sample and loop; setLayer fades them in and out. levels = starting level per name (default 1).
+    musicLayers(layers, o = {}) {
+      if (layers === null || typeof layers !== "object" || Array.isArray(layers)) throw new Error(`audio.musicLayers(layers, options): layers is an object of layer name to clip path, e.g. { base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, but got ${inspect(layers)}`);
+      const names = Object.keys(layers);
+      if (names.length === 0) throw new Error("audio.musicLayers(layers): needs at least one layer, e.g. { base: \"assets/music/base.ogg\" }");
+      const levels = o.levels ?? {};
+      for (const n of Object.keys(levels)) {
+        if (!(n in layers)) throw new Error(`audio.musicLayers(layers, { levels }): '${n}' is not a layer; the layers are ${names.join(", ")}`);
+      }
+      const list = names.map((name) => {
+        if (typeof layers[name] !== "string") throw new Error(`audio.musicLayers(layers): layer '${name}' must be a clip path string, e.g. "assets/music/${name}.ogg", but got ${inspect(layers[name])}`);
+        return { name, path: layers[name], level: levels[name] ?? 1 };
+      });
+      return N.audioMusicLayers(list, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0);
+    },
+    setLayer(name, level, fade = 0) {
+      if (!N.audioSetLayer(name, level, fade)) {
+        const current = N.audioLayerNames();
+        throw new Error(`audio.setLayer(${inspect(name)}, ...): no such music layer. ${current.length ? "The layers playing are " + current.join(", ") : "No layered music is playing: start it with audio.musicLayers({ name: path, ... })"}`);
+      }
+    },
+    setVoiceVolume(id, volume, fade = 0) { return N.audioSetVoiceVolume(id, volume, fade); },
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
     getVolume: (bus) => N.audioGetVolume(bus),
