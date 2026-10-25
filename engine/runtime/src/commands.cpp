@@ -858,6 +858,78 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return out;
           });
 
+    I.commands.add({"audio.bus", "Set a bus's volume and effects (low-pass, reverb, ducking), or read its state.",
+           "Buses are \"sfx\", \"music\", \"ui\" and \"master\" (the master has no ducking). Every voice of a bus is summed into its own buffer; "
+           "the effects run on that sum in this order: low-pass, reverb, volume, ducking. `volume` is the player's volume (what "
+           "audio.setVolume sets); `lowpass` is a 12 dB per octave cutoff in Hz (0 or null = off); `reverb` is the wet mix 0..1 "
+           "(0 = off); `duck` lowers the bus by `amount` (the fraction removed) while the bus `by` is louder than -40 dBFS, with "
+           "`attack` and `release` time constants in seconds (63% of the way in that time; null = off). `fade` (seconds) makes volume, lowpass and reverb slide instead of "
+           "jumping (a volume change always ramps over about 10 ms so it does not click). Only the keys you pass change; with just "
+           "`bus` it returns the state. Returns volume, snapshotVolume, lowpass, reverb and duck. A bus with no effect does no effect "
+           "work. Example: audio.bus {\"bus\":\"music\",\"lowpass\":800,\"fade\":0.5}",
+           parse_schema(R"({"type":"object","required":["bus"],"properties":{
+               "bus":{"enum":["sfx","music","ui","master"],"description":"The bus."},
+               "volume":{"type":"number","minimum":0,"maximum":4,"description":"The bus volume, 1 = as recorded."},
+               "lowpass":{"type":["number","null"],"minimum":0,"maximum":20000,"description":"Low-pass cutoff in Hz; 0 or null = off."},
+               "reverb":{"type":"number","minimum":0,"maximum":1,"description":"Reverb wet mix; 0 = off."},
+               "duck":{"type":["object","null"],"description":"Ducking by another bus; null = off.","properties":{
+                   "by":{"enum":["sfx","music","ui"],"description":"The bus that triggers it."},
+                   "amount":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"Fraction of the volume removed while `by` plays."},
+                   "attack":{"type":"number","minimum":0,"default":0.05,"description":"Attack time constant in seconds: 63% of the way down in this time, about 95% in three times it."},
+                   "release":{"type":"number","minimum":0,"default":0.5,"description":"Release time constant in seconds: 63% of the way back up in this time."}}},
+               "fade":{"type":"number","minimum":0,"default":0,"description":"Seconds volume, lowpass and reverb take to move."}}})"),
+           false, "audio"},
+          [&I](const Json& a) {
+              const std::string bus = a.value("bus", std::string());
+              const float fade = a.value("fade", 0.0f);
+              const auto check = [](const Result<void>& r) {
+                  if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+              };
+              if (a.contains("volume")) I.audio.set_bus_volume(bus, a["volume"].get<float>(), fade);
+              if (a.contains("lowpass")) check(I.audio.set_bus_lowpass(bus, a["lowpass"].is_null() ? 0.0f : a["lowpass"].get<float>(), fade));
+              if (a.contains("reverb")) check(I.audio.set_bus_reverb(bus, a["reverb"].get<float>(), fade));
+              if (a.contains("duck")) {
+                  DuckSettings d;
+                  if (!a["duck"].is_null()) {
+                      const Json& dj = a["duck"];
+                      if (!dj.contains("by"))
+                          throw CommandError("invalid_argument", "audio.bus: duck needs \"by\", the bus that ducks this one",
+                                             "Example: \"duck\": {\"by\": \"sfx\", \"amount\": 0.5}; null turns ducking off.");
+                      d.by = dj["by"].get<std::string>();
+                      d.amount = dj.value("amount", 0.5f);
+                      d.attack = dj.value("attack", 0.05f);
+                      d.release = dj.value("release", 0.5f);
+                  }
+                  check(I.audio.set_bus_duck(bus, d));
+              }
+              Json state = I.audio.bus_state(bus);
+              state["bus"] = bus;
+              return state;
+          });
+
+    I.commands.add({"audio.snapshot", "Apply a named mixer snapshot from factoria.json, or list the snapshots.",
+           "A snapshot is a named set of bus settings (volume scale, low-pass, reverb, ducking) from factoria.json "
+           "\"audio\".\"snapshots\". Applying one moves every bus to the snapshot's state over `fade` seconds (default: the "
+           "snapshot's own \"fade\", 0.5 when it has none): a bus the snapshot does not list goes back to neutral, so a snapshot "
+           "is the whole picture and a snapshot with no buses is the way back. The volumes the player set are not touched. "
+           "Without `name` it lists the snapshots and the one applied last. An unknown name fails with a \"did you mean\". "
+           "Example: audio.snapshot {\"name\":\"underwater\",\"fade\":1}",
+           parse_schema(R"({"type":"object","properties":{
+               "name":{"type":"string","description":"The snapshot to apply; omit to list them."},
+               "fade":{"type":"number","minimum":0,"description":"Seconds the move takes; default the snapshot's own."}}})"),
+           false, "audio"},
+          [&I](const Json& a) {
+              if (!a.contains("name")) {
+                  Json names = Json::array();
+                  for (const std::string& n : I.audio.snapshot_names()) names.push_back(n);
+                  return Json::object({{"snapshots", names}, {"current", I.audio.current_snapshot()}});
+              }
+              const std::string name = a["name"].get<std::string>();
+              auto r = I.audio.apply_snapshot(name, a.contains("fade") ? a["fade"].get<float>() : -1.0f);
+              if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+              return Json::object({{"snapshot", name}, {"current", I.audio.current_snapshot()}});
+          });
+
     I.commands.add({"game.pause", "Pause the simulation (frame() stops simulating; game.step still works).",
            "Example: game.pause {}", parse_schema(R"({"type":"object","properties":{}})"), false, "game"},
           [&engine, &I](const Json&) {

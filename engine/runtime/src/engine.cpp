@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "engine_impl.h"
+#include "fa/audio/snapshots.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
@@ -89,6 +90,22 @@ void Engine::Impl::apply_project_settings() {
         FA_WARN("platform", "{}", problem);
         startupProblems.push_back(problem);
         platform.set_catalog(PlatformCatalog{});
+    }
+    // The audio snapshots. A section with errors counts as empty (audio.snapshot then says there is none); the problems are
+    // logged here and `factoria validate` lists them all.
+    AudioSettingsParse audioSettings = parse_audio_settings(project.raw.is_object() && project.raw.contains("audio") ? project.raw["audio"] : Json());
+    if (audioSettings.ok()) {
+        audio.set_snapshots(std::move(audioSettings.snapshots));
+    } else {
+        const AudioIssue& first = audioSettings.issues.front();
+        const std::string problem = "audio: the snapshot catalog is ignored: factoria.json#" + first.pointer + ": " + first.message +
+                                    " (hint: " + first.hint + ")" +
+                                    (audioSettings.issues.size() > 1 ? " and " + std::to_string(audioSettings.issues.size() - 1) +
+                                                                           " more (`factoria validate` lists them all)"
+                                                                     : std::string());
+        FA_WARN("audio", "{}", problem.substr(7));
+        startupProblems.push_back(problem);
+        audio.set_snapshots(AudioSnapshots{});
     }
 }
 

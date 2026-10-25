@@ -1844,6 +1844,66 @@ NATIVE(audioLog) {  // (clear) -> play log entries, oldest first
     return I->from_json(list);
 }
 
+// Bus effects (docs/SCRIPTING.md, "Audio buses"): the audio.bus(name) handle and audio.snapshot call in factoria.js check
+// their arguments; these natives throw the Audio error (what is wrong and what to use) for anything that gets past them.
+JSValue throw_audio_error(JSContext* ctx, const Error& e) {
+    return throw_err(ctx, e.hint.empty() ? e.message : e.message + " " + e.hint);
+}
+NATIVE(audioBusVolume) {  // (bus, volume, fade)
+    SETUP;
+    const std::string bus = arg_str(ctx, argc, argv, 0);
+    Audio& a = I->host->audio();
+    if (a.bus_volume(bus) < 0) return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    a.set_bus_volume(bus, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_UNDEFINED;
+}
+NATIVE(audioBusLowpass) {  // (bus, hz, fade): hz 0 = off
+    SETUP;
+    const auto r = I->host->audio().set_bus_lowpass(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                                    static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusReverb) {  // (bus, mix, fade): mix 0 = off
+    SETUP;
+    const auto r = I->host->audio().set_bus_reverb(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                                   static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusDuck) {  // (bus, by, amount, attack, release): by "" = off
+    SETUP;
+    DuckSettings d;
+    d.by = arg_str(ctx, argc, argv, 1);
+    d.amount = static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5));
+    d.attack = static_cast<float>(arg_num(ctx, argc, argv, 3, 0.05));
+    d.release = static_cast<float>(arg_num(ctx, argc, argv, 4, 0.5));
+    const auto r = I->host->audio().set_bus_duck(arg_str(ctx, argc, argv, 0), d);
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusState) {  // (bus) -> { volume, snapshotVolume, lowpass, reverb, duck }
+    SETUP;
+    const std::string bus = arg_str(ctx, argc, argv, 0);
+    const Json s = I->host->audio().bus_state(bus);
+    if (!s.is_null()) return I->from_json(s);
+    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, std::vector<std::string>{"master", "sfx", "music", "ui"}) +
+                              " Use \"master\", \"sfx\", \"music\" or \"ui\".");
+}
+NATIVE(audioSnapshot) {  // (name, fade): fade < 0 = the snapshot's own
+    SETUP;
+    const auto r = I->host->audio().apply_snapshot(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, -1)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioSnapshots) {  // () -> { names, current }
+    SETUP;
+    Json names = Json::array();
+    for (const std::string& n : I->host->audio().snapshot_names()) names.push_back(n);
+    return I->from_json(Json::object({{"names", names}, {"current", I->host->audio().current_snapshot()}}));
+}
+NATIVE(audioFxReset) {  // () the test harness: every effect off, snapshot scales back to 1
+    SETUP;
+    I->host->audio().reset_bus_effects();
+    return JS_UNDEFINED;
+}
+
 // ---- physics ------------------------------------------------------------------------------------------------------
 JSValue hit_to_js(JSContext* ctx, const std::optional<RaycastHit>& hit) {
     if (!hit) return JS_NULL;
@@ -2604,7 +2664,9 @@ const Reg kRegs[] = {
     R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
-    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
+    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
+    R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
+    R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),

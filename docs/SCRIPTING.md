@@ -423,6 +423,63 @@ if (window.available) {
   (0 silent, 1 full). Stems of equal length stay aligned across loops; `stopMusic` stops every layer.
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
   `game.audioLog()`, agents with the `audio.log` command.
+- `bus(name)` gives a handle with `lowpass`, `reverb`, `duck`, `unduck`, `volume` and `state`; `snapshot(name, { fade })` and
+  `snapshots()` move every bus to a named snapshot of factoria.json. Effects and ducking are in "Audio buses" below.
+- A change of a bus volume (`setVolume`, `bus(name).volume`) ramps over about 10 ms, so it never clicks.
+
+### Audio buses
+Every voice goes into the buffer of its bus (`sfx`, `music`, `ui`), each bus gets its effects and its volume, and the
+buses are summed into the master, which has its own. `audio.bus(name)` returns a handle on `"sfx"`, `"music"`, `"ui"` or
+`"master"` (an unknown name throws with a "did you mean"); its methods return the handle, so they chain:
+
+```js
+audio.bus("music").lowpass(800).reverb(0.2);              // muffled, in a small room
+audio.bus("music").duck("sfx", 0.5);                      // music at half volume while a sound effect plays
+audio.bus("music").lowpass(null, { fade: 1 });            // the filter opens again over a second
+audio.bus("music").unduck();                              // or duck(null)
+```
+
+| Method | What it does |
+|---|---|
+| `lowpass(hz, { fade })` | 12 dB per octave low-pass at `hz` (20 to 20000; 400 to 800 sounds muffled or underwater). `0` or `null` switches it off. With `fade` the cutoff slides, measured in octaves, from where it is (a bus with no filter starts at 20000). |
+| `reverb(mix, { fade })` | A small room reverb: `(1 - mix)` dry plus `mix` wet, 0 to 1. `0` switches it off. The tail rings out for about 4 seconds after the bus goes silent, then the reverb stops working. |
+| `duck(byBus, amount = 0.5, attack = 0.05, release = 0.5)` | Lowers this bus by `amount` (the fraction removed: 0.5 is half as loud, 1 is silent) while `byBus` (`"sfx"`, `"music"` or `"ui"`, another bus than this one) is louder than -40 dBFS, measured after that bus's own effects and volume. `attack` and `release` are time constants in seconds: the bus covers 63% of the way in that time and about 95% in three times it. The master cannot duck. `duck(null)` and `unduck()` switch it off. Ducking has no `fade`: it follows `byBus` by itself. |
+| `volume(v, { fade })` | The bus volume, the same as `audio.setVolume(name, v)` with an optional fade (a straight line over `fade` seconds). |
+| `state()` | `{ volume, snapshotVolume, lowpass, reverb, duck }`: what the bus is moving to (a fade in progress shows its end), `lowpass` is 0 and `reverb` 0 when off, `duck` is null or `{ by, amount, attack, release }`. |
+
+The order on a bus is low-pass, reverb, volume, then ducking; the master takes a low-pass and a reverb on the sum of the
+buses, then its volume. A bad value (a cutoff below 20 Hz, a mix above 1, a bus that ducks itself) throws an error that says
+what to use. Effects stay across scene loads, like volumes: a game that switches them on for one level switches them off
+(or applies a snapshot) when it leaves. The test runner puts every effect back to off before each test.
+
+**Snapshots** name a whole mixer state so a script does not juggle buses one by one. They live in factoria.json:
+
+```json
+"audio": { "snapshots": {
+  "underwater": { "fade": 0.8, "buses": {
+    "sfx":   { "lowpass": 600, "reverb": 0.3 },
+    "music": { "volume": 0.5, "lowpass": 400 } } },
+  "dialogue": { "fade": 0.3, "buses": { "music": { "duck": { "by": "ui", "amount": 0.6 } } } },
+  "normal": {}
+} }
+```
+
+`audio.snapshot("underwater")` moves every bus to that state over the snapshot's `fade` (0.5 s when it gives none), or over
+`audio.snapshot("underwater", { fade: 2 })`. A bus the snapshot does not list goes back to neutral (no effects, scale 1), so
+`"normal": {}` is the way back and one snapshot replaces the last. `volume` in a snapshot is a scale on the bus volume the
+player set with `setVolume` (the options menu keeps working under a snapshot); low-pass, reverb and the scale fade, ducking
+switches at once. `audio.snapshots()` returns `{ names, current }`. An unknown name throws with a "did you mean", and
+`factoria validate` reports a bad catalog (a typo in a bus or key, a value out of range) with its JSON pointer and a fix.
+Agents use the commands `audio.bus` (`{ "bus": "music", "lowpass": 800, "fade": 0.5 }`; just `bus` reads the state) and
+`audio.snapshot` (`{ "name": "underwater" }`; no name lists them). The mix is deterministic, so a test can render a clip with
+`factoria run --headless --record-audio out.wav` after switching an effect on and measure the result.
+
+Cost, on a mix of 44.1 or 48 kHz stereo: a bus with no effect does no effect work (its voices are only added into the master,
+one add per sample while it plays). A low-pass is one biquad per channel, five multiply-adds a sample, and works only while
+the bus has sound. A reverb is eight comb and four all-pass filters per channel (several times a low-pass) and about 100 KB of
+delay lines, allocated when first switched on; it keeps working for its 4 s tail and then stops. Ducking is a peak detector on
+`byBus`, one gain computation and one multiply per sample, and stops by itself once the bus is back at full volume and `byBus`
+is silent. Give `fade` when you switch a low-pass or reverb on or off in the middle of a sound, so it does not step.
 
 ### physics
 - `raycast(from, to, { mask, ignore, ignoreTriggers })` → `{ entity, point, normal, distance } | null` (2D when `from` has no z)

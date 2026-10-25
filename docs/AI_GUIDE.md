@@ -139,6 +139,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
 | `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. |
 | `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
+| `audio_bus`, `audio_snapshot` | `audio.bus`, `audio.snapshot` | The mixer. `audio_bus {"bus":"music","lowpass":800,"fade":0.5}` sets only the keys you pass (`volume`, `lowpass` in Hz with 0 or null = off, `reverb` 0..1, `duck` `{by, amount, attack, release}` or null) and returns the bus state; with just `bus` it reads it. `audio_snapshot {"name":"underwater"}` applies a snapshot of factoria.json `audio.snapshots`; without `name` it lists them. Section 9.7. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. Cleared by `scene_load`/`scene_reload`. |
 | `script_reload` | `script.reload` | Re-import scripts edited on disk without reloading the scene (`scene_load`/`scene_reload` already do it, and re-read the input actions of `factoria.json`). `{"force":true}` re-imports every module. |
@@ -622,6 +623,29 @@ Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in
 A scene load stops every sound and the music, and then starts the new scene's `settings.music` (the same track again when both scenes name it). Music that should play across scenes (a menu theme into the first level) is started by a script with `audio.music(path, { persist: true })`: it survives scene loads, and a scene whose `settings.music` is the same track does not restart it.
 
 Change a sound while it plays with `audio.setVoiceVolume(id, volume, fadeSeconds)` (`id` from `audio.play`; wind that swells, an engine hum). For music in layers (drums that come in when the fight starts) use `audio.musicLayers({ base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, { levels: { drums: 0 } })` and then `audio.setLayer("drums", 1, 2)`: the layers start on the same sample and stay in step while they loop, as long as the clips have the same length.
+
+Make the mix follow the game with bus effects (SCRIPTING.md, "Audio buses"). Music that ducks under every sound effect, and a muffled underwater level:
+
+```js
+audio.bus("music").duck("sfx", 0.5);              // music at half volume while any sound effect plays
+audio.bus("music").lowpass(600).reverb(0.2);      // muffled music in a room
+audio.bus("music").lowpass(null, { fade: 1 });    // opens again over a second
+```
+
+For a state that changes several buses at once, name it in factoria.json and apply it by name (a bus the snapshot does not list goes back to neutral, so `"normal": {}` is the way back):
+
+```json
+"audio": { "snapshots": {
+  "underwater": { "fade": 0.8, "buses": { "sfx": { "lowpass": 600, "reverb": 0.3 }, "music": { "volume": 0.5, "lowpass": 400 } } },
+  "normal": {} } }
+```
+
+```js
+audio.snapshot("underwater");                     // or audio.snapshot("underwater", { fade: 2 })
+audio.snapshot("normal");                         // when the player surfaces
+```
+
+Effects stay across scene loads, like volumes, so apply `normal` when you leave. `project_validate` checks the catalog (a misspelled bus or key gets a "did you mean"). To check it from outside, call `audio_bus {"bus":"music"}` or `audio_snapshot {}`; the mix is deterministic, so `factoria run --headless --record-audio out.wav` records what the effect does.
 
 Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
@@ -1466,6 +1490,7 @@ For your game: do not assert an exact frame count or an exact position after a l
 | `script.errors` | `script_errors` | Exceptions thrown by scripts, with file, line and stack. |
 | `game.logs` | `game_logs` | Log lines. `console.log/warn/error` in scripts appear with category `script`. |
 | `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
+| `audio.bus`, `audio.snapshot` | `audio_bus`, `audio_snapshot` | The mixer's effects and snapshots: what a bus is set to, and which snapshot is applied. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
 | `script.trace` | `script_trace` | Run the project headless and record the stack, locals and watch expressions every time given script lines run (with an optional condition), or collect logpoint lines: `{"points":[{"file":"scripts/player.js","line":17,"condition":"this.body.velocity.y > 0","watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}`. Returns `hits`, `logs`, `errors`, `framesRun`, `truncated`. Use it instead of adding `console.log` and re-running. `docs_read {"name":"debugging"}`. |
