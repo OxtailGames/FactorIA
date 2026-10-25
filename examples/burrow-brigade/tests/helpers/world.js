@@ -31,7 +31,8 @@ export function plugPads() {
 /**
  * Starts a run at a stratum and floor and loads a shift on a handmade mine; lets the scene start (2 frames).
  * @param {string[]} rows  The mine as rows of text. `S` is the entry lift: the players stand on the free tiles around it.
- * @param {{stratum?: number, floor?: number, seed?: number, players?: number, frames?: number, padWatch?: boolean}} [opts]
+ * @param {{stratum?: number, floor?: number, seed?: number, players?: number, frames?: number, padWatch?: boolean, music?: boolean, captions?: boolean}} [opts]
+ *   `music` adds the music driver entity of the shift scene (layers, mix), `captions` its "sound_captions" entity.
  * @returns {any} The Shift behaviour.
  */
 export function playRows(rows, opts = {}) {
@@ -50,6 +51,8 @@ export function playRows(rows, opts = {}) {
       },
       { id: "mine", components: { Transform: { position: [0, 0, 0] }, Tilemap: { tileset: "assets/tiles_topsoil.png", tileSize: [16, 16], lit: true, layer: -10 } } },
       { id: "shift", components: { Script: { path: "scripts/game/shift.js", props: { rows } } } },
+      ...(opts.music ? [{ id: "music", components: { Script: { path: "scripts/game/music.js" } } }] : []),
+      ...(opts.captions ? [{ id: "sound_captions", components: { Transform: { position: [110, -24, 0] }, Captions: { size: [560, 100], maxLines: 2, fontSize: 24, layer: 190 } } }] : []),
       ...(opts.padWatch ? [{ id: "pad_watch", components: { Script: { path: "scripts/game/pad_watch.js" } } }] : []),
     ],
     settings: { ambientLight: [0.07, 0.07, 0.1, 1] },

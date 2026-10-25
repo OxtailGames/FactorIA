@@ -17,7 +17,9 @@
 // around it, then rocks falling) every floor tile of that 3 x 3 becomes rock, a miner inside it goes down, an enemy inside
 // is hurt. A miner on the exit lift is safe.
 // Every step tells the bus (`hazardTriggered`, and `playerDown` with the cause "drowned", "burned" or "caveIn").
-import { world, audio } from "factoria";
+import { world } from "factoria";
+import * as sound from "./sound.js";
+import { reducedFlashing } from "../settings.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 import { K, TILE, SPRITE, spriteRegion } from "./tiles.js";
@@ -180,7 +182,7 @@ export class Hazards {
         g.timer = 0.35; // the first trickle comes quickly, then the waves
         const t = front[0];
         events.emit("hazardTriggered", { kind: g.kind, tx: t.tx, ty: t.ty, phase: "start" });
-        audio.play(g.kind === "flood" ? "assets/audio/splash.wav" : "assets/audio/sizzle.wav", { volume: 0.7, bus: "sfx" });
+        sound.play(g.kind === "flood" ? "assets/audio/splash.wav" : "assets/audio/sizzle.wav", { volume: 0.7 }, { key: g.kind === "flood" ? "caption.splash" : "caption.sizzle", tx: t.tx, ty: t.ty, duck: 1.2, depth: 0.35 });
       }
       g.timer -= dt;
       if (g.timer > 0) continue;
@@ -215,7 +217,7 @@ export class Hazards {
     this.exposure.delete(m.player.id);
     events.emit("hazardTriggered", { kind, tx: m.tx, ty: m.ty, phase: "hit", player: m.player.id });
     players.setState(m.player.id, "down", cause);
-    audio.play(kind === "magma" ? "assets/audio/sizzle.wav" : "assets/audio/splash.wav", { volume: 0.8, bus: "sfx" });
+    sound.play(kind === "magma" ? "assets/audio/sizzle.wav" : "assets/audio/splash.wav", { volume: 0.8 });
   }
 
   // ---- cave-ins -------------------------------------------------------------------------------------------------------
@@ -236,15 +238,18 @@ export class Hazards {
       }
       this.caveIns.push(cave);
       events.emit("hazardTriggered", { kind: "caveIn", tx: m.tx, ty: m.ty, phase: "start", player: m.player.id });
-      audio.play("assets/audio/rumble.wav", { volume: 0.8, bus: "sfx" });
+      sound.play("assets/audio/rumble.wav", { volume: 0.8 }, { key: "caption.rumble", tx: m.tx, ty: m.ty, duck: TUNING.caveWarning, depth: 0.5 });
     }
   }
 
   tickCaveIns(dt, here) {
     for (const cave of [...this.caveIns]) {
       cave.t += dt;
+      // The warning blinks 6 times a second (a flash rate); with reduced flashing it is a steady sign that only brightens slowly.
+      const calm = reducedFlashing();
       const blink = Math.floor(cave.t * 6) % 2 === 0;
-      for (const s of cave.signs) if (s.alive) s.get("Sprite").color = [1, 1, 1, blink ? 0.95 : 0.4];
+      const alpha = calm ? 0.6 + 0.3 * (0.5 - 0.5 * Math.cos(cave.t * 2 * Math.PI * 0.5)) : blink ? 0.95 : 0.4;
+      for (const s of cave.signs) if (s.alive) s.get("Sprite").color = [1, 1, 1, alpha];
       // the rocks drop in the last third of a second
       const fall = Math.max(0, Math.min(1, (cave.t - (TUNING.caveWarning - 0.3)) / 0.3));
       if (fall > 0 && cave.rocks.length === 0) {
@@ -280,7 +285,7 @@ export class Hazards {
       if (kind === K.FLOOR || kind === K.SHAKY || kind === K.WATER || kind === K.MAGMA) map.setKind(t.tx, t.ty, K.ROCK, "caveIn");
     }
     events.emit("hazardTriggered", { kind: "caveIn", tx: cave.tx, ty: cave.ty, phase: "impact", tiles: tiles.length });
-    audio.play("assets/audio/crash.wav", { volume: 0.9, bus: "sfx" });
+    sound.play("assets/audio/crash.wav", { volume: 0.9 }, { key: "caption.crash", tx: cave.tx, ty: cave.ty });
     this.clearCave(cave);
     this.caveIns = this.caveIns.filter((c) => c !== cave);
   }

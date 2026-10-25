@@ -37,7 +37,7 @@ A player who joins on the keyboard gets the whole keyboard (below); the others g
 | Action | | Keyboard | Gamepad |
 |---|---|---|
 | Walk (4 directions) | WASD / arrows | left stick or d-pad |
-| Dig (hold, facing a tile) | Space / J | A or X |
+| Dig (hold, facing a tile; Options > Access can make it press to start, press to stop) | Space / J | A or X |
 | Place a torch | T | B or Y |
 | Revive a downed friend (hold dig next to them) | Space / J | A or X |
 | Pause | Escape / P | Start |
@@ -118,6 +118,37 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   (a circle with a wind-up; it is stunned for 2.2 s afterwards, the time to hit it) and, in the second half of its health,
   charges. It has 10 hearts plus 4 per extra player, and the exit lift is jammed until it falls (`bossDefeated`).
 
+## Options (P6)
+
+Options has five tabs; every row works with the mouse, the keyboard (arrows or Tab, Enter) and a gamepad (d-pad, A, B to go back),
+is applied at once and saved in `settings` (`scripts/settings.js`). The texts are `locales/en.json` keys (English only until P8) and
+the rows grow with the text size.
+
+- **Video**: window mode (windowed or full screen), window size, vsync, frame cap, colour filter. The engine has no borderless
+  mode apart from its full screen (which is the window covering the monitor) and no monitor choice, so the monitor row only shows
+  the monitor's size (ENGINE_FEEDBACK FB-0027). Without a real window (headless, a test) the window rows are greyed out and a note says why.
+- **Audio**: a slider per bus (master, music, effects, interface), read menus aloud, subtitles.
+- **Controls**: rebinding per player.
+- **Access**: sound captions (off by default), reduced flashing (starts from the system's "reduce motion"), game speed (100, 80 or
+  60 %), and for each player (Player 1 to 4) dig as hold or as press to start, press to stop.
+- **Language**.
+
+Sound captions: a cue such as a beetle's bite, a cave-in, the lamp running low or the mole's call writes a short line
+("Beetle bite! (right)", the direction seen from the nearest miner) in the bottom middle of the screen, clear of the four players' bars at the bottom left and of the HUD text at the top. The line stays 2.5 s and the list keeps two lines.
+
+Reduced flashing: magma light and torch light stay nearly steady and the cave-in warning brightens slowly instead of blinking six times a second.
+Dig toggle: a press turns the dig on, the next press turns it off; it also ends when the miner goes down, reaches the lift or a new shift starts.
+
+Game speed (assist) sets `time.scale` for the shift (so movement, enemies, timers and the oil all slow down together; the clock is
+the engine's, so a slow shift is as deterministic as a normal one) and puts the speed in `shiftStarted`. DECISIONS: the daily dig can be
+played at any speed (it is the same seed and mine), but a run with a shift played slower than 100 % **does not post to the boards**
+(`boards.status().assisted`): a board compares players, and an assist is not a rival's score. Cash, trophies and the local results
+still count. The flag starts again with a run continued from a save, so a Continue followed by normal-speed shifts posts again.
+
+Colour-free ore and hazards: each ore and hazard tile carries a small white shape with a dark outline in its top-left corner (copper a disc,
+silver two bars, gold a triangle, a gem a diamond, water waves, magma a cross, a cracked floor an exclamation mark), the same in every
+stratum; `assets/src/make_markers.py` paints them after `make_atlases.py`. Checked with a greyscale screenshot.
+
 ## Layout
 
 ```
@@ -131,7 +162,8 @@ scripts/ui/title_flow.js   the title's Continue, slots, delete confirmation, clo
 tools/mine_preview.js      project.mine_preview: a mine as text
 tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: a fake game server) and
                            fixtures/ (save_v1, save_v2, news, balance)
-assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py), music/*.wav (+ src/make_music.py), audio/*.wav,
+assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py, then src/make_markers.py), music/*.wav
+                           (+ src/make_music.py, src/make_music_layers.py), audio/*.wav,
                            achievements/*.png and glyphs/<family>/*.png (+ src/make_online_art.py)
 locales/en.json            every string of the UI
 scripts/title_online.js    the title's online parts; scripts/ui/boards.js the boards screen
@@ -273,11 +305,27 @@ through `Enemy.hit(damage, from, by)` (a swing is `swingDamage(tier)`; `from` is
 plus 4 per extra player; while it lives a miner on the exit lift only emits `exitJammed` and does not count as arrived. `actors.js` lists the
 miners in play (`miners()`, `nearestMiner(x, y)`) for the hazards, enemies, lights and fog.
 
-### Music: `scripts/game/music.js`
+### Music, mix and sound: `scripts/game/music.js`, `mix.js`, `sound.js`
 
-All music goes through here (P6 adds layers). `play(stratum)` starts the stratum's looping track with a fade-in and returns
-whether the track differs from the last one; the shift calls it at every start because a scene load stops the audio.
-`current()`, `forStratum(n)`, `reset()`.
+All music goes through `music.js` (nothing else calls `audio.music`). `play(stratum)` starts the stratum's looping track with a fade-in
+and returns whether the track differs from the last one; the shift calls it at every start because a scene load stops the audio.
+`current()`, `forStratum(n)`, `layerPath(stratum, layer)`, `layers()`, `stop()`, `reset()`.
+
+**Layers (emulated, FB-0025).** The engine has one music stream and cannot change a playing voice's volume, so each stratum has two
+one-bar loops (`music_<stratum>_danger.wav`, `_fight.wav`, made by `assets/src/make_music_layers.py`). A layer starts at the next bar
+line of the real-time music clock and stops at a bar line, so it stays in time. The *danger* layer follows a chase (an enemy sees
+a miner or saw one less than 3 s ago, or the Mole King is awake) and stays 1.5 s after it ends; the *fight* layer follows an enemy
+winding up or within 56 units of the miner it chases, or a miner hurt in the last 1.5 s. The music driver entity (`music` in the
+shift scene) is the one behaviour that ticks every frame, also while paused.
+
+**Mix (emulated, FB-0026).** `mix.js` is the only code that calls `audio.setVolume`: bus volume = the player's slider
+(`settings.volume`) x the snapshot's factor x the duck, eased over 0.2 s. Snapshots: `normal`, `paused` (music 0.45, effects 0.35),
+`underwater` (half or more of the miners in water: music 0.55, effects 0.6) and `cavern` (85 open tiles in the 11 x 11 window around the miners; a cued
+sound is replayed once, 0.22 s later at 0.3 volume, as a cheap echo). Muffling is only quieter, because there is no filter. A cue with
+`duck` seconds (the cave-in rumble, the Mole King's slam) lowers the music under it. `duck(seconds, depth)`, `snapshot(name)`, `level(bus)`.
+
+**Sound cues (`sound.js`).** Effects of a shift go through `sound.play(path, opts, cue)`; a cue `{ key, x, y }` (or `tx, ty`) puts a
+caption with a direction on the caption list (`game.captions()` in a test) and the `sound_captions` entity draws it when the option is on.
 
 ### Camp and upgrades: `scripts/game/upgrades.js`, `scripts/camp.js`
 
@@ -480,6 +528,8 @@ and no default build touches a network.
 | `analytics.test.js` | nothing queued or sent without consent, the events after a yes, quit, a failed send, revoking |
 | `deck.test.js` | Deck detection, the 1280x800 fit, suspend and resume, the text-entry helper |
 | `online_ui.test.js` | the title's news, the consent card, the hints row, leaving the title mid-request, the boards screen with the mouse and a pad, the Options switch |
+| `sound.test.js` | the music layers rising in a chase and falling after it, bar-line starts, the mix (ducking, paused, underwater, cavern echo, user sliders), the sound captions with their direction and the option |
+| `access.test.js` | hold and toggle dig per player, the game speed (`time.scale`, the event, no board post when assisted), reduced flashing, the Options > Access tab with mouse, keyboard only and gamepad only, the greyed Video rows |
 
 ## Assets and credits
 
@@ -488,6 +538,9 @@ and no default build touches a network.
 | `assets/tiles_topsoil.png`, `assets/tiles_crystal.png`, `assets/tiles_magma.png`, `assets/sprites.png`, `assets/fog.png` | Kenney, [Tiny Dungeon](https://kenney.nl/assets/tiny-dungeon) and [Roguelike Caves & Dungeons](https://kenney.nl/assets/roguelike-caves-dungeons), cut and re-packed by `assets/src/make_atlases.py`; the mole, the arrows, the cracks, the beetle, the thief, the King and the fog are drawn or recoloured by that script (a stratum's tileset is the same tiles in other colours) | CC0 |
 | `assets/music/*.wav` | one looping track per stratum, synthesised by `assets/src/make_music.py` (no sample taken from anywhere) | CC0 |
 | `assets/achievements/*.png`, `assets/glyphs/<xbox, playstation, nintendo, steamdeck>/*.png` | six trophy icons and the button pictures of four pad families, drawn by `assets/src/make_online_art.py` (64 px, deterministic, no outside image) | CC0 |
+| `assets/music/music_<stratum>_danger.wav`, `_fight.wav` | the one-bar layers over each stratum's track, synthesised by `assets/src/make_music_layers.py` | CC0 |
+| `assets/audio/beetle_alert.wav`, `lamp_low.wav`, `mole_call.wav` | the cue sounds of P6, made with `assets.synth_sound` | CC0 |
+| the ore and hazard shapes inside `assets/tiles_*.png` | stamped by `assets/src/make_markers.py` over the Kenney tiles | CC0 |
 | `assets/audio/*.wav` | made with `assets.synth_sound` (presets footstep, hit, coin, pickup, error, powerup, whoosh, click, growl, explosion, splash, laser) | CC0 |
 
 `assets.json` records the provenance of each file. The engine gaps found while building P1 to P5 are in `ENGINE_FEEDBACK.json`.
@@ -501,6 +554,10 @@ and no default build touches a network.
 | P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split view is planned and tested, not drawn: one camera in the engine) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
-| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | to do |
+| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
 | P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | to do |
 | P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | to do |
+
+Notes for the next packages. P7: the Options panel is 760 x 680 and the tab bar is 5 x 136 wide; the shift scene has the music
+driver and the sound captions widget. P8: every new string is a `locales/en.json` key (`options.*`, `caption.*`); the game-speed note and the captions
+are written from keys with `i18n.t`, so a language file only needs those keys, and check the five tabs at 200 % text.
