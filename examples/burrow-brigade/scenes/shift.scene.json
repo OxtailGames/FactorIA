@@ -194,6 +194,28 @@
       }
     },
     {
+      "id": "music",
+      "components": {
+        "Script": {
+          "path": "scripts/game/music.js"
+        }
+      }
+    },
+    {
+      "id": "sound_captions",
+      "components": {
+        "Transform": {
+          "position": [110, -24, 0]
+        },
+        "Captions": {
+          "size": [560, 100],
+          "maxLines": 2,
+          "fontSize": 24,
+          "layer": 190
+        }
+      }
+    },
+    {
       "id": "pause",
       "components": {
         "Script": {
