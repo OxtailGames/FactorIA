@@ -2267,7 +2267,8 @@
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
     // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
-    // shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale }. Throws
+    // shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, width, height,
+    // renderScale }. lights are the 3D lights, lights2d the Light2D ones. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();

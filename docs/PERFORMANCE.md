@@ -14,7 +14,7 @@ commands.
 | `cpuClock` | `process`, or `wall` on the web, where the browser gives no CPU time (the web numbers are wall-clock and noisier). |
 | `peakMemoryMB` | Peak resident memory of the process. Windows: peak working set. Linux, Android, macOS: `ru_maxrss`. Web: the size of the wasm heap (it never shrinks). |
 | `drawCalls`, `entities` | Maximum over the run. |
-| `triangles`, `lights`, `textureMB` | What the renderer drew: triangles and lights of the main pass, and GPU texture memory in MB. Maximum over the run; 0 without a renderer. The same numbers as `game.renderStats()` in a test. |
+| `triangles`, `lights`, `textureMB` | What the renderer drew: triangles of the main pass, the lights (3D lights of the main pass plus Light2D lights, which a frame keeps at most 16 of, the ones in view first), and GPU texture memory in MB. Maximum over the run (`lights` is the largest `lights + lights2d` of a frame); 0 without a renderer. Otherwise the same numbers as `game.renderStats()` in a test. |
 | `graphics` | The GPU used, `none` when there is no renderer (then `drawCalls` is 0). |
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
@@ -74,7 +74,7 @@ A limit is `max(baseline * (1 + ratio), baseline + slack)`; the slack keeps a ti
 | `cpuAvg`, `cpuP95` (ratio) | 1.0, 1.5 | CPU time per frame, average and 95th percentile | Measured: the same run varies by about 5% on one machine, but CI runners are shared and differ by up to 2x between jobs. The budget catches a game that becomes 2-3x slower, not 20%. |
 | `memory` (ratio) | 0.10 | Peak memory | Repeated runs differ by about 1-2%. |
 | `drawCalls`, `entities` (ratio) | 0.10 | Max draw calls / entities | Deterministic for a fixed scene and input. |
-| `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
+| `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights (3D plus Light2D) and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
 | `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `countSlack` | 1, 8, 1, 2 | The slack of each kind of limit | |
 
 `cpuMsMax` is recorded but not checked: one slow frame is mostly the machine.

@@ -455,7 +455,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
         maxDrawCalls = std::max(maxDrawCalls, rs.drawCalls);
         maxTriangles = std::max(maxTriangles, rs.triangles);
-        maxLights = std::max(maxLights, rs.lights);
+        maxLights = std::max(maxLights, rs.lights + rs.lights2d);  // 3D and Light2D lights of one frame
         maxTextureBytes = std::max(maxTextureBytes, r->texture_bytes());
     };
     // Profiler (options.profile): measure the frames after the warm-up into report["profile"]; the setting is put back at the end.
