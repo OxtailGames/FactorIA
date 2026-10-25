@@ -87,8 +87,8 @@ export default class BoardsScreen extends Behaviour {
     const rows = await boards.top(id, 10);
     if (!this.current(ticket)) return;
     for (const r of rows) {
-      const name = r.isPlayer ? `${r.name} (${i18n.t("boards.you")})` : r.name;
-      this.line(`${i18n.t("boards.row", { rank: r.rank, name })}   ${i18n.number(r.score)}`, r.isPlayer ? YOU : [1, 1, 1, 1]);
+      const text = i18n.t(r.isPlayer ? "boards.rowYou" : "boards.row", { rank: r.rank, name: r.name, score: i18n.number(r.score) });
+      this.line(text, r.isPlayer ? YOU : [1, 1, 1, 1]);
     }
     this.setNote(rows.length ? (tab === "daily" ? i18n.t("boards.dailyNote", { date: game.today().iso }) : "") : i18n.t("boards.empty"));
   }
@@ -100,17 +100,17 @@ export default class BoardsScreen extends Behaviour {
     if (!list.length) return this.setNote(i18n.t("boards.unavailable"));
     for (const a of list) {
       this.rows = (this.rows ?? 0) + 1;
-      const row = world.spawn({ components: { Panel: { size: [760, 56], layout: "row", spacing: 14, color: [0, 0, 0, 0], layer: 302, align: "center" } } }, { parent: this.list });
+      const row = world.spawn({ components: { Panel: { fit: true, layout: "row", spacing: 14, color: [0, 0, 0, 0], layer: 302, align: "center" } } }, { parent: this.list });
       world.spawn({ components: { Panel: { size: [48, 48], texture: a.icon, slice: [0, 0, 0, 0], color: a.unlocked ? [1, 1, 1, 1] : [0.35, 0.35, 0.4, 0.9], layer: 303 } } }, { parent: row });
-      const progress = a.progress && !a.unlocked ? `   ${i18n.t("boards.progress", { value: a.progress.value, goal: a.progress.goal })}` : "";
-      const state = a.unlocked ? "" : `   (${i18n.t("boards.locked")})`;
+      const key = a.unlocked ? "boards.trophyUnlocked" : a.progress ? "boards.trophyProgress" : "boards.trophyLocked";
+      const text = i18n.t(key, { name: a.name, description: a.description, value: a.progress?.value ?? 0, goal: a.progress?.goal ?? 0 });
       world.spawn(
-        { components: { Text: { text: `${a.name}${state}\n${a.description}${progress}`, fontSize: 20, color: a.unlocked ? [1, 1, 1, 1] : DIM, space: "screen", maxWidth: 680, layer: 303 } } },
+        { components: { Text: { text, fontSize: 20, color: a.unlocked ? [1, 1, 1, 1] : DIM, space: "screen", maxWidth: 680, layer: 303 } } },
         { parent: row },
       );
     }
     this.line(i18n.t("boards.numbers"), [0.75, 0.8, 0.9, 1], 22);
-    for (const s of stats) this.line(`${s.label}: ${i18n.number(s.value)}`, [1, 1, 1, 1], 22);
+    for (const s of stats) this.line(i18n.t("boards.stat", { label: s.label, value: i18n.number(s.value) }), [1, 1, 1, 1], 22);
     this.setNote("");
   }
 
