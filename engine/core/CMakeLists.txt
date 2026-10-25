@@ -2,8 +2,9 @@ fa_add_module(core
     DEPS fa_ext_json
     PRIVATE_DEPS fa_ext_stb fa_ext_plmpeg)
 # The MPEG decoder (pl_mpeg, in video.cpp) must run in real time: at -O0 a 640x360 video takes ~90 ms a frame, which makes a
-# debug build and its tests unusable for a game with a video. (MSVC has no per-file way around /RTC1, so it stays as it is.)
-if(NOT MSVC)
+# debug build and its tests unusable for a game with a video. (MSVC has no per-file way around /RTC1, and Xcode refuses
+# per-config options on one source file, so both stay as they are.)
+if(NOT MSVC AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
     set_source_files_properties(src/video.cpp PROPERTIES COMPILE_OPTIONS "$<$<CONFIG:Debug>:-O2>")
 endif()
 # The build fingerprint (fa/core/build_info.h): the commit, written to a header at every build; only build_info.cpp includes it.
