@@ -536,7 +536,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"input.record", "Record the input the game receives as an input replay (start / stop).",
            "`start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, "
-           "game.input or a replay), the dt and fixed steps of each frame, the clipboard reads and the calendar date; what is held "
+           "game.input or a replay), the dt and fixed steps of each frame, the clipboard reads, the answers of http.fetch and the "
+           "calendar date; what is held "
            "at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that "
            "`factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and "
            "locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to "

@@ -1725,7 +1725,7 @@
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "http"];
   const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
@@ -1813,7 +1813,7 @@
     // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
     get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-    // "presence", "integrity", "ads".
+    // "presence", "integrity", "ads", "http" (http.fetch: false when the system's HTTP client cannot run on this computer).
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1915,6 +1915,70 @@
     },
   };
 
+  // ======================================================================================================== http
+  // http.fetch(url, options): one HTTP request to a host that factoria.json "network" declares (docs/NETWORKING.md). It is a
+  // platform request like the store calls above: a mistake in the call (an undeclared host, a bad header) throws at once, a
+  // failure of the network rejects with an Error that has .code ("network", "unavailable") and .hint, and the answer settles
+  // at the start of an engine frame. A server's error status (404, 500) is NOT a failure: the promise resolves with it.
+  const HTTP_OPTIONS = ["method", "headers", "body", "timeout"];
+  const httpLabel = (url) => `http.fetch(${platformArg(url)})`;
+  function httpResponse(label, r) {
+    const text = r.text;
+    const response = {
+      status: r.status,
+      ok: r.status >= 200 && r.status < 300,
+      // Header names in lower case; a header the server sent twice is joined with ", ".
+      headers: Object.freeze(Object.assign({}, r.headers)),
+      text,
+      // The body parsed as JSON. Throws an Error that says what came back when it is not JSON.
+      json() {
+        try { return JSON.parse(text); }
+        catch (e) {
+          const shown = text.length > 60 ? text.slice(0, 57) + "..." : text;
+          throw new Error(`${label}: the response body is not JSON (${e.message}); it starts with ${JSON.stringify(shown)}` +
+            ` (hint: check response.status and response.headers["content-type"] before response.json())`);
+        }
+      },
+    };
+    return Object.freeze(response);
+  }
+  const http = {
+    // fetch(url, { method?, headers?, body?, timeout? }) -> Promise<{ status, ok, headers, text, json() }>
+    // method: "GET" (default), "HEAD", "POST", "PUT", "PATCH" or "DELETE". headers: an object of strings. body: a string, or an
+    // object / array that is sent as JSON (with Content-Type application/json unless you set one). timeout: seconds, 15 by default.
+    fetch(url, options) {
+      if (options !== undefined && options !== null && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`${httpLabel(url)}: options must be an object like { method: "POST", body: { score: 10 } }, but got ${platformArg(options)}`);
+      const o = options || {};
+      for (const k of Object.keys(o)) {
+        if (HTTP_OPTIONS.includes(k)) continue;
+        const sug = closest(k, HTTP_OPTIONS);
+        throw new Error(`${httpLabel(url)}: unknown option '${k}'${sug ? ` (did you mean '${sug}'?)` : ""}; use ${quotedList(HTTP_OPTIONS)}`);
+      }
+      const args = { url };
+      if (o.method !== undefined) args.method = o.method;
+      let headers = o.headers;
+      if (isObj(headers) && !Array.isArray(headers)) headers = Object.assign({}, headers);
+      if (o.body !== undefined && o.body !== null) {
+        if (typeof o.body === "string") args.body = o.body;
+        else if (typeof o.body === "object" || typeof o.body === "number" || typeof o.body === "boolean") {
+          args.body = JSON.stringify(plain(o.body));
+          if (isObj(headers) && !Array.isArray(headers)) {
+            if (!Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
+          } else if (headers === undefined || headers === null) {
+            headers = { "Content-Type": "application/json" };
+          }
+        } else {
+          throw new Error(`${httpLabel(url)}: body must be a string or something JSON can hold (an object, an array), but got ${platformArg(o.body)}`);
+        }
+      }
+      if (headers !== undefined && headers !== null) args.headers = headers;
+      if (o.timeout !== undefined) args.timeout = o.timeout;
+      const label = httpLabel(url);
+      return platformCall("http.fetch", label, args, (r) => httpResponse(label, r));
+    },
+  };
+
   // ======================================================================================================= i18n
   // Localization (docs/LOCALIZATION.md): the string tables are locales/<language>.json, the languages are listed in factoria.json
   // "localization". Without that section the game is not localized: t(key) returns the key, languages is [].
@@ -2009,7 +2073,7 @@
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, i18n,
     window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
   };
 

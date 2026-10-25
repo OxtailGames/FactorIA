@@ -86,6 +86,10 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   path to a game ready for a store, with a checklist.
 - **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
   App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.
+- **Web requests:** `http.fetch(url, {method, headers, body, timeout})` talks to a server; the hosts go in factoria.json
+  `"network": {"hosts": ["api.example.com"], "purpose": "..."}` (https only, undeclared hosts throw), tests script the
+  answers with `game.platform.respond("http.fetch", ...)`, and a script that awaits it checks `scene.current` before
+  using the answer: `factoria docs read networking`. Tell the user the privacy policy must mention the server.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
   ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep

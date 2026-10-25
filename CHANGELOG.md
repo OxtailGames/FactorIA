@@ -28,6 +28,25 @@ Monitor choice and window modes
   instead of `fullscreen` (a save from the older kit is still read) and restores the monitor, then the mode, at start.
   The locale tables have `options.windowMode`, `options.mode.*` and `options.monitor` instead of `options.fullscreen`.
 
+`http.fetch` on every platform
+
+- `import { http } from "factoria"`: `http.fetch(url, { method, headers, body, timeout })` returns a Promise of
+  `{ status, ok, headers, text, json() }`. Windows uses WinHTTP, macOS and iOS `NSURLSession`, Linux libcurl (loaded
+  when first used: the player does not link it, and without it `platform.has("http")` is false), Android
+  `HttpURLConnection` and the web build the browser's `fetch` (CORS applies). An HTTP error status resolves with
+  `ok: false`; a request that did not complete rejects with `code` and `hint`.
+- A game declares the servers it calls in `factoria.json` `"network": { "hosts": [...], "purpose": "..." }`: `https://`
+  only (plain `http://` to `localhost` for a test server), the host must be listed (`"*.example.com"` covers
+  subdomains), no password in the URL, redirects only to https. `factoria validate` checks the section and warns about a
+  script that calls `http.fetch` with no host declared. The Android export adds the `INTERNET` permission only when
+  hosts are declared.
+- Tests, `factoria call`, `session`, headless runs and MCP never touch the network: the fake answers what
+  `game.platform.respond("http.fetch", { status, headers, text, json, error })` scripted. An input recording
+  (`input.record`, editor play sessions) keeps the answers in the `"http"` field of the replay, and
+  `factoria run --headless --input` plays them back.
+- `platform.state` shows `httpBackend`, `httpWhy` and `networkHosts`. A plugin cannot offer the `"http"` service.
+- New [NETWORKING.md](docs/NETWORKING.md); LEGAL.md and MOBILE.md no longer say that games have no network.
+
 Audio buses: effects, ducking and snapshots
 
 - Every bus (`sfx`, `music`, `ui`) is mixed into its own buffer before the master, so a bus can have effects:

@@ -118,6 +118,7 @@ int refusing_init(const FaPluginApi* api) {
     refused({"refuser", R"({"a":1})", store_request, nullptr, nullptr});             // not an array
     refused({"refuser", R"(["achievments"])", store_request, nullptr, nullptr});     // not a service: did you mean
     refused({"refuser", R"([])", store_request, nullptr, nullptr});                  // offers nothing
+    refused({"refuser", R"(["stats","http"])", store_request, nullptr, nullptr});    // http is the engine's own
     refused({"refuser", R"(["stats"])", nullptr, nullptr, nullptr});                 // no request handler
     refused({nullptr, R"(["stats"])", store_request, nullptr, nullptr});             // no name
     FaBackendDesc good = {"refuser", R"(["stats", "stats"])", store_request, nullptr, nullptr};
@@ -266,6 +267,8 @@ TEST_CASE("platform backend choice: an Engine without a store plugin") {
         CHECK(dev.platform_services()->info()["backend"] == "fake");
         CHECK(run(dev, "platform.backend") == "fake");
         CHECK(run(dev, "platform.has('purchases')") == true);
+        // The store is the fake in development, but http.fetch is real unless the program asks for the fake (below).
+        CHECK(dev.platform_services()->info()["httpBackend"] != "fake");
         dev.shutdown();
     }
     {
@@ -275,6 +278,9 @@ TEST_CASE("platform backend choice: an Engine without a store plugin") {
         REQUIRE(engine.init(shipped, nullptr, &err));
         CHECK(run(engine, "platform.backend") == "none");
         CHECK(run(engine, "platform.has('purchases')") == false);
+        // An exported game (not the fake) sends http.fetch with the system's client; "none" only concerns the store.
+        CHECK(engine.platform_services()->info()["httpBackend"] != "fake");
+        CHECK(engine.platform_services()->info()["httpBackend"] != "none");
         // Nothing is free: a purchase is rejected with a hint.
         run(engine, "globalThis.out = []; platform.purchases.buy('gems_100').catch((e) => out.push([e.code, e.message, e.hint]))");
         Json out = run(engine, "out");
@@ -295,6 +301,7 @@ TEST_CASE("platform backend choice: an Engine without a store plugin") {
         Engine engine;
         REQUIRE(engine.init(forced, nullptr, &err));
         CHECK(run(engine, "platform.backend") == "fake");
+        CHECK(engine.platform_services()->info()["httpBackend"] == "fake");
         engine.shutdown();
     }
 }
@@ -442,13 +449,14 @@ TEST_CASE("platform plugin: add_backend refuses what it cannot use, and says why
     std::string err;
     const std::uint64_t seq = log_last_seq();
     REQUIRE(engine.init(game.cfg(), nullptr, &err));
-    CHECK(g_refusals == 9);
+    CHECK(g_refusals == 10);
     const std::string logs = logs_since(seq);
     CHECK(has(logs, "'Bad Name' is not a backend name"));
     CHECK(has(logs, "'refuser' has no services"));
     CHECK(has(logs, "are not a JSON array of strings"));
     CHECK(has(logs, "'refuser' lists 'achievments', which is not a platform service. Did you mean 'achievements'?"));
     CHECK(has(logs, "'refuser' offers no service"));
+    CHECK(has(logs, "'refuser' lists 'http', which a plugin cannot offer: the engine serves http.fetch itself"));
     CHECK(has(logs, "'refuser' has no request handler"));
     CHECK(has(logs, "this plugin already registered the backend 'refuser'"));
     // The one good registration counts, with the duplicate service listed once.
