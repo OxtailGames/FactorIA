@@ -8,7 +8,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 ### [2D](components/2d.md)
 
-- [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites and tilemaps with `lit` true. _Since 0.2.0._
+- [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. _Since 0.2.0._
 - [Parallax](components/2d.md#parallax): Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. _Since 0.2.0._
 - [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions).
 - [Shape2D](components/2d.md#shape2d): Untextured 2D primitive for prototypes, UI panels and debug visuals.

@@ -43,6 +43,16 @@ if(TARGET fa_test_render)
     target_include_directories(fa_test_render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
+# The 2D light buffer on a GPU that cannot blend half floats (RGBA8 at half range) and on one that cannot blend at all (the
+# per-pixel loop over 16 lights): FA_LIGHT_FORMAT picks the format at start-up (gpu.cpp), the same tests must hold.
+if(TARGET fa_test_render)
+    foreach(fmt rgba8 none)
+        add_test(NAME render_light_${fmt}
+            COMMAND ${CMAKE_COMMAND} -E env FA_LIGHT_FORMAT=${fmt} $<TARGET_FILE:fa_test_render> "-tc=Light2D buffer*,lit sprites*"
+            WORKING_DIRECTORY ${FA_ROOT})
+    endforeach()
+endif()
+
 # Windowed smoke test (needs a display; runs under xvfb when available).
 find_program(FA_XVFB_RUN xvfb-run)
 if(TARGET fa_test_render AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
