@@ -281,6 +281,14 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
         grid.cellSize = vec2("cellSize", {1, 1});
     }
 
+    // Checked before reading: Json::value throws on a wrong type, and a script passes whatever it was given.
+    for (const char* key : {"diagonals", "closest", "allowBlockedGoal"})
+        if (args.contains(key) && !args[key].is_boolean())
+            return Error{std::format("nav.findTilePath: `{}` must be true or false, but got {}.", key, args[key].dump()),
+                         std::format("Pass {}: true, or leave it out (default false).", key)};
+    if (args.contains("maxNodes") && !args["maxNodes"].is_number())
+        return Error{std::format("nav.findTilePath: `maxNodes` must be a number, but got {}.", args["maxNodes"].dump()),
+                     "Pass the most cells the search may expand, e.g. maxNodes: 5000 (default 100000)."};
     NavTileOptions o;
     o.diagonals = args.value("diagonals", false);
     o.closest = args.value("closest", false);
