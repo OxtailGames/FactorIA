@@ -15,6 +15,7 @@
 //   lights.dispose();
 import { world } from "factoria";
 import * as sound from "./sound.js";
+import { reducedFlashing } from "../settings.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 import { K, TILE, SPRITE, spriteRegion, isDangerKind } from "./tiles.js";
@@ -124,9 +125,14 @@ export class Lights {
       this.rank();
     }
     // torches flicker a little; everything else is steady
+    // Magma breathes (a slow pulse, about 0.4 times a second) and torches flicker (about 2 times a second). With reduced flashing
+    // (Options > Access) both are nearly steady, so nothing in the mine changes brightness quickly or strongly.
+    const calm = reducedFlashing();
     for (const slot of this.pool) {
       const s = slot.source;
-      if (s && s.kind === "torch" && slot.entity.alive) slot.entity.get("Light2D").intensity = s.intensity * (0.9 + 0.1 * Math.sin(this.clock * 13 + s.tx * 3));
+      if (!s || !slot.entity.alive) continue;
+      if (s.kind === "torch") slot.entity.get("Light2D").intensity = s.intensity * (1 - (calm ? 0.02 : 0.1) + (calm ? 0.02 : 0.1) * Math.sin(this.clock * 13 + s.tx * 3));
+      else if (s.kind === "magma") slot.entity.get("Light2D").intensity = s.intensity * (1 + (calm ? 0.04 : 0.3) * Math.sin(this.clock * 2.5 + s.tx * 0.7 + s.ty * 0.5));
     }
   }
 

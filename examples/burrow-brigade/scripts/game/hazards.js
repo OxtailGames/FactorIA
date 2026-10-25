@@ -19,6 +19,7 @@
 // Every step tells the bus (`hazardTriggered`, and `playerDown` with the cause "drowned", "burned" or "caveIn").
 import { world } from "factoria";
 import * as sound from "./sound.js";
+import { reducedFlashing } from "../settings.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 import { K, TILE, SPRITE, spriteRegion } from "./tiles.js";
@@ -244,8 +245,11 @@ export class Hazards {
   tickCaveIns(dt, here) {
     for (const cave of [...this.caveIns]) {
       cave.t += dt;
+      // The warning blinks 6 times a second (a flash rate); with reduced flashing it is a steady sign that only brightens slowly.
+      const calm = reducedFlashing();
       const blink = Math.floor(cave.t * 6) % 2 === 0;
-      for (const s of cave.signs) if (s.alive) s.get("Sprite").color = [1, 1, 1, blink ? 0.95 : 0.4];
+      const alpha = calm ? 0.6 + 0.3 * (0.5 - 0.5 * Math.cos(cave.t * 2 * Math.PI * 0.5)) : blink ? 0.95 : 0.4;
+      for (const s of cave.signs) if (s.alive) s.get("Sprite").color = [1, 1, 1, alpha];
       // the rocks drop in the last third of a second
       const fall = Math.max(0, Math.min(1, (cave.t - (TUNING.caveWarning - 0.3)) / 0.3));
       if (fall > 0 && cave.rocks.length === 0) {

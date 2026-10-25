@@ -81,6 +81,18 @@
             }
           },
           {
+            "id": "tab_access",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Access",
+                "key": "options.tab.access",
+                "size": [160, 48],
+                "layer": 302
+              }
+            }
+          },
+          {
             "id": "tab_language",
             "components": {
               "Button": {
@@ -104,19 +116,19 @@
             "layout": "column",
             "direction": "auto",
             "align": "start",
-            "spacing": 12
+            "spacing": 6
           }
         },
         "children": [
           {
-            "id": "fullscreen",
+            "id": "display_mode",
             "components": {
-              "Toggle": {
+              "Button": {
                 "autoSize": true,
-                "label": "Full screen",
-                "key": "options.fullscreen",
-                "size": [560, 44],
-                "layer": 302
+                "text": "Window mode",
+                "size": [560, 40],
+                "layer": 302,
+                "fontSize": 22
               }
             }
           },
@@ -126,9 +138,20 @@
               "Button": {
                 "autoSize": true,
                 "text": "Window size",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302,
                 "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "monitor",
+            "components": {
+              "Text": {
+                "text": "Monitor",
+                "fontSize": 22,
+                "space": "screen",
+                "layer": 302
               }
             }
           },
@@ -139,7 +162,7 @@
                 "autoSize": true,
                 "label": "VSync",
                 "key": "options.vsync",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
@@ -150,7 +173,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Frame cap",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -162,7 +185,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Color filter",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -306,6 +329,91 @@
                 "size": [560, 44],
                 "layer": 302,
                 "fontSize": 22
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "access_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 6
+          }
+        },
+        "children": [
+          {
+            "id": "sound_captions",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Sound captions",
+                "key": "options.soundCaptions",
+                "size": [560, 40],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "reduced_flashing",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Reduced flashing",
+                "key": "options.reducedFlashing",
+                "size": [560, 40],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "game_speed",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Game speed",
+                "size": [560, 40],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "hold_player",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Player 1",
+                "size": [560, 40],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "hold_mode",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Dig: hold",
+                "size": [560, 40],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "access_note",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 20,
+                "space": "screen",
+                "layer": 302
               }
             }
           }

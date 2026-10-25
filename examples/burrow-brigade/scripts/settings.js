@@ -7,8 +7,8 @@ import * as mix from "./game/mix.js";
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
 
-/** Window modes of the Video tab. The engine has fullscreen and windowed only, so "borderless" also goes through setFullscreen (FB-0027). */
-export const DISPLAY_MODES = ["windowed", "borderless", "fullscreen"];
+/** Window modes of the Video tab. The engine has full screen and windowed only: its full screen is the window covering the monitor (borderless), and it has no exclusive mode or monitor choice to offer (FB-0027). */
+export const DISPLAY_MODES = ["windowed", "fullscreen"];
 
 /** Game speeds of the assist option (1 = normal). A slower game does not post to the boards (scripts/game/boards.js). */
 export const GAME_SPEEDS = [1, 0.8, 0.6];
@@ -28,7 +28,7 @@ function defaults() {
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
     fullscreen: null, // null: keep factoria.json display.fullscreen (kept in step with displayMode)
-    displayMode: null, // null, "windowed", "borderless" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
+    displayMode: null, // null, "windowed" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
@@ -38,7 +38,7 @@ function defaults() {
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
-    reducedEffects: system.reduceMotion, // reduced flashing: magma and torch light stay steady, no screen flash, the cave-in warning does not blink (lights.js, hazards.js, flash.js)
+    reducedEffects: system.reduceMotion, // reduced flashing: magma and torch light stay steady, no screen flash, the cave-in warning does not blink (lights.js, hazards.js)
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
     soundCaptions: false, // short captions for important sounds in a shift (the "sound_captions" entity; scripts/game/sound.js)
     holdMode: {}, // seat ("0".."3") -> "hold" | "toggle": how the dig button is read (scripts/game/miner_input.js)
@@ -53,27 +53,30 @@ export function load() {
   return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings }, holdMode: { ...saved.holdMode } };
 }
 
-let version = 0;
-let cache = null;
-let cacheVersion = -1;
-
-/** The settings as the last save() left them, read from storage once (the game code that asks every frame uses this; never change the object). */
+/** The saved settings, read now (the game code that asks every frame uses this; it reads the storage each time, so a test that wipes the storage is never stale). */
 export function current() {
-  if (!cache || cacheVersion !== version) {
-    cache = load();
-    cacheVersion = version;
-  }
-  return cache;
-}
-
-/** Forgets the cached settings (a test that wrote the storage by hand). */
-export function refresh() {
-  cache = null;
+  return load();
 }
 
 export function save(s) {
   storage.set("settings", s);
-  version++;
+  flashStamp = -1;
+}
+
+let flashStamp = -1;
+let flashValue = false;
+
+/**
+ * True when the player asked for reduced flashing (Options > Access; the system's "reduce motion" until they choose). Effects code
+ * asks every frame, so the answer is kept for 15 frames and forgotten by `save` (a change in Options shows at once).
+ */
+export function reducedFlashing() {
+  const frame = world.frame;
+  if (flashStamp < 0 || frame < flashStamp || frame - flashStamp >= 15) {
+    flashValue = !!load().reducedEffects;
+    flashStamp = frame;
+  }
+  return flashValue;
 }
 
 /** How the dig button of a seat is read: "hold" or "toggle". */
