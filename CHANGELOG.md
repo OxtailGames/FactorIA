@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Light2D in the stats and the perf budget
+
+- `RenderStats` (`game.render_stats`, `game.renderStats()`) gets `lights2d` and `lights2dDropped`: the Light2D lights
+  that shade a frame (at most 16) and the ones left out. `lights` and `lightsDropped` stay the 3D lights.
+- `perf.measure`'s `lights`, and so the `maxLights` budget, is now the most 2D plus 3D lights of any frame: a budget
+  written for a 2D game used to watch nothing.
+- The 16 Light2D lights of a frame are the ones that light the view: directional lights first, then the point lights whose
+  radius reaches the camera's visible rectangle (more of their radius in view first, then the more intense ones). A light
+  entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene naming the count.
+
 Video player
 
 - A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every
