@@ -48,3 +48,29 @@ TEST_CASE("date: days round trip") {
     }
     CHECK(calendar_date_from_days(parse_calendar_date("2026-02-28")->days_since_epoch() + 1).iso() == "2026-03-01");
 }
+
+TEST_CASE("date: time of day and the UTC date") {
+    auto d = parse_calendar_date("2026-10-23T23:59:30");
+    REQUIRE(d.ok());
+    CHECK(d->hour == 23);
+    CHECK(d->minute == 59);
+    CHECK(d->second == 30);
+    CHECK(d->iso() == "2026-10-23");
+    CHECK(d->iso_datetime() == "2026-10-23T23:59:30");
+    CHECK(parse_calendar_date("2026-10-23 08:05")->iso_time() == "08:05:00");
+    CHECK(parse_calendar_date("2026-10-23")->iso_time() == "00:00:00");
+    d->utcOffsetMinutes = -300;  // five hours west: UTC is already the next day
+    CHECK(d->utc().iso() == "2026-10-24");
+    d->utcOffsetMinutes = 120;
+    CHECK(d->utc().iso() == "2026-10-23");
+    CalendarDate early = parse_calendar_date("2026-01-01T00:30").value();
+    early.utcOffsetMinutes = 60;
+    CHECK(early.utc().iso() == "2025-12-31");  // across the year
+    CalendarDate before = parse_calendar_date("1969-12-31T23:00").value();
+    before.utcOffsetMinutes = -120;
+    CHECK(before.utc().iso() == "1970-01-01");
+    for (const char* bad : {"2026-10-23T24:00", "2026-10-23T12:60", "2026-10-23T12:30:61", "2026-10-23T9:00", "2026-10-23T12", "2026-10-23x12:00", "2026-10-23T12:00:0"})
+        CHECK_MESSAGE(!parse_calendar_date(bad).ok(), bad);
+    // The time of day is not part of the "same day" comparison.
+    CHECK(parse_calendar_date("2026-10-23T01:00").value() == parse_calendar_date("2026-10-23T22:00").value());
+}

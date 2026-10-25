@@ -48,6 +48,11 @@ std::u32string decode_text(std::string_view utf8);
 
 // A character that should draw something: not a control, a zero-width or direction mark, a variation selector or a BOM.
 bool is_visible(char32_t cp);
+
+// HarfBuzz always decomposes SARA AM (U+0E33 into U+0E4D U+0E32) and the Lao AM (U+0EB3 into U+0ECD U+0EB2), whether or
+// not the font has the composed character, so the font needs the two parts. Returns the parts, or an empty view when `cp`
+// is not a composed vowel.
+std::u32string_view composed_parts(char32_t cp);
 bool is_cjk(char32_t cp);    // Chinese, Japanese, Korean (for hints)
 bool is_emoji(char32_t cp);  // for hints
 
