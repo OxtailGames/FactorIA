@@ -35,6 +35,7 @@
 #include "fa/ui/ui.h"
 #include "assets_internal.h"
 #include "localization_check.h"
+#include "fa/audio/snapshots.h"
 #include "util.h"
 
 namespace fa {
@@ -54,6 +55,7 @@ struct Ctx {
     std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
+    bool networkDeclared = false;                             // factoria.json "network" lists at least one host
     std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
     bool projectFileRead = false;                             // factoria.json parsed as an object
     ValidationReport report;
@@ -448,6 +450,16 @@ void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) 
     }
 }
 
+// The "network" section (the hosts http.fetch may call): every problem of parse_network with its pointer and fix. The schema
+// checks the shape too; where the section has errors its messages replace the schema's.
+void check_network(Ctx& c, const NetworkParse& parsed) {
+    for (const NetworkIssue& i : parsed.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    c.networkDeclared = parsed.ok() && !parsed.policy.hosts.empty();
+}
+
 // The "localization" section (languages, default language, fonts): every problem of parse_localization with its pointer and fix.
 // What the string tables (locales/<language>.json) and the texts of scenes hold is checked once the scenes are read
 // (check_localization_content, validate_localization.cpp).
@@ -455,6 +467,12 @@ void check_localization(Ctx& c, const LocalizationParse& parsed) {
     for (const LocalizationIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
     for (const LocalizationIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     c.localization = parsed;
+}
+
+// The "audio" section (the snapshot catalog): every problem of parse_audio_settings with its pointer and fix.
+void check_audio(Ctx& c, const AudioSettingsParse& parsed) {
+    for (const AudioIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    for (const AudioIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
 }
 
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
@@ -474,12 +492,16 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     const PublishSettingsParse publish = parse_publish_settings(pj);
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
+    const NetworkParse network = parse_network(pj.is_object() && pj.contains(kNetworkKey) ? pj[kNetworkKey] : Json());
     const LocalizationParse localization = parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
+    const AudioSettingsParse audio = parse_audio_settings(pj.is_object() && pj.contains("audio") ? pj["audio"] : Json());
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
         for (const auto& e : validate_json(schema, pj)) {
             if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
+            if (!network.ok() && (e.pointer == "/network" || e.pointer.rfind("/network/", 0) == 0)) continue;  // check_network says it better
             if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0)) continue;  // check_localization too
+            if (!audio.ok() && (e.pointer == "/audio" || e.pointer.rfind("/audio/", 0) == 0)) continue;  // check_audio too
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
             const auto sameSpot = [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; };
             const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
@@ -494,7 +516,9 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     if (platform.ok())
         for (const AdsIssue& i : check_ads(c.dir)) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
     c.catalogKeys = platform.catalog.textKeyRefs;
+    check_network(c, network);
     check_localization(c, localization);
+    check_audio(c, audio);
     c.projectFileRead = true;
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));
@@ -716,6 +740,16 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 return o.file == issue.file && o.pointer == issue.pointer && o.message == issue.message;
             };
             if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
+        }
+    }
+    if (!c.networkDeclared) {
+        // A script that calls http.fetch in a game that declares no host: every call throws (tests included).
+        for (const auto& s : scripts) {
+            auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
+            if (!text || text->find("http.fetch") == std::string::npos) continue;
+            c.warn(s, "", "this script calls http.fetch, but factoria.json declares no \"network\" hosts: every call throws",
+                   "Add \"network\": {\"hosts\": [\"api.example.com\"], \"purpose\": \"...\"} to factoria.json (docs/NETWORKING.md).");
+            break;  // once per project is enough
         }
     }
     if (options.propsCheck) {

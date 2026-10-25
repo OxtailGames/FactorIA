@@ -108,6 +108,12 @@ void InputRecorder::clipboard(std::uint64_t frame, const std::string& text) {
     if (!e.contains("clipboard")) e["clipboard"] = text;
 }
 
+void InputRecorder::http(std::uint64_t frame, const Json& answer) {
+    Json& list = entry(frame)["http"];
+    if (!list.is_array()) list = Json::array();
+    list.push_back(answer);
+}
+
 void InputRecorder::release_all(std::uint64_t frame) {
     for (Key k : std::set<Key>(keys_)) key(frame, k, false);
     for (MouseButton b : std::set<MouseButton>(buttons_)) mouse_button(frame, b, false);

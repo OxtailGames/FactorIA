@@ -41,7 +41,7 @@ engine/            runtime modules (ship inside every game)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder), the picture of Video components
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes, capsules, convex hulls, static triangle meshes, rigid-body rotation, hinge/ball/fixed joints, character controller, continuous collision, shape casts)
-  audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording, the sound of Video components
+  audio/           fa_audio    mixer with per-bus effects (low-pass, reverb, ducking) and snapshots, wav/ogg/mp3, null device + recording, the sound of Video components
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
   script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h), the script debugger runtime (debugger.h, docs/design/SCRIPT_DEBUGGER.md)
@@ -269,7 +269,13 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   `ScriptSystem::dispatch_platform()` first thing), which settles the scripts' Promises and calls `platform.on` listeners.
 - **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.revoke`, `platform.set_fake`
   (`platform_commands.h`, registered by the runtime): `game.platform` of `factoria:test` is a view of them.
-Docs: [PLATFORM.md](PLATFORM.md).
+- **`http.fetch`** is a method of the same pipeline with a backend slot of its own (`set_http_backend`, next to the store and
+  ads backends). `PlatformServices::prepare` checks the URL against the `"network"` hosts of factoria.json
+  (`fa/services/network.h`) and shapes the arguments; the runtime's `HttpBackend` (`http_backend.cpp`) hands them to
+  an `HttpClient` of `fa_platform` (`fa/platform/http.h`: WinHTTP, `NSURLSession`, libcurl loaded with dlopen, Android's
+  `HttpURLConnection` through JNI, the browser's `fetch`; one `http_<platform>` file each). Headless runs and tests ask for
+  the fake backend, which never touches the network. A plugin cannot offer the "http" service.
+Docs: [PLATFORM.md](PLATFORM.md), [NETWORKING.md](NETWORKING.md).
 
 ### Localization
 Text lives in string tables, `locales/<language>.json`, and the engine shows the player's language (docs:

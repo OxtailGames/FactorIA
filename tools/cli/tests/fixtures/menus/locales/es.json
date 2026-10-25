@@ -15,7 +15,13 @@
   "options": {
     "title": "Opciones",
     "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
-    "fullscreen": "Pantalla completa",
+    "windowMode": "Modo de ventana: {mode}",
+    "mode": {
+      "windowed": "ventana",
+      "borderless": "sin bordes",
+      "fullscreen": "pantalla completa"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Tamaño de ventana: {width} x {height}",
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
