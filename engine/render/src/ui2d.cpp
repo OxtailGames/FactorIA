@@ -223,8 +223,8 @@ void draw_captions(const Ctx& c, const World& world, const Captions& cap, const 
 // A Video: its background, then its picture inside its rectangle `r`: `contain` shows all of it with bars, `cover` fills the
 // rectangle and crops what overflows (by uv, so nothing is drawn outside), `stretch` ignores the aspect ratio. The
 // background is left out when the picture hides all of it (opaque, over every pixel the background fills): a full-screen
-// video would otherwise fill the screen twice. Only the background is drawn while the file is not open (a missing or
-// unplayable file).
+// video would otherwise fill the screen twice. An opaque picture is drawn without blending. Only the background is drawn
+// while the file is not open (a missing or unplayable file).
 void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
     if (!v.rt.decoder || r.w <= 0 || r.h <= 0) return background(c, b, r, b.color);
     TextureAsset* tex = c.f.assets->video_texture(v.rt.decoder);
@@ -245,10 +245,12 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
     // The decoded picture is opaque, so only the tint can let the background through. background() rounds its edges to
     // whole pixels: the picture must reach those.
     constexpr float kEps = 1e-3f;
-    const bool hidden = v.tint.a * c.fade >= 1.0f && dst.x <= std::round(r.x) + kEps && dst.y <= std::round(r.y) + kEps &&
+    const bool opaque = v.tint.a * c.fade >= 1.0f;
+    const bool hidden = opaque && dst.x <= std::round(r.x) + kEps && dst.y <= std::round(r.y) + kEps &&
                         dst.x + dst.w >= std::round(r.x + r.w) - kEps && dst.y + dst.h >= std::round(r.y + r.h) - kEps;
     if (!hidden) background(c, b, r, b.color);
     c.list().begin_item(v.layer + 1, 0, tex, SamplerKind::LinearClamp, BlendMode::Alpha, c.clip);
+    if (opaque) c.list().set_opaque();  // the same pixels without blending: less work for software rasterizers
     quad(c, dst.x, dst.y, dst.x + dst.w, dst.y + dst.h, u0, v0, u1, v1, pack(v.tint, c.fade));
     c.list().end_item();
 }

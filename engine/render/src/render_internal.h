@@ -266,6 +266,7 @@ struct QuadItem {
     bool lit = false;                 // shaded by the 2D lights (kModeLit quads)
     TextureAsset* normal = nullptr;   // lit: the normal map laid out like `tex`; null = a flat surface
     bool plain = true;                // every quad is kModeTextured (QuadList::quad clears it)
+    bool opaque = false;              // QuadList::set_opaque(): the quads hide what is under them
 };
 
 struct QuadBatch {
@@ -280,6 +281,9 @@ struct QuadBatch {
     // Only plain textured quads (kModeTextured, not lit, not BlendMode::Multiply): drawn with the lean quad_plain shader.
     // Merging never waits on it: a batch that takes in one other quad is drawn with the full shader.
     bool plain = true;
+    // Only opaque BlendMode::Alpha items (QuadList::set_opaque): drawn without blending, the same pixels for less work on
+    // software rasterizers. Batches only merge with an equal `opaque`.
+    bool opaque = false;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -293,6 +297,9 @@ public:
     void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
     // Marks the item opened by begin_item() as lit: its quads are kModeLit and `normal` (may be null) is the normal map.
     void set_lit(TextureAsset* normal) { cur_.lit = true; cur_.normal = normal; }
+    // Marks the item opened by begin_item() as opaque: every pixel its quads cover is replaced, at full alpha (an opaque
+    // picture with an opaque tint, such as a Video's). It is drawn without blending when its blend mode is Alpha.
+    void set_opaque() { cur_.opaque = true; }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
@@ -454,7 +461,9 @@ public:
 
     sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
-    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false);
+    // `opaque` = blending off (QuadBatch::opaque).
+    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
+                              bool opaque = false);
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
     // `shader` = a program of a custom material (the pipeline is keyed by it); default = the built-in mesh program.
