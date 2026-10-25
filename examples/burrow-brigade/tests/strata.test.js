@@ -2,6 +2,7 @@
 import { test, describe, expect, game } from "factoria:test";
 import { scene } from "factoria";
 import { cleanBeforeEach, playGenerated, miner, enemyList, teleport } from "./helpers/world.js";
+import { nextShift } from "./helpers/camp.js";
 import { live } from "../scripts/game/mine_map.js";
 import { run } from "../scripts/game/run_state.js";
 import { STRATA, TOTAL_FLOORS, isBossFloor, stratumInfo } from "../scripts/game/generator.js";
@@ -106,11 +107,7 @@ function liftUp() {
 }
 
 function nextFloor() {
-  game.click("again");
-  game.step(5);
-  game.step(40);
-  expect(scene.current).toBe(SHIFT);
-  game.step(3);
+  nextShift(); // results -> camp -> shift
 }
 
 describe("down the whole mine through the results screen", () => {
@@ -142,7 +139,10 @@ describe("down the whole mine through the results screen", () => {
     liftUp();
     expect(game.find("results_title").get("Text").text).toBe("The Mole King is beaten!");
     expect(game.find("results_next").get("Text").text.length).toBeGreaterThan(0);
-    nextFloor();
+    game.click("again"); // a victory starts the new run at once: no camp before the first floor
+    game.step(45);
+    expect(scene.current).toBe(SHIFT);
+    game.step(3);
     expect(run.stratum).toBe(0);
     expect(run.floor).toBe(1);
     expect(run.shiftNumber).toBe(1);

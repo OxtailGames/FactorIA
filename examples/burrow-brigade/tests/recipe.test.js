@@ -8,6 +8,8 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
   scene.load("scenes/menu.scene.json");
   const pad = game.gamepad(0);
   game.step(2);
+  pad.tap("DpadDown"); // Daily dig
+  pad.tap("DpadDown"); // Seed code
   pad.tap("DpadDown"); // Options
   pad.tap("A");
   pad.tap("DpadRight"); // the Audio tab

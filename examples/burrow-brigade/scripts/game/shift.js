@@ -20,6 +20,8 @@ import { Fog } from "./fog.js";
 import * as music from "./music.js";
 import * as saveFile from "./save.js";
 import * as revive from "./revive.js";
+import * as daily from "./daily.js";
+import { plan } from "./progression.js";
 
 /** Seconds every lamp has to stay out before the shift ends in the dark. */
 export const DARK_GRACE = 2;
@@ -136,7 +138,10 @@ export default class Shift extends Behaviour {
     if (this.ended) return;
     this.ended = true;
     const summary = endShift(outcome);
-    saveFile.save();
+    // the save keeps the NEXT floor, so Continue lands in the camp that comes before it (a victory starts over at the results)
+    const next = plan(summary);
+    if (next.kind !== "victory") saveFile.save({ stratum: next.stratum, floor: next.floor });
+    if (run.mode === "daily") daily.noteShift(summary, next.kind === "victory");
     events.emit("shiftEnded", { ...summary });
     this.after(this.endDelay, () => {
       if (scene.current !== this.sceneName) return; // the player left (pause menu) while the delay ran

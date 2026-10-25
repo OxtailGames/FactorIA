@@ -137,7 +137,9 @@ describe("the join screen", () => {
     pad(0).connect();
     game.load("scenes/menu.scene.json");
     game.step(5);
-    game.click("play");
+    game.click("play"); // the three save slots
+    game.step(2);
+    game.click("slot_1"); // the slot is the press that leaves the title
     game.step(30);
     expect(scene.current).toBe(JOIN);
     expect(players.count()).toBe(0);

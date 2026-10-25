@@ -54,6 +54,17 @@
           }
         },
         {
+          "id": "continue",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Continue",
+              "key": "menu.continue"
+            }
+          },
+          "active": false
+        },
+        {
           "id": "play",
           "components": {
             "Button": {
@@ -61,6 +72,26 @@
               "text": "Play",
               "key": "menu.play",
               "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "daily",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Daily dig",
+              "key": "menu.daily"
+            }
+          }
+        },
+        {
+          "id": "code_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Seed code",
+              "key": "menu.code"
             }
           }
         },
@@ -93,6 +124,340 @@
               "key": "menu.quit"
             }
           }
+        },
+        {
+          "id": "menu_message",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 22,
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "slots",
+      "active": false,
+      "components": {
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 12,
+          "fit": true,
+          "layer": 300
+        }
+      },
+      "children": [
+        {
+          "id": "slots_title",
+          "components": {
+            "Text": {
+              "text": "slots.title",
+              "key": "slots.title",
+              "fontSize": 48,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "slot_row_1",
+          "components": {
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "row",
+              "spacing": 12,
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "slot_1",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Slot",
+                  "key": "slots.empty",
+                  "autoFocus": true,
+                  "keyArgs": {
+                    "slot": 1
+                  }
+                }
+              }
+            },
+            {
+              "id": "delete_1",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Delete",
+                  "key": "slots.delete"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "slot_row_2",
+          "components": {
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "row",
+              "spacing": 12,
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "slot_2",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Slot",
+                  "key": "slots.empty",
+                  "keyArgs": {
+                    "slot": 2
+                  }
+                }
+              }
+            },
+            {
+              "id": "delete_2",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Delete",
+                  "key": "slots.delete"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "slot_row_3",
+          "components": {
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "row",
+              "spacing": 12,
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "slot_3",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Slot",
+                  "key": "slots.empty",
+                  "keyArgs": {
+                    "slot": 3
+                  }
+                }
+              }
+            },
+            {
+              "id": "delete_3",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Delete",
+                  "key": "slots.delete"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "sync_slots",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Sync with the cloud",
+              "key": "slots.sync"
+            }
+          }
+        },
+        {
+          "id": "slots_message",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 22,
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
+            }
+          }
+        },
+        {
+          "id": "slots_back",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Back",
+              "key": "menu.back"
+            }
+          },
+          "tags": ["back"]
+        }
+      ]
+    },
+    {
+      "id": "confirm_delete",
+      "active": false,
+      "components": {
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 12,
+          "fit": true,
+          "layer": 300
+        }
+      },
+      "children": [
+        {
+          "id": "confirm_text",
+          "components": {
+            "Text": {
+              "text": "slots.confirm",
+              "key": "slots.confirm",
+              "fontSize": 34,
+              "space": "screen",
+              "keyArgs": {
+                "slot": 1
+              },
+              "maxWidth": 560,
+              "align": "center"
+            }
+          }
+        },
+        {
+          "id": "confirm_yes",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Yes, delete it",
+              "key": "slots.yes"
+            }
+          }
+        },
+        {
+          "id": "confirm_no",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "No, keep it",
+              "key": "slots.no",
+              "autoFocus": true
+            }
+          },
+          "tags": ["back"]
+        }
+      ]
+    },
+    {
+      "id": "code_panel",
+      "active": false,
+      "components": {
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 12,
+          "fit": true,
+          "layer": 300
+        }
+      },
+      "children": [
+        {
+          "id": "code_title",
+          "components": {
+            "Text": {
+              "text": "code.title",
+              "key": "code.title",
+              "fontSize": 48,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "code_prompt",
+          "components": {
+            "Text": {
+              "text": "code.prompt",
+              "key": "code.prompt",
+              "fontSize": 24,
+              "space": "screen",
+              "keyArgs": {
+                "example": "3K7Q-2XF9"
+              },
+              "maxWidth": 560,
+              "align": "center"
+            }
+          }
+        },
+        {
+          "id": "code_field",
+          "components": {
+            "TextField": {
+              "size": [360, 56],
+              "placeholder": "XXXX-XXXX",
+              "key": "code.placeholder",
+              "maxLength": 12,
+              "fontSize": 30,
+              "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "paste_code",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Paste",
+              "key": "code.paste"
+            }
+          }
+        },
+        {
+          "id": "play_code",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Play this mine",
+              "key": "code.play"
+            }
+          }
+        },
+        {
+          "id": "code_message",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 22,
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
+            }
+          }
+        },
+        {
+          "id": "code_back",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Back",
+              "key": "menu.back"
+            }
+          },
+          "tags": ["back"]
         }
       ]
     },
