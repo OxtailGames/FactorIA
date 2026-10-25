@@ -714,11 +714,29 @@ declare module "factoria" {
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
+    /**
+     * Stops every sound and the music now, a persisted track included.
+     */
     stopAll(): void;
     /**
-     * Starts looping background music.
+     * Starts looping background music on the "music" bus (volume default 0.6, fade-in `fade` seconds default 0.5). The same track already playing is only retuned. A scene load (scene.load, reload) stops every sound and the music, and then starts the new scene's SceneSettings.music, even when it is the same track as before; with persist: true this track keeps playing through scene loads (a scene whose SceneSettings.music is the same track does not restart it; another track replaces it). Example: audio.music("assets/theme.ogg", { persist: true }).
      */
-    music(path: string, opts?: { volume?: number; fade?: number }): void;
+    music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void;
+    /**
+     * Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: "assets/m/base.ogg", drums: "assets/m/drums.ogg" }, { levels: { drums: 0 } }); later audio.setLayer("drums", 1, 2).
+     */
+    musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean;
+    /**
+     * Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer.
+     */
+    setLayer(name: string, level: number, fade?: number): void;
+    /**
+     * Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play("assets/wind.ogg", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3).
+     */
+    setVoiceVolume(voice: number, volume: number, fade?: number): boolean;
+    /**
+     * Stops the music (and every layer) fading out over `fade` seconds (default 0.5).
+     */
     stopMusic(fade?: number): void;
     /**
      * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
@@ -4944,7 +4962,7 @@ declare module "factoria" {
     get horizonColor(): Color;
     set horizonColor(value: ColorLike);
     /**
-     * Looping background music asset path. Empty = none. (asset path: audio)
+     * Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. (asset path: audio)
      */
     music: string;
     /**
@@ -5167,6 +5185,10 @@ declare module "factoria:test" {
     readonly bus: "sfx" | "music" | "ui";
     readonly loop: boolean;
     /**
+     * The layer name when audio.musicLayers started it; "" otherwise.
+     */
+    readonly layer: string;
+    /**
      * Started with audio.music() or SceneSettings.music.
      */
     readonly music: boolean;
@@ -5344,6 +5366,10 @@ declare module "factoria:test" {
      * Press for one frame, then release.
      */
     tap(action: string): void;
+    /**
+     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     */
+    tapKey(key: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
     /**
@@ -5412,7 +5438,7 @@ declare module "factoria:test" {
     resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
-     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**

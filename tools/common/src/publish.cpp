@@ -563,7 +563,7 @@ CommandInfo store_command(const std::string& store) {
     if (store == "steam")
         props += R"(,
         "account":{"type":"string","description":"Steam account that uploads (the builder account, with the 'Edit App Metadata' permission). Default: publish.steam.account of factoria.json. Its password is never stored: steamcmd keeps the login."},
-        "appId":{"type":"integer","description":"Steam app id. Default: the number in steam_appid.txt of the project (not 480, Valve's test app)."},
+        "appId":{"type":"integer","description":"Steam app id. Default: the number in steam_appid.txt of the project (a dry run accepts 480, Valve's test app, with a warning; a real upload refuses it)."},
         "branch":{"type":"string","description":"Beta branch to set the build live on after the upload. Default: publish.steam.branch, else none. 'default' is refused: Steam sets that one by hand."})";
     if (store == "gog")
         props += R"(,

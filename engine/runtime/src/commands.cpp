@@ -826,7 +826,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
            "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "
-           "music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
+           "music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
            "(time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq "
            "from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with "
            "/<path>. Example: audio.log {\"path\":\"jump.wav\"}",

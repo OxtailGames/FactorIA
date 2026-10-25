@@ -51,7 +51,7 @@ def main():
             return
 
         # The plugin, outside the game's folder: its path goes through an environment variable.
-        args = json.dumps({"name": "example", "path": "${FA_TEST_PLUGINS}/example"})
+        args = json.dumps({"name": "example", "path": "${FA_TEST_PLUGINS}/example", "optional": False})  # not optional: validate must fail without the build
         code, out, err = run(["call", "project.new_plugin", args, "--project", game], env=env)
         check(code == 0, "project.new_plugin", out + err)
         folder = os.path.join(private, "example")

@@ -306,3 +306,176 @@ TEST_CASE("audio: the play log records every play request with the clock world's
     fx.audio.play("sounds/sine.wav");
     CHECK(fx.audio.play_log().at(0).seq == 5);  // seq keeps increasing after a clear
 }
+
+TEST_CASE("audio: a scene load restarts the scene's music, even the same track") {
+    Fixture fx;
+    World world;
+    world.settings().music = "sounds/sine.wav";
+    fx.audio.update(world, 1.0f / 60.0f);
+    fx.run(1.0);
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    const std::size_t played = fx.audio.play_log().size();
+
+    // What Engine does when a scene loads: sounds stop, then update() sees the new scene (same SceneSettings.music).
+    fx.audio.on_scene_load();
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+    CHECK(fx.audio.stats()["music"] == "");
+    fx.audio.update(world, 1.0f / 60.0f);
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    CHECK(fx.audio.stats()["music"] == "sounds/sine.wav");
+    CHECK(fx.audio.play_log().size() == played + 1);
+    fx.audio.start_recording();
+    fx.run(1.0);
+    CHECK(fx.finish().peak(30000) > 0.1f);  // it is audible, not only reported
+
+    // A scene without music after one with music: nothing plays.
+    world.settings().music = "";
+    fx.audio.on_scene_load();
+    fx.audio.update(world, 1.0f / 60.0f);
+    fx.run(1.0);
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+}
+
+TEST_CASE("audio: music with persist survives scene loads; a scene with the same track does not restart it") {
+    Fixture fx;
+    write_sine_wav(fx.dir / "sounds/other.wav", 1.0, 220.0);
+    World world;
+    fx.audio.play_music("sounds/sine.wav", 0.6f, 0.0f, true);
+    VoiceId sfx = fx.audio.play("sounds/sine.wav");
+    fx.run(0.2);
+    const std::size_t played = fx.audio.play_log().size();
+    fx.audio.on_scene_load();
+    CHECK_FALSE(fx.audio.is_playing(sfx));
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    CHECK(fx.audio.stats()["music"] == "sounds/sine.wav");
+    world.settings().music = "sounds/sine.wav";
+    fx.audio.update(world, 1.0f / 60.0f);
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    CHECK(fx.audio.play_log().size() == played);  // not played again
+    fx.run(0.2);
+
+    fx.audio.on_scene_load();  // still persisted after the scene's own update
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+
+    // another scene with another track replaces it, and that one is not persisted
+    world.settings().music = "sounds/other.wav";
+    fx.audio.on_scene_load();
+    fx.audio.update(world, 1.0f / 60.0f);
+    fx.run(1.0);
+    CHECK(fx.audio.stats()["music"] == "sounds/other.wav");
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    fx.audio.on_scene_load();
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+
+    // stop_all stops a persisted track too
+    fx.audio.play_music("sounds/sine.wav", 0.6f, 0.0f, true);
+    fx.audio.stop_all();
+    fx.audio.on_scene_load();
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+}
+
+TEST_CASE("audio: a voice's volume moves in a straight line over its fade") {
+    Fixture fx;
+    PlayParams p;
+    p.loop = true;
+    p.volume = 0.0f;
+    VoiceId v = fx.audio.play("sounds/sine.wav", p);
+    fx.audio.start_recording();
+    fx.run(0.5);
+    fx.audio.set_voice_volume(v, 1.0f, 1.0f);
+    fx.run(1.5);
+    fx.audio.set_voice_volume(v, 0.25f);  // no fade: at once
+    fx.run(0.5);
+    Recording rec = fx.finish();
+    CHECK(rec.peak(0, 22000) < 0.001f);                    // silent before the fade
+    CHECK(rec.peak(22050 + 10000, 22050 + 12000) < 0.3f);  // about a quarter of the way
+    CHECK(rec.peak(22050 + 10000, 22050 + 12000) > 0.05f);
+    CHECK(rec.peak(22050 + 44100 + 2000, 22050 + 44100 + 20000) == doctest::Approx(0.5f).epsilon(0.03));  // full
+    CHECK(rec.peak(rec.frames() - 20000) == doctest::Approx(0.125f).epsilon(0.05));
+}
+
+namespace {
+// A ramp clip: every sample differs, so any offset between two copies shows in the mix.
+void write_ramp_wav(const std::filesystem::path& file, double seconds) {
+    std::vector<float> s;
+    const std::size_t n = std::size_t(seconds * 44100);
+    for (std::size_t i = 0; i < n; ++i) s.push_back(0.9f * (float(i) / float(n) * 2.0f - 1.0f));
+    write_file(file, wav_bytes(s, 1, 44100));
+}
+}  // namespace
+
+TEST_CASE("audio: music layers start on the same sample and stay aligned across loops, whole or streamed") {
+    Fixture fx;
+    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {
+        "sounds/ramp_s1.wav": {"import": {"stream": "always"}}, "sounds/ramp_s2.wav": {"import": {"stream": "always"}},
+        "sounds/ramp_w1.wav": {"import": {"stream": "never"}}, "sounds/ramp_w2.wav": {"import": {"stream": "never"}}}})");
+    for (const char* n : {"ramp_s1", "ramp_s2", "ramp_w1", "ramp_w2"}) write_ramp_wav(fx.dir / (std::string("sounds/") + n + ".wav"), 0.7);
+
+    for (const char* kind : {"w", "s"}) {
+        const std::string a = std::string("sounds/ramp_") + kind + "1.wav", b = std::string("sounds/ramp_") + kind + "2.wav";
+        // Both layers at level 1 play the same clip: the mix must be exactly twice one layer.
+        MusicLayer la{"a", a, 1.0f}, lb{"b", b, 0.0f};
+        fx.audio.stop_all();
+        fx.audio.start_recording();
+        REQUIRE(fx.audio.play_music_layers({la, lb}, 0.25f, 0.0f));
+        fx.run(2.2);
+        Recording alone = fx.finish();
+        fx.audio.stop_all();
+        lb.level = 1.0f;
+        fx.audio.start_recording();
+        REQUIRE(fx.audio.play_music_layers({la, lb}, 0.25f, 0.0f));
+        CHECK(fx.audio.stats()["activeVoices"] == 2);
+        fx.run(2.2);
+        Recording both = fx.finish();
+        REQUIRE(both.frames() == alone.frames());
+        float worst = 0;
+        for (std::size_t i = 0; i < both.frames(); ++i) worst = std::max(worst, std::fabs(both.l[i] - 2.0f * alone.l[i]));
+        INFO("kind " << kind);
+        CHECK(worst < 0.001f);
+        CHECK(alone.peak() > 0.1f);
+        CHECK(fx.audio.layer_names() == std::vector<std::string>{"a", "b"});
+    }
+}
+
+TEST_CASE("audio: setLayer fades a layer, stop_music stops every layer, a bad layer plays nothing") {
+    Fixture fx;
+    write_sine_wav(fx.dir / "sounds/hi.wav", 1.0, 880.0);
+    CHECK_FALSE(fx.audio.play_music_layers({{"a", "sounds/sine.wav", 1.0f}, {"b", "sounds/missing.wav", 1.0f}}, 0.6f, 0.0f));
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+
+    REQUIRE(fx.audio.play_music_layers({{"base", "sounds/sine.wav", 1.0f}, {"lead", "sounds/hi.wav", 0.0f}}, 1.0f, 0.0f));
+    CHECK(fx.audio.stats()["activeVoices"] == 2);
+    auto log = fx.audio.play_log();
+    REQUIRE(log.size() >= 2);
+    CHECK(log[log.size() - 2].layer == "base");
+    CHECK(log.back().layer == "lead");
+    CHECK(log.back().to_json()["layer"] == "lead");
+    CHECK(log.back().music);
+    CHECK_FALSE(fx.audio.set_layer("nope", 1.0f));
+
+    fx.run(0.2);
+    fx.audio.start_recording();
+    CHECK(fx.audio.set_layer("lead", 1.0f, 0.5f));
+    CHECK(fx.audio.set_layer("base", 0.0f, 0.5f));
+    fx.run(1.0);
+    Recording rec = fx.finish();
+    CHECK(rec.peak(0, 1000) > 0.4f);              // base only at first
+    CHECK(rec.peak(rec.frames() - 4000) > 0.4f);  // lead only at the end
+    fx.audio.stop_music(0.0f);
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+    CHECK(fx.audio.layer_names().empty());
+}
+
+TEST_CASE("audio: layers are never evicted by a full mixer and a scene load keeps persisted layers") {
+    Fixture fx;
+    REQUIRE(fx.audio.play_music_layers({{"a", "sounds/sine.wav", 1.0f}, {"b", "sounds/sine.wav", 1.0f}}, 0.2f, 0.0f, true));
+    for (int i = 0; i < 100; ++i) fx.audio.play("sounds/sine.wav");
+    CHECK(fx.audio.stats()["activeVoices"] == 64);
+    fx.audio.on_scene_load();
+    CHECK(fx.audio.stats()["activeVoices"] == 2);
+    CHECK(fx.audio.set_layer("a", 0.5f));
+    fx.audio.on_scene_load();
+    CHECK(fx.audio.stats()["activeVoices"] == 2);
+    fx.audio.stop_all();
+    CHECK(fx.audio.layer_names().empty());
+}
