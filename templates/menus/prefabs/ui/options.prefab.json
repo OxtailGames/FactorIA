@@ -98,7 +98,7 @@
         "id": "video_section",
         "components": {
           "Panel": {
-            "size": [712, 340],
+            "size": [712, 400],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -109,14 +109,26 @@
         },
         "children": [
           {
-            "id": "fullscreen",
+            "id": "window_mode",
             "components": {
-              "Toggle": {
+              "Button": {
                 "autoSize": true,
-                "label": "Full screen",
-                "key": "options.fullscreen",
+                "text": "Window mode",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "monitor",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Monitor",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
               }
             }
           },
