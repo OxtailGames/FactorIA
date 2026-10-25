@@ -1426,6 +1426,53 @@ j.enableMotor = true; j.motorSpeed = 180;        // a wheel starts spinning
 if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(this.entity); // a rope that takes too much
 ```
 
+### 9.27 Enemies that think and find their way: `bt` plus `nav.findTilePath`
+
+A behaviour tree (`bt`, SCRIPTING.md "AI: behaviour trees") picks WHAT the enemy does; `nav.findTilePath` (NAVIGATION.md,
+section 7) says WHERE to step on a tile map. Search again only when the goal's cell changed or the map did
+(`nav.tileVersion(map)`), not every frame.
+
+```js
+import { Behaviour, bt, nav, world } from "factoria";
+const { RUNNING, FAILURE, selector, sequence, condition, action } = bt;
+
+export default class Enemy extends Behaviour {
+  speed = 40;                                   // world units per second
+  onStart() {
+    this.map = world.find("ground");            // a Tilemap whose solidTiles are the walls
+    this.player = world.find("player");
+    this.path = []; this.goalKey = ""; this.version = -1;
+    this.tree = new bt.Tree(selector(
+      sequence(condition((e) => e.distanceTo(e.player) < 200), action((e, dt) => e.chase(dt))),   // sees the player
+      action(() => RUNNING),                                                                      // otherwise idle
+    ), this);                                   // the blackboard is this behaviour
+  }
+  onUpdate(dt) { this.tree.tick(dt); }
+  distanceTo(other) { return other.position.sub(this.entity.position).length(); }
+  cellOf(p) {                                   // world position -> { col, row } (the map's top-left corner is its position)
+    const o = this.map.position, t = this.map.component.tileSize;
+    return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
+  }
+  chase(dt) {
+    const goal = this.cellOf(this.player.position), key = `${goal.col},${goal.row}`;
+    if (key !== this.goalKey || this.version !== nav.tileVersion(this.map)) {
+      const r = nav.findTilePath(this.map, this.cellOf(this.entity.position), goal, { diagonals: true, closest: true });
+      this.path = r.found ? r.points.slice(1) : [];                 // points[0] is the cell we stand on
+      this.goalKey = key; this.version = nav.tileVersion(this.map);
+    }
+    if (this.path.length === 0) return FAILURE;
+    const to = this.path[0], p = this.entity.position, dx = to.x - p.x, dy = to.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 1) { this.path.shift(); return RUNNING; }
+    const step = Math.min(d, this.speed * dt);
+    this.entity.position = [p.x + dx / d * step, p.y + dy / d * step, p.z];
+    return RUNNING;
+  }
+}
+```
+
+Digging or building (`entity.tilemap.setTile`) bumps the version, so the next `chase` finds the new way. A game whose real
+map is not a Tilemap passes its own `{width, height, cost}` grid instead of `this.map`.
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -1595,7 +1642,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`).
+- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`). 2D tile maps: `nav.findTilePath(map, from, to)` (A* over a Tilemap or your own cost grid) and `import { bt } from "factoria"` for behaviour trees, section 9.27.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more

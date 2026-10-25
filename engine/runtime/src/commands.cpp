@@ -1190,6 +1190,37 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return r.value().to_json();
           });
 
+    I.commands.add({"nav.find_tile_path",
+           "Find a path over the cells of a Tilemap (or a plain cost grid) with A*.",
+           "Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in "
+           "solidTiles block, every other cell costs 1, `costs` {\"<tile index>\": cost | null} overrides per tile, null = "
+           "blocked, key \"-1\" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the "
+           "cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a "
+           "diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a "
+           "blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. "
+           "closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be "
+           "reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] "
+           "(cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} "
+           "or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. "
+           "Deterministic. Scripts: nav.findTilePath(map, from, to, opts). Example: nav.find_tile_path "
+           "{\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3],\"diagonals\":true}",
+           parse_schema(R"({"type":"object","required":["from","to"],"properties":{
+               "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
+               "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y] top-left corner, cellSize?: number | [w,h]}."},
+               "from":{"type":"array","items":{"type":"number"},"description":"Start cell [col,row]."},
+               "to":{"type":"array","items":{"type":"number"},"description":"Goal cell [col,row]."},
+               "costs":{"type":"object","description":"Tilemap only: cost of entering a cell by tile index, {\"3\": 2.5, \"7\": null}; null or negative blocks, a solid tile listed here is walkable."},
+               "diagonals":{"type":"boolean","description":"Allow 8-way steps (no corner cutting). Default false."},
+               "maxNodes":{"type":"integer","description":"Most cells the search expands before it gives up (too_far). Default 100000."},
+               "closest":{"type":"boolean","description":"Goal unreachable: return the path to the nearest reachable cell (complete=false)."},
+               "allowBlockedGoal":{"type":"boolean","description":"A blocked goal cell can still be entered (cost 1)."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto r = nav_tile_query(I.world, a);
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              return r.value();
+          });
+
     I.commands.add({"nav.info",
            "List the NavMesh3D components with their bounds, agent size, bake state and stats.",
            "Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, "

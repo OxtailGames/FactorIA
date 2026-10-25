@@ -102,9 +102,20 @@ struct World {
     std::map<u64, std::vector<Ranked>> downloaded;  // entry handle -> the entries a download returned, with their global ranks
     std::vector<u64> friends;
     int findCalls = 0;
-    // cloud
+    // cloud: the files, and the time Steam stamped each with (Unix seconds; a write takes `clock` and moves it on a second)
     std::map<std::string, std::string> files;
+    std::map<std::string, i64> fileTimes;
+    i64 clock = 1767225600;  // 2026-01-01T00:00:00Z, like the fake backend's cloud clock
     bool cloudAccount = true, cloudApp = true, failWrites = false;
+    // Remote Play Together: the guests connected now (ISteamRemotePlay)
+    struct Guest {
+        u32 id;
+        u64 steamId;
+        std::string device;
+        int formFactor;  // ESteamDeviceFormFactor
+        int width, height;
+    };
+    std::vector<Guest> guests;
     // DLC
     struct Dlc {
         u32 appId;
@@ -134,6 +145,7 @@ struct World {
 World g;
 // Kept across "reset": how Steam starts (decides what SteamAPI_Init does) and where the calls of a process that exits are logged.
 std::string g_initMode, g_exitLog;
+bool g_noRemotePlay = false;  // a Steam client that hands out no ISteamRemotePlay (the accessor returns null)
 
 void log_line(const std::string& line) {
     if (g_exitLog.empty()) return;
@@ -174,7 +186,7 @@ struct Init {
 
 // ------------------------------------------------------------------------------------------------------ interfaces --
 // The accessors hand out these; every method checks that it got the right one.
-char g_user, g_friends, g_utils, g_apps, g_userStats, g_remoteStorage;
+char g_user, g_friends, g_utils, g_apps, g_userStats, g_remoteStorage, g_remotePlay;
 
 void violation(const std::string& what) { g.violations.push_back(what); }
 
@@ -262,6 +274,12 @@ Json state() {
     }
     Json files = Json::object();
     for (const auto& f : g.files) files[f.first] = f.second;
+    Json fileTimes = Json::object();
+    for (const auto& f : g.fileTimes) fileTimes[f.first] = f.second;
+    Json guests = Json::array();
+    for (const auto& guest : g.guests)
+        guests.push_back(Json::object({{"id", guest.id}, {"steamId", std::to_string(guest.steamId)}, {"device", guest.device},
+                                       {"formFactor", guest.formFactor}, {"width", guest.width}, {"height", guest.height}}));
     Json presence = Json::object();
     for (const auto& p : g.presence) presence[p.first] = p.second;
     Json dlc = Json::object();
@@ -280,6 +298,8 @@ Json state() {
     s["boards"] = boards;
     s["findCalls"] = g.findCalls;
     s["files"] = files;
+    s["fileTimes"] = fileTimes;
+    s["guests"] = guests;
     s["presence"] = presence;
     s["dlc"] = dlc;
     s["pending"] = g.ready.size() + g.completed.size();
@@ -303,6 +323,11 @@ Json state() {
 //   fire dlc {appId, owned}       the player gets the DLC: DlcInstalled_t
 //   fire connected | disconnected SteamServersConnected_t, SteamServersDisconnected_t
 //   fire stray                    a SteamAPICallCompleted_t for a call nobody made
+//   fire remotePlayConnect {id, steamId, device, formFactor, width, height}  a guest joins: SteamRemotePlaySessionConnected_t
+//   fire remotePlayDisconnect {id}  the guest leaves: SteamRemotePlaySessionDisconnected_t (Steam no longer knows the session)
+//   set guests [{id, steamId, device, formFactor, width, height}]  guests that are connected already, announced by no callback
+//   set noRemotePlay (kept by reset)  the accessor of ISteamRemotePlay returns null, as a client without Remote Play does
+//   set fileTimes {name: unix seconds}, clock n  the time of a cloud file, and the time the next write gets
 //   clearCalls                    forget the call log
 Json control(const Json& cmd) {
     const std::string op = cmd.value("op", "");
@@ -331,6 +356,15 @@ Json control(const Json& cmd) {
         flag("createBoards", g.createBoards);
         flag("failStats", g.failStats);
         flag("hold", g.hold);
+        flag("noRemotePlay", g_noRemotePlay);
+        if (cmd.contains("clock")) g.clock = cmd["clock"].get<i64>();
+        if (cmd.contains("fileTimes"))
+            for (auto it = cmd["fileTimes"].begin(); it != cmd["fileTimes"].end(); ++it) g.fileTimes[it.key()] = it->get<i64>();
+        if (cmd.contains("guests"))
+            for (const auto& e : cmd["guests"])
+                g.guests.push_back({e.value("id", 1u), std::stoull(e.value("steamId", std::string("76561198000000002"))),
+                                    e.value("device", std::string("Test phone")), e.value("formFactor", 1), e.value("width", 1280),
+                                    e.value("height", 720)});
         if (cmd.contains("initMode")) g_initMode = cmd["initMode"].get<std::string>();
         if (cmd.contains("exitLog")) g_exitLog = cmd["exitLog"].get<std::string>();
         if (cmd.contains("failNext")) g.failNext = cmd["failNext"].get<int>();
@@ -340,7 +374,10 @@ Json control(const Json& cmd) {
         if (cmd.contains("intStats"))
             for (auto it = cmd["intStats"].begin(); it != cmd["intStats"].end(); ++it) g.intStats[it.key()] = it->get<i32>();
         if (cmd.contains("files"))
-            for (auto it = cmd["files"].begin(); it != cmd["files"].end(); ++it) g.files[it.key()] = it->get<std::string>();
+            for (auto it = cmd["files"].begin(); it != cmd["files"].end(); ++it) {
+                g.files[it.key()] = it->get<std::string>();
+                g.fileTimes[it.key()] = g.clock++;
+            }
         if (cmd.contains("boardScore")) {  // {board, steamId, score}: someone's entry
             Board* b = nullptr;
             for (auto& e : g.boards)
@@ -379,6 +416,16 @@ Json control(const Json& cmd) {
         } else if (what == "disconnected") {
             SteamServersDisconnected d{kResultNoConnection};
             push_callback(kSteamServersDisconnected, bytes_of(d));
+        } else if (what == "remotePlayConnect") {
+            World::Guest guest{cmd.value("id", 1u), std::stoull(cmd.value("steamId", std::string("76561198000000002"))),
+                        cmd.value("device", std::string("Test phone")), cmd.value("formFactor", 1), cmd.value("width", 1280),
+                        cmd.value("height", 720)};
+            g.guests.push_back(guest);
+            push_callback(kSteamRemotePlaySessionConnected, bytes_of(SteamRemotePlaySessionConnected{guest.id}));
+        } else if (what == "remotePlayDisconnect") {
+            const u32 id = cmd.value("id", 1u);
+            g.guests.erase(std::remove_if(g.guests.begin(), g.guests.end(), [&](const World::Guest& x) { return x.id == id; }), g.guests.end());
+            push_callback(kSteamRemotePlaySessionDisconnected, bytes_of(SteamRemotePlaySessionDisconnected{id}));
         } else if (what == "stray") {
             SteamAPICallCompleted c{424242, kLeaderboardFindResult, sizeof(LeaderboardFindResult)};
             Completed result;
@@ -510,6 +557,7 @@ MOCK_API void* SteamAPI_SteamUtils_v011() { return &g_utils; }
 MOCK_API void* SteamAPI_SteamApps_v010() { return &g_apps; }
 MOCK_API void* SteamAPI_SteamUserStats_v014() { return &g_userStats; }
 MOCK_API void* SteamAPI_SteamRemoteStorage_v017() { return &g_remoteStorage; }
+MOCK_API void* SteamAPI_SteamRemotePlay_v002() { return g_noRemotePlay ? nullptr : &g_remotePlay; }
 #elif defined(MOCK_FUTURE)
 MOCK_API void* SteamAPI_SteamUser_v099() { return &g_user; }
 MOCK_API void* SteamAPI_SteamFriends_v099() { return &g_friends; }
@@ -517,6 +565,7 @@ MOCK_API void* SteamAPI_SteamUtils_v099() { return &g_utils; }
 MOCK_API void* SteamAPI_SteamApps_v099() { return &g_apps; }
 MOCK_API void* SteamAPI_SteamUserStats_v099() { return &g_userStats; }
 MOCK_API void* SteamAPI_SteamRemoteStorage_v099() { return &g_remoteStorage; }
+MOCK_API void* SteamAPI_SteamRemotePlay_v002() { return g_noRemotePlay ? nullptr : &g_remotePlay; }
 #elif defined(MOCK_LEGACY)
 MOCK_API void* SteamAPI_SteamUser_v023() { return &g_user; }
 MOCK_API void* SteamAPI_SteamFriends_v017() { return &g_friends; }
@@ -524,6 +573,8 @@ MOCK_API void* SteamAPI_SteamUtils_v010() { return &g_utils; }
 MOCK_API void* SteamAPI_SteamApps_v008() { return &g_apps; }
 MOCK_API void* SteamAPI_SteamUserStats_v012() { return &g_userStats; }
 MOCK_API void* SteamAPI_SteamRemoteStorage_v016() { return &g_remoteStorage; }
+// An older SDK exports only the first version of ISteamRemotePlay: the plugin falls back to it.
+MOCK_API void* SteamAPI_SteamRemotePlay_v001() { return g_noRemotePlay ? nullptr : &g_remotePlay; }
 #else
 MOCK_API void* SteamAPI_SteamUser_v023() { return &g_user; }
 MOCK_API void* SteamAPI_SteamFriends_v018() { return &g_friends; }
@@ -531,6 +582,7 @@ MOCK_API void* SteamAPI_SteamUtils_v010() { return &g_utils; }
 MOCK_API void* SteamAPI_SteamApps_v009() { return &g_apps; }
 MOCK_API void* SteamAPI_SteamUserStats_v013() { return &g_userStats; }
 MOCK_API void* SteamAPI_SteamRemoteStorage_v016() { return &g_remoteStorage; }
+MOCK_API void* SteamAPI_SteamRemotePlay_v002() { return g_noRemotePlay ? nullptr : &g_remotePlay; }
 #endif
 
 // ISteamUser.
@@ -818,6 +870,7 @@ MOCK_API bool SteamAPI_ISteamRemoteStorage_FileWrite(void* self, const char* nam
     expect(self, &g_remoteStorage, "ISteamRemoteStorage::FileWrite");
     if (g.failWrites) return false;
     g.files[name] = std::string(static_cast<const char*>(data), static_cast<std::size_t>(size));
+    g.fileTimes[name] = g.clock++;
     return true;
 }
 MOCK_API i32 SteamAPI_ISteamRemoteStorage_FileRead(void* self, const char* name, void* data, i32 size) {
@@ -839,7 +892,13 @@ MOCK_API bool SteamAPI_ISteamRemoteStorage_FileExists(void* self, const char* na
 }
 MOCK_API bool SteamAPI_ISteamRemoteStorage_FileDelete(void* self, const char* name) {
     expect(self, &g_remoteStorage, "ISteamRemoteStorage::FileDelete");
+    g.fileTimes.erase(name);
     return g.files.erase(name) > 0;
+}
+MOCK_API i64 SteamAPI_ISteamRemoteStorage_GetFileTimestamp(void* self, const char* name) {
+    expect(self, &g_remoteStorage, "ISteamRemoteStorage::GetFileTimestamp");
+    auto it = g.fileTimes.find(name);
+    return it == g.fileTimes.end() ? 0 : it->second;  // Steam answers 0 for a file that does not exist
 }
 MOCK_API i32 SteamAPI_ISteamRemoteStorage_GetFileCount(void* self) {
     expect(self, &g_remoteStorage, "ISteamRemoteStorage::GetFileCount");
@@ -862,6 +921,44 @@ MOCK_API bool SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp(void* self) {
     return g.cloudApp;
 }
 
+// ISteamRemotePlay.
+static const World::Guest* find_guest(u32 id) {
+    for (const World::Guest& guest : g.guests)
+        if (guest.id == id) return &guest;
+    return nullptr;
+}
+MOCK_API u32 SteamAPI_ISteamRemotePlay_GetSessionCount(void* self) {
+    expect(self, &g_remotePlay, "ISteamRemotePlay::GetSessionCount");
+    return static_cast<u32>(g.guests.size());
+}
+MOCK_API u32 SteamAPI_ISteamRemotePlay_GetSessionID(void* self, int index) {
+    expect(self, &g_remotePlay, "ISteamRemotePlay::GetSessionID");
+    return index >= 0 && index < static_cast<int>(g.guests.size()) ? g.guests[static_cast<std::size_t>(index)].id : 0;
+}
+MOCK_API u64 SteamAPI_ISteamRemotePlay_GetSessionSteamID(void* self, u32 id) {
+    expect(self, &g_remotePlay, "ISteamRemotePlay::GetSessionSteamID");
+    const World::Guest* guest = find_guest(id);
+    return guest ? guest->steamId : 0;  // an invalid CSteamID for a session Steam does not know
+}
+MOCK_API const char* SteamAPI_ISteamRemotePlay_GetSessionClientName(void* self, u32 id) {
+    expect(self, &g_remotePlay, "ISteamRemotePlay::GetSessionClientName");
+    const World::Guest* guest = find_guest(id);
+    return guest ? guest->device.c_str() : nullptr;
+}
+MOCK_API int SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor(void* self, u32 id) {
+    expect(self, &g_remotePlay, "ISteamRemotePlay::GetSessionClientFormFactor");
+    const World::Guest* guest = find_guest(id);
+    return guest ? guest->formFactor : 0;
+}
+MOCK_API bool SteamAPI_ISteamRemotePlay_BGetSessionClientResolution(void* self, u32 id, int* width, int* height) {
+    expect(self, &g_remotePlay, "ISteamRemotePlay::BGetSessionClientResolution");
+    const World::Guest* guest = find_guest(id);
+    if (!guest || guest->width <= 0) return false;
+    *width = guest->width;
+    *height = guest->height;
+    return true;
+}
+
 // The compiler checks that every function the plugin calls is defined here with the signature the plugin declares.
 #define MOCK_CHECK_SIGNATURE(name, ret, params) static_assert(std::is_same<decltype(&::name), ret(*) params>::value, "signature of " #name);
 STEAM_REQUIRED_FUNCTIONS(MOCK_CHECK_SIGNATURE)
@@ -877,5 +974,11 @@ MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput, bool,
 MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_ShowGamepadTextInput, bool, (void*, int, int, const char*, u32, const char*))
 MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_GetEnteredGamepadTextLength, u32, (void*))
 MOCK_CHECK_SIGNATURE(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamRemotePlay_GetSessionCount, u32, (void*))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamRemotePlay_GetSessionID, u32, (void*, int))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamRemotePlay_GetSessionSteamID, u64, (void*, u32))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamRemotePlay_GetSessionClientName, const char*, (void*, u32))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor, int, (void*, u32))
+MOCK_CHECK_SIGNATURE(SteamAPI_ISteamRemotePlay_BGetSessionClientResolution, bool, (void*, u32, int*, int*))
 MOCK_CHECK_SIGNATURE(SteamAPI_Init, bool, ())
 MOCK_CHECK_SIGNATURE(SteamAPI_IsSteamRunning, bool, ())
