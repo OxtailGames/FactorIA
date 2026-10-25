@@ -76,6 +76,15 @@ struct PlatformCatalog {
     std::vector<PlatformProduct> products;
     std::vector<PlatformPlacement> placements;  // platform.ads.placements
 
+    // platform.ads: the ad network's settings that are not per placement.
+    //   adsAppIds    the network's app id per platform ("android": "ca-app-pub-...~..."): the export writes it into the manifest.
+    //   adsAudience  who plays: "general" (the default), "children" (the whole game is for children) or "mixed" (ask the age
+    //                first: platform.ads.setUnderAge, docs/PLATFORM.md, "Children and consent").
+    //   adsBackend   the ads plugin to use when several load ("" = auto); adsBackendPointer is where factoria.json writes it.
+    std::map<std::string, std::string> adsAppIds;
+    std::string adsAudience = "general";
+    std::string adsBackend, adsBackendPointer;
+
     // "backend": the plugin to use. `backend` is the plain string ("" = auto), `backendByPlatform` the per-platform
     // object ({"windows": "steam", "ios": "apple"}); the plugin names written in either are in `backendRefs` with their
     // JSON pointer, for the checks that need the project's plugins (`factoria validate`).
@@ -228,11 +237,18 @@ public:
     void set_release(bool release);
     bool release() const;
     const PlatformCatalog& catalog() const;
-    // Replaces the backend (the default is "none"): requests still pending on the old one are dropped. `why` says in a
+    // Replaces the backend (the default is "none"): requests still pending on the old one (and on the ads backend) are dropped. `why` says in a
     // sentence why this backend runs (the `platform.*` commands quote it when they refuse to act on a real store).
     void set_backend(std::unique_ptr<PlatformBackend> backend, std::string why = {});
     PlatformBackend& backend() const;
     const std::string& backend_why() const { return why_; }
+    // A second backend that serves only the "ads" requests (an ads plugin such as admob next to the store's plugin): `ads.*`
+    // goes to it, everything else to the store backend. Kept when set_backend replaces the store backend. nullptr removes it.
+    // Without one the store backend serves ads, if it offers them (the fake does).
+    void set_ads_backend(std::unique_ptr<PlatformBackend> backend, std::string why = {});
+    PlatformBackend* ads_backend() const;  // nullptr when there is none
+    // Why ads.* goes where it goes, in a sentence (platform.state's adsWhy).
+    std::string ads_why() const;
     // Re-reads the backend's name and services (the fake changes them with set_none and reset).
     void refresh_backend();
     FakeBackend* fake() const;  // the backend when it is the fake, else nullptr
@@ -256,13 +272,17 @@ public:
     std::vector<PlatformAnswer> take_answers();
     std::vector<PlatformEvent> take_events();
 
-    // {backend, release, services, player: {id, name, signedIn}, pending} (player: what the last signIn answer or `player` event
-    // said; signedIn false before any).
+    // {backend, adsBackend, release, services, audience, underAge, player: {id, name, signedIn}, pending} (adsBackend: the
+    // backend that answers ads.*, "none" when no backend offers ads; audience: the catalog's platform.ads.audience; underAge:
+    // what platform.ads.setUnderAge said, true for a children's game, null before any answer; player: what the last signIn
+    // answer or `player` event said; signedIn false before any).
     Json info() const;
     Json player() const;
     std::size_t pending() const;
     // Forgets requests, answers, events and transactions, and resets the fake (a new test file starts like this).
     void reset_session();
+    // Forgets the answer of ads.setUnderAge (platform.reset does, so tests that share a session can ask again).
+    void forget_under_age();
     // The sink the backend got in attach(): for code that sends events on a backend's behalf.
     PlatformSink sink() const;
 
@@ -270,6 +290,8 @@ private:
     std::shared_ptr<PlatformSink::State> state_;
     std::unique_ptr<PlatformBackend> backend_;
     std::string why_;
+    std::unique_ptr<PlatformBackend> adsBackend_;
+    std::string adsWhy_;
 };
 
 }  // namespace fa

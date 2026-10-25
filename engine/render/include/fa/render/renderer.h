@@ -197,6 +197,8 @@ public:
     void present(const GfxSwapchain& swapchain, int framebufferWidth, int framebufferHeight, ScaleMode mode);
     // Letterbox mapping used by present(): framebuffer pixel -> design pixel.
     Vec2 framebuffer_to_design(Vec2 fbPos, int framebufferWidth, int framebufferHeight, ScaleMode mode) const;
+    // The same mapping the other way: design pixel -> framebuffer (window) pixel.
+    Vec2 design_to_framebuffer(Vec2 designPos, int framebufferWidth, int framebufferHeight, ScaleMode mode) const;
 
     // Read back the last finished game target (RGBA8, top row first).
     bool capture(Image& out, std::string* error = nullptr);

@@ -17,6 +17,15 @@ Video player
 - `docs/MENUS.md` has a studio-intro recipe where any button skips the video. Clockwork Courier's intro is now a 4.8 second
   video of half a megabyte (FB-0051), recorded from an animated scene kept in `store/intro/`.
 
+Steam Deck keyboard
+
+- Plugin API 3: `add_text_input` registers a handler the engine calls when a `TextField` takes or loses the focus with a
+  gamepad (the field's rectangle in window pixels, its text, `maxLength`), and `submit_text` hands text from the platform's
+  keyboard back to that field on the next frame. Plugins built for version 1 or 2 are unaffected. `input.platformKeyboard`
+  is true while a plugin's keyboard has the field, and the menu kit's on-screen keyboard stays closed then.
+- The Steam plugin uses it: on a Steam Deck or in Big Picture it opens Steam's floating keyboard over the field, or the
+  full-screen one where the floating one is not offered. Real-Deck check steps are in `docs/PLATFORM.md`.
+
 Navigation: off-mesh links and walkable moving bodies
 
 - `NavLink3D` (an entity's position to `end`, `bidirectional`, `cost`) is an off-mesh link: `nav.findPath` may take it to
@@ -38,6 +47,21 @@ Physics across platforms
 - `robust(check, { runs, nudge })` in `factoria:test` runs a check under small repeatable nudges of the bodies, so a level
   test asserts what is robust instead of an exact frame count. Clockwork Courier's "shortcut is not slower" test uses it
   (FB-0055).
+
+Ads with consent on Android
+
+- A plugin backend that offers only the `"ads"` service is an **ads backend**: it works next to the game's store backend, the
+  engine sends `ads.*` to it and everything else to the store backend, `platform.ads.backend` picks one when a game has
+  several, and `platform.state` shows `adsBackend` and `adsWhy`. Development runs and tests keep the fake.
+- `platform.add_backend {"backend": "admob"}` writes and builds the `admob` plugin: Google's consent form (UMP) first, then
+  the Mobile Ads SDK, one kept rewarded ad per placement, `{rewarded: true}` only from the SDK's reward callback. The
+  app id is `platform.ads.appIds.android` in factoria.json, written into the manifest by the export; a development
+  export always uses Google's test app id and test rewarded ad. `factoria validate` and a release export warn about the
+  sample id, a missing app id or a placement without `ids.admob`. The command `admob.status` lists what is wrong.
+- `platform.ads.audience` (`"general"`, `"children"`, `"mixed"`), `platform.ads.setUnderAge(bool)` and
+  `platform.ads.privacyOptions()`; `platform.ads.consent()` gains `privacyOptions`. In a `"mixed"` game nothing is requested
+  until the age is told. The menu kit has an `ageGate` part for it (`project.add_menu_kit {"parts": ["ageGate"]}`), and
+  its options screen shows an "Ad privacy settings" button when Google requires one. The fake store answers all of it.
 
 Menu kit command
 
@@ -122,6 +146,9 @@ Scripts
   next level is read, and the `scene.load` that follows reads nothing from the disk. Tests do a fixed amount of work per
   frame, so they give the same result on every machine; `game.fileReads()` counts disk reads. Clockwork Courier's
   loading bar now shows real progress and its intro reads the title screen while it plays (FB-0012).
+- A script stopped for running too long while inside `find`, `findIndex`, `findLast` or `findLastIndex` no longer
+  crashes the game (a QuickJS bug freed one of the array's objects too early; the engine replaces those four). And a
+  timer, tween or `world.on` listener stopped this way ends alone: before, every script after it was stopped too.
 
 Platform services
 

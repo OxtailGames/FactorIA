@@ -154,6 +154,14 @@ void dispatch(int id, const std::vector<std::uint8_t>& data) {
             handler(result.data(), static_cast<int>(done.paramSize), !got || failed);
             return;
         }
+        case kGamepadTextInputDismissed: {
+            GamepadTextInputDismissed r;
+            if (read(data, r)) text_input_dismissed(r);
+            return;
+        }
+        case kFloatingGamepadTextInputDismissed:
+            floating_text_input_dismissed();
+            return;
         case kGameOverlayActivated: {
             GameOverlayActivated a;
             if (!read(data, a)) return;

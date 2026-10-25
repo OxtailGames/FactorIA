@@ -150,13 +150,15 @@ void rejection_cb(JSContext* ctx, JSValueConst promise, JSValueConst reason, boo
 // ---------------------------------------------------------------------------------------------------------------------
 // Guard / interrupt
 // ---------------------------------------------------------------------------------------------------------------------
-void ScriptSystem::Impl::push_guard(const std::string& label, double seconds) {
-    guards.push_back({label, std::chrono::steady_clock::now() +
+size_t ScriptSystem::Impl::push_guard(const std::string& label, double seconds) {
+    const size_t depth = guards.size();
+    guards.push_back({label, seconds, std::chrono::steady_clock::now() +
                                  std::chrono::microseconds(static_cast<long long>(seconds * 1e6))});
+    return depth;
 }
 
-void ScriptSystem::Impl::pop_guard() {
-    if (!guards.empty()) guards.pop_back();
+void ScriptSystem::Impl::pop_guard(size_t depth) {
+    if (guards.size() > depth) guards.erase(guards.begin() + static_cast<std::ptrdiff_t>(depth), guards.end());
 }
 
 bool ScriptSystem::Impl::debug_session_ended() const { return debugger && debugger->impl().interrupt_requested(); }
@@ -173,6 +175,8 @@ bool ScriptSystem::Impl::check_interrupt() {
         if (now > guards[i].deadline) {
             timedOut = true;
             timedOutLabel = guards[i].label;
+            timedOutSeconds = guards[i].seconds;
+            timedOutDepth = i;
             return true;
         }
     }
@@ -185,9 +189,26 @@ void ScriptSystem::Impl::run_jobs() {
     for (int guardCount = 0; guardCount < 100000; ++guardCount) {
         JSContext* jctx = nullptr;
         auto entry = debug_entry(*this);
+        const size_t depth = guards.size();
+        timedOut = false;
         int r = JS_ExecutePendingJob(rt, &jctx);
+        pop_guard(depth);  // a job the watchdog stopped inside a JS guard (an async world.on listener) left its frame
         if (r == 0) break;
         if (r < 0) {
+            if (timedOut && (debug_session_ended() || timedOutDepth < depth)) {
+                // Stopped by terminate, or the caller's time ran out (an async test pumping its jobs): the caller
+                // reports it.
+                JS_FreeValue(ctx, JS_GetException(ctx));
+                break;
+            }
+            if (timedOut) {  // a JS guard inside the job ran out (an async world.on listener)
+                timedOut = false;
+                JS_FreeValue(ctx, JS_GetException(ctx));
+                ScriptError e;
+                e.message = std::format("script took too long (> {:g} s) in {}", timedOutSeconds, timedOutLabel);
+                record_error(std::move(e), "promise job");
+                continue;
+            }
             report_pending_exception("", "promise job");
         }
     }
@@ -353,14 +374,19 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
     if (failed) *failed = false;
     double limit = limitSeconds < 0 ? callbackLimit : limitSeconds;
     auto debugEntry = debug_entry(*this);
-    push_guard(label, limit);
+    const size_t depth = push_guard(label, limit);
     std::vector<JSValueConst> av(args.begin(), args.end());
     timedOut = false;
     lastCallTimedOut = false;
     JSValue r = JS_Call(ctx, fn, thisVal, static_cast<int>(av.size()), av.data());
-    pop_guard();
+    pop_guard(depth);
     if (JS_IsException(r)) {
         if (failed) *failed = true;
+        if (timedOut && timedOutDepth < depth && !debug_session_ended()) {
+            // The caller's time ran out (a test calling game.step), not this callback's: the caller reports it.
+            JS_FreeValue(ctx, JS_GetException(ctx));
+            return JS_UNDEFINED;
+        }
         if (timedOut) {
             timedOut = false;
             lastCallTimedOut = true;
@@ -368,7 +394,10 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
             JS_FreeValue(ctx, exc);
             if (debug_session_ended()) return JS_UNDEFINED;  // stopped by terminate, not slow
             ScriptError e;
-            e.message = std::format("script took too long (> {:g} s) in {}", limit, label);
+            // A JS guard inside this call ran out first (a timer callback, a world.on listener): name that one.
+            const bool inner = timedOutDepth > depth && !timedOutLabel.empty();
+            e.message = std::format("script took too long (> {:g} s) in {}", inner ? timedOutSeconds : limit,
+                                    inner ? timedOutLabel : label);
             e.file = label;
             e.entityId = entityId;
             // Use the behaviour's file when the label is "path#method".
@@ -655,10 +684,10 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
     Json quoted = name;
     std::string src = "import * as m from " + quoted.dump() + "; globalThis.__fa_import = m;";
     auto debugEntry = debug_entry(*this);
-    push_guard("loading " + path, 10.0);
+    const size_t depth = push_guard("loading " + path, 10.0);
     timedOut = false;
     JSValue r = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE);
-    pop_guard();
+    pop_guard(depth);
     auto fail = [&](JSValue exc) -> Result<JSValue> {
         ScriptError e = error_from_exception(exc, "", path);
         JS_FreeValue(ctx, exc);
@@ -750,6 +779,7 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         return false;
     }
     JS_SetContextOpaque(ctx, this);
+    install_quickjs_fixes(ctx);
 
     Json proj = h.project_settings();
     if (proj.is_object() && proj.contains("seed") && proj["seed"].is_number()) seed = proj["seed"].get<std::uint64_t>();
@@ -808,6 +838,7 @@ void ScriptSystem::Impl::shutdown() {
     tools.clear();
     for (auto& r : pendingRejections) { JS_FreeValue(ctx, r.promise); JS_FreeValue(ctx, r.reason); }
     pendingRejections.clear();
+    guards.clear();
     hooks.reset();
     factoria.reset();
     testApi.reset();

@@ -75,11 +75,19 @@ struct CallbackMsg;  // steam_types.h
 //   SteamAPI_Init                     the old bool init, used when InitFlat is missing.
 //   SteamAPI_IsSteamRunning           only used to word the error when Steam did not start.
 //   ISteamUserStats_RequestCurrentStats  SDK 1.60 and older need it before stats work; newer ones sync stats at init.
+//   ISteamUtils text input            Steam's own keyboard on a Steam Deck or in Big Picture (SDK 1.53 and newer has the floating one).
 #define STEAM_OPTIONAL_FUNCTIONS(X)                                                                                         \
     X(SteamAPI_InitFlat, int, (char*))                                                                                      \
     X(SteamAPI_Init, bool, ())                                                                                              \
     X(SteamAPI_IsSteamRunning, bool, ())                                                                                    \
-    X(SteamAPI_ISteamUserStats_RequestCurrentStats, bool, (void*))
+    X(SteamAPI_ISteamUserStats_RequestCurrentStats, bool, (void*))                                                          \
+    X(SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck, bool, (void*))                                                        \
+    X(SteamAPI_ISteamUtils_IsSteamInBigPictureMode, bool, (void*))                                                          \
+    X(SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput, bool, (void*, int, int, int, int, int))                            \
+    X(SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput, bool, (void*))                                                  \
+    X(SteamAPI_ISteamUtils_ShowGamepadTextInput, bool, (void*, int, int, const char*, u32, const char*))                    \
+    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextLength, u32, (void*))                                                       \
+    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))
 
 // The interface accessors of the SDK versions the plugin was checked against, newest first. Each interface is looked up
 // under its candidates in order; the first the library exports wins. Verified against the headers of SDK 1.58a, 1.59, 1.60,

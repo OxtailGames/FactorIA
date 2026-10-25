@@ -39,6 +39,7 @@ its own failure message, and the logs, screenshots and crash reports are uploade
 | Native plugin | the game has a native plugin with a Java class ([below](#native-plugins-on-android)): its script logged `probe add=3` (the sum came from the Java class through JNI) and `probe info=` with `"plugin":"example"` (`FA_SMOKE_EXPECT`) | the app links the plugin's static library ([below](#native-plugins-ios)): the same two lines in the console (`FA_IOS_PLUGIN_PROBE=1`) |
 | Apple plugin | not applicable | the game links the Apple backend plugin (Swift, StoreKit, GameKit; [below](#native-plugins-ios)): the console shows `Apple backend ready`, `probe backend=apple` and `probe unlock=notSignedIn` (a Game Center call answered by the Swift code; `FA_IOS_APPLE_PROBE=1`, script `tools/cli/tests/apple_probe.js`) |
 | Google Play plugin | the game has the Google Play backend plugin (a C bridge plus a Java module with Billing, Play Games and Play Integrity; [PLATFORM.md](PLATFORM.md#7-google-play-billing-play-games-services-and-play-integrity)): the log shows `Google Play backend ready`, `probe backend=googleplay` and `probe signin=unavailable` (the emulator has no Google Play services, so the Java code answers the sign-in with a teaching refusal; script `tools/cli/tests/googleplay_probe.js`, `FA_SMOKE_EXPECT`) | not applicable |
+| AdMob plugin | the game has the AdMob ads backend next to the Google Play one ([PLATFORM.md](PLATFORM.md#8-ads-on-android-google-admob-and-the-consent-form-ump)): the log shows `AdMob backend ready`, `probe adsbackend=admob store=googleplay`, the manifest's test app id (`probe admob test=true ... appId=ca-app-pub-3940256099942544~3347511713`) and `probe underage=ok` (a call went through the C bridge to the Java code and back; script `tools/cli/tests/admob_probe.js`, `FA_SMOKE_EXPECT`). It loads no ad: that needs Google's network | not applicable |
 
 The lines the scripts wait for are part of the player: `player: 60 frames rendered` (`engine/runtime/src/runners.cpp`),
 `player: suspended`, `player: resumed`, `player: 60 frames rendered after resume` (same file), `audio: output device open`
@@ -278,6 +279,13 @@ to load any code of the APK. The export sets it to `true` as soon as a plugin br
 and has no source folder of its own must get one (a Java file with its JNI glue) to turn it on. The exported project
 allows Google and Maven Central as repositories, and Gradle refuses repositories declared in a module
 (`FAIL_ON_PROJECT_REPOS`): an SDK from another repository ships as `.aar` files.
+
+**Manifest placeholders for ads.** The template's `app/build.gradle` defines three manifest placeholders that the `admob` plugin's manifest
+uses (`<meta-data>` for the AdMob app id, the test flag and the audience), read from `gradle.properties`, where the export writes them:
+`factoria.ads.appId` (Google's sample app id in a development export; `platform.ads.appIds.android` in a `--release` export, the sample id when the
+catalog has none), `factoria.ads.test` (`true` unless `--release`) and `factoria.ads.audience` (`platform.ads.audience`). A game without the
+plugin carries no `<meta-data>` for them, so nothing changes. [PLATFORM.md](PLATFORM.md#8-ads-on-android-google-admob-and-the-consent-form-ump)
+has the ads side.
 
 **AndroidX.** The template's `gradle.properties` sets `android.useAndroidX=true`: the Google SDKs a plugin brings (Play
 Billing, Play Games, Play Integrity) depend on AndroidX libraries, and Gradle refuses to build them without it. The player
@@ -527,6 +535,7 @@ engine adds no permissions of its own to `AndroidManifest.xml` (add some with `e
 | `googleplay` plugin: purchases (Play Billing) | Play Billing handles the payment and shows the purchase history to the game on the device; the Billing library adds the `com.android.vending.BILLING` permission to the manifest. Declare Purchase history (Financial info) only if your own server receives or stores purchase tokens or receipts |
 | `googleplay` plugin: Play Games Services (when `playGamesId` is set) | The Play Games SDK signs the player in and keeps achievements, leaderboard scores and Saved Games in the player's Google account. Declare a player id (User IDs under Personal info) and the game data (App activity) when your own backend receives them; where only Google's services hold them, follow Google's definition of "collected" in the Data safety help |
 | `googleplay` plugin: Play Integrity | The request and the verdict go through Google; the token goes to your server. Declare what your server keeps of it (device or app integrity information) |
+| `admob` plugin: rewarded ads and Google's consent form (UMP) | Google's Mobile Ads SDK collects the advertising id, the device and ad interaction data and shares them with the ad network; declare Device or other IDs and App interactions as shared, and Advertising or marketing as the purpose, following Google's AdMob Data safety help. The merged manifest carries the AD_ID permission when the SDK asks for it: check it in the built APK (`aapt2 dump permissions`). A game for children must follow Google's families policy for ads. [Ads](PLATFORM.md#8-ads-on-android-google-admob-and-the-consent-form-ump) |
 | An ads SDK | Advertising ID (`com.google.android.gms.permission.AD_ID` in `export.android.permissions`), plus what the SDK documents; apps that target Android 13+ without it get a zeroed ad id |
 | Your own backend, accounts, analytics | The data you send, whether you share it, whether it is encrypted in transit and whether players can ask for deletion |
 

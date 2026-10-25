@@ -26,6 +26,8 @@ enum CallbackId : int {
     kSteamServersDisconnected = 103,
     kGameOverlayActivated = 331,
     kSteamAPICallCompleted = 703,
+    kGamepadTextInputDismissed = 714,
+    kFloatingGamepadTextInputDismissed = 738,
     kDlcInstalled = 1005,
     kUserStatsReceived = 1101,
     kUserStatsStored = 1102,
@@ -49,6 +51,11 @@ enum : int { kUploadKeepBest = 1 };
 enum : int { kOverlayToStoreNone = 0, kOverlayToStoreAddToCartAndShow = 2 };
 enum : int { kWebPageDefault = 0 };
 
+// EFloatingGamepadTextInputMode, EGamepadTextInputMode, EGamepadTextInputLineMode (plain ints).
+enum : int { kFloatingSingleLine = 0, kFloatingMultipleLines = 1 };
+enum : int { kTextInputNormal = 0, kTextInputPassword = 1 };
+enum : int { kTextLineSingle = 0, kTextLineMultiple = 1 };
+
 // What SteamAPI_ManualDispatch_GetNextCallback fills in.
 struct CallbackMsg {
     i32 hSteamUser;
@@ -70,6 +77,12 @@ struct GameOverlayActivated {
     bool userInitiated;
     u32 appId;
     u32 overlayPid;
+};
+
+struct GamepadTextInputDismissed {  // the modal keyboard (ShowGamepadTextInput) closed
+    static constexpr int kCallback = kGamepadTextInputDismissed;
+    bool submitted;
+    u32 submittedText;  // length of the text GetEnteredGamepadTextInput returns
 };
 
 struct DlcInstalled {
