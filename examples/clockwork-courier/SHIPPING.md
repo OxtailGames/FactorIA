@@ -87,6 +87,20 @@ the listing texts and graphics (`store/capsules/googleplay` 512x512 icon and 102
 screenshots), the in-app products, the privacy policy URL, an internal test track first. `versionCode` 10000 goes up for
 every upload.
 
+## Ads (AdMob, Android and iOS)
+
+The `more_time` placement runs on the engine's fake store; an export without an ads plugin offers no ad
+(`platform.has("ads")` is false), and the rest of the game is the same. For real rewarded ads, add Google's AdMob plugin:
+`factoria call platform.add_backend '{"backend": "admob"}'` for Android, plus `"sdk": "<Google's iOS SDK zip>"` on a Mac
+for iOS (docs/PLATFORM.md, section 8). It is not added here. A development export with it shows Google's test ads: an
+export of this game showed the consent form, a test rewarded ad and the 20 s on an Android emulator with Google Play
+services and on the iOS simulator.
+
+By hand: the two apps in the AdMob console, their app ids in `platform.ads.appIds` (`android`, `ios`), a rewarded ad unit
+for `more_time` in its `ids.admob` and `ids.admob_ios`, and the GDPR message in AdMob > Privacy & messaging. With real ads
+the game no longer "collects nothing": the Data safety form, Apple's privacy label and `privacy.md` must say what AdMob
+collects. The game does not ask for tracking (no `trackingPrompt`) and its audience is `general`.
+
 ## Steam (desktop) and itch.io
 
 Steam: `factoria export --platform windows|macos|linux`, upload the folders with SteamPipe (by hand); the capsules are in
