@@ -2342,15 +2342,19 @@ NATIVE(testText) {  // (codePoint): one typed character, as the keyboard would s
 }
 
 // ---- the date and the app's life ------------------------------------------------------------------------------------
-NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes]
+NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes, hour, minute, second, utcYear, utcMonth, utcDay]
     SETUP;
     const CalendarDate d = I->owner->today();
-    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes)});
+    const CalendarDate u = d.utc();
+    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes), double(d.hour),
+                          double(d.minute), double(d.second), double(u.year), double(u.month), double(u.day)});
 }
 
-NATIVE(testSetDate) {  // (iso): "" when set, else the teaching error
+NATIVE(testSetDate) {  // (iso, utcOffsetMinutes | undefined): "" when set, else the teaching error
     SETUP;
-    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0)).c_str());
+    std::optional<int> offset;
+    if (argc > 1 && JS_IsNumber(argv[1])) offset = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0), offset).c_str());
 }
 
 NATIVE(appState) {  // [focused, suspended]

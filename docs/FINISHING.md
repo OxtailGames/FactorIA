@@ -10,7 +10,8 @@ suspend, Android Back, a Japanese font cut to the game's characters (`assets/fon
 checked at 200 % text. For a desktop game for several players at one screen, **Burrow Brigade**
 (`examples/burrow-brigade`) is the third: a join screen, per-player rebinding, save slots whose format changed once
 (with the migration and fixtures of both versions), a game speed and hold-or-toggle for assist, a Thai fallback font
-(its `tools/thai_spaces.py` puts spaces between Thai words, since lines break only at spaces), and `SHIPPING.md` for
+(its `tools/thai_spaces.py` puts real spaces between Thai words; a line also breaks after U+200B, which takes no width, so
+a translation can mark word boundaries with that instead), and `SHIPPING.md` for
 Steam and the desktop exports.
 
 Do the sections in order: the menu comes first because options, saves and languages all live behind it; tests come last
