@@ -30,7 +30,7 @@ it is not in the player's flow.
 
 You dig the tile you face: walk into it to turn towards it, then hold dig. A crack grows on the tile while you dig and
 fills back in if you let go. Dig times with the starting pick: dirt 0.5 s, rock 1.4 s, hard rock 2.2 s, copper 0.6 s,
-silver 1.5 s, gold 2.4 s, gems 2.6 s. Hard rock, gold and gems need the tier 1 pick (P2 sells it): without it the
+silver 1.5 s, gold 2.4 s, gems 2.6 s. Hard rock, gold and gems need the tier 1 pick (the camp sells it, P4): without it the
 miner makes a "blocked" sound. Bedrock never breaks. Rebinding is in Options > Controls.
 
 ## The shift
@@ -108,7 +108,7 @@ oil bar each. `device` decides which input moves the miner (`scripts/game/miner_
 actions: keyboard and every pad; one player only, the title's Play uses it), `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" }`
 or `{ kind: "pad", index }` (left stick or d-pad, A or X). `tests/input.test.js` drives two keyboard players and a second pad at
 once. `setState` emits `playerState` and, for `"down"`, `playerDown`; a miner that is `down` does not move, dig or burn oil and
-the shift's end check ignores it. Nothing in P1 sets `down`; P4 does. There is no join screen yet (P3).
+the shift's end check ignores it. Nothing in P1 sets `down`; the hazards and enemies do (P2). There is no join screen yet (P3).
 
 ### Game events: `scripts/game/events.js`
 
@@ -116,14 +116,14 @@ A synchronous bus in a module singleton (it outlives scenes, unlike scene-bound 
 unsubscribe function, `emit(name, data)`, `count(name)`, `emitted(name)`, `clear()`, `history`. An unknown name throws with a
 "did you mean". `EVENTS` documents every name and its data. P1 emits `shiftStarted`, `dug`, `digBlocked`, `orePicked`,
 `oilPicked`, `lampLow`, `lampOut`, `liftReached`, `moleRescued`, `shiftEnded`, `playerAdded`, `playerRemoved`, `playerState`,
-`playerDown` and `tileChanged`. `upgradeBought`, `cashChanged` (P2) and `hazardTriggered` (P4) are reserved: they can be
+`playerDown` and `tileChanged`. `upgradeBought`, `cashChanged` (P4) and `hazardTriggered` (P2) are reserved: they can be
 subscribed to but nothing emits them yet. A behaviour that subscribes unsubscribes in `onDestroy`; `startRun` clears the bus.
 
 ### Run state: `scripts/game/run_state.js`
 
 `run` is `{ active, seed, stratum, floor, shiftNumber, cash, upgrades, ore, lamps, molesRescued, molesTotal, shiftTime,
 inShift, lastShift }`. `upgrades` is `{ pickTier, pickSpeed, lampOil, lampRadius, walkSpeed }` (`BASE_UPGRADES`); the miner
-already reads every one, P2 changes them. `lamps` maps a player id to `{ oil, max, out, low }` (`lampOf(id)`). Functions:
+already reads every one, the camp changes them (P4). `lamps` maps a player id to `{ oil, max, out, low }` (`lampOf(id)`). Functions:
 `startRun({ seed, stratum, floor })` (the title's Play calls it), `beginShift()` (the shift scene calls it: resets ore, lamps,
 clock and moles, and returns the mine seed), `addOre`, `totalOre`, `oreValue`, `endShift("lift" | "dark")` (banks the ore value
 for `lift` and builds `run.lastShift`), `snapshot()` and `restore(data)` (what a save holds).
@@ -133,7 +133,7 @@ for `lift` and builds `run.lastShift`), `snapshot()` and `restore(data)` (what a
 `save()` writes `{ format: SAVE_FORMAT, seed, stratum, floor, shiftNumber, cash, upgrades }` to `storage` key `burrow.save` when a
 shift ends; `load()`, `apply()` (puts a save into the run state) and `erase()`. `migrate(data)` is where a later format is
 brought up to date: today it only checks the `format` field and answers `{ ok: false, message, hint }` for a file with no format
-or a newer one. Nothing reads the save at the title yet (P2 adds Continue).
+or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
 
 ## Tests
 
@@ -161,4 +161,10 @@ or a newer one. Nothing reads the save at the title yet (P2 adds Continue).
 | Package | What | State |
 |---|---|---|
 | P1 | The miner, digging and the mine | done |
-| P2 to P8 | The shop and the campaign (Continue from the save), local co-op, hazards, audio, polish, Steam | to do |
+| P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | to do |
+| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | to do |
+| P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | to do |
+| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | to do |
+| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | to do |
+| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | to do |
+| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | to do |

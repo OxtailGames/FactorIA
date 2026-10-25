@@ -25,9 +25,9 @@ export const EVENTS = Object.freeze({
   playerState: "(P1) { player, from, to }: a player's state changed.",
   playerDown: "(P1, emitted by setState) { player }: a player went down; later packages (hazards) set it.",
   tileChanged: "(P1) { tx, ty, from, to, cause }: any tile changed; the same notice `MineMap.onChange` gives.",
-  upgradeBought: "(reserved, P2) { upgrade, level, cost }",
-  cashChanged: "(reserved, P2) { cash, delta }",
-  hazardTriggered: "(reserved, P4) { kind, tx, ty }",
+  upgradeBought: "(reserved, P4) { upgrade, level, cost }",
+  cashChanged: "(reserved, P4) { cash, delta }",
+  hazardTriggered: "(reserved, P2) { kind, tx, ty }",
 });
 
 /** @type {Map<string, Array<(data: any) => void>>} */

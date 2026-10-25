@@ -17,7 +17,7 @@ export default class MainMenu extends Behaviour {
     this.menus = new MenuStack("main_menu");
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
-      startRun(); // a new run: a fresh seed, no cash, base upgrades (P2 adds "Continue" from the save)
+      startRun(); // a new run: a fresh seed, no cash, base upgrades (P4 adds "Continue" from the save)
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });

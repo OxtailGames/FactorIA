@@ -36,7 +36,7 @@ export const KEY_SCHEMES = Object.freeze({
  * @property {string} name          "P1".."P4".
  * @property {Device} device
  * @property {number[]} color       rgba of its lamp light and the ring under its feet.
- * @property {"active"|"lift"|"down"} state  active: playing; lift: standing on the exit lift; down: out of play (hazards, P4).
+ * @property {"active"|"lift"|"down"} state  active: playing; lift: standing on the exit lift; down: out of play (hazards and enemies, P2).
  */
 
 /** @type {Player[]} */
