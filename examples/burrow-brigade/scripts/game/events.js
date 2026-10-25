@@ -38,10 +38,15 @@ export const EVENTS = Object.freeze({
   bossStarted: "(P2) { tx, ty, hp }: a miner came within sight of the Mole King and the fight began.",
   bossDefeated: "(P2) { by }: the Mole King fell; the exit lift is free.",
   exitJammed: "(P2) { player }: a miner stepped on the exit lift while the Mole King still lives.",
+  achievementUnlocked: "(P5) { id, name }: an achievement was unlocked for the first time (trophies.js); `name` is its name in the current language.",
+  boardPosted: "(P5) { board, score, period }: a score went to a leaderboard (boards.js); `board` is \"best_run_cash\" or \"daily_run_cash\".",
 });
 
 /** @type {Map<string, Array<(data: any) => void>>} */
 const listeners = new Map();
+/** Listeners that `clear()` keeps (see `keep`).
+ * @type {Map<string, Array<(data: any) => void>>} */
+const kept = new Map();
 /** The last events, newest last (kept for tests and for the debug overlay of later packages). */
 export const history = [];
 const HISTORY_MAX = 200;
@@ -91,7 +96,7 @@ export function emit(name, data = {}) {
   check(name);
   history.push({ name, data });
   if (history.length > HISTORY_MAX) history.shift();
-  for (const fn of [...(listeners.get(name) ?? [])]) {
+  for (const fn of [...(kept.get(name) ?? []), ...(listeners.get(name) ?? [])]) {
     try {
       fn(data);
     } catch (e) {
@@ -112,7 +117,23 @@ export function emitted(name) {
   return history.filter((h) => h.name === name).map((h) => h.data);
 }
 
-/** Drops every listener and the history. `startRun` calls it, so a left-over listener never hears the next run. */
+/**
+ * Subscribes for good: unlike `on`, a `keep` listener survives `clear()` (so `startRun` does not drop it). For the services that
+ * outlive runs and scenes (achievements, rich presence, analytics: P5). Returns the function that unsubscribes.
+ * @param {string} name
+ * @param {(data: any) => void} fn
+ */
+export function keep(name, fn) {
+  check(name);
+  if (!kept.has(name)) kept.set(name, []);
+  /** @type {Array<(data: any) => void>} */ (kept.get(name)).push(fn);
+  return () => {
+    const list = kept.get(name);
+    if (list && list.includes(fn)) list.splice(list.indexOf(fn), 1);
+  };
+}
+
+/** Drops every listener (but the `keep` ones) and the history. `startRun` calls it, so a left-over listener never hears the next run. */
 export function clear() {
   listeners.clear();
   history.length = 0;

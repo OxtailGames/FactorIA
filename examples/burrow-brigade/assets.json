@@ -7,6 +7,78 @@
     }
   },
   "assets": {
+    "assets/achievements/bright_stratum.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/bug_squasher.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/first_ore.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/full_house.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/mole_king.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/achievements/mole_rescuer.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
     "assets/audio/bite.wav": {
       "provenance": {
         "origin": "original",
@@ -261,6 +333,486 @@
         "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/glyphs/nintendo/a.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/b.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/l.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/minus.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/plus.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/r.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/x.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/y.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/zl.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/nintendo/zr.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/circle.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/create.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/cross.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/l1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/l2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/options.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/r1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/r2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/square.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/playstation/triangle.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/a.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/b.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/l1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/l2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/menu.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/r1.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/r2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/view.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/x.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/steamdeck/y.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/a.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/b.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/lb.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/lt.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/menu.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/rb.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/rt.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/view.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/x.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/glyphs/xbox/y.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "assets/src/make_online_art.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "drawn by script, deterministic",
+        "date": "2026-10-25"
       }
     },
     "assets/music/music_crystal.wav": {

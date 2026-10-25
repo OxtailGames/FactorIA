@@ -16,7 +16,8 @@
     "options": "Options",
     "credits": "Credits",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "boards": "Boards"
   },
   "options": {
     "title": "Options",
@@ -66,7 +67,8 @@
     "privacyOptions": "Ad privacy settings",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "analytics": "Send anonymous play statistics"
   },
   "pause": {
     "title": "Paused",
@@ -127,5 +129,88 @@
     "nextFloor": "Next floor",
     "retryFloor": "Try the floor again",
     "newRun": "New run"
+  },
+  "achievements": {
+    "first_ore": {
+      "name": "First Strike",
+      "description": "Dig up your first piece of ore."
+    },
+    "mole_rescuer": {
+      "name": "Mole Rescuer",
+      "description": "Free 10 trapped moles."
+    },
+    "mole_king": {
+      "name": "Long Live the Brigade",
+      "description": "Beat the Mole King."
+    },
+    "bright_stratum": {
+      "name": "Lamps Lit",
+      "description": "Clear the last floor of a stratum without a single lamp going out in it."
+    },
+    "full_house": {
+      "name": "Full House",
+      "description": "Finish a shift on the lift with 4 miners."
+    },
+    "bug_squasher": {
+      "name": "Bug Squasher",
+      "description": "Defeat 25 enemies."
+    }
+  },
+  "stats": {
+    "oreDug": "Ore dug",
+    "molesRescued": "Moles rescued",
+    "floorsCleared": "Floors cleared",
+    "enemiesDefeated": "Enemies defeated"
+  },
+  "boards": {
+    "title": "Boards",
+    "tabAllTime": "All time",
+    "tabDaily": "Daily dig",
+    "tabTrophies": "Trophies",
+    "name": {
+      "best_run_cash": "Best run cash",
+      "daily_run_cash": "Daily dig cash"
+    },
+    "loading": "Loading...",
+    "empty": "No scores yet. Bank some ore on the lift!",
+    "unavailable": "The boards are not available here.",
+    "row": "{rank}. {name}",
+    "score": "{score}",
+    "you": "you",
+    "dailyNote": "The board of {date}. Start a daily dig from the camp to post here.",
+    "progress": "{value} / {goal}",
+    "unlocked": "Unlocked",
+    "locked": "Locked",
+    "numbers": "Your numbers",
+    "posted": "Score {score} posted.",
+    "dailySkipped": "The daily dig crossed midnight: its score was not posted to today's board."
+  },
+  "presence": {
+    "menu": "In the main menu",
+    "boards": "Looking at the boards",
+    "shift": {
+      "one": "Digging in the {stratum}, floor {floor} (1 miner)",
+      "other": "Digging in the {stratum}, floor {floor} ({count} miners)"
+    },
+    "boss": {
+      "one": "Fighting the Mole King (1 miner)",
+      "other": "Fighting the Mole King ({count} miners)"
+    },
+    "resultsLift": "Back on the lift after shift {shift}",
+    "resultsDown": "Lost shift {shift} down the mine"
+  },
+  "online": {
+    "news": "News",
+    "consentTitle": "Anonymous play statistics",
+    "consentBody": "Help improve the game by sending when a shift ends, which floor you reach and when you quit. No name, no device, nothing you typed. You can change this in Options.",
+    "consentYes": "Yes, send",
+    "consentNo": "No, thanks",
+    "hintSelect": "Select",
+    "hintBack": "Back"
+  },
+  "textEntry": {
+    "keyboard": "Type the code, then press Enter.",
+    "pad": "Press {button} to type the code.",
+    "deck": "Press {button}: Steam's keyboard opens."
   }
 }
