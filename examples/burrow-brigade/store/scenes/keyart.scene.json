@@ -6,12 +6,21 @@
       "name": "Main Camera",
       "components": {
         "Transform": {
-          "position": [0, 0, 0]
+          "position": [
+            0,
+            0,
+            0
+          ]
         },
         "Camera": {
           "projection": "orthographic",
           "orthoSize": 144,
-          "clearColor": [0.02, 0.02, 0.03, 1],
+          "clearColor": [
+            0.02,
+            0.02,
+            0.03,
+            1
+          ],
           "primary": true
         },
         "Script": {
@@ -23,11 +32,18 @@
       "id": "mine",
       "components": {
         "Transform": {
-          "position": [0, 0, 0]
+          "position": [
+            0,
+            0,
+            0
+          ]
         },
         "Tilemap": {
           "tileset": "assets/tiles_topsoil.png",
-          "tileSize": [16, 16],
+          "tileSize": [
+            16,
+            16
+          ],
           "lit": true,
           "layer": -10
         }
@@ -73,6 +89,11 @@
     }
   ],
   "settings": {
-    "ambientLight": [0.07, 0.07, 0.1, 1]
+    "ambientLight": [
+      0.07,
+      0.07,
+      0.1,
+      1
+    ]
   }
 }

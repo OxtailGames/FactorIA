@@ -9,12 +9,12 @@ export function describe(entity) {
   if (entity.has("Button")) return entity.get("Button").text;
   if (entity.has("Toggle")) {
     const toggle = entity.get("Toggle");
-    return `${toggle.label}, ${i18n.t(toggle.value ? "options.on" : "options.off")}`;
+    return i18n.t("options.readToggle", { label: toggle.label, state: i18n.t(toggle.value ? "options.on" : "options.off") });
   }
   if (entity.has("Slider")) {
     const slider = entity.get("Slider");
     const percent = Math.round(((slider.value - slider.min) / (slider.max - slider.min)) * 100);
-    return `${slider.label}, ${i18n.t("options.percent", { value: percent })}`;
+    return i18n.t("options.readSlider", { label: slider.label, value: i18n.t("options.percent", { count: percent, value: percent }) });
   }
   if (entity.has("TextField")) return entity.get("TextField").placeholder;
   return "";

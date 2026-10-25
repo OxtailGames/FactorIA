@@ -20,7 +20,7 @@ Valve's test app 480 is a manual step (section 4).**
 | `icon` | `assets/icon.png` (1024x1024) and `assets/icon_fg.png` | every export builds its icon sizes from it |
 | `export.macos` / `export.linux` | games category, minimum macOS 11.0, copyright; `Game;ArcadeGame` | `Info.plist`, `.desktop` file |
 | `export.scriptBytecode` | `true` | `--release`: scripts are compiled inside `game.pak` |
-| `export.exclude` | `store/**`, `tools/**`, `tests/**`, `perf.json`, `scenes/busiest.scene.json`, `scripts/game/busiest.js`, `SHIPPING.md` | what stays out of `game.pak` (the store material and the test-only floor) |
+| `export.exclude` | `store/**`, `tools/**`, `tests/**`, `screenshots/**`, `assets/fonts/make_subset.py`, `perf.json`, `scenes/busiest.scene.json`, `scripts/game/busiest.js`, `SHIPPING.md` | what stays out of `game.pak` (the store material, the layout screenshots, the font subset script and the test-only floor; the font's `OFL.txt` ships) |
 | `platform` | six achievements, four stats, two leaderboards (`best_run_cash`, `daily_run_cash`), each with a Steam id | `platform.*` and the Steam plugin (P5) |
 | `publish.steam` | **placeholders** (below) | `publish.steam` |
 
@@ -153,7 +153,7 @@ The busiest floor is Crystal Caves floor 3 with four miners, six torches, the cr
 | `tools/cli/tests/perf/burrow-brigade.perf.json` (engine repo) | the same scene and budgets, **no runner entries**; the orchestrator adds CI's after the first CI run |
 | `tests/render_budget.test.js` | the same caps, checked on every floor (all nine), with 4 miners, and the Light2D count (cap 16) |
 
-Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 9 draw calls, 131 entities, 47 MB
+Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 10 draw calls, 134 entities, 47 MB
 peak, 1.4 ms CPU per frame on average (p95 2.3 ms), 0.08 MB of textures. CPU time and memory are CI's to measure; draw
 calls and entities are the same on every runner.
 

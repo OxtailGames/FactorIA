@@ -80,7 +80,7 @@ export class TitleFlow {
 
   dailyLine() {
     const s = daily.status();
-    this.title("menu.dailyInfo", { key: s.key, tries: s.tries, depth: s.bestDepth });
+    this.title("menu.dailyInfo", { key: s.key, count: s.tries, tries: s.tries, depth: s.bestDepth });
   }
 
   /** Continue exists (and takes the focus) when some slot holds a save that can be read. */
@@ -130,7 +130,7 @@ export class TitleFlow {
       else if (s.status === "error") button.set("Button", { key: "slots.broken", keyArgs: { slot: s.slot } });
       else {
         const m = s.summary;
-        button.set("Button", { key: "slots.filled", keyArgs: { slot: s.slot, stratum: i18n.t(stratumInfo(m.stratum).name), floor: m.floor, cash: m.cash, time: clock(m.playTime), best: m.bestDepth } });
+        button.set("Button", { key: "slots.filled", keyArgs: { count: m.cash, slot: s.slot, stratum: i18n.t(stratumInfo(m.stratum).name), floor: m.floor, cash: m.cash, time: clock(m.playTime), best: m.bestDepth } });
       }
       del.set("Button", { interactable: s.status !== "empty" });
     }

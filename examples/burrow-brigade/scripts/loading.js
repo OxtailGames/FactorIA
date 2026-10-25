@@ -22,6 +22,6 @@ export default class Loading extends Behaviour {
   }
 
   onUpdate() {
-    this.entity.get("Text").text = `Loading... ${Math.round(this.job.progress * 100)}%`;
+    this.entity.get("Text").keyArgs = { percent: Math.round(this.job.progress * 100) }; // "Loading... 40%" in the language of the moment
   }
 }

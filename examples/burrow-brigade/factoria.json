@@ -71,7 +71,12 @@
   "localization": {
     "defaultLanguage": "en",
     "languages": [
-      "en"
+      "en",
+      "ru",
+      "th"
+    ],
+    "fallbackFonts": [
+      "assets/fonts/NotoSansThai-Regular-subset.ttf"
     ]
   },
   "platform": {
@@ -183,6 +188,8 @@
       "store/**",
       "tools/**",
       "tests/**",
+      "screenshots/**",
+      "assets/fonts/make_subset.py",
       "perf.json",
       "scenes/busiest.scene.json",
       "scripts/game/busiest.js",

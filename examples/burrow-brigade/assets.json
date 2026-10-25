@@ -374,6 +374,16 @@
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
     },
+    "assets/fonts/NotoSansThai-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosansthai",
+        "license": "OFL-1.1",
+        "author": "The Noto Project Authors (Noto Sans Thai)",
+        "notes": "Variable font NotoSansThai[wdth,wght].ttf instanced to wght 400 and wdth 100 and subset to the characters of locales/*.json with assets/fonts/make_subset.py. Used for Thai through localization.fallbackFonts. Licence text: assets/fonts/OFL.txt."
+      }
+    },
     "assets/glyphs/nintendo/a.png": {
       "provenance": {
         "origin": "original",

@@ -783,6 +783,72 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "Text wrapping cannot break Thai (or Khmer, Lao, Burmese) at word boundaries",
+      "missing": "The text engine wraps only at an ASCII space, U+3000 and between CJK characters. A Thai sentence is written without spaces, so it is one unbreakable run: it overflows its maxWidth or is cut. ZWSP, thin and hair spaces are not break opportunities either",
+      "workaround": "The Thai table writes a real space between phrases and keeps every space-free run under 17 base letters, checked by a test and by tools/thai_spaces.py",
+      "workaroundFiles": [
+        "locales/th.json",
+        "tools/thai_spaces.py",
+        "tests/languages.test.js"
+      ],
+      "suggestion": "Break opportunities at ZWSP (U+200B) and WORD JOINER-free runs, or a dictionary-free Thai/Khmer/Lao/Burmese break iterator (ICU-style); then a locale could carry ZWSP between words",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "localization validate's glyph check misses U+0E4D that Thai sara am (U+0E33) needs",
+      "missing": "Thai sara am is drawn as U+0E4D + U+0E32 by the text engine, but validate's glyph check only looks for U+0E33, so a font subset without U+0E4D passes validate and shows a missing-glyph box at run time",
+      "workaround": "The font subset script keeps U+0E4D explicitly and checks the decomposed forms (assets/fonts/make_subset.py --check)",
+      "workaroundFiles": [
+        "assets/fonts/make_subset.py"
+      ],
+      "suggestion": "Run the glyph check on the characters the shaper actually draws (after the decomposition), or document it in docs/LOCALIZATION.md",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0038",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "ui.check_layout ignores ScrollList clipping and sees only scenes as they settle",
+      "missing": "check_layout reports an overlap for a widget inside a ScrollList that is clipped away (the Russian camp at 200 % reports a shop row under the buttons below the list), and it cannot see the panels a script opens later (slots, Options, boards, credits, pause)",
+      "workaround": "tests/helpers/layout.js reads ui.state (rectangles, overflowed) and clips by ScrollList ancestors; tests/layout.test.js drives every script-opened panel; the one known false positive is filtered by name",
+      "workaroundFiles": [
+        "tests/helpers/layout.js",
+        "tests/layout.test.js"
+      ],
+      "suggestion": "Clip a widget's rectangle by its ScrollList ancestors in check_layout, and accept a list of steps (clicks) per scene to reach a state before checking",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
