@@ -4,6 +4,22 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Steam Remote Play guests and `platform.cloud.stat`
+
+- New platform service `remotePlay`: `platform.remotePlay.sessions()` lists the guests connected through Remote Play
+  Together (`[{ id, guestName, guestId, deviceName, formFactor, resolution }]`) and `platform.on("remotePlay", ...)` gets
+  `{ status: "connected" | "disconnected", session }` as each comes or goes. The Steam plugin offers it when the Steam
+  library has `ISteamRemotePlay`. A guest's controls arrive as one more gamepad; the engine does not say which pad is which
+  guest. The fake store has `game.platform.remotePlayConnect(info)` and `remotePlayDisconnect(id)` (commands
+  `platform.remote_play_connect` and `platform.remote_play_disconnect`).
+- New `platform.cloud.stat(key)`: `{ exists: false }` for a missing key, else `{ exists: true, size, modified }` without
+  returning the text (`modified` in Unix seconds, `null` on Apple, which keeps no time). Steam answers the file's time,
+  Google Play the snapshot's last-modified time (it opens the snapshot to count the bytes), the fake a deterministic
+  counter (`game.platform.set({ cloudClock })` sets it). To tell which save is newer keep a revision counter in the saved
+  value; PLATFORM.md says why.
+- The Steam, Apple and Google Play code for both was checked against the mock (Steam) and by reading (Apple, Google Play)
+  only: no real Remote Play session or real store was tried.
+
 Recording input and starting a scene with props
 
 - The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads

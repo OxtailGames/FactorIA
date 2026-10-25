@@ -15,6 +15,7 @@ namespace steam_plugin {
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 using i32 = std::int32_t;
+using i64 = std::int64_t;
 
 struct CallbackMsg;  // steam_types.h
 
@@ -63,6 +64,7 @@ struct CallbackMsg;  // steam_types.h
     X(SteamAPI_ISteamRemoteStorage_FileWrite, bool, (void*, const char*, const void*, i32))                                 \
     X(SteamAPI_ISteamRemoteStorage_FileRead, i32, (void*, const char*, void*, i32))                                         \
     X(SteamAPI_ISteamRemoteStorage_GetFileSize, i32, (void*, const char*))                                                  \
+    X(SteamAPI_ISteamRemoteStorage_GetFileTimestamp, i64, (void*, const char*))                                             \
     X(SteamAPI_ISteamRemoteStorage_FileExists, bool, (void*, const char*))                                                  \
     X(SteamAPI_ISteamRemoteStorage_FileDelete, bool, (void*, const char*))                                                  \
     X(SteamAPI_ISteamRemoteStorage_GetFileCount, i32, (void*))                                                              \
@@ -76,6 +78,7 @@ struct CallbackMsg;  // steam_types.h
 //   SteamAPI_IsSteamRunning           only used to word the error when Steam did not start.
 //   ISteamUserStats_RequestCurrentStats  SDK 1.60 and older need it before stats work; newer ones sync stats at init.
 //   ISteamUtils text input            Steam's own keyboard on a Steam Deck or in Big Picture (SDK 1.53 and newer has the floating one).
+//   ISteamRemotePlay                  Remote Play Together guests (SDK 1.49 and newer); all six functions or the service is off.
 #define STEAM_OPTIONAL_FUNCTIONS(X)                                                                                         \
     X(SteamAPI_InitFlat, int, (char*))                                                                                      \
     X(SteamAPI_Init, bool, ())                                                                                              \
@@ -87,7 +90,14 @@ struct CallbackMsg;  // steam_types.h
     X(SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput, bool, (void*))                                                  \
     X(SteamAPI_ISteamUtils_ShowGamepadTextInput, bool, (void*, int, int, const char*, u32, const char*))                    \
     X(SteamAPI_ISteamUtils_GetEnteredGamepadTextLength, u32, (void*))                                                       \
-    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))
+    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))                                           \
+    /* ISteamRemotePlay: RemotePlaySessionID_t is a u32, ESteamDeviceFormFactor a plain int */                              \
+    X(SteamAPI_ISteamRemotePlay_GetSessionCount, u32, (void*))                                                              \
+    X(SteamAPI_ISteamRemotePlay_GetSessionID, u32, (void*, int))                                                            \
+    X(SteamAPI_ISteamRemotePlay_GetSessionSteamID, u64, (void*, u32))                                                       \
+    X(SteamAPI_ISteamRemotePlay_GetSessionClientName, const char*, (void*, u32))                                            \
+    X(SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor, int, (void*, u32))                                              \
+    X(SteamAPI_ISteamRemotePlay_BGetSessionClientResolution, bool, (void*, u32, int*, int*))
 
 // The interface accessors of the SDK versions the plugin was checked against, newest first. Each interface is looked up
 // under its candidates in order; the first the library exports wins. Verified against the headers of SDK 1.58a, 1.59, 1.60,
@@ -101,6 +111,10 @@ struct CallbackMsg;  // steam_types.h
     X(apps, "ISteamApps", "SteamAPI_SteamApps_v009", "SteamAPI_SteamApps_v008")                                             \
     X(userStats, "ISteamUserStats", "SteamAPI_SteamUserStats_v013", "SteamAPI_SteamUserStats_v012")                         \
     X(remoteStorage, "ISteamRemoteStorage", "SteamAPI_SteamRemoteStorage_v016")
+
+// Interfaces that only some Steam clients give out (the plugin works without them; the field stays null). Same form as above.
+#define STEAM_OPTIONAL_ACCESSORS(X)                                                                                         \
+    X(remotePlay, "ISteamRemotePlay", "SteamAPI_SteamRemotePlay_v002", "SteamAPI_SteamRemotePlay_v001")
 
 // The Steamworks SDK versions whose flat API this plugin was checked against (the text of the errors and warnings).
 inline constexpr const char* kCheckedSdk = "Steamworks SDK 1.58 to 1.64";

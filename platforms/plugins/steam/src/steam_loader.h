@@ -23,6 +23,7 @@ struct SteamApi {
     void* apps = nullptr;
     void* userStats = nullptr;
     void* remoteStorage = nullptr;
+    void* remotePlay = nullptr;  // null when the library has no ISteamRemotePlay: the remotePlay service is then off
 
     void* module = nullptr;     // the library's handle (dlopen, LoadLibrary)
     i32 pipe = 0;               // the HSteamPipe of manual dispatch

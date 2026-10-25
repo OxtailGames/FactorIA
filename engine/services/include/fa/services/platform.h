@@ -146,10 +146,10 @@ Result<PlatformCatalog> load_platform_catalog(const Json& section);
 
 inline constexpr const char* kPlatformKey = "platform";  // the section of factoria.json
 
-// The nine services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-// "presence", "integrity", "ads". `player.signIn` belongs to none: every backend answers it.
+// The ten services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
+// "presence", "integrity", "ads", "remotePlay". `player.signIn` belongs to none: every backend answers it.
 const std::vector<std::string>& platform_services_all();
-// The events a backend sends: "purchase", "overlay", "player".
+// The events a backend sends: "purchase", "overlay", "player", "remotePlay".
 const std::vector<std::string>& platform_events();
 // The only error codes: "unavailable", "notSignedIn", "notAllowed", "unknownId", "network", "failed".
 const std::vector<std::string>& platform_error_codes();
@@ -191,7 +191,7 @@ public:
     void complete(std::uint64_t id, Json result) const;
     void fail(std::uint64_t id, PlatformError error) const;
     // Sends an event to the game: "purchase" {status, productId, transactionId, receipt}, "overlay" {open}, "player"
-    // {id, name, signedIn}. An unknown event name is logged once and dropped.
+    // {id, name, signedIn}, "remotePlay" {status: "connected" | "disconnected", session}. An unknown event name is logged once and dropped.
     void emit(const std::string& event, Json data) const;
     bool alive() const;  // false once the PlatformServices (or its backend) is gone
 

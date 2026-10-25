@@ -1652,8 +1652,8 @@
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"];
-  const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay"];
+  const PLATFORM_EVENTS = ["purchase", "overlay", "player", "remotePlay"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
   const quotedList = (names) => names.map((n) => `"${n}"`).join(", ");
@@ -1740,7 +1740,7 @@
     // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
     get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-    // "presence", "integrity", "ads".
+    // "presence", "integrity", "ads", "remotePlay".
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1751,7 +1751,8 @@
     // The last known player { id, name, signedIn } (from signIn and "player" events).
     get player() { return N.platformInfo().player; },
     signIn() { return platformCall("player.signIn", "platform.signIn()", {}); },
-    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn }.
+    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn },
+    // "remotePlay" { status: "connected" | "disconnected", session }.
     // Returns the function that stops listening. Listeners end with the scene, like ui.on.
     on(event, fn) {
       if (!PLATFORM_EVENTS.includes(event)) {
@@ -1798,6 +1799,12 @@
       load(key) { return platformCall("cloud.load", platformLabel("cloud.load", [key]), { key }, (r) => (r === null || r === undefined ? undefined : JSON.parse(r.data))); },
       list() { return platformCall("cloud.list", "platform.cloud.list()", {}); },
       remove(key) { return platformCall("cloud.remove", platformLabel("cloud.remove", [key]), { key }, noResult); },
+      // stat(key): { exists: false }, or { exists: true, size (bytes), modified (Unix seconds, or null when the store keeps no time) }.
+      stat(key) { return platformCall("cloud.stat", platformLabel("cloud.stat", [key]), { key }); },
+    },
+    remotePlay: {
+      // sessions(): the guests connected through Remote Play Together now: [{ id, guestName, guestId, deviceName, formFactor, resolution }].
+      sessions() { return platformCall("remotePlay.sessions", "platform.remotePlay.sessions()", {}); },
     },
     purchases: {
       // Titles and prices as the store shows them (ids: catalog ids; all products when omitted).
@@ -2454,8 +2461,14 @@
       // ad(outcome, options): how the fake's test ad ends from now on: "watched" (default), "closedEarly", "noFill" or
       // "consentRefused"; options { gdpr, tracking } are what platform.ads.consent() answers. reset() restores the defaults.
       ad(outcome, options = {}) { fa.call("platform.set_ad", { outcome, ...plain(options) }); },
+      // remotePlayConnect(info?): a guest joins Remote Play Together: info { guestName?, guestId?, deviceName?, formFactor?, resolution? }
+      // (what is left out is made up); remotePlay.sessions() lists the guest and platform.on("remotePlay") listeners get
+      // { status: "connected", session } at the next game.step(). Returns the session, with its id.
+      remotePlayConnect(info = {}) { return fa.call("platform.remote_play_connect", plain(info)); },
+      // remotePlayDisconnect(id): the guest with that session id leaves; listeners get { status: "disconnected", session }.
+      remotePlayDisconnect(id) { return fa.call("platform.remote_play_disconnect", { id }); },
       reset() { fa.call("platform.reset"); },
-      // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
+      // set({ signedIn, delayFrames, backend, cloudClock }): signedIn false rejects everything with notSignedIn; delayFrames holds each
       // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().
       // An unknown option throws with a "did you mean".
       set(options) { fa.call("platform.set_fake", plain(options)); },

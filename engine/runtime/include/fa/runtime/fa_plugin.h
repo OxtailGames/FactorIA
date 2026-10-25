@@ -102,7 +102,7 @@ typedef struct FaFunctionDesc {
 typedef struct FaBackendDesc {
     const char* name;     /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
     const char* services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
-                           * "overlay","presence","integrity","ads" (required; leave out
+                           * "overlay","presence","integrity","ads","remotePlay" (required; leave out
                            * what it does not offer: the engine then answers "unavailable") */
     /* Starts one request: method is "achievements.unlock", "purchases.buy", ... and args_json its arguments, with the
      * store's own id for the entry in "storeId" (docs/PLATFORM.md lists every method). Answer req with resolve() or
@@ -164,7 +164,7 @@ struct FaPluginApi {
      * "failed" (anything else becomes "failed"); message says what went wrong and hint how to fix it (hint may be NULL). */
     void (*reject)(FaRequest* req, const char* code, const char* message, const char* hint);
     /* Tell the game something happened without being asked: event "purchase" {status, productId, transactionId,
-     * receipt}, "overlay" {open} or "player" {id, name, signedIn}; scripts get it through platform.on(event, fn). */
+     * receipt}, "overlay" {open}, "player" {id, name, signedIn} or "remotePlay" {status, session}; scripts get it through platform.on(event, fn). */
     void (*emit)(const FaPluginApi* api, const char* event, const char* data_json);
 
     /* Version 3: the platform's own keyboard. Check api->version >= 3 before using these. */
