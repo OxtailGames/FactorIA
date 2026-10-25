@@ -230,6 +230,14 @@ struct Parser {
         const std::string base = "/platform/ads";
         read_app_ids(ads, base);
         read_enum(ads, base, "audience", {"general", "children", "mixed"}, "an audience", out.catalog.adsAudience, false);
+        opt_bool(ads, base, "trackingPrompt", out.catalog.adsTrackingPrompt);
+        text_or_key(ads, base, "trackingDescription", "trackingDescriptionKey", out.catalog.adsTrackingDescription,
+                    out.catalog.adsTrackingDescriptionKey, false, "\"Your data is used to show you ads that fit you.\"");
+        if (out.catalog.adsTrackingPrompt && out.catalog.adsAudience == "children")
+            issue(base + "/trackingPrompt",
+                  "trackingPrompt is true but the audience is \"children\": a game for children must not ask to track the player",
+                  "Remove trackingPrompt (the App Store rules for the Kids category forbid the tracking sheet and third-party "
+                  "advertising), or set \"audience\" to \"mixed\" so that only an adult is asked (docs/PLATFORM.md, \"Children and consent\").");
         if (auto it = ads.find("backend"); it != ads.end() && !it->is_null()) {
             const std::string pointer = base + "/backend";
             if (!it->is_string() || !valid_backend_name(it->get<std::string>())) {
@@ -268,7 +276,8 @@ struct Parser {
             if (!admob_id_shape(ai->get<std::string>(), '~')) {
                 issue(p, in_quotes(ai->get<std::string>()) + " is not an AdMob app id: they look like ca-app-pub-1234567890123456~1234567890",
                       "Copy it from the AdMob console (Apps > App settings > App ID). An id with a slash (ca-app-pub-.../...) is an ad unit: it goes in "
-                      "a placement's \"ids\": {\"admob\": \"...\"}. The wrong id in the manifest stops the app at start.");
+                      "a placement's \"ids\": {\"admob\": \"...\"} (Android) or {\"admob_ios\": \"...\"} (iOS). The wrong id in the manifest "
+                      "stops the app at start.");
                 continue;
             }
             out.catalog.adsAppIds[ai.key()] = ai->get<std::string>();
@@ -426,7 +435,7 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
             p.issue("/platform/ads", "expected an object like {\"placements\": [...]}, got " + describe_json_value(*it),
                     "Example: \"ads\": {\"placements\": [{\"id\": \"more_time\"}]} (docs/PLATFORM.md, \"Ads\").");
         } else {
-            p.unknown_keys(*it, "/platform/ads", {"placements", "appIds", "audience", "backend"});
+            p.unknown_keys(*it, "/platform/ads", {"placements", "appIds", "audience", "backend", "trackingPrompt", "trackingDescription", "trackingDescriptionKey"});
             p.read_ads_settings(*it);
             p.read_section<PlatformPlacement>(
                 *it, "placements", "ad placement",

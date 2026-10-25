@@ -1,6 +1,9 @@
-# CMake and Gradle build output of this plugin. The libraries it copies into windows/, macos/, linux/, ios/ and android/ are
-# what `factoria export` ships: commit them, or build them on the machine that exports.
+# CMake and Gradle build output of this plugin. The libraries it copies into macos/, ios/ and android/ are what `factoria export`
+# ships: commit them, or build them on the machine that exports.
 /build/
 /build-*/
 .gradle/
 .cxx/
+# Google's iOS SDK (GoogleMobileAds.xcframework, UserMessagingPlatform.xcframework): a download under Google's license, copied in by
+# `factoria call platform.add_backend '{"backend":"admob","sdk":"..."}'`. Never commit it: a clone downloads it again.
+/ios/frameworks/

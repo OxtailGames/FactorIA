@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 
 #if !defined(_WIN32)
@@ -1007,6 +1008,205 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
         CHECK(r.error().message.find("apple") != std::string::npos);
         CHECK(r.error().hint.find("frameworks") != std::string::npos);  // did you mean
         CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-ios")));
+    }
+}
+
+// A game with the admob plugin for iOS (docs/PLATFORM.md, "Ads on iOS"), the Google SDK stood in for by two XCFrameworks made here:
+// GoogleMobileAds is a static framework (an `ar` archive) and UserMessagingPlatform a dynamic one. No Google download is needed.
+static void add_admob_plugin(const std::string& proj, const char* platform) {
+    const stdfs::path plugin = stdfs::path(proj) / "plugins" / "admob";
+    for (const char* sdk : {"iphoneos", "iphonesimulator"}) testing::write_all(plugin / "ios" / sdk / "libadmob.a", sdk);
+    testing::write_all(plugin / "ios" / "plugin.json", R"json({
+      "swift": true,
+      "xcframeworks": ["frameworks/GoogleMobileAds.xcframework", "frameworks/UserMessagingPlatform.xcframework"],
+      "infoPlist": {"SKAdNetworkItems": [{"SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"}, {"SKAdNetworkIdentifier": "4fzdc2evr5.skadnetwork"}]}
+    })json");
+    const stdfs::path frameworks = plugin / "ios" / "frameworks";
+    for (const char* slice : {"ios-arm64", "ios-arm64_x86_64-simulator"}) {
+        testing::write_all(frameworks / "GoogleMobileAds.xcframework" / slice / "GoogleMobileAds.framework" / "GoogleMobileAds", "!<arch>\nstatic");
+        testing::write_all(frameworks / "UserMessagingPlatform.xcframework" / slice / "UserMessagingPlatform.framework" / "UserMessagingPlatform", "dynamic");
+    }
+    testing::write_all(frameworks / "GoogleMobileAds.xcframework" / "Info.plist", "<plist/>");
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["plugins"] = Json::parse(std::string(R"({"admob": {"path": "plugins/admob", "platforms": [")") + platform + R"("]}})");
+    project["platform"] = Json::parse(R"({"ads": {"trackingPrompt": true, "trackingDescription": "To show you \"fitting\" ads.",
+                                        "placements": [{"id": "more_time", "type": "rewarded"}]}})");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+}
+
+TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and the Info.plist gets Google's keys") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    add_admob_plugin(proj, "ios");
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "ios";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
+    o.buildSourceRoot = tmp.sub("no-checkout-here");
+    const auto has = [](const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; };
+    const auto edit_project = [&](const std::function<void(Json&)>& change) {
+        Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+        change(project);
+        testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+    };
+
+    SUBCASE("a development export carries Google's iOS sample app id, the SDK and the SKAdNetwork list") {
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const stdfs::path root = r->outputDir;
+        // Copied with the plugin (the frameworks are a download that git ignores, so the export is what carries them to the Mac).
+        CHECK(stdfs::exists(root / "plugins/admob/frameworks/GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/GoogleMobileAds"));
+        CHECK(stdfs::exists(root / "plugins/admob/frameworks/UserMessagingPlatform.xcframework/ios-arm64_x86_64-simulator"));
+        const std::string script = testing::read_all(root / "build_ios.sh");
+        CHECK(has(script, "-DFA_GAME_PLUGIN_XCFRAMEWORKS='admob/frameworks/GoogleMobileAds.xcframework;admob/frameworks/UserMessagingPlatform.xcframework'"));
+        CHECK(has(script, "-DFA_GAME_PLUGIN_EMBED_XCFRAMEWORKS='admob/frameworks/UserMessagingPlatform.xcframework'"));  // only the dynamic one
+        CHECK(has(script, "-DFA_GAME_PLUGIN_SWIFT=ON"));
+        CHECK(has(script, "-DFA_GAME_INFO_PLIST_EXTRA=\"$HERE/InfoPlistExtra.xml\""));
+        CHECK_FALSE(has(script, "FA_GAME_LOCALIZED_STRINGS"));  // a game that is not localized has one sentence
+
+        const std::string plist = testing::read_all(root / "InfoPlistExtra.xml");
+        CHECK(has(plist, "<key>GADApplicationIdentifier</key>\n\t<string>ca-app-pub-3940256099942544~1458002511</string>"));
+        CHECK(has(plist, "<key>FactoriaAdsTest</key>\n\t<true/>"));
+        CHECK(has(plist, "<key>FactoriaAdsAudience</key>\n\t<string>general</string>"));
+        CHECK(has(plist, "<key>FactoriaAdsTrackingPrompt</key>\n\t<true/>"));
+        CHECK(has(plist, "<key>NSUserTrackingUsageDescription</key>\n\t<string>To show you \"fitting\" ads.</string>"));
+        CHECK(has(plist, "<key>SKAdNetworkItems</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>SKAdNetworkIdentifier</key>\n\t\t\t<string>cstr6suwn9.skadnetwork</string>"));
+        CHECK(has(plist, "4fzdc2evr5.skadnetwork"));
+        CHECK_FALSE(has(plist, "<?xml"));  // pairs only: platforms/ios/Info.plist.in holds the rest
+
+        // The template the pairs are pasted into has the place for them, and the CMake side reads the variables.
+        CHECK(has(testing::read_all(root / "cmake/Info.plist.in"), "@FA_IOS_PLIST_EXTRA@"));
+        CHECK(has(testing::read_all(root / "cmake/plist.cmake"), "FA_GAME_INFO_PLIST_EXTRA"));
+        CHECK(has(testing::read_all(root / "cmake/plugins.cmake"), "FA_GAME_PLUGIN_EMBED_XCFRAMEWORKS"));
+
+        bool linked = false, ads = false;
+        for (const std::string& s : r->nextSteps) {
+            linked = linked || (has(s, "GoogleMobileAds.xcframework") && has(s, "embeds the dynamic ones (1)"));
+            ads = ads || (has(s, "GADApplicationIdentifier ca-app-pub-3940256099942544~1458002511") && has(s, "development export always shows test ads") &&
+                          has(s, "privacy.tracking"));
+        }
+        CHECK(linked);
+        CHECK(ads);
+        for (const std::string& w : r->warnings) CHECK_MESSAGE(!has(w, "appIds"), w);  // a development export does not warn about ids
+    }
+
+    SUBCASE("a release export carries the catalog's iOS app id and warns about the placements without a unit") {
+        edit_project([](Json& p) { p["platform"]["ads"]["appIds"] = Json::parse(R"({"ios": "ca-app-pub-1234567890123456~0987654321"})"); });
+        o.release = true;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string plist = testing::read_all(stdfs::path(r->outputDir) / "InfoPlistExtra.xml");
+        CHECK(has(plist, "<string>ca-app-pub-1234567890123456~0987654321</string>"));
+        CHECK_FALSE(has(plist, "ca-app-pub-3940256099942544"));
+        CHECK(has(plist, "<key>FactoriaAdsTest</key>\n\t<false/>"));
+        bool unit = false;
+        for (const std::string& w : r->warnings) unit = unit || (has(w, "placement \"more_time\"") && has(w, "admob_ios"));
+        CHECK(unit);
+        for (const std::string& w : r->warnings) CHECK_MESSAGE(!has(w, "appIds"), w);
+    }
+
+    SUBCASE("a release export without the app id warns and carries the sample, so the app still starts") {
+        o.release = true;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(has(testing::read_all(stdfs::path(r->outputDir) / "InfoPlistExtra.xml"), "ca-app-pub-3940256099942544~1458002511"));
+        bool appId = false;
+        for (const std::string& w : r->warnings) appId = appId || has(w, "platform.ads.appIds.ios is not set");
+        CHECK(appId);
+    }
+
+    SUBCASE("asking to track without telling the privacy manifest warns; telling it does not") {
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool warned = false;
+        for (const std::string& w : r->warnings) warned = warned || (has(w, "platform.ads.trackingPrompt is true but export.ios.privacy.tracking is not"));
+        CHECK(warned);
+
+        edit_project([](Json& p) { p["export"]["ios"]["privacy"] = Json::parse(R"({"tracking": true, "trackingDomains": ["googleads.g.doubleclick.net"]})"); });
+        auto tracked = export_project(o);
+        REQUIRE_MESSAGE(tracked.ok(), (tracked.ok() ? "" : tracked.error().to_string()));
+        for (const std::string& w : tracked->warnings) CHECK_MESSAGE(!has(w, "trackingPrompt"), w);
+        CHECK(has(testing::read_all(stdfs::path(tracked->outputDir) / "PrivacyInfo.xcprivacy"), "<key>NSPrivacyTracking</key>\n\t<true/>"));
+        bool step = false;
+        for (const std::string& s : tracked->nextSteps) step = step || (has(s, "PrivacyInfo.xcprivacy says the app tracks") && has(s, "1 tracking domain(s)"));
+        CHECK(step);
+    }
+
+    SUBCASE("no tracking prompt: the sheet's sentence is not written and the plugin is told not to ask") {
+        edit_project([](Json& p) { p["platform"]["ads"].erase("trackingPrompt"); });
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string plist = testing::read_all(stdfs::path(r->outputDir) / "InfoPlistExtra.xml");
+        CHECK(has(plist, "<key>FactoriaAdsTrackingPrompt</key>\n\t<false/>"));
+        CHECK_FALSE(has(plist, "NSUserTrackingUsageDescription"));
+    }
+
+    SUBCASE("a localized game gets the sentence per language as InfoPlist.strings") {
+        edit_project([](Json& p) {
+            p["localization"] = Json::parse(R"({"defaultLanguage": "en", "languages": ["en", "es"]})");
+            p["platform"]["ads"].erase("trackingDescription");
+            p["platform"]["ads"]["trackingDescriptionKey"] = "ads.tracking";
+        });
+        testing::write_all(stdfs::path(proj) / "locales/en.json", R"({"ads.tracking": "Ads that \"fit\" you."})");
+        testing::write_all(stdfs::path(proj) / "locales/es.json", R"({"ads.tracking": "Anuncios a tu medida."})");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const stdfs::path root = r->outputDir;
+        CHECK(has(testing::read_all(root / "build_ios.sh"), "-DFA_GAME_LOCALIZED_STRINGS=\"$HERE/InfoPlist\""));
+        CHECK(testing::read_all(root / "InfoPlist/es.lproj/InfoPlist.strings") == "\"NSUserTrackingUsageDescription\" = \"Anuncios a tu medida.\";\n");
+        CHECK(testing::read_all(root / "InfoPlist/en.lproj/InfoPlist.strings") == "\"NSUserTrackingUsageDescription\" = \"Ads that \\\"fit\\\" you.\";\n");
+        const std::string plist = testing::read_all(root / "InfoPlistExtra.xml");
+        CHECK(has(plist, "<string>Ads that \"fit\" you.</string>"));
+        CHECK(has(plist, "<key>CFBundleLocalizations</key>\n\t<array>\n\t\t<string>en</string>\n\t\t<string>es</string>"));
+    }
+
+    SUBCASE("a plugin that lists an XCFramework it does not have stops the export and says where to get it") {
+        stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/UserMessagingPlatform.xcframework");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "plugin 'admob'"));
+        CHECK(has(r.error().message, "UserMessagingPlatform.xcframework"));
+        CHECK(has(r.error().hint, "platform.add_backend"));
+        CHECK(has(r.error().hint, "\"sdk\""));
+        CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-ios")));
+    }
+
+    SUBCASE("an XCFramework without the slice of the simulator exports with a warning") {
+        stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64_x86_64-simulator");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool warned = false;
+        for (const std::string& w : r->warnings) warned = warned || (has(w, "GoogleMobileAds.xcframework has no slice for the iOS Simulator") && has(w, "--simulator"));
+        CHECK(warned);
+    }
+
+    SUBCASE("an XCFramework with no iOS slice at all is refused") {
+        stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64");
+        stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64_x86_64-simulator");
+        testing::write_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/macos-arm64/GoogleMobileAds.framework/GoogleMobileAds", "x");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "has no iOS slice"));
+        CHECK_FALSE(r.error().hint.empty());
+    }
+
+    SUBCASE("a plugin that writes the key the export writes for the ads plugin is refused") {
+        testing::write_all(stdfs::path(proj) / "plugins/admob/ios/plugin.json", R"({"swift": true, "infoPlist": {"GADApplicationIdentifier": "ca-app-pub-1~2"}})");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "GADApplicationIdentifier"));
+        CHECK(has(r.error().hint, "platform.ads"));
+    }
+
+    SUBCASE("a game without the plugin gets none of it") {
+        edit_project([](Json& p) { p.erase("plugins"); p["platform"].erase("ads"); });
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string script = testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh");
+        for (const char* key : {"FA_GAME_PLUGIN_XCFRAMEWORKS", "FA_GAME_INFO_PLIST_EXTRA", "FA_GAME_LOCALIZED_STRINGS"}) CHECK_FALSE(has(script, key));
+        CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "InfoPlistExtra.xml"));
     }
 }
 
