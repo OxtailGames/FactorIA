@@ -3,7 +3,7 @@
 A top-down 2D mining game for up to four players on one screen (couch co-op), for desktop first and Steam. Dig dirt and
 rock with a pick, take the ore, keep your lamp alight with oil cans, free the moles trapped in the rock, and ride the lift
 up before the dark gets you. It is the third reference game of the FactorIA engine (milestone M28), built in eight
-packages (P1 to P8). This is package P2 (the world and its enemies) on top of P1 (the miner, digging and the mine). The later packages build on the
+packages (P1 to P8). This is package P4 (camp, progress and saves) on top of P1 (the miner, digging and the mine) and P2 (the world and its enemies). The later packages build on the
 contracts below.
 
 ## Run
@@ -16,9 +16,10 @@ factoria test                     # headless tests
 factoria call project.mine_preview '{"seed":1234}'    # a generated mine as text, with its hash
 ```
 
-The title (`scenes/menu.scene.json`) goes through Play and `scenes/loading.scene.json` to a shift
-(`scenes/shift.scene.json`, a generated mine), then to the results (`scenes/results.scene.json`), then the next floor, the
-same floor again or the title (`scripts/game/progression.js` decides which). `scenes/test_mine.scene.json` is a small handmade mine the tests use (its layout is in `tests/helpers/mine.js`);
+Flow: title -> slots (Play, Continue, Daily dig or a seed code) -> shift (`scenes/shift.scene.json`, a generated mine) ->
+results (`scenes/results.scene.json`) -> camp (`scenes/camp.scene.json`, the shop) -> the next shift. The loading screen
+(`scenes/loading.scene.json`) sits between scenes. `scripts/game/progression.js` decides what follows a shift. A victory over
+the Mole King starts a new run in the same slot at once (no camp); a daily dig goes back to the title instead. `scenes/test_mine.scene.json` is a small handmade mine the tests use (its layout is in `tests/helpers/mine.js`);
 it is not in the player's flow.
 
 ## Controls
@@ -29,6 +30,13 @@ it is not in the player's flow.
 | Dig (hold, facing a tile) | Space / J | A or X |
 | Place a torch | T | B or Y |
 | Pause | Escape / P | Start |
+| Menus, camp, slots, code panel | arrows / Tab, Enter, mouse | d-pad or stick, A |
+
+In the camp each shop line is a button (`buy_<id>`): move with up/down, buy with submit or click. Cash and the next price show
+on the button; when the cash is short or the item is at its maximum the camp says so. "Descend" starts the next shift, "Copy
+seed code" copies the code of the next floor. At the title, Continue loads the last slot; Play opens the 3 slots (a free slot
+starts a run, a used one continues it, its delete button asks to confirm); "Seed code" opens a text field (type or paste, Enter
+plays it).
 
 You dig the tile you face: walk into it to turn towards it, then hold dig. A crack grows on the tile while you dig and
 fills back in if you let go. Dig times with the starting pick: dirt 0.5 s, rock 1.4 s, hard rock 2.2 s, copper 0.6 s,
@@ -38,6 +46,20 @@ miner makes a "blocked" sound. Bedrock never breaks. Rebinding is in Options > C
 Holding dig with an enemy in front of you swings the pick at it instead (every 0.5 s; 1 damage plus the pick tier). With
 several players on one keyboard the key blocks are: WASD + Space + E, arrows + Enter + RightShift, IJKL + U + O (dig and torch
 last); a second and third player can use pads (left stick or d-pad, A or X to dig, B or Y for a torch).
+
+## Camp, saves and codes
+
+- **Camp** (`camp.js`): after every results screen the team sits at a fire. The shop sells six things (`upgrades.js`): pick
+  tier (0 to 2) and pick speed, lamp oil and lamp radius, boots (walk speed) and torches per shift; each is a ladder whose price
+  rises per level. The run autosaves on entering the camp and after each purchase.
+- **Slots**: 3 save slots. New, continue and delete (delete asks to confirm). A corrupt save or one from a newer game shows a
+  message that says what is wrong and what to do; it is never overwritten silently.
+- **Cloud**: when the platform has a cloud, slots sync with it. The rule is in the Contracts.
+- **Daily dig**: one shared seed per local calendar day. It is played once for the score; a run in daily mode does not write
+  to the slots.
+- **Seed codes**: a floor and seed as `XXXX-XXXX` (base32 with a check character). The results and camp screens copy it, the
+  title pastes it. The clipboard is a session buffer inside the game: scripts cannot reach the system clipboard (FB-0013), so a
+  code copied here is pasted here; typing a code from elsewhere works as usual.
 
 ## The shift
 
@@ -76,12 +98,13 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 
 ```
 factoria.json              input actions, the title as main scene
-scenes/                    menu, loading, shift, results, test_mine
+scenes/                    menu, loading, shift, results, camp, test_mine
 prefabs/                   miner, mole, enemy, ui/options, ui/pause
-scripts/game/              the game: see Contracts
-scripts/                   menu kit (main_menu, pause_menu, loading, settings, ui/*) and results.js
+scripts/game/              the game: see Contracts (P4: upgrades, save, cloud, daily, seed_code, clipboard, floors, suggest)
+scripts/                   menu kit (main_menu, pause_menu, loading, settings, ui/*), results.js and camp.js
+scripts/ui/title_flow.js   the title's Continue, slots, delete confirmation, cloud sync, daily and code panel
 tools/mine_preview.js      project.mine_preview: a mine as text
-tests/                     the test files of the table below; helpers/mine.js, world.js and bot.js
+tests/                     the test files of the table below; helpers/ (mine, world, bot, camp) and fixtures/ (save_v1, save_v2)
 assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py), music/*.wav (+ src/make_music.py), audio/*.wav
 locales/en.json            every string of the UI
 ```
@@ -148,14 +171,18 @@ unsubscribe function, `emit(name, data)`, `count(name)`, `emitted(name)`, `clear
 `oilPicked`, `lampLow`, `lampOut`, `liftReached`, `moleRescued`, `shiftEnded`, `playerAdded`, `playerRemoved`, `playerState`,
 `playerDown` and `tileChanged`. P2 adds `hazardTriggered` (`kind` flood, magma or caveIn; `phase` start, spread, impact or hit),
 `playerHurt`, `torchPlaced`, `enemyHit`, `enemyDefeated`, `oreStolen`, `oreRecovered`, `thiefEscaped`, `bossStarted`,
-`bossDefeated` and `exitJammed`; `shiftEnded` can now carry the outcome `allDown`. `upgradeBought` and `cashChanged` (P4) are
-reserved: they can be subscribed to but nothing emits them yet. A behaviour that subscribes unsubscribes in `onDestroy`; `startRun` clears the bus.
+`bossDefeated` and `exitJammed`; `shiftEnded` can now carry the outcome `allDown`. P4 emits `upgradeBought` (`upgrade`, `level`,
+`cost`, `cash`) and `cashChanged` (`cash`, `delta`, `cause`: a shift's bank or an upgrade). A behaviour that subscribes unsubscribes in `onDestroy`; `startRun` clears the bus.
 
 ### Run state: `scripts/game/run_state.js`
 
-`run` is `{ active, seed, stratum, floor, shiftNumber, cash, upgrades, ore, lamps, torches, molesRescued, molesTotal,
-shiftTime, inShift, lastShift }`. `upgrades` is `{ pickTier, pickSpeed, lampOil, lampRadius, walkSpeed, torches }` (`BASE_UPGRADES`); the miner
-already reads every one, the camp changes them (P4). `lamps` maps a player id to `{ oil, max, out, low }` (`lampOf(id)`). Functions:
+`run` is `{ active, seed, mode, dailyKey, slot, stratum, floor, shiftNumber, cash, upgrades, ore, lamps, torches, molesRescued,
+molesTotal, shiftTime, playTime, bestDepth, shiftSeed, inShift, lastShift }`.
+
+**Contract with P5 (online):** a daily dig sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the local date from
+`game.today()`); every other run has `run.mode = "normal"` and `run.dailyKey = null`. `run.slot` is 1 to 3, or null for a daily
+dig. Read these to tag a score or a board. `mineSeed(...)` and `depthOf(...)` give a floor's seed and its depth in metres. `upgrades` is `{ pickTier, pickSpeed, lampOil, lampRadius, walkSpeed, torches }` (`BASE_UPGRADES`); the miner
+already reads every one, the camp changes them (`upgrades.js`). `lamps` maps a player id to `{ oil, max, out, low }` (`lampOf(id)`). Functions:
 `startRun({ seed, stratum, floor })` (the title's Play calls it; it also clears the events bus and resets the music),
 `beginShift()` (the shift scene calls it: resets ore, lamps, hearts, torches, clock and moles, and returns the mine seed), `addOre`,
 `totalOre`, `oreValue`, `endShift("lift" | "dark" | "allDown")` (banks the ore value for `lift` only and builds `run.lastShift`,
@@ -166,8 +193,7 @@ which also holds the stratum and floor played), `snapshot()` and `restore(data)`
 The one place that knows the order of the floors. `plan(summary)` (pure; the `run.lastShift` summary in) returns `{ kind:
 "next" | "retry" | "victory", stratum, floor, newStratum, boss }`: a `lift` goes to the next floor (floor 1 of the next stratum after
 floor 3), `dark` and `allDown` retry the same floor, and a `lift` on the boss floor is the victory. `nextScene(plan)` is the
-scene that follows the results: today the shift scene. **P4 puts the camp between the results and the next floor by changing
-`nextScene` and nothing else.** `go(plan)` sets `run.stratum` and `run.floor` (a victory starts a fresh run) and loads the scene
+scene that follows the results: the camp (`CAMP_SCENE`), or the title (`TITLE_SCENE`) after a daily victory. `go(plan)` sets `run.stratum` and `run.floor` (a victory starts a fresh run) and loads the scene
 through the loading screen. `results.js` is its only caller.
 
 ### Hazards: `scripts/game/hazards.js`
@@ -208,12 +234,42 @@ All music goes through here (P6 adds layers). `play(stratum)` starts the stratum
 whether the track differs from the last one; the shift calls it at every start because a scene load stops the audio.
 `current()`, `forStratum(n)`, `reset()`.
 
-### Save stub: `scripts/game/save.js`
+### Camp and upgrades: `scripts/game/upgrades.js`, `scripts/camp.js`
 
-`save()` writes `{ format: SAVE_FORMAT, seed, stratum, floor, shiftNumber, cash, upgrades }` to `storage` key `burrow.save` when a
-shift ends; `load()`, `apply()` (puts a save into the run state) and `erase()`. `migrate(data)` is where a later format is
-brought up to date: today it only checks the `format` field and answers `{ ok: false, message, hint }` for a file with no format
-or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
+`SHOP` (six ladders), `ITEMS`, `maxLevel(id)`, `levelOf(id)`, `offer(id)` (`{ level, value, cost }` or null at the maximum),
+`buy(id)` (pays, applies, emits `cashChanged` then `upgradeBought`; refuses with `{ ok: false, reason: "max" | "cash", message,
+hint }`), `upgradesAt(levels)`. An unknown id throws with a "did you mean". `run_state.addCash(delta, cause)` is the only way cash
+changes.
+
+### Saves: `scripts/game/save.js`
+
+Format 2, in `storage` keys `burrow.slot.1` to `burrow.slot.3` (`burrow.lastSlot` remembers the last one). A save holds `{ format,
+seed, mode, stratum, floor, shiftNumber, cash, upgrades, playTime, bestDepth, savedAt... }` (see `toSave`). Functions: `migrate(data)`
+(v1 to v2, `{ ok, data }` or `{ ok: false, message, hint }` for a missing format, a newer one or a damaged file), `readSlot(n)`,
+`slots()` (the three summaries for the title), `storageDamaged()`, `lastSlot()`, `importLegacy()` (the P1 key `burrow.save` becomes
+slot 1 once), `save()`, `newRun(slot, opts)`, `continueSlot(slot)`, `load`, `apply`, `erase(slot)`. `tests/fixtures/save_v1.json` and
+`save_v2.json` pin both formats; to change the format raise `SAVE_FORMAT`, add a step to `migrate` and a fixture.
+
+### Cloud saves: `scripts/game/cloud.js`
+
+`syncSlot(n, { allowDownload })`, `syncAll()`, `removeSlot(n)`, `available()`. Each slot is the cloud key `slot<N>`. The platform gives no
+modified time (FB-0015), so the game keeps the revision it last synced (`burrow.cloudBase.N`): only local changed -> upload; only
+cloud changed -> download (only when `allowDownload`, which the title sets and the camp does not, so the camp is upload-only); both
+changed -> **conflict**: the copy with more progress (deeper floor, then more shifts, then more play time) wins and the loser is kept
+in `burrow.backup.N` and never deleted. Answers: `unavailable`, `none`, `inSync`, `uploaded`, `downloaded`, `conflict`, `waiting`,
+`blocked`, `error`. The local slot is re-read after the cloud answers, so a save made meanwhile is not lost. Tested on the fake store.
+
+### Daily dig: `scripts/game/daily.js`
+
+`todayKey()`, `isKey(s)`, `seedFor(key)` (FNV-1a of `burrow-brigade/daily/<key>`), `status()`, `start()`, `noteShift(...)`. The key
+is the local date: `game.today()` has no time of day, so UTC cannot be derived (FB-0014). Played days are in `burrow.daily`.
+
+### Seed codes: `scripts/game/seed_code.js`, `scripts/game/clipboard.js`
+
+`encode(floorIndex, seed)`, `decode(text)` (a result or a teaching error with a "did you mean"), `normalize(text)`, `ALPHABET`,
+`EXAMPLE`. 4 bits of floor index and 31 bits of seed as 7 characters plus a check character, shown `XXXX-XXXX`; look-alike
+characters (O/0, I/1) are accepted. `clipboard.js`: `copy`, `paste`, `system`, `useSystem({ write, read })`, `reset`. It is a session
+buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
 
 ## Tests
 
@@ -225,7 +281,12 @@ or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
 | `mine.test.js` | the map, digging dirt / rock / hard rock / bedrock, the pick tier, ore pickup, oil drain, warning and darkness, the oil can, the lift ending the shift, the moles |
 | `input.test.js` | the keyboard and a gamepad each drive the miner, two keyboard players and a second pad each move only their own miner, the four-player registry |
 | `flow.test.js` | title -> loading -> shift -> results -> another shift or title, ore banked or lost, leaving a scene mid-wait, the pause menu, the save, the events bus |
-| `recipe.test.js` | the menu kit's gamepad-only options test |
+| `recipe.test.js` | the menu kit's gamepad-only options test (three d-pad presses now: the title has Continue and Daily) |
+| `upgrades.test.js` | the ladders, buying with enough and short cash, the maximum, events, the camp with pad, keyboard and mouse, upgrades reaching the miner |
+| `saves.test.js` | format 2, v1 to v2 migration from fixtures, corrupt and newer saves, three slots, Continue, delete with confirmation |
+| `cloud.test.js` | upload, download, conflict and backup, unavailable and failing stores, a save made while waiting |
+| `daily.test.js` | the same seed per day, played once, `run.mode` and `run.dailyKey`, no slot written |
+| `seed_code.test.js` | encode and decode round trips, check character, look-alikes, copy at the camp and results, paste at the title |
 | `hazards.test.js` | a flood sealed then spreading, slow water and drowning, magma burning, a cave-in warning then impact, a miner on the lift spared, `allDown` with one and with three players, the results screen |
 | `light.test.js` | the cap of 16 Light2D with four players, six torches and a crystal hall, the nearest sources win the pool, torch rules and the T key, fog states, walls blocking sight and digging opening it |
 | `pathfinding.test.js` | the A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
@@ -242,7 +303,7 @@ or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
 | `assets/music/*.wav` | one looping track per stratum, synthesised by `assets/src/make_music.py` (no sample taken from anywhere) | CC0 |
 | `assets/audio/*.wav` | made with `assets.synth_sound` (presets footstep, hit, coin, pickup, error, powerup, whoosh, click, growl, explosion, splash, laser) | CC0 |
 
-`assets.json` records the provenance of each file. The engine gaps found while building P1 and P2 are in `ENGINE_FEEDBACK.json`.
+`assets.json` records the provenance of each file. The engine gaps found while building P1, P2 and P4 are in `ENGINE_FEEDBACK.json`.
 
 ## Status
 
@@ -251,7 +312,7 @@ or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
 | P1 | The miner, digging and the mine | done |
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
 | P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | to do |
-| P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | to do |
+| P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | to do |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | to do |
 | P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | to do |

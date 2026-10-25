@@ -232,7 +232,9 @@
             "Text": {
               "text": "",
               "fontSize": 22,
-              "space": "screen"
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         }

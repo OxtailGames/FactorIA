@@ -269,6 +269,94 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "Scripts cannot read or write the system clipboard",
+      "missing": "No clipboard API in the factoria module and no paste shortcut in TextField, so a seed code cannot be copied to another program or pasted from one",
+      "workaround": "scripts/game/clipboard.js keeps a session buffer behind copy()/paste() and a useSystem({write,read}) hook; the camp and results say honestly when the code only stayed in the game; the title has a Paste button that reads the buffer",
+      "workaroundFiles": [
+        "scripts/game/clipboard.js",
+        "scripts/camp.js",
+        "scripts/results.js",
+        "scripts/ui/title_flow.js"
+      ],
+      "suggestion": "clipboard.read()/clipboard.write(text) in the factoria module (async on web), and Ctrl+V / Cmd+V in a focused TextField",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "game.today() has no time of day, so the UTC date is not derivable",
+      "missing": "game.today() answers the local calendar date and utcOffsetMinutes, but no hour or minute, so a daily seed that must roll over at the same instant for every player (UTC midnight) cannot be computed",
+      "workaround": "scripts/game/daily.js keys the daily dig on the local date (game.today().iso); players in other time zones roll over at their own midnight, and the README says so",
+      "workaroundFiles": [
+        "scripts/game/daily.js"
+      ],
+      "suggestion": "add utcIso (the UTC date) or hour/minute to game.today(), still fixed by game.setDate in tests",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "platform.cloud has no modified time or conflict signal",
+      "missing": "cloud.load answers only the value: no modified time, device id or conflict notice, so two devices that played offline cannot be told apart by the store",
+      "workaround": "scripts/game/cloud.js stores a revision counter in every save and the revision last synced per slot (burrow.cloudBase.N), settles a conflict by play time and keeps the loser as burrow.backup.N",
+      "workaroundFiles": [
+        "scripts/game/cloud.js",
+        "scripts/game/save.js"
+      ],
+      "suggestion": "cloud.stat(key) answering { modified, size } and a conflict event where the store has one (Steam Cloud, iCloud)",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.click on a widget of a panel opened in the same frame silently does nothing",
+      "missing": "Right after a panel becomes active, ui.rectOf answers the default rectangle until one game.step has laid it out, and game.click(id) then hits nothing without any message",
+      "workaround": "tests step twice after opening a panel before clicking in it (tests/cloud.test.js, tests/saves.test.js)",
+      "workaroundFiles": [
+        "tests/cloud.test.js"
+      ],
+      "suggestion": "game.click throws 'widget not laid out yet: step once after activating it'",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
