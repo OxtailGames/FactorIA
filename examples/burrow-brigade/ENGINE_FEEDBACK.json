@@ -113,8 +113,11 @@
       ],
       "suggestion": "Build the list from input.actions() minus the ui_* ones, taking the label from options.action.<name> and falling back to the action name.",
       "effort": "small",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-25: Replaced the tab with a per-player page (a button cycles Player 1 to 4, six rows from controls.ACTIONS)."
+      ]
     },
     {
       "id": "FB-0006",
@@ -131,12 +134,17 @@
       "workaround": "scripts/game/miner_input.js has three device kinds: 'any' (the project's actions: keyboard and every pad, one player), 'keys' (a fixed key block) and 'pad' (input.gamepad(i) with hard-coded left stick, d-pad and A/X). P2 added the torch button (B or Y on a pad, T on the keyboard) to the same three device kinds.",
       "workaroundFiles": [
         "scripts/game/miner_input.js",
-        "scripts/game/players.js"
+        "scripts/game/players.js",
+        "scripts/game/controls.js",
+        "scripts/ui/options.js"
       ],
       "suggestion": "Per-player action sets: input.gamepad(i).down('dig') resolving the project's binding for that action, or input.player(i).axis(...) with a rebind per player.",
       "effort": "medium",
-      "occurrences": 2,
-      "status": "open"
+      "occurrences": 3,
+      "status": "open",
+      "notes": [
+        "2026-10-25: scripts/game/controls.js keeps a binding table per seat in settings.playerBindings (keys and pad families), miner_input.js reads it with input.keyDown and input.gamepad(i).down/axis by binding name; the Options Controls page is per player and captures input.lastPressed()."
+      ]
     },
     {
       "id": "FB-0007",
@@ -267,6 +275,73 @@
       ],
       "suggestion": "Say in the audio.music doc string and in AUDIO.md what a scene load does to music, and offer a persistent music option.",
       "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "major",
+      "title": "No split screen: one camera, no viewports",
+      "missing": "Only one Camera renders per frame; a second Camera, a viewport rectangle or a render target do not exist (docs list split-screen as roadmap). A co-op game cannot split into 2 to 4 views when the players part.",
+      "workaround": "scripts/game/camera_views.js computes the split plan (clusters, viewports, zoom, hysteresis) and follow_camera.js zooms one shared camera out up to a limit; a leash (limitMove) stops miners going farther than the largest view. The plan is published and tested but not drawn.",
+      "workaroundFiles": [
+        "scripts/game/camera_views.js",
+        "scripts/game/follow_camera.js",
+        "scripts/game/miner.js"
+      ],
+      "suggestion": "Camera.viewport [x,y,w,h] normalised, several primary cameras per frame, each with its own Light2D culling and HUD space.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "major",
+      "title": "No gamepad connect/disconnect events and no stable pad identity",
+      "missing": "input.gamepad(i).connected can only be polled, there is no event, and a pad that is unplugged and plugged in may come back in another slot with nothing to tell which pad it was.",
+      "workaround": "pad_watch.js polls connected every frame, pauses with a prompt, resumes on reconnect and lets a free pad (A) or the keyboard (Enter) take the miner over; join.js polls the four slots.",
+      "workaroundFiles": [
+        "scripts/game/pad_watch.js",
+        "scripts/join.js"
+      ],
+      "suggestion": "input.on('gamepadConnected'|'gamepadDisconnected', {index, id}) and a stable pad id string (vendor/product/serial) on input.gamepad(i).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Steam Remote Play Together guests are not exposed",
+      "missing": "Steam shows a Remote Play guest's controller as one more gamepad, but the game cannot tell it from a local pad, nor ask Steam which seats are guests, nor use Steam Input glyphs per player.",
+      "workaround": "join.js and pad_watch.js treat every pad the same and poll, so a guest pad that appears mid-lobby joins with A; tested with a pad connected during the lobby on the test API (no fake Steam store hook exists for it).",
+      "workaroundFiles": [
+        "scripts/join.js",
+        "scripts/game/pad_watch.js"
+      ],
+      "suggestion": "platform.steam.remotePlay: {guests: [{index, name}]} plus an event, and the fake store able to add guests.",
+      "effort": "medium",
       "occurrences": 1,
       "status": "open"
     }

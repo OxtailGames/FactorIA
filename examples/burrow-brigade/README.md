@@ -16,24 +16,36 @@ factoria test                     # headless tests
 factoria call project.mine_preview '{"seed":1234}'    # a generated mine as text, with its hash
 ```
 
-The title (`scenes/menu.scene.json`) goes through Play and `scenes/loading.scene.json` to a shift
+The title (`scenes/menu.scene.json`) goes through Play, `scenes/loading.scene.json`, the **join screen** (`scenes/join.scene.json`) and
+the loading screen again to a shift
 (`scenes/shift.scene.json`, a generated mine), then to the results (`scenes/results.scene.json`), then the next floor, the
 same floor again or the title (`scripts/game/progression.js` decides which). `scenes/test_mine.scene.json` is a small handmade mine the tests use (its layout is in `tests/helpers/mine.js`);
 it is not in the player's flow.
 
 ## Controls
 
-| Action | Keyboard | Gamepad |
+**Joining**: after Play, each device joins with **A** (pad) or **Enter** (keyboard) and leaves with **B** or **Escape**. The first
+player to join starts the shift with **Start** (pad) or **Enter** (keyboard). B or Escape with nobody joined goes back to the
+title. Up to 4 players, each with a colour and a name (P1 to P4): one keyboard and three pads work, and so do four pads. A pad
+plugged in while the screen is open joins like any other (that is how a Steam Remote Play Together guest arrives); a joined pad
+that is unplugged here leaves.
+
+A player who joins on the keyboard gets the whole keyboard (below); the others get their pad.
+
+| Action | | Keyboard | Gamepad |
 |---|---|---|
 | Walk (4 directions) | WASD / arrows | left stick or d-pad |
 | Dig (hold, facing a tile) | Space / J | A or X |
 | Place a torch | T | B or Y |
+| Revive a downed friend (hold dig next to them) | Space / J | A or X |
 | Pause | Escape / P | Start |
 
 You dig the tile you face: walk into it to turn towards it, then hold dig. A crack grows on the tile while you dig and
 fills back in if you let go. Dig times with the starting pick: dirt 0.5 s, rock 1.4 s, hard rock 2.2 s, copper 0.6 s,
 silver 1.5 s, gold 2.4 s, gems 2.6 s. Hard rock, gold and gems need the tier 1 pick (the camp sells it, P4): without it the
-miner makes a "blocked" sound. Bedrock never breaks. Rebinding is in Options > Controls.
+miner makes a "blocked" sound. Bedrock never breaks. Each player rebinds their own keys and buttons in
+Options > Controls (a button cycles Player 1 to 4; click an action, then press the key or button; a key replaces the keyboard list, a
+button replaces the pad list of that action). The bindings are saved by seat in `settings.playerBindings`.
 
 Holding dig with an enemy in front of you swings the pick at it instead (every 0.5 s; 1 damage plus the pick tier). With
 several players on one keyboard the key blocks are: WASD + Space + E, arrows + Enter + RightShift, IJKL + U + O (dig and torch
@@ -57,7 +69,18 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   bigger, with more rock and richer ore (`STRATA` in `generator.js`).
 - **Hearts**: every miner has 3 hearts per shift (shown next to its oil bar). At 0 the miner is **down**: it lies faded, does
   not move, dig or burn oil, and the shift ends without it. When every miner is down the shift ends with the outcome
-  `allDown` (nothing is banked). Nobody can get up yet (revive is P3).
+  `allDown` (nothing is banked).
+- **Revive**: a miner who stands next to a downed friend (within 24 units) and holds dig fills a bar over the friend for 3 s (two
+  friends fill it twice as fast); the bar empties 1.5 times faster than it filled when nobody holds. The friend gets up with one
+  heart and 2 s of grace (`playerRevived`). A downed miner **does not bleed out**: it lies there until a friend comes or the shift
+  ends, so the last miner standing is the one who can still pick the others up. Reviving does not dig or swing the pick.
+- **Camera**: one shared camera follows the miners and zooms out as they spread, up to 1.5 times the normal view. A **leash**
+  stops a miner from walking farther from the others than that view shows (a miner who is already far can always walk back).
+  The engine has one camera only, so a real split screen is not drawn: `camera_views.js` plans the 2 to 4 views (clusters,
+  viewports, hysteresis) and tests it, ready for when the engine can draw them (ENGINE_FEEDBACK FB-0013).
+- **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes. Any other free
+  pad (A) or the keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad)
+  or Backspace (keyboard): that miner leaves the mine and the shift goes on.
 - **Hazards**: sealed pockets of **water** (every stratum) and **magma** (Magma Deep) spread over the floor once a
   miner digs into them; water slows a miner by half and drowns one who stays in it for 3.5 s, magma burns one on contact
   (0.5 s). **Cracked floor** brings the roof down on the 3 x 3 tiles around it 1.4 s after a miner steps on it; a miner inside
@@ -76,17 +99,18 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 
 ```
 factoria.json              input actions, the title as main scene
-scenes/                    menu, loading, shift, results, test_mine
+scenes/                    menu, loading, join, shift, results, test_mine
 prefabs/                   miner, mole, enemy, ui/options, ui/pause
 scripts/game/              the game: see Contracts
 scripts/                   menu kit (main_menu, pause_menu, loading, settings, ui/*) and results.js
+scripts/join.js             the join screen
 tools/mine_preview.js      project.mine_preview: a mine as text
 tests/                     the test files of the table below; helpers/mine.js, world.js and bot.js
 assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py), music/*.wav (+ src/make_music.py), audio/*.wav
 locales/en.json            every string of the UI
 ```
 
-## Contracts (for P3 to P8)
+## Contracts (for P4 to P8)
 
 Every module is plain JavaScript under `scripts/game/`, with its state in a module singleton (it survives scene loads; every
 test file starts fresh). Import them with relative paths.
@@ -138,7 +162,23 @@ actions: keyboard and every pad; one player only, the title's Play uses it), `{ 
 or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). `tests/input.test.js` drives two keyboard players and a second pad at
 once. `setState` emits `playerState` and, for `"down"`, `playerDown`; a miner that is `down` does not move, dig or burn oil and
 the shift's end check ignores it. `hurt` takes hearts and sets `down` at 0 (`playerHurt` is emitted); the hazards set `down`
-directly with the cause "drowned", "burned" or "caveIn". There is no join screen and no revive yet (P3).
+directly with the cause "drowned", "burned" or "caveIn". `revive(id, by)` (REVIVE_HP 1, REVIVE_GRACE 2) gets a downed player up and emits
+`playerState` and `playerRevived`; `setDevice(id, device)` changes a player's device (emits `playerDevice`). The device `scheme`
+can also be `"keyboard"` (the whole keyboard, what the join screen gives). `scripts/join.js` fills the registry (it clears it first).
+
+### Per-player input: `scripts/game/controls.js`
+
+`bindingsOf(player)` (what `miner_input.js` reads each frame), `bindingsFor(seat, family, device)`, `rebind(seat, "keys" | "pad", action,
+names)` (saved; the same names are taken from the seat's other actions; the wrong family throws), `reset(seat)`, `resetAll()`, `label(...)`,
+`ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns. It exists because the engine's actions match
+any pad (FB-0006).
+
+### Revive, camera and pads: `revive.js`, `camera_views.js`, `pad_watch.js`
+
+`revive.hold(reviverId, at, dt)` (called by the miner holding dig), `progressOf(id)`, `REVIVE_TIME`, `REVIVE_RANGE`. `camera_views.js`:
+`ViewPlanner.plan(points)` returns `{ mode: "shared" | "split", views: [{ players, center, ortho, viewport }] }`, `current` is the plan the
+camera follows, `limitMove(id, from, to)` is the leash and `config.tether` turns it off. `pad_watch.js` is a Script of the shift scene
+(`runWhilePaused`) that pauses on a missing pad and emits `controllerLost` and `controllerRestored` (`how`: reconnected, handedOver or dropped).
 
 ### Game events: `scripts/game/events.js`
 
@@ -148,7 +188,7 @@ unsubscribe function, `emit(name, data)`, `count(name)`, `emitted(name)`, `clear
 `oilPicked`, `lampLow`, `lampOut`, `liftReached`, `moleRescued`, `shiftEnded`, `playerAdded`, `playerRemoved`, `playerState`,
 `playerDown` and `tileChanged`. P2 adds `hazardTriggered` (`kind` flood, magma or caveIn; `phase` start, spread, impact or hit),
 `playerHurt`, `torchPlaced`, `enemyHit`, `enemyDefeated`, `oreStolen`, `oreRecovered`, `thiefEscaped`, `bossStarted`,
-`bossDefeated` and `exitJammed`; `shiftEnded` can now carry the outcome `allDown`. `upgradeBought` and `cashChanged` (P4) are
+`bossDefeated` and `exitJammed`. P3 adds `playerRevived` (`player`, `by`, `hp`), `playerDevice`, `controllerLost` and `controllerRestored`; `shiftEnded` can now carry the outcome `allDown`. `upgradeBought` and `cashChanged` (P4) are
 reserved: they can be subscribed to but nothing emits them yet. A behaviour that subscribes unsubscribes in `onDestroy`; `startRun` clears the bus.
 
 ### Run state: `scripts/game/run_state.js`
@@ -232,6 +272,7 @@ or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
 | `behavior_tree.test.js` | every node of the tree, including the running-sequence catch |
 | `enemies.test.js` | the three brains driven by a fake blackboard, then a beetle, a chase through a tunnel dug a moment ago, the thief stealing, fleeing, escaping or being killed, the Mole King waking, slamming, charging, scaling with players and jamming the lift |
 | `strata.test.js` | the look and music of each stratum, the descent through the results over nine floors, victory then a new run, retry after `dark` and `allDown`, leaving before the results |
+| `coop.test.js` | the join screen with four pads, a keyboard and three pads, keyboard only and gamepad only, a Remote Play guest pad plugged in mid-lobby, a whole shift played by the bot through the join, reviving (bar, decay, no bleed-out, `allDown`), per-player rebinding (API and the Options page), the camera zoom, the leash and the split planner, a pad unplugged (pause, reconnect, hand-over, drop) |
 | `bot.test.js` | a bot that presses keys and pushes sticks clears one floor of every stratum and the boss floor, alone and with four players on four devices, deterministically |
 
 ## Assets and credits
@@ -250,7 +291,7 @@ or a newer one. Nothing reads the save at the title yet (P4 adds Continue).
 |---|---|---|
 | P1 | The miner, digging and the mine | done |
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
-| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | to do |
+| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split view is planned and tested, not drawn: one camera in the engine) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | to do |
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | to do |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | to do |

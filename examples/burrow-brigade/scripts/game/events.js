@@ -38,6 +38,10 @@ export const EVENTS = Object.freeze({
   bossStarted: "(P2) { tx, ty, hp }: a miner came within sight of the Mole King and the fight began.",
   bossDefeated: "(P2) { by }: the Mole King fell; the exit lift is free.",
   exitJammed: "(P2) { player }: a miner stepped on the exit lift while the Mole King still lives.",
+  playerRevived: "(P3) { player, by, hp }: a friend (`by`, a player id, -1 when not known) held the action next to a downed miner long enough; it is active again with `hp` hearts.",
+  playerDevice: "(P3) { player, from, to }: a player's device changed (its miner was handed to another controller).",
+  controllerLost: "(P3) { player }: the gamepad of a player was unplugged during a shift; the game is paused until it is back, handed over or the player dropped.",
+  controllerRestored: "(P3) { player, how }: the shift went on; `how` is \"reconnected\", \"handedOver\" or \"dropped\".",
 });
 
 /** @type {Map<string, Array<(data: any) => void>>} */

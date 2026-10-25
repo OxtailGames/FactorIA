@@ -200,6 +200,14 @@
           "path": "scripts/pause_menu.js"
         }
       }
+    },
+    {
+      "id": "pad_watch",
+      "components": {
+        "Script": {
+          "path": "scripts/game/pad_watch.js"
+        }
+      }
     }
   ],
   "settings": {

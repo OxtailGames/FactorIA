@@ -1,0 +1,292 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.1, 0.12, 0.18, 1]
+        }
+      }
+    },
+    {
+      "id": "join_title",
+      "components": {
+        "Transform": {
+          "position": [0, 90, 0]
+        },
+        "Text": {
+          "text": "join.title",
+          "key": "join.title",
+          "fontSize": 56,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0.5, 0.5],
+          "align": "center",
+          "layer": 220
+        }
+      }
+    },
+    {
+      "id": "join_note",
+      "components": {
+        "Transform": {
+          "position": [0, 150, 0]
+        },
+        "Text": {
+          "text": "join.noPlayers",
+          "key": "join.noPlayers",
+          "fontSize": 24,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0.5, 0.5],
+          "align": "center",
+          "layer": 220,
+          "color": [1, 0.8, 0.4, 1]
+        }
+      }
+    },
+    {
+      "id": "slot_0_back",
+      "components": {
+        "Transform": {
+          "position": [0, 230, 0]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [700, 68],
+          "color": [0, 0, 0, 0.45],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 210
+        }
+      }
+    },
+    {
+      "id": "slot_0_swatch",
+      "components": {
+        "Transform": {
+          "position": [-300, 230, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [36, 36],
+          "color": [0.3, 0.3, 0.3, 1],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 211
+        }
+      }
+    },
+    {
+      "id": "slot_0_text",
+      "components": {
+        "Transform": {
+          "position": [-260, 230, 0]
+        },
+        "Text": {
+          "text": "join.slotEmpty",
+          "key": "join.slotEmpty",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0, 0.5],
+          "align": "left",
+          "layer": 220,
+          "keyArgs": {
+            "player": "P1"
+          }
+        }
+      }
+    },
+    {
+      "id": "slot_1_back",
+      "components": {
+        "Transform": {
+          "position": [0, 314, 0]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [700, 68],
+          "color": [0, 0, 0, 0.45],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 210
+        }
+      }
+    },
+    {
+      "id": "slot_1_swatch",
+      "components": {
+        "Transform": {
+          "position": [-300, 314, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [36, 36],
+          "color": [0.3, 0.3, 0.3, 1],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 211
+        }
+      }
+    },
+    {
+      "id": "slot_1_text",
+      "components": {
+        "Transform": {
+          "position": [-260, 314, 0]
+        },
+        "Text": {
+          "text": "join.slotEmpty",
+          "key": "join.slotEmpty",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0, 0.5],
+          "align": "left",
+          "layer": 220,
+          "keyArgs": {
+            "player": "P2"
+          }
+        }
+      }
+    },
+    {
+      "id": "slot_2_back",
+      "components": {
+        "Transform": {
+          "position": [0, 398, 0]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [700, 68],
+          "color": [0, 0, 0, 0.45],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 210
+        }
+      }
+    },
+    {
+      "id": "slot_2_swatch",
+      "components": {
+        "Transform": {
+          "position": [-300, 398, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [36, 36],
+          "color": [0.3, 0.3, 0.3, 1],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 211
+        }
+      }
+    },
+    {
+      "id": "slot_2_text",
+      "components": {
+        "Transform": {
+          "position": [-260, 398, 0]
+        },
+        "Text": {
+          "text": "join.slotEmpty",
+          "key": "join.slotEmpty",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0, 0.5],
+          "align": "left",
+          "layer": 220,
+          "keyArgs": {
+            "player": "P3"
+          }
+        }
+      }
+    },
+    {
+      "id": "slot_3_back",
+      "components": {
+        "Transform": {
+          "position": [0, 482, 0]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [700, 68],
+          "color": [0, 0, 0, 0.45],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 210
+        }
+      }
+    },
+    {
+      "id": "slot_3_swatch",
+      "components": {
+        "Transform": {
+          "position": [-300, 482, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [36, 36],
+          "color": [0.3, 0.3, 0.3, 1],
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "layer": 211
+        }
+      }
+    },
+    {
+      "id": "slot_3_text",
+      "components": {
+        "Transform": {
+          "position": [-260, 482, 0]
+        },
+        "Text": {
+          "text": "join.slotEmpty",
+          "key": "join.slotEmpty",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0, 0.5],
+          "align": "left",
+          "layer": 220,
+          "keyArgs": {
+            "player": "P4"
+          }
+        }
+      }
+    },
+    {
+      "id": "join_hint",
+      "components": {
+        "Transform": {
+          "position": [0, 640, 0]
+        },
+        "Text": {
+          "text": "join.hint",
+          "key": "join.hint",
+          "fontSize": 24,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0.5, 0.5],
+          "align": "center",
+          "layer": 220,
+          "maxWidth": 1180
+        }
+      }
+    },
+    {
+      "id": "join",
+      "components": {
+        "Script": {
+          "path": "scripts/join.js"
+        }
+      }
+    }
+  ]
+}

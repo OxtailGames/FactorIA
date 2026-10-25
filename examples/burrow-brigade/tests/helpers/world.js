@@ -20,12 +20,18 @@ export function addPlayers(n) {
   players.clear();
   const devices = [{ kind: "any" }, { kind: "keys", scheme: "arrows" }, { kind: "pad", index: 0 }, { kind: "pad", index: 1 }];
   for (let i = 0; i < n; i++) players.add({ device: devices[i] });
+  plugPads();
+}
+
+/** Plugs in the gamepad of every player on a pad (a test starts with every pad unplugged; scripts/game/pad_watch.js pauses a shift whose pad is not there). */
+export function plugPads() {
+  for (const p of players.all()) if (p.device.kind === "pad") game.gamepad(p.device.index).connect();
 }
 
 /**
  * Starts a run at a stratum and floor and loads a shift on a handmade mine; lets the scene start (2 frames).
  * @param {string[]} rows  The mine as rows of text. `S` is the entry lift: the players stand on the free tiles around it.
- * @param {{stratum?: number, floor?: number, seed?: number, players?: number, frames?: number}} [opts]
+ * @param {{stratum?: number, floor?: number, seed?: number, players?: number, frames?: number, padWatch?: boolean}} [opts]
  * @returns {any} The Shift behaviour.
  */
 export function playRows(rows, opts = {}) {
@@ -44,6 +50,7 @@ export function playRows(rows, opts = {}) {
       },
       { id: "mine", components: { Transform: { position: [0, 0, 0] }, Tilemap: { tileset: "assets/tiles_topsoil.png", tileSize: [16, 16], lit: true, layer: -10 } } },
       { id: "shift", components: { Script: { path: "scripts/game/shift.js", props: { rows } } } },
+      ...(opts.padWatch ? [{ id: "pad_watch", components: { Script: { path: "scripts/game/pad_watch.js" } } }] : []),
     ],
     settings: { ambientLight: [0.07, 0.07, 0.1, 1] },
   });
