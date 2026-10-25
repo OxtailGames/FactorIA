@@ -10,8 +10,9 @@ The time of day and the day boundary
   date in UTC). A built game reads the clock again about once a minute and on focus or resume, and `game.on("dayChanged",
   fn)` runs once when the local calendar day changes. `game.setDate`, `--date` and replay files (`time`) take a time,
   `game.setDate(iso, { utcOffsetMinutes })` the time zone; moving a test across midnight sends `dayChanged`.
-- `platform.leaderboards.submit(id, score, { day })` and `entries(id, { day })` address the daily board of a UTC day (the
-  fake and Steam keep every day); Game Center and Play Games reject a day that is not the current one with `unsupported`.
+- `platform.leaderboards.submit(id, score, { day })` and `entries(id, { day })` address the daily board of a given day (the
+  fake and Steam keep every day). Without `day` a daily board is the local date's; pass `game.today().utc.iso` to both
+  for one board worldwide. Game Center and Play Games reject a day other than the local or UTC today with `unsupported`.
 
 Video player
 

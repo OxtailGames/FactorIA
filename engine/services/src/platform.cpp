@@ -276,7 +276,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         out["name"] = localized(l.name, l.nameKey, c.translator);  // in the current language, for backends with no name of their own
         out["order"] = l.order;
         out["period"] = l.period;  // the board of "periodKey" (the day, or the Monday of the week; "" for allTime) in "date"'s calendar
-        std::string day;  // "day": the board of another UTC day, daily boards only
+        std::string day;  // "day": the board of another day, daily boards only
         if (auto it = in.find("day"); it != in.end() && !it->is_null()) {
             const std::string shown = describe_json_value(*it);
             if (!it->is_string())
@@ -288,7 +288,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
             auto parsed = parse_calendar_date(it->get<std::string>(), "\"day\"");
             if (!parsed.ok() || it->get<std::string>().size() != 10)
                 throw Bad{"\"day\" must be a date \"YYYY-MM-DD\", got " + shown,
-                          "Example: { day: \"2026-10-23\" }; game.today().utc.iso is today's UTC day."};
+                          "Example: { day: \"2026-10-23\" }; game.today().iso is today's local day, game.today().utc.iso the UTC one."};
             day = parsed->iso();
             // Game Center and Play Games only know the store's own current day.
             if ((be == "apple" || be == "googleplay") && day != c.today.iso() && day != c.today.utc().iso())
