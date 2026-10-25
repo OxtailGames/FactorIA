@@ -193,11 +193,11 @@ Result<Json> Impl::eval(std::string_view code) {
     JsVal fn(ctx, JS_Eval(ctx, kWrapper, sizeof(kWrapper) - 1, "<eval>", JS_EVAL_TYPE_GLOBAL));
     JsVal codeV(ctx, JS_NewStringLen(ctx, code.data(), code.size()));
     auto debugEntry = debug_entry(*this);
-    push_guard("eval", 5.0);
+    const size_t depth = push_guard("eval", 5.0);
     timedOut = false;
     JSValue arg = codeV.get();
     JSValue r = JS_Call(ctx, fn.get(), JS_UNDEFINED, 1, &arg);
-    pop_guard();
+    pop_guard(depth);
     auto fail = [&](JSValue exc) -> Result<Json> {
         ScriptError e = error_from_exception(exc, "", "<eval>");
         JS_FreeValue(ctx, exc);
@@ -436,7 +436,9 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         // No guard for the whole file: testRun gives each test its own (60 s), so a long file of quick tests (a Debug
         // build on a busy machine) is not cut short. A test over its limit ends the call and skips the rest of the file.
         timedOut = false;
+        const size_t depth = guards.size();
         JSValue r = JS_Call(ctx, fn.get(), hooks.get(), 1, &farg);
+        pop_guard(depth);  // the frame of the test the watchdog stopped (its N.guardEnd() never ran)
         if (JS_IsException(r)) {
             JSValue exc = JS_GetException(ctx);
             ScriptError e = error_from_exception(exc, "", path);
