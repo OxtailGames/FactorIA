@@ -1,6 +1,6 @@
 // @ts-check
 // The run state: what the player owns and what the current shift has produced. A RUN is a campaign of shifts: its seed,
-// stratum and floor, the cash banked and the upgrades bought survive from shift to shift (P2's shop spends them). A SHIFT
+// stratum and floor, the cash banked and the upgrades bought survive from shift to shift (P4's camp spends them). A SHIFT
 // is one trip down the lift: ore carried, per-player lamps, the clock and the moles. It is plain data in a module
 // singleton, so it survives scene loads, is reset for every test file, and `snapshot()` is what a save stores.
 import { rng } from "factoria";
@@ -8,7 +8,7 @@ import { ORES, ORE_VALUE } from "./tiles.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 
-/** The upgrades and their starting level; P2 raises them. */
+/** The upgrades and their starting level; P4 raises them. */
 export const BASE_UPGRADES = Object.freeze({
   pickTier: 0, // 0 digs dirt, rock and the soft ores; 1 also digs hard rock, gold and gems
   pickSpeed: 1, // multiplies the dig rate

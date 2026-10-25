@@ -1,6 +1,6 @@
 // @ts-check
 // The save stub: what is written, where, and the version field that lets a later build read an older file. P1 writes it when
-// a shift ends; nothing reads it back at the title yet (P2 adds "Continue"), but `load` and `apply` are tested here so the
+// a shift ends; nothing reads it back at the title yet (P4 adds "Continue"), but `load` and `apply` are tested here so the
 // format cannot drift unnoticed. Stored in `storage` (the player's save folder), never in the project.
 import { storage } from "factoria";
 import * as state from "./run_state.js";

@@ -73,7 +73,7 @@ export default class Shift extends Behaviour {
     if (this.ended || !run.inShift) return;
     run.shiftTime += dt;
     const alive = players.alive();
-    if (alive.length === 0) return; // nobody to wait for (P4 ends the shift when every miner is down)
+    if (alive.length === 0) return; // nobody to wait for (P2 ends the shift when every miner is down)
     if (alive.every((p) => p.state === "lift")) {
       this.finish("lift");
       return;
