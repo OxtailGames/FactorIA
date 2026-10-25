@@ -55,6 +55,13 @@ struct CStr {
 
 JSValue throw_err(JSContext* ctx, const std::string& msg) { return JS_ThrowPlainError(ctx, "%s", msg.c_str()); }
 
+// What the watchdog throws: JS cannot catch it, so the script stops at once (check_interrupt() has set timedOut).
+JSValue throw_interrupted(JSContext* ctx) {
+    JSValue exc = JS_NewInternalError(ctx, "interrupted");
+    JS_SetUncatchableError(ctx, exc);
+    return JS_Throw(ctx, exc);
+}
+
 double arg_num(JSContext* ctx, int argc, JSValueConst* argv, int i, double fallback = 0.0) {
     if (i >= argc || JS_IsUndefined(argv[i]) || JS_IsNull(argv[i])) return fallback;
     double d = fallback;
@@ -313,7 +320,7 @@ NATIVE(guardBegin) {
 
 NATIVE(guardEnd) {
     SETUP;
-    I->pop_guard();
+    if (!I->guards.empty()) I->pop_guard(I->guards.size() - 1);
     return JS_UNDEFINED;
 }
 
@@ -2402,7 +2409,12 @@ NATIVE(testStep) {
     SETUP;
     int n = static_cast<int>(arg_num(ctx, argc, argv, 0, 1));
     if (n < 0 || n > 1000000) return throw_err(ctx, "game.step(frames): frames must be between 0 and 1000000");
-    I->host->step_frames(n);
+    // The watchdog mostly fires inside the behaviours a frame runs, and each of those calls ends quietly when the time
+    // that ran out is the test's. Check between frames so a test over its limit stops here instead of stepping on.
+    for (int i = 0; i < n; ++i) {
+        I->host->step_frames(1);
+        if (I->check_interrupt()) return throw_interrupted(ctx);
+    }
     return JS_UNDEFINED;
 }
 
@@ -2448,6 +2460,7 @@ NATIVE(resetInput) {
 NATIVE(pumpJobs) {
     SETUP;
     I->run_jobs();
+    if (I->check_interrupt()) return throw_interrupted(ctx);  // an async test over its limit (run_jobs stopped its body)
     return JS_UNDEFINED;
 }
 
