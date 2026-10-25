@@ -1220,13 +1220,29 @@ NATIVE(scenePath) {
 NATIVE(requestScene) {
     SETUP;
     std::string path = arg_str(ctx, argc, argv, 0);
-    if (path.empty()) path = W.scene_path();
+    const bool reload = path.empty();
+    if (reload) path = W.scene_path();
     if (!fs::exists(path)) {
         std::vector<std::string> scenes = fs::list("scenes", true, ".json");
         return throw_err(ctx, "scene '" + path + "' does not exist. " + did_you_mean(path, scenes));
     }
-    I->host->request_scene_change(path);
+    if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        Json props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return throw_err(ctx, "scene.load(path, props): props must be a plain object like { level: 3, difficulty: \"hard\" }, got " +
+                                      describe_json_value(props));
+        I->host->request_scene_change_with_props(path, props);
+    } else if (reload) {
+        I->host->request_scene_reload(path);  // a reload keeps the props the scene was started with
+    } else {
+        I->host->request_scene_change(path);  // a load without props: the next scene has none
+    }
     return JS_UNDEFINED;
+}
+
+NATIVE(sceneProps) {
+    SETUP;
+    return I->from_json(I->host->scene_props());
 }
 
 NATIVE(rngFloat) {
@@ -2355,7 +2371,14 @@ NATIVE(testLoad) {
     SETUP;
     std::string path = arg_str(ctx, argc, argv, 0);
     if (path.empty()) path = W.scene_path();
-    std::string err = I->host->load_scene_now(path);
+    Json props;
+    const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
+    if (hasProps) {
+        props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return JS_NewString(ctx, ("game.load(path, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+    }
+    std::string err = hasProps ? I->host->load_scene_now_with_props(path, props) : I->host->load_scene_now(path);
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
@@ -2374,7 +2397,15 @@ NATIVE(testLoadJson) {
     SETUP;
     Json scene = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
     if (!scene.is_object()) return JS_NewString(ctx, "game.loadJson(scene) expects a scene object like { format: \"factoria.scene/1\", entities: [...] }");
-    std::string err = I->host->load_scene_json_now(scene, "game.loadJson");
+    Json props;
+    const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
+    if (hasProps) {
+        props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return JS_NewString(ctx, ("game.loadJson(scene, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+    }
+    std::string err = hasProps ? I->host->load_scene_json_now_with_props(scene, "game.loadJson", props)
+                               : I->host->load_scene_json_now(scene, "game.loadJson");
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
@@ -2570,7 +2601,7 @@ const Reg kRegs[] = {
     R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
     R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
-    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
+    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
@@ -2582,7 +2613,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

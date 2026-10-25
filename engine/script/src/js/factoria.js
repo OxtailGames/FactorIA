@@ -1289,7 +1289,8 @@
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
       return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
     },
-    load(path) { N.requestScene(path); },
+    // load(path, props?): props is a plain object the new scene's scripts read with game.sceneProps() from their first start().
+    load(path, props) { N.requestScene(path, props); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
   };
@@ -1304,6 +1305,9 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
+    // The props the running scene was started with (scene.load(path, props), `factoria run --props`, game.load(path, props)): a
+    // fresh plain object every call, {} when there are none. Valid from the first onStart.
+    sceneProps() { return N.sceneProps(); },
     // The calendar date: { year, month, day, weekday (0 = Sunday), hour, minute, second (the local time of day), utcOffsetMinutes,
     // iso: "YYYY-MM-DD", utc: { year, month, day, iso } (the date in UTC, the day stores use for their daily boards) }. The player's
     // real local date and time in a game with a window (read again about once a minute, see game.on("dayChanged")); a fixed date
@@ -2196,8 +2200,8 @@
     resume() { N.testAppEvent(1); },
     focus() { N.testAppEvent(2); },
     blur() { N.testAppEvent(3); },
-    load(path) {
-      const err = N.testLoad(path);
+    load(path, props) {
+      const err = N.testLoad(path, props);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
     },
     setStorageText(text) { N.testStorageText(text === null || text === undefined ? null : String(text)); },
@@ -2319,8 +2323,8 @@
     // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
     // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
     fileReads() { return N.testDiskReads(); },
-    loadJson(scene) {
-      const err = N.testLoadJson(plain(scene));
+    loadJson(scene, props) {
+      const err = N.testLoadJson(plain(scene), props === undefined ? undefined : plain(props));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
     },
     touchStart(p, id = 1) { const a = posArg(p, "game.touchStart"); N.testTouch(0, id, a[0], a[1]); },

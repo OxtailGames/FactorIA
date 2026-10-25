@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Recording input and starting a scene with props
+
+- The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads
+  (connections, buttons, axes) itself. The new command `input.record` (`{action: "start" | "stop", path?}`) records any
+  running game; `stop` returns the replay that `factoria run --input` plays (optionally written to `path`). The editor
+  records its Play sessions with the same recorder. Not recorded: mouse wheel, locked-mouse movement and typed text.
+- Scenes can start with props: `scene.load(path, props)`, `game.load(path, props)`, `game.loadJson(scene, props)`, the
+  `scene.load` command's `props`, and `factoria run --props JSON|FILE`. `game.sceneProps()` returns them from the scene's
+  first `onStart`. A reload keeps them; a load without props gives `{}`.
+
 Test runner and `ui.check_layout`
 
 - `game.click(widget)` (and `mouseMove`, `touch`, `touchStart`, `touchMove` with a widget) lays the UI out first, so a

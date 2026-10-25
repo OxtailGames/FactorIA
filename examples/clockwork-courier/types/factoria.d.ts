@@ -998,9 +998,9 @@ declare module "factoria" {
      */
     preload(path: string): PreloadHandle;
     /**
-     * Deferred to the end of the frame.
+     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load("scenes/level.scene.json", { level: 3 }).
      */
-    load(path: string): void;
+    load(path: string, props?: Json): void;
     reload(): void;
     readonly current: string;
   }
@@ -1039,6 +1039,10 @@ declare module "factoria" {
      * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused.
      */
     paused: boolean;
+    /**
+     * The props the current scene was started with: scene.load(path, props), factoria run --props, or the scene.load command's props. A plain object, {} when none were given; available from the first onStart. A reload keeps them, a load without props drops them. A fresh copy each call. Example: const level = game.sceneProps().level ?? 1.
+     */
+    sceneProps(): Json;
     /**
      * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso ("YYYY-MM-DD") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on("dayChanged") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate("2026-10-23T23:59:30"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
      */
@@ -5351,9 +5355,9 @@ declare module "factoria:test" {
      */
     blur(): void;
     /**
-     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
+     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
-    load(path: string): void;
+    load(path: string, props?: Json): void;
     /**
      * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
      */
@@ -5447,9 +5451,9 @@ declare module "factoria:test" {
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**
-     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file.
+     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file. `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
-    loadJson(scene: Json): void;
+    loadJson(scene: Json, props?: Json): void;
     /**
      * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */

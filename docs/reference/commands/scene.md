@@ -101,11 +101,12 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. Example: scene.load {"path":"scenes/level2.scene.json"}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Project-relative scene path. |
+| `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 
 ## `scene.reload` (modifies state)
 

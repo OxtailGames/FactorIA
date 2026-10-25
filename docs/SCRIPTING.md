@@ -654,7 +654,7 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
   unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
   logs nothing when the store rejects.
-- `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
+- `scene.load(path, props?)` (deferred to frame end) · `scene.reload()` · `scene.current` · `game.sceneProps()` (see "Scene props")
 - `game.today()` (see "The date") · `game.focused` · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
   see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
   app is in the background) · `game.on("quit", fn)`: see "Window close" below
@@ -966,6 +966,23 @@ test("dump the menu layout", () => {
   fa.call("fs.write", { path: "build/menu_layout.json", content: JSON.stringify(ui.state(), null, 2) });
 });
 ```
+
+### Scene props
+
+`scene.load(path, { level: 3 })` starts the scene with props: a plain JSON object (numbers, strings, booleans, arrays, objects;
+not functions) that the new scene's scripts read with `game.sceneProps()`, from their first `onStart`. Each call returns a
+fresh copy, so changing it changes nothing. `factoria run --props '{"level":3}'` (or a `.json` file) starts the first scene with
+props; `game.load(path, props)` and `game.loadJson(scene, props)` do the same in a test.
+
+```js
+onStart() { const level = game.sceneProps().level ?? 1; }
+```
+
+- A **reload** (`scene.reload()`, the `scene.reload` command, hot reload of the scene you are running) keeps the props.
+- A load **without props** (`scene.load(path)`, `game.load(path)`) gives the new scene `{}`: props never leak into the next
+  scene by themselves. Pass them again to keep them: `scene.load(path, game.sceneProps())`.
+- When several loads are asked in one frame, the last one wins, props included.
+- `scene.load` command: `props` is an object argument with the same meaning.
 
 **`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
 of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next
