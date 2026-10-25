@@ -44,6 +44,9 @@ TEST_CASE("nav.findTilePath: a Tilemap entity, a grid, version and errors") {
     CHECK(eval_err(h, "nav.findTilePath(42, [0,0], [1,1])").find("grid") != std::string::npos);
     CHECK(eval_err(h, "nav.findTilePath('nothing', [0,0], [1,1])").find("nothing") != std::string::npos);
     CHECK(eval_ok(h, "nav.findTilePath('ground', [0,0], [9,9]).reason") == "goal_off_map");
+    // a wrong option type is a script error, not a crash
+    CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { diagonals: 'yes' })").find("true or false") != std::string::npos);
+    CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { maxNodes: 'lots' })").find("maxNodes") != std::string::npos);
 }
 
 TEST_CASE("bt: every node type from factoria") {
