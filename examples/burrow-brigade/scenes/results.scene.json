@@ -1,0 +1,201 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.1, 0.12, 0.18, 1]
+        }
+      }
+    },
+    {
+      "id": "results",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 10,
+          "fit": true
+        }
+      },
+      "children": [
+        {
+          "id": "results_title",
+          "components": {
+            "Text": {
+              "text": "results.titleLift",
+              "key": "results.titleLift",
+              "fontSize": 56,
+              "space": "screen",
+              "keyArgs": {
+                "shift": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_note",
+          "components": {
+            "Text": {
+              "text": "results.noteLift",
+              "key": "results.noteLift",
+              "fontSize": 26,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "results_copper",
+          "components": {
+            "Text": {
+              "text": "results.copper",
+              "key": "results.copper",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "count": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_silver",
+          "components": {
+            "Text": {
+              "text": "results.silver",
+              "key": "results.silver",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "count": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_gold",
+          "components": {
+            "Text": {
+              "text": "results.gold",
+              "key": "results.gold",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "count": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_gem",
+          "components": {
+            "Text": {
+              "text": "results.gem",
+              "key": "results.gem",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "count": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_value",
+          "components": {
+            "Text": {
+              "text": "results.value",
+              "key": "results.value",
+              "fontSize": 32,
+              "space": "screen",
+              "keyArgs": {
+                "value": 0,
+                "banked": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_time",
+          "components": {
+            "Text": {
+              "text": "results.time",
+              "key": "results.time",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "time": "0:00"
+              }
+            }
+          }
+        },
+        {
+          "id": "results_moles",
+          "components": {
+            "Text": {
+              "text": "results.moles",
+              "key": "results.moles",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "rescued": 0,
+                "total": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_cash",
+          "components": {
+            "Text": {
+              "text": "results.cash",
+              "key": "results.cash",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "cash": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "again",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Another shift",
+              "key": "results.again",
+              "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "to_title",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Back to title",
+              "key": "results.toTitle"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "results_script",
+      "components": {
+        "Script": {
+          "path": "scripts/results.js"
+        }
+      }
+    }
+  ]
+}

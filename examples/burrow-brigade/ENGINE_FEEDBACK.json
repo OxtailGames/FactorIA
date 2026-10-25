@@ -2,5 +2,159 @@
   "format": "factoria.feedback/1",
   "project": "Burrow Brigade",
   "engineVersion": "0.2.0",
-  "entries": []
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "major",
+      "title": "Light2D has no occlusion, so unexplored mine stays visible",
+      "missing": "A Light2D shines through solid Tilemap tiles: a miner's lamp lights the dirt behind the tunnel wall and, with the 16-lights cap, there is no fog of war or line of sight. A game whose point is exploring in the dark (Burrow Brigade) cannot keep the unseen parts black.",
+      "workaround": "A small lamp radius (96 world units, 20 when nearly dry), falloff 1.5 and SceneSettings.ambientLight 0.07, so the walls beyond a few tiles fall to near black. Walls next to the lamp still light up on the far side; a hand-made fog layer was not attempted in P1.",
+      "workaroundFiles": [
+        "scripts/game/miner.js",
+        "scenes/shift.scene.json"
+      ],
+      "suggestion": "Let a Light2D (or a Tilemap) opt into shadows from the solid tiles (a 2D shadow cast from Tilemap.solidTiles), or give Tilemap a per-tile 'explored' mask / fog-of-war layer that scripts can set.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Tilemap tileset has no margin or spacing",
+      "missing": "Tilemap.tileset is cut into tileSize cells with no margin or spacing field. Kenney's Roguelike Caves & Dungeons sheet has a 1 px gap between tiles, so using it directly shows bleeding edges and shifted tiles.",
+      "workaround": "assets/src/make_atlases.py cuts the tiles out of the source sheets and re-packs them margin-free into assets/tiles.png and assets/sprites.png (run once, output committed).",
+      "workaroundFiles": [
+        "assets/src/make_atlases.py",
+        "assets/tiles.png"
+      ],
+      "suggestion": "Add Tilemap.margin and Tilemap.spacing (vec2, texture pixels), and the same for Sprite sheets in assets.generate_sprite_sheet / the editor tile picker.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "Changing one tile rewrites the whole Tilemap tiles array",
+      "missing": "Tilemap.tiles is one JSON value: digging a single tile means building and setting the full width*height array (up to 96x64 = 6144 integers here) through entity.set, and the renderer rebuilds the tilemap. There is no setTile.",
+      "workaround": "The shift keeps its own array, marks it dirty on every MineMap change and writes it once per frame in onLateUpdate, so several tiles dug in one frame cost one write.",
+      "workaroundFiles": [
+        "scripts/game/shift.js"
+      ],
+      "suggestion": "Expose a tile API on the Tilemap view: tilemap.setTile(tx, ty, index) / getTile, with a dirty-rect rebuild.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Menu kit always adds the shop and the age gate",
+      "missing": "project.add_menu_kit creates a Shop button and panel, an age-gate script and prefab, shop strings and a purchases/ads check in main_menu.js even for a game with no store and no ads, and has no option to leave them out. validate does not complain about them but a first-time reader has to work out what to delete.",
+      "workaround": "Deleted the shop and age-gate files by hand, removed their imports, the shop_button handler and the 'ageGate' and 'shop' locale blocks from scripts/main_menu.js, scenes/menu.scene.json and locales/en.json.",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scenes/menu.scene.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Give project.add_menu_kit flags such as {\"shop\": false, \"ageGate\": false}, default true only when factoria.json declares purchases or ads.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Options Controls tab lists a hard-coded jump action",
+      "missing": "The kit's options.js rebinding list is a fixed array ['move_left','move_right','jump','pause'] with matching options.action.* strings, so a game with other actions (dig, move_up, move_down) shows a dead 'Jump' row and no rows for its own actions until the script and locale are edited.",
+      "workaround": "Edited the 'actions' list in scripts/ui/options.js and added options.action.move_up, move_down and dig to locales/en.json.",
+      "workaroundFiles": [
+        "scripts/ui/options.js",
+        "locales/en.json"
+      ],
+      "suggestion": "Build the list from input.actions() minus the ui_* ones, taking the label from options.action.<name> and falling back to the action name.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "Per-gamepad input cannot use actions, so co-op pads are not rebindable",
+      "missing": "Actions bound to Gamepad* names react to ANY connected pad. For local co-op each player needs their own pad, which only input.gamepad(i).axis/down answer, with raw button and axis names; those cannot go through the Options Controls rebinding or the per-action bindings in factoria.json.",
+      "workaround": "scripts/game/miner_input.js has three device kinds: 'any' (the project's actions: keyboard and every pad, one player), 'keys' (a fixed key block) and 'pad' (input.gamepad(i) with hard-coded left stick, d-pad and A/X).",
+      "workaroundFiles": [
+        "scripts/game/miner_input.js",
+        "scripts/game/players.js"
+      ],
+      "suggestion": "Per-player action sets: input.gamepad(i).down('dig') resolving the project's binding for that action, or input.player(i).axis(...) with a rebind per player.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "nice-to-have",
+      "title": "assets.synth_sound presets come out much louder than the validator accepts",
+      "missing": "Sounds from assets.synth_sound (ore, oil, lamp_out, rescue) measure between -3.8 and -7 LUFS, so 'factoria validate' warns 'very loud' and that they differ by 16 LU from the quieter presets.",
+      "workaround": "Set defaults.audio {normalize: true, targetLufs: -18} in assets.json so every effect plays at the same loudness.",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Have synth_sound normalise its output to about -18 LUFS, or write the normalize import setting to assets.json itself.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
 }
