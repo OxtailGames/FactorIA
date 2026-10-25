@@ -1294,7 +1294,9 @@ void register_builtin_components(TypeRegistry& r) {
         .field("fogDensity", &SceneSettings::fogDensity, "Fog thickness; 0 disables fog.").range(0, 10)
         .field("skyColor", &SceneSettings::skyColor, "Top color of the 3D background gradient (used when a perspective camera clears).")
         .field("horizonColor", &SceneSettings::horizonColor, "Bottom color of the 3D background gradient.")
-        .asset_field("music", &SceneSettings::music, "audio", "Looping background music asset path. Empty = none.")
+        .asset_field("music", &SceneSettings::music, "audio", "Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this "
+                     "track again, even when the previous scene had the same one; music a script started with "
+                     "audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track.")
         .field("musicVolume", &SceneSettings::musicVolume, "Volume of the background music, 0..1.").range(0, 1);
 }
 

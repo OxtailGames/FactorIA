@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Music: scene loads, live volume, layers
+
+- Fixed: a scene load stopped the sounds but kept the old scene's music in the mixer's memory, so a scene with the same
+  `settings.music` started nothing (state said the track played, no voice did). A scene load now restarts the new scene's
+  music, the same track included. `audio.music(path, { persist: true })` keeps a track playing through scene loads; a scene
+  with the same `settings.music` does not restart it, another track replaces it.
+- `audio.setVoiceVolume(id, volume, fade?)` changes the volume of a playing sound, with a straight-line fade.
+- `audio.musicLayers({ name: path }, { volume, fade, persist, levels })` starts stems on the same audio sample (one lock,
+  so no block of audio has only some of them) and `audio.setLayer(name, level, fade?)` fades them; the play log entries
+  have a `layer` field. Layers loop, are never evicted by a full mixer, and `audio.stopMusic` stops all of them.
+- `assets.synth_sound` levels every preset to about -18 LUFS (peak under -1 dBFS) instead of a -3 dBFS peak: squares, saws
+  and noise were around -5 LUFS and tripped `factoria validate`'s loudness warning. The bytes of every seed change.
+
 Video player
 
 - A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every

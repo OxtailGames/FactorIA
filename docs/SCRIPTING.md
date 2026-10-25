@@ -396,7 +396,15 @@ if (window.available) {
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
-- `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
+- `music(path, { volume, fade, persist })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
+- A scene load (`scene.load`, reload) stops every sound and the music, then starts the new scene's `SceneSettings.music` (the same
+  track again too). `audio.music(path, { persist: true })` is the exception: that track keeps playing through scene loads, and a
+  scene whose `settings.music` is the same track does not restart it (another track replaces it). `stopAll()` stops a persisted track too.
+- `setVoiceVolume(id, volume, fade?)` moves the volume of a sound that plays (an id from `play`) in a straight line over `fade`
+  seconds, bus and master volumes still apply; false once the voice ended.
+- `musicLayers({ drums: path, bass: path }, { volume, fade, persist, levels })` starts stems of one piece on the same audio
+  sample (all in one step, so they never start in different blocks); `setLayer(name, level, fade?)` fades a stem in or out
+  (0 silent, 1 full). Stems of equal length stay aligned across loops; `stopMusic` stops every layer.
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
   `game.audioLog()`, agents with the `audio.log` command.
 

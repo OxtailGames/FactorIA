@@ -15,6 +15,6 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `fogDensity` | float | `0.0` | Fog thickness; 0 disables fog. Range 0.0..10.0. |
 | `skyColor` | color | `[0.45,0.62,0.85,1.0]` | Top color of the 3D background gradient (used when a perspective camera clears). |
 | `horizonColor` | color | `[0.8,0.85,0.9,1.0]` | Bottom color of the 3D background gradient. |
-| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. |
+| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. |
 | `musicVolume` | float | `0.6` | Volume of the background music, 0..1. Range 0.0..1.0. |
 

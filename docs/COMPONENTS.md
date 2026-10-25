@@ -812,7 +812,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `fogDensity` | float | `0.0` | Fog thickness; 0 disables fog. Range 0.0..10.0. |
 | `skyColor` | color | `[0.45,0.62,0.85,1.0]` | Top color of the 3D background gradient (used when a perspective camera clears). |
 | `horizonColor` | color | `[0.8,0.85,0.9,1.0]` | Bottom color of the 3D background gradient. |
-| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. |
+| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. |
 | `musicVolume` | float | `0.6` | Volume of the background music, 0..1. Range 0.0..1.0. |
 
 
@@ -1168,7 +1168,7 @@ Not released yet (on main after 0.2.0).
 
 Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
 
-Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Peaks at -3 dBFS. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
+Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Levelled to about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
 - bark: a dog bark: two short rough barks.
 - growl: a low growl: a rattling low saw with noise.
 - meow: a cat meow: a rising then falling vowel-like tone.
@@ -1202,7 +1202,7 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 
 List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
 
-Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
+Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3250,11 +3250,29 @@ declare module "factoria" {
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
+    /**
+     * Stops every sound and the music now, a persisted track included.
+     */
     stopAll(): void;
     /**
-     * Starts looping background music.
+     * Starts looping background music on the "music" bus (volume default 0.6, fade-in `fade` seconds default 0.5). The same track already playing is only retuned. A scene load (scene.load, reload) stops every sound and the music, and then starts the new scene's SceneSettings.music, even when it is the same track as before; with persist: true this track keeps playing through scene loads (a scene whose SceneSettings.music is the same track does not restart it; another track replaces it). Example: audio.music("assets/theme.ogg", { persist: true }).
      */
-    music(path: string, opts?: { volume?: number; fade?: number }): void;
+    music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void;
+    /**
+     * Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: "assets/m/base.ogg", drums: "assets/m/drums.ogg" }, { levels: { drums: 0 } }); later audio.setLayer("drums", 1, 2).
+     */
+    musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean;
+    /**
+     * Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer.
+     */
+    setLayer(name: string, level: number, fade?: number): void;
+    /**
+     * Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play("assets/wind.ogg", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3).
+     */
+    setVoiceVolume(voice: number, volume: number, fade?: number): boolean;
+    /**
+     * Stops the music (and every layer) fading out over `fade` seconds (default 0.5).
+     */
     stopMusic(fade?: number): void;
     /**
      * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
@@ -7457,7 +7475,7 @@ declare module "factoria" {
     get horizonColor(): Color;
     set horizonColor(value: ColorLike);
     /**
-     * Looping background music asset path. Empty = none. (asset path: audio)
+     * Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. (asset path: audio)
      */
     music: string;
     /**
@@ -7679,6 +7697,10 @@ declare module "factoria:test" {
     readonly pan: number;
     readonly bus: "sfx" | "music" | "ui";
     readonly loop: boolean;
+    /**
+     * The layer name when audio.musicLayers started it; "" otherwise.
+     */
+    readonly layer: string;
     /**
      * Started with audio.music() or SceneSettings.music.
      */
