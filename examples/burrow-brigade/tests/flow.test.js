@@ -7,6 +7,7 @@ import * as events from "../scripts/game/events.js";
 import * as players from "../scripts/game/players.js";
 import * as saveFile from "../scripts/game/save.js";
 import { K } from "../scripts/game/tiles.js";
+import { clearSlots, nextShift } from "./helpers/camp.js";
 
 const SHIFT = "scenes/shift.scene.json";
 const RESULTS = "scenes/results.scene.json";
@@ -16,7 +17,10 @@ function startFromTitle() {
   players.clear();
   game.load("scenes/menu.scene.json");
   game.step(5);
-  game.click("play");
+  clearSlots();
+  game.click("play"); // the three save slots
+  game.step(2);
+  game.click("slot_1"); // an empty slot starts a new run
   game.step(1);
   game.step(30); // the loading screen, then the join screen
   expect(scene.current).toBe("scenes/join.scene.json");
@@ -73,11 +77,7 @@ describe("title -> shift -> results -> title", () => {
     game.world.findByTag("miner")[0].position = [exit.x, exit.y, 0];
     game.step(130);
     expect(scene.current).toBe(RESULTS);
-    game.click("again");
-    game.step(5);
-    game.step(30);
-    expect(scene.current).toBe(SHIFT);
-    game.step(3);
+    nextShift(); // the results lead to the camp, the camp to the next shift
     expect(run.shiftNumber).toBe(2);
     expect(run.cash).toBe(6);
     expect(live.mine.hash).not.toBe(firstHash);
@@ -122,11 +122,12 @@ describe("what a shift leaves behind", () => {
     const exit = live.map.tileCenter(live.mine.exit.tx, live.mine.exit.ty);
     game.world.findByTag("miner")[0].position = [exit.x, exit.y, 0];
     game.step(3);
-    const data = storage.get("burrow.save");
+    const data = storage.get("burrow.slot.1");
     expect(data.format).toBe(saveFile.SAVE_FORMAT);
     expect(data.cash).toBe(2);
     expect(data.seed).toBe(run.seed);
-    expect(saveFile.apply()).toBe(true);
+    expect(data.slot).toBe(1);
+    expect(saveFile.apply(1)).toBe(true);
   });
 
   test("the save reader explains a file it cannot read", () => {
@@ -134,9 +135,9 @@ describe("what a shift leaves behind", () => {
     const newer = saveFile.migrate({ format: 99 });
     expect(newer.ok).toBe(false);
     expect(newer.hint).toContain("update the game");
-    expect(saveFile.migrate({ format: 1, cash: 3 }).ok).toBe(true);
-    saveFile.erase();
-    expect(saveFile.load()).toBeNull();
+    expect(saveFile.migrate({ format: 1, seed: 5, stratum: 0, floor: 1, shiftNumber: 1, cash: 3, upgrades: {} }).ok).toBe(true);
+    saveFile.erase(1);
+    expect(saveFile.load(1)).toBeNull();
   });
 
   test("the events bus names its events and suggests the right one", () => {

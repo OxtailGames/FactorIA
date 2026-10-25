@@ -22,7 +22,7 @@
           "anchor": [0.5, 0.5],
           "color": [0, 0, 0, 0],
           "layout": "column",
-          "spacing": 10,
+          "spacing": 6,
           "fit": true
         }
       },
@@ -33,7 +33,7 @@
             "Text": {
               "text": "results.titleLift",
               "key": "results.titleLift",
-              "fontSize": 56,
+              "fontSize": 44,
               "space": "screen",
               "keyArgs": {
                 "shift": 0
@@ -47,7 +47,7 @@
             "Text": {
               "text": "results.noteLift",
               "key": "results.noteLift",
-              "fontSize": 26,
+              "fontSize": 22,
               "space": "screen"
             }
           }
@@ -58,7 +58,7 @@
             "Text": {
               "text": "results.copper",
               "key": "results.copper",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "count": 0
@@ -72,7 +72,7 @@
             "Text": {
               "text": "results.silver",
               "key": "results.silver",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "count": 0
@@ -86,7 +86,7 @@
             "Text": {
               "text": "results.gold",
               "key": "results.gold",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "count": 0
@@ -100,7 +100,7 @@
             "Text": {
               "text": "results.gem",
               "key": "results.gem",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "count": 0
@@ -114,7 +114,7 @@
             "Text": {
               "text": "results.value",
               "key": "results.value",
-              "fontSize": 32,
+              "fontSize": 28,
               "space": "screen",
               "keyArgs": {
                 "value": 0,
@@ -129,7 +129,7 @@
             "Text": {
               "text": "results.time",
               "key": "results.time",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "time": "0:00"
@@ -143,7 +143,7 @@
             "Text": {
               "text": "results.moles",
               "key": "results.moles",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "rescued": 0,
@@ -158,7 +158,7 @@
             "Text": {
               "text": "results.next",
               "key": "results.next",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "stratum": "",
@@ -173,10 +173,24 @@
             "Text": {
               "text": "results.cash",
               "key": "results.cash",
-              "fontSize": 28,
+              "fontSize": 24,
               "space": "screen",
               "keyArgs": {
                 "cash": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "results_seed",
+          "components": {
+            "Text": {
+              "text": "results.seed",
+              "key": "results.seed",
+              "fontSize": 22,
+              "space": "screen",
+              "keyArgs": {
+                "code": ""
               }
             }
           }
@@ -193,12 +207,34 @@
           }
         },
         {
+          "id": "copy_code",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Copy code",
+              "key": "results.copy"
+            }
+          }
+        },
+        {
           "id": "to_title",
           "components": {
             "Button": {
               "autoSize": true,
               "text": "Back to title",
               "key": "results.toTitle"
+            }
+          }
+        },
+        {
+          "id": "results_message",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 22,
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         }

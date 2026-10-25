@@ -1,0 +1,14 @@
+{
+  "format": 2,
+  "slot": 2,
+  "revision": 7,
+  "savedOn": "2026-03-04",
+  "playTime": 1800.5,
+  "bestDepth": 50,
+  "seed": 987654,
+  "stratum": 2,
+  "floor": 1,
+  "shiftNumber": 9,
+  "cash": 140,
+  "upgrades": { "pickTier": 2, "pickSpeed": 1.5, "lampOil": 185, "lampRadius": 1.15, "walkSpeed": 1.1, "torches": 8 }
+}

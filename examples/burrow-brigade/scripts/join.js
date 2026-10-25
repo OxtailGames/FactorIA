@@ -13,7 +13,7 @@ import * as players from "./game/players.js";
 export const GRACE = 0.15;
 
 export default class Join extends Behaviour {
-  /** Scene the screen leads to, through the loading screen. */
+  /** Scene the screen leads to, through the loading screen, when the title did not name one in `session.afterJoin`. */
   nextScene = "scenes/shift.scene.json";
   loadingScene = "scenes/loading.scene.json";
   titleScene = "scenes/menu.scene.json";
@@ -80,12 +80,14 @@ export default class Join extends Behaviour {
   startShift() {
     if (players.count() === 0) return;
     this.left = true;
-    session.nextScene = this.nextScene; // the loading screen reads it ahead of time, then loads it
+    session.nextScene = session.afterJoin || this.nextScene; // the loading screen reads it ahead of time, then loads it
+    session.afterJoin = null;
     scene.load(this.loadingScene);
   }
 
   toTitle() {
     this.left = true;
+    session.afterJoin = null; // the run the title chose is not entered
     scene.load(this.titleScene);
   }
 
