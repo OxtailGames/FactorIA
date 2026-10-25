@@ -1036,7 +1036,7 @@ TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the
     CHECK(a.result == Json::parse(R"({"available": true})"));
     a = g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})"));
     CHECK(a.result == Json::parse(R"({"rewarded": true})"));
-    CHECK(g.fake().state()["calls"][1]["args"] == Json::parse(R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded", "audience": "general", "underAge": null, "release": false})"));
+    CHECK(g.fake().state()["calls"][1]["args"] == Json::parse(R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded", "ids": {"fake": "unit-1"}, "audience": "general", "underAge": null, "release": false})"));
 
     REQUIRE(g.fake().set_ad("closedEarly").ok());
     CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result == Json::parse(R"({"rewarded": false, "reason": "closedEarly"})"));
@@ -1282,6 +1282,59 @@ TEST_CASE("platform catalog: ads appIds, audience and backend parse, and mistake
     const std::string platformName = text(R"({"ads": {"appIds": {"androd": "ca-app-pub-3940256099942544~3347511713"}}})");
     CHECK(has(platformName, "did you mean \"android\""));
     CHECK(has(text(R"({"ads": {"appIds": "x"}})"), "expected an object"));
+}
+
+TEST_CASE("platform catalog: the iOS app id, the tracking prompt and its sentence parse, and mistakes teach") {
+    auto good = parse_platform_catalog(Json::parse(R"({"ads": {
+        "appIds": {"android": "ca-app-pub-1234567890123456~1234567890", "ios": "ca-app-pub-1234567890123456~0987654321"},
+        "trackingPrompt": true, "trackingDescription": "To show you ads that fit.",
+        "placements": [{"id": "more_time", "ids": {"admob": "ca-app-pub-1234567890123456/1234567890", "admob_ios": "ca-app-pub-1234567890123456/0987654321"}}]}})"));
+    REQUIRE_MESSAGE(good.ok(), std::string(good.issues.empty() ? "" : good.issues[0].message));
+    CHECK(good.catalog.adsAppIds.at("ios") == "ca-app-pub-1234567890123456~0987654321");
+    CHECK(good.catalog.adsTrackingPrompt);
+    CHECK(good.catalog.adsTrackingDescription == "To show you ads that fit.");
+    CHECK(good.catalog.placements[0].store_id("admob_ios") == "ca-app-pub-1234567890123456/0987654321");
+    CHECK(good.catalog.placements[0].store_id("admob") == "ca-app-pub-1234567890123456/1234567890");
+
+    auto keyed = parse_platform_catalog(Json::parse(R"({"ads": {"trackingPrompt": true, "trackingDescriptionKey": "ads.tracking", "placements": [{"id": "p"}]}})"));
+    REQUIRE(keyed.ok());
+    CHECK(keyed.catalog.adsTrackingDescriptionKey == "ads.tracking");
+
+    auto defaults = parse_platform_catalog(Json::parse(R"({"ads": {"placements": [{"id": "p"}]}})"));
+    CHECK_FALSE(defaults.catalog.adsTrackingPrompt);  // a game asks to track only when it says so
+    CHECK(defaults.catalog.adsTrackingDescription.empty());
+
+    auto text = [](const char* json) {
+        auto r = parse_platform_catalog(Json::parse(json));
+        std::string all;
+        for (const PlatformIssue& i : r.issues) all += i.pointer + " " + i.message + " | " + i.hint + "\n";
+        return all;
+    };
+    const std::string notBool = text(R"({"ads": {"trackingPrompt": "yes"}})");
+    CHECK(has(notBool, "/platform/ads/trackingPrompt"));
+    CHECK(has(notBool, "true or false"));
+    const std::string children = text(R"({"ads": {"audience": "children", "trackingPrompt": true}})");
+    CHECK(has(children, "/platform/ads/trackingPrompt"));
+    CHECK(has(children, "must not ask to track"));
+    CHECK(has(children, "mixed"));
+    CHECK(text(R"({"ads": {"audience": "children", "trackingPrompt": false}})").empty());
+    CHECK(text(R"({"ads": {"audience": "mixed", "trackingPrompt": true}})").empty());
+    const std::string sentence = text(R"({"ads": {"trackingDescription": 3}})");
+    CHECK(has(sentence, "/platform/ads/trackingDescription"));
+    const std::string ios = text(R"({"ads": {"appIds": {"ios": "ca-app-pub-3940256099942544/1712485313"}}})");
+    CHECK(has(ios, "/platform/ads/appIds/ios"));
+    CHECK(has(ios, "is not an AdMob app id"));
+    CHECK(has(ios, "admob_ios"));
+    CHECK(has(text(R"({"ads": {"trackingPromt": true}})"), "did you mean \"trackingPrompt\""));
+}
+
+TEST_CASE("platform: the request of an ad carries every network's id of the placement, so a plugin picks its platform's unit") {
+    TwoBackends t(R"({"ads": {"placements": [{"id": "more_time", "ids": {"admob": "ca-app-pub-1234567890123456/1234567890", "admob_ios": "ca-app-pub-1234567890123456/0987654321"}}]}})");
+    t.ask("ads.available", Json::parse(R"({"placement": "more_time"})"));
+    REQUIRE(t.ads->calls.size() == 1);
+    const Json& ids = t.ads->calls[0].args["ids"];
+    CHECK(ids["admob"] == "ca-app-pub-1234567890123456/1234567890");
+    CHECK(ids["admob_ios"] == "ca-app-pub-1234567890123456/0987654321");
 }
 
 TEST_CASE("fake: leaderboards keep one board per day or week of the date source; a store backend gets the period too") {

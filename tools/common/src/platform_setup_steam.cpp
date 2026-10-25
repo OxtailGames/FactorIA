@@ -44,17 +44,6 @@ bool is_file(const stdfs::path& p) {
     return stdfs::is_regular_file(p, ec);
 }
 
-stdfs::path expand_path(const std::string& text, const std::string& projectDir) {
-    std::string t = text;
-    if (t.rfind("~/", 0) == 0 || t == "~") {
-        const char* home = std::getenv("HOME");
-        if (!home || !*home) home = std::getenv("USERPROFILE");
-        if (home && *home) t = std::string(home) + t.substr(1);
-    }
-    stdfs::path p(t);
-    return p.is_absolute() ? p : stdfs::path(projectDir) / p;
-}
-
 // The app id as a number; 0 when it is not one.
 unsigned parse_app_id(const Json& v) {
     if (v.is_number_integer() || v.is_number_unsigned()) {
@@ -91,16 +80,6 @@ std::optional<stdfs::path> find_redistributable_bin(const stdfs::path& base) {
     if (is_dir(base / "win64") || is_dir(base / "osx") || is_dir(base / "linux64")) return base;
     return std::nullopt;
 }
-
-// A temporary folder the SDK zip is unpacked into, removed at the end.
-struct Scratch {
-    stdfs::path dir;
-    ~Scratch() {
-        if (dir.empty()) return;
-        std::error_code ec;
-        stdfs::remove_all(dir, ec);
-    }
-};
 
 std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });

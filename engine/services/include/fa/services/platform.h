@@ -83,7 +83,12 @@ struct PlatformCatalog {
     //   adsBackend   the ads plugin to use when several load ("" = auto); adsBackendPointer is where factoria.json writes it.
     std::map<std::string, std::string> adsAppIds;
     std::string adsAudience = "general";
+    //   adsTrackingPrompt  iOS: ask for App Tracking Transparency (the "Allow tracking" sheet) after the consent form; false by default
+    //   adsTrackingDescription / adsTrackingDescriptionKey  the sentence of that sheet (NSUserTrackingUsageDescription): plain text, or a
+    //                locale key that wins and is translated per language ("" = the default sentence)
     std::string adsBackend, adsBackendPointer;
+    bool adsTrackingPrompt = false;
+    std::string adsTrackingDescription, adsTrackingDescriptionKey;
 
     // "backend": the plugin to use. `backend` is the plain string ("" = auto), `backendByPlatform` the per-platform
     // object ({"windows": "steam", "ios": "apple"}); the plugin names written in either are in `backendRefs` with their

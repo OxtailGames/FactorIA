@@ -2,12 +2,15 @@
 // and the engine archives are written into the export as well. The modes are described in export_internal.h.
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 
 #include "export_internal.h"
 #include "fa/core/i18n.h"
 #include "fa/core/json.h"
 #include "fa/services/platform.h"
+#include "fa/tooling/ads_release.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/ios_privacy.h"
@@ -25,6 +28,73 @@ namespace {
 constexpr const char* kIosEntitlementsFile = "factoria_player.entitlements";
 // The privacy manifest of the app (fa/tooling/ios_privacy.h): the file App Store Connect wants at the root of the app bundle.
 constexpr const char* kIosPrivacyManifestFile = "PrivacyInfo.xcprivacy";
+
+// The extra Info.plist keys (the plugins' infoPlist and the ads plugin's), as the fragment build_ios.sh hands to CMake
+// (-DFA_GAME_INFO_PLIST_EXTRA) for platforms/ios/Info.plist.in; and the per-language texts of the "Allow tracking" sheet.
+constexpr const char* kIosInfoPlistExtraFile = "InfoPlistExtra.xml";
+constexpr const char* kIosLocalizedStringsDir = "InfoPlist";
+
+// An XCFramework is a folder with one slice per SDK: ios-arm64 (iPhone) and ios-arm64_x86_64-simulator (the simulator), each
+// holding the <Name>.framework (or the lib<Name>.a) built for it. Empty when there is no slice for the SDK.
+stdfs::path xcframework_slice(const stdfs::path& xcframework, bool simulator) {
+    std::error_code ec;
+    for (stdfs::directory_iterator it(os_path(xcframework), ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (name.rfind("ios-", 0) != 0 || !it->is_directory(ec)) continue;
+        const auto ends = [&](const std::string& tail) { return name.size() >= tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0; };
+        if (ends("-maccatalyst")) continue;
+        if (ends("-simulator") == simulator) return it->path();
+    }
+    return {};
+}
+
+// The binary of the framework (or the library) inside a slice; empty when the slice holds neither.
+stdfs::path xcframework_binary(const stdfs::path& slice) {
+    std::error_code ec;
+    for (stdfs::directory_iterator it(os_path(slice), ec), end; !ec && it != end; it.increment(ec)) {
+        const stdfs::path path = it->path();
+        if (path.extension() == ".framework") return path / path.stem();
+        if (path.extension() == ".a" && path.filename().string().rfind("lib", 0) == 0) return path;
+    }
+    return {};
+}
+
+// Whether a binary is a static library: an `ar` archive, or a universal ("fat") file whose first architecture is one. A static
+// framework is linked into the app; only a dynamic one is embedded in it (Frameworks/) and signed with it.
+bool is_static_library(const stdfs::path& binary) {
+    std::ifstream in(os_path(binary), std::ios::binary);
+    auto read = [&](std::uint64_t offset, std::size_t size) {
+        std::string bytes(size, '\0');
+        in.clear();
+        in.seekg(static_cast<std::streamoff>(offset));
+        in.read(bytes.data(), static_cast<std::streamsize>(size));
+        bytes.resize(static_cast<std::size_t>(in.gcount()));
+        return bytes;
+    };
+    auto be = [](const std::string& b, std::size_t at, std::size_t size) {
+        std::uint64_t v = 0;
+        for (std::size_t i = 0; i < size && at + i < b.size(); ++i) v = (v << 8) | static_cast<unsigned char>(b[at + i]);
+        return v;
+    };
+    const std::string kArchive = "!<arch>\n";
+    const std::string head = read(0, 32);
+    if (head.compare(0, kArchive.size(), kArchive) == 0) return true;
+    // Fat header (big endian): magic 0xCAFEBABE (32-bit offsets) or 0xCAFEBABF (64-bit), count, then one entry per architecture.
+    if (head.size() < 24 || be(head, 0, 3) != 0xCAFEBA || (be(head, 3, 1) != 0xBE && be(head, 3, 1) != 0xBF) || be(head, 4, 4) == 0) return false;
+    const std::uint64_t offset = be(head, 3, 1) == 0xBE ? be(head, 16, 4) : be(head, 16, 8);
+    return read(offset, kArchive.size()) == kArchive;
+}
+
+// The text of a .strings file value.
+std::string strings_escape(const std::string& text) {
+    std::string out;
+    for (char c : text) {
+        if (c == '\\' || c == '"') out += '\\', out += c;
+        else if (c == '\n') out += "\\n";
+        else out += c;
+    }
+    return out;
+}
 
 // Prebuilt mode: the CMake project (CMakeLists.txt + cmake/) and the engine archives (lib/<sdk>/*.a) of the app.
 Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::path& outRoot) {
@@ -85,6 +155,70 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     const bool hasEntitlements = !needs.entitlements.empty();
     if (hasEntitlements)
         if (auto r = write_text(outRoot / kIosEntitlementsFile, entitlements_plist(needs.entitlements)); !r.ok()) return r;
+    // Vendored XCFrameworks (the ads plugin's Google SDK, ...): they must be in the copied plugin; a static one is linked into
+    // the app, a dynamic one is also embedded in it (platforms/ios/plugins.cmake picks the slice of the SDK it builds for).
+    std::vector<std::string> embedXcframeworks;
+    for (const std::string& xcframework : needs.xcframeworks) {
+        const std::string plugin = xcframework.substr(0, xcframework.find('/'));
+        const stdfs::path path = outRoot / "plugins" / xcframework;
+        std::error_code ec;
+        if (!stdfs::is_directory(os_path(path), ec))
+            return err("export: the plugin '" + plugin + "' lists the XCFramework " + xcframework.substr(plugin.size() + 1) +
+                           " in its ios/plugin.json but the plugin's ios/ folder does not have it",
+                       "Put the .xcframework there. A vendor SDK is a download that the repository never holds: for the admob plugin run "
+                       "`factoria call platform.add_backend '{\"backend\":\"admob\",\"sdk\":\"<the Google Mobile Ads SDK zip or folder>\"}'` "
+                       "(docs/PLATFORM.md, \"Ads on iOS\"), which copies it in");
+        const stdfs::path device = xcframework_slice(path, false);
+        const stdfs::path simulator = xcframework_slice(path, true);
+        if (device.empty() && simulator.empty())
+            return err("export: " + xcframework + " has no iOS slice (ios-arm64, ios-arm64_x86_64-simulator)",
+                       "Use the XCFramework built for iOS, not a macOS-only one");
+        for (const auto& [slice, name] : {std::pair{device, "iPhone"}, std::pair{simulator, "iOS Simulator"}})
+            if (slice.empty())
+                report.warnings.push_back(xcframework + " has no slice for the " + name + ": " +
+                                          (std::string(name) == "iPhone" ? "a device build" : "./build_ios.sh --simulator") + " will fail to link it");
+        const stdfs::path binary = xcframework_binary(device.empty() ? simulator : device);
+        if (binary.empty())
+            return err("export: " + xcframework + " has no .framework or lib*.a in its iOS slice",
+                       "An XCFramework holds <Name>.framework (or lib<Name>.a) in each ios-* folder; download it again");
+        if (!is_static_library(binary)) embedXcframeworks.push_back(xcframework);
+    }
+    // The Info.plist keys of the plugins (plugin.json "infoPlist") plus the ones the export writes for the ads plugin: Google's
+    // app id (a development export carries Google's sample), the test flag and audience the plugin reads, and the sentence of
+    // the "Allow tracking" sheet (translated by an InfoPlist.strings per language of the game).
+    const AdsIosSettings ads = ads_ios_settings(generic(p.dir), o.release);
+    Json plist = needs.infoPlist.is_object() ? needs.infoPlist : Json::object();
+    if (ads.present) {
+        std::vector<std::pair<std::string, Json>> adsKeys = {
+            {"GADApplicationIdentifier", ads.appId},
+            {"FactoriaAdsTest", ads.test},
+            {"FactoriaAdsAudience", ads.audience},
+            {"FactoriaAdsTrackingPrompt", ads.trackingPrompt}};
+        if (ads.trackingPrompt) adsKeys.push_back({"NSUserTrackingUsageDescription", ads.trackingDescription});
+        if (!ads.trackingDescriptions.empty()) {
+            Json languages = Json::array();
+            for (const auto& [tag, text] : ads.trackingDescriptions) languages.push_back(tag);
+            adsKeys.push_back({"CFBundleLocalizations", languages});
+        }
+        for (auto& [key, value] : adsKeys) {
+            if (plist.contains(key))
+                return err("export: " + key + " is in the infoPlist of a plugin and the export writes it for the ads plugin too",
+                           "Remove it from the plugin's ios/plugin.json \"infoPlist\": the export takes it from factoria.json (platform.ads)");
+            plist[key] = value;
+        }
+    }
+    const bool hasInfoPlistExtra = !plist.empty();
+    if (hasInfoPlistExtra)
+        if (auto r = write_text(outRoot / kIosInfoPlistExtraFile, info_plist_entries(plist)); !r.ok()) return r;
+    const bool hasLocalizedStrings = ads.present && ads.trackingPrompt && !ads.trackingDescriptions.empty();
+    if (hasLocalizedStrings)
+        for (const auto& [tag, text] : ads.trackingDescriptions)
+            if (auto r = write_text(outRoot / kIosLocalizedStringsDir / (tag + ".lproj") / "InfoPlist.strings",
+                                    "\"NSUserTrackingUsageDescription\" = \"" + strings_escape(text) + "\";\n");
+                !r.ok())
+                return r;
+    if (o.release)
+        for (const AdsIssue& i : check_ads(generic(p.dir), "ios")) report.warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
     // The catalog's products as Products.storekit, whether or not the Apple plugin is declared or built (the plugin only matters
     // for the scheme): Xcode sells them to a run from Xcode without App Store Connect (build_ios.sh wires it into the scheme).
     // One localization per language of the game, from the products' titleKey / descriptionKey.
@@ -190,6 +324,12 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          (pluginNames.empty() ? "" : "  -DFA_GAME_PLUGINS=" + sh_quote(pluginNames) + " -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\" \\\n") +
          (needs.frameworks.empty() ? "" : "  -DFA_GAME_PLUGIN_FRAMEWORKS=" + sh_quote(join(needs.frameworks, ";")) + " \\\n") +
          (needs.swift ? "  -DFA_GAME_PLUGIN_SWIFT=ON \\\n" : "") +
+         (needs.xcframeworks.empty() ? ""
+                                     : "  -DFA_GAME_PLUGIN_XCFRAMEWORKS=" + sh_quote(join(needs.xcframeworks, ";")) +
+                                           (embedXcframeworks.empty() ? "" : " -DFA_GAME_PLUGIN_EMBED_XCFRAMEWORKS=" + sh_quote(join(embedXcframeworks, ";"))) +
+                                           " \\\n") +
+         (hasInfoPlistExtra ? std::string("  -DFA_GAME_INFO_PLIST_EXTRA=\"$HERE/") + kIosInfoPlistExtraFile + "\" \\\n" : "") +
+         (hasLocalizedStrings ? std::string("  -DFA_GAME_LOCALIZED_STRINGS=\"$HERE/") + kIosLocalizedStringsDir + "\" \\\n" : "") +
          (hasEntitlements ? std::string("  -DFA_GAME_ENTITLEMENTS=\"$HERE/") + kIosEntitlementsFile + "\" \\\n" : "") +
          (hasStoreKit ? "  -DFA_GAME_STOREKIT=ON \\\n" : "") +
          "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-" + team + "}\"\n" +
@@ -294,6 +434,34 @@ exec xcrun devicectl device process launch --console --terminate-existing --devi
             "The plugins ask for capabilities (" + join(names, ", ") + "): " + std::string(kIosEntitlementsFile) +
             " is the app's entitlements file, so Xcode's automatic signing turns them on for the App ID of " + p.id +
             " (a device build needs the Team). They need the matching services set up in App Store Connect: docs/PLATFORM.md");
+    }
+    if (!needs.xcframeworks.empty()) {
+        std::string linked;
+        for (const std::string& x : needs.xcframeworks) linked += (linked.empty() ? "" : ", ") + x.substr(x.find('/') + 1);
+        report.nextSteps.push_back("The plugins bring XCFrameworks (" + linked + "), copied to plugins/ with them: build_ios.sh links them into the app" +
+                                   (embedXcframeworks.empty() ? " (all static, so none is embedded)"
+                                                              : " and embeds the dynamic ones (" + std::to_string(embedXcframeworks.size()) + ") in Frameworks/"));
+    }
+    if (ads.present && ads.trackingPrompt && !ios.privacy.tracking)
+        report.warnings.push_back("platform.ads.trackingPrompt is true but export.ios.privacy.tracking is not: PrivacyInfo.xcprivacy says the app does not "
+                                  "track while the app shows the \"Allow tracking\" sheet. Set \"export\": {\"ios\": {\"privacy\": {\"tracking\": true, "
+                                  "\"trackingDomains\": [...]}}} (docs/MOBILE.md, \"Store privacy forms\")");
+    if (ads.present) {
+        report.nextSteps.push_back(
+            "The ads plugin: Info.plist carries GADApplicationIdentifier " + ads.appId +
+            (o.release ? (ads.appId == kAdmobSampleAppIdIos ? " (Google's sample: set platform.ads.appIds.ios, a release shows test ads that earn nothing)" : "")
+                       : " (Google's sample app: a development export always shows test ads; export with --release and platform.ads.appIds.ios for real ones)") +
+            (ads.trackingPrompt
+                 ? ", and NSUserTrackingUsageDescription is the sentence of the \"Allow tracking\" sheet" +
+                       std::string(hasLocalizedStrings ? " (one InfoPlist.strings per language of the game)" : "") +
+                       ": the plugin shows it after Google's consent form. " +
+                       std::string(ios.privacy.tracking
+                                       ? "PrivacyInfo.xcprivacy says the app tracks (export.ios.privacy.tracking) and lists " +
+                                             std::to_string(ios.privacy.trackingDomains.size()) +
+                                             " tracking domain(s): the ad network's go in export.ios.privacy.trackingDomains. Answer \"Data Used to Track You\" in App Store Connect"
+                                       : "An app that asks to track declares it: export.ios.privacy.tracking true and the tracking domains, and "
+                                         "\"Data Used to Track You\" in App Store Connect")
+                 : ". platform.ads.trackingPrompt is off: the app never asks to track, so Google's SDK gets no advertising identifier"));
     }
     if (hasStoreKit)
         report.nextSteps.push_back(std::string("Running the project from Xcode sells the products of ") + kStoreKitFileName +

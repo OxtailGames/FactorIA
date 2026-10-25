@@ -1622,7 +1622,7 @@ declare module "factoria" {
      */
     readonly gdpr: "granted" | "denied" | "notRequired" | "unknown";
     /**
-     * The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet.
+     * The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet (Android) and on iOS when platform.ads.trackingPrompt is off; otherwise the status of the sheet the ads plugin asks for after the consent form.
      */
     readonly tracking: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired";
     /**
