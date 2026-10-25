@@ -20,6 +20,7 @@ every exported game, and a tooling test fails until it is there.
 | [SheenBidi](https://github.com/Tehreer/SheenBidi) | `v3.0.0` (2026-01-24) | Apache-2.0 | render | Unicode Bidirectional Algorithm: paragraph direction and embedding levels for right-to-left text |
 | [dr_libs](https://github.com/mackron/dr_libs) | `dfe8377` (2026-09-01) | MIT-0 / Public domain | audio | WAV and MP3 decoding |
 | [qoa](https://github.com/phoboslab/qoa) | `bc05897` (2026-09-27) | MIT | audio, tooling | QOA audio: decoding in the engine, WAV to QOA conversion in `factoria export` |
+| [pl_mpeg](https://github.com/phoboslab/pl_mpeg) | `c871f2b` (2025-12-30) | MIT | core | Video: MPEG-1 video and MP2 audio decoding in an `.mpg` (the `Video` component, `fa/core/video.h`). Upstream ships no license file: `external/pl_mpeg/LICENSE` is the MIT text its header declares (`SPDX-License-Identifier: MIT`) |
 | [acorn](https://github.com/acornjs/acorn) | `8.15.0` | MIT | tooling | Parses project JS for the script debugger's instrumentation; developer binary only (`external/acorn/dist/acorn.js`, the npm package's file unmodified) |
 | [nlohmann/json](https://github.com/nlohmann/json) | `v3.12.0` | MIT | everywhere | JSON (scenes, project files, MCP, AI APIs) |
 | [doctest](https://github.com/doctest/doctest) | `v2.4.12` | MIT | tests | C++ unit tests |

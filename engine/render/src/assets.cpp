@@ -499,6 +499,8 @@ void Assets::destroy_mesh(MeshAsset& m) {
 }
 
 void Assets::clear() {
+    for (auto& [k, v] : videoTextures_) destroy_texture(*v.tex);
+    videoTextures_.clear();
     for (auto& [k, t] : textures_) destroy_texture(*t);
     textures_.clear();
     for (auto& t : anonymous_) destroy_texture(*t);
@@ -593,6 +595,69 @@ TextureAsset* Assets::make_texture(const std::string& name, const Image& img, bo
     upload_texture(*t, img, mips);
     anonymous_.push_back(std::move(t));
     return anonymous_.back().get();
+}
+
+TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder) {
+    auto it = videoTextures_.find(decoder.get());
+    if (it != videoTextures_.end() && it->second.decoder.lock() != decoder) {  // an address reused by another decoder
+        destroy_texture(*it->second.tex);
+        videoTextures_.erase(it);
+        it = videoTextures_.end();
+    }
+    if (it == videoTextures_.end()) {
+        VideoTexture v;
+        v.decoder = decoder;
+        v.tex = std::make_unique<TextureAsset>();
+        v.tex->path = "<video>";
+        it = videoTextures_.emplace(decoder.get(), std::move(v)).first;
+    }
+    VideoTexture& v = it->second;
+    v.seen = true;
+    TextureAsset& t = *v.tex;
+    const VideoInfo& info = decoder->info();
+    if (!t.image.id || t.width != info.width || t.height != info.height) {
+        // One image per video, written in place: making an image for each picture cost a 60 fps video tens of
+        // milliseconds a frame on a software renderer (llvmpipe). sokol keeps a copy per frame in flight.
+        destroy_texture(t);
+        sg_image_desc d{};
+        d.usage.write_transient = true;
+        d.width = info.width;
+        d.height = info.height;
+        d.pixel_format = SG_PIXELFORMAT_RGBA8;
+        d.label = "video";
+        t.image = make_image(d);
+        sg_view_desc vd{};
+        vd.texture.image = t.image;
+        vd.label = "video";
+        t.view = sg_make_view(&vd);
+        t.width = info.width;
+        t.height = info.height;
+        t.format = SG_PIXELFORMAT_RGBA8;
+        t.bytes = std::size_t(info.width) * std::size_t(info.height) * 4 * SG_NUM_INFLIGHT_FRAMES;
+        v.writtenFrame = 0;
+    }
+    // A write-transient image is written in every sokol frame that draws it, once and before it is bound: a second
+    // draw before the commit (editor screenshots, render_now) shows what the first one wrote.
+    if (v.writtenFrame != gpu_.frame() + 1) {
+        sg_write_image_desc w{};
+        w.src.data = {decoder->picture(), std::size_t(info.width) * std::size_t(info.height) * 4};
+        w.dst.image = t.image;
+        sg_write_image_transient(&w);
+        v.writtenFrame = gpu_.frame() + 1;
+    }
+    return &t;
+}
+
+void Assets::end_video_frame() {
+    for (auto it = videoTextures_.begin(); it != videoTextures_.end();) {
+        if (!it->second.seen) {
+            destroy_texture(*it->second.tex);
+            it = videoTextures_.erase(it);
+        } else {
+            it->second.seen = false;
+            ++it;
+        }
+    }
 }
 
 std::string Assets::missing_hint(const std::string& path, std::string_view ext) const {
@@ -792,6 +857,7 @@ std::size_t Assets::texture_bytes() const {
     std::size_t total = 0;
     for (const auto& [k, t] : textures_)
         if (!t->placeholder && !t->atlas) total += t->bytes;
+    for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
     return total;
 }
 

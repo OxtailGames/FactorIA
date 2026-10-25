@@ -23,6 +23,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/core/video.h"
 #include "sokol_audio.h"
 
 #if defined(__APPLE__)
@@ -55,6 +56,16 @@ struct Clip {
     float gain = 1.0f;         // loudness normalization (the `normalize` import setting)
 };
 
+// A voice fed by the game instead of reading a clip: a video's sound (open_pcm_voice / push_pcm). Interleaved stereo float
+// at `rate`, read with linear interpolation; when the queue runs dry the voice is silent and stays open.
+struct PcmFeed {
+    int rate = kRate;
+    std::vector<float> queue;
+    std::size_t head = 0;  // index (in floats) of the first frame not yet consumed
+    double pos = 0.0;      // fractional frame position relative to `head`
+    std::size_t frames() const { return (queue.size() - head) / 2; }
+};
+
 struct Voice {
     VoiceId id = 0;
     std::shared_ptr<const Clip> clip;
@@ -67,6 +78,17 @@ struct Voice {
     bool stopAtFadeEnd = false;
     bool dead = false;
     std::unique_ptr<Stream> stream;  // set for a streamed clip: `pos` then counts frames of the whole timeline
+    std::unique_ptr<PcmFeed> pcm;    // set for a voice the game feeds (no clip)
+};
+
+// A video's voice (Video components, Audio::update).
+struct EntityVideo {
+    std::string id;
+    std::shared_ptr<VideoDecoder> decoder;  // the decoder this voice carries; a new one (path changed) is a new voice
+    VoiceId voice = 0;
+    std::uint64_t epoch = 0;
+    std::string bus;
+    std::uint64_t seen = 0;
 };
 
 struct EntityAudio {
@@ -141,6 +163,8 @@ struct Audio::Impl {
     // gameplay-side state (only touched from the game thread)
     const World* lastWorld = nullptr;
     std::map<std::uint64_t, EntityAudio> ents;
+    std::map<std::uint64_t, EntityVideo> videos;
+    std::vector<float> videoScratch;
     std::uint64_t stamp = 0;
     std::string sceneMusic;
     float sceneMusicVolume = -1.0f;
@@ -344,6 +368,15 @@ struct Audio::Impl {
         return voices.back().id;
     }
 
+    VoiceId open_pcm(int rate, const PlayParams& p) {
+        auto feed = std::make_unique<PcmFeed>();
+        feed->rate = std::max(rate, 1);
+        std::lock_guard<std::mutex> lk(mu);
+        VoiceId id = add_voice_locked(nullptr, p, nullptr);
+        if (Voice* v = find_voice(id)) v->pcm = std::move(feed);
+        return id;
+    }
+
     void start_fade(Voice& v, float target, float seconds, bool stopAtEnd) {
         long frames = std::max(1L, long(std::lround(double(seconds) * deviceRate)));
         v.fadeTarget = target;
@@ -353,12 +386,53 @@ struct Audio::Impl {
     }
 
     // ------------------------------------------------------------- mixing
+    // Adds a PCM voice into `out`: the same pan law, bus and fade as a clip voice. A dry queue makes silence, not an end.
+    void mix_pcm_locked(Voice& v, float* out, int frames) {
+        PcmFeed& p = *v.pcm;
+        const double step = double(p.rate) / double(deviceRate);
+        const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
+        const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
+        const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
+        const float base = v.volume * busVol[v.bus] * master;
+        const float* d = p.queue.data() + p.head;
+        const std::size_t avail = p.frames();
+        for (int f = 0; f < frames; ++f) {
+            const std::size_t i0 = std::size_t(p.pos);
+            if (i0 + 1 >= avail) break;  // underrun: wait for more samples
+            const float t = float(p.pos - double(i0));
+            const float l = d[2 * i0] + (d[2 * i0 + 2] - d[2 * i0]) * t;
+            const float r = d[2 * i0 + 1] + (d[2 * i0 + 3] - d[2 * i0 + 1]) * t;
+            const float g = base * v.fade;
+            out[2 * f] += l * gl * g;
+            out[2 * f + 1] += r * gr * g;
+            p.pos += step;
+            if (v.fadeFrames > 0) {
+                v.fade += v.fadeStep;
+                if (--v.fadeFrames == 0) {
+                    v.fade = v.fadeTarget;
+                    if (v.stopAtFadeEnd) { v.dead = true; break; }
+                }
+            }
+        }
+        const std::size_t used = std::min(std::size_t(p.pos), avail);
+        p.pos -= double(used);
+        p.head += 2 * used;
+        if (p.head > 0 && p.head * 2 >= p.queue.size()) {  // compact
+            p.queue.erase(p.queue.begin(), p.queue.begin() + std::ptrdiff_t(p.head));
+            p.head = 0;
+        }
+    }
+
     // Mixes `frames` stereo frames into `out` (overwrites). Caller holds mu.
     void mix_locked(float* out, int frames) {
         std::memset(out, 0, sizeof(float) * std::size_t(frames) * 2);
         const double rateRatio = double(kRate) / double(deviceRate);
         for (Voice& v : voices) {
             if (paused) break;
+            if (v.pcm) {
+                mix_pcm_locked(v, out, frames);
+                continue;
+            }
             if (v.dead || !v.clip || v.clip->frames == 0) { v.dead = true; continue; }
             const Clip& c = *v.clip;
             Stream* const stream = v.stream.get();
@@ -511,6 +585,7 @@ void Audio::shutdown() {
     impl_->voices.clear();
     impl_->clips.clear();
     impl_->ents.clear();
+    impl_->videos.clear();
     impl_->musicVoice = 0;
     impl_->musicPath.clear();
     impl_->recording = false;
@@ -528,6 +603,49 @@ void Audio::shutdown() {
 bool Audio::load(std::string_view clipPath) { return impl_->get_clip(clipPath) != nullptr; }
 
 VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) { return impl_->start(clipPath, params, ""); }
+
+VoiceId Audio::open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path, std::string_view source) {
+    if (!impl_->inited) {
+        FA_ERROR("audio", "Audio::open_pcm_voice('{}') called before Audio::init()", path);
+        return 0;
+    }
+    impl_->log_play(path, params, false, source, true);
+    return impl_->open_pcm(sampleRate, params);
+}
+
+void Audio::push_pcm(VoiceId voice, const float* stereo, std::size_t frames) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    Voice* v = impl_->find_voice(voice);
+    if (!v || !v->pcm || frames == 0) return;
+    PcmFeed& p = *v->pcm;
+    p.queue.insert(p.queue.end(), stereo, stereo + 2 * frames);
+    const std::size_t cap = std::size_t(p.rate) * 2 * 2;  // two seconds; a game that never mixes must not grow it forever
+    if (p.queue.size() - p.head > cap) {
+        p.head = p.queue.size() - cap;
+    }
+}
+
+void Audio::clear_pcm(VoiceId voice) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    Voice* v = impl_->find_voice(voice);
+    if (!v || !v->pcm) return;
+    v->pcm->queue.clear();
+    v->pcm->head = 0;
+    v->pcm->pos = 0.0;
+}
+
+void Audio::set_voice_bus(VoiceId voice, std::string_view bus) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    Voice* v = impl_->find_voice(voice);
+    if (!v) return;
+    int b = Impl::bus_index(bus);
+    if (b < 0) {
+        std::vector<std::string> names(kBusNames, kBusNames + BusCount);
+        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus, did_you_mean(bus, names));
+        b = BusSfx;
+    }
+    v->bus = b;
+}
 
 void Audio::stop(VoiceId voice) {
     std::lock_guard<std::mutex> lk(impl_->mu);
@@ -791,6 +909,8 @@ void Audio::update(World& world, float dt) {
     if (im.lastWorld != &world) {
         for (auto& [k, ea] : im.ents) if (ea.voice) stop(ea.voice);
         im.ents.clear();
+        for (auto& [k, ev] : im.videos) if (ev.voice) stop(ev.voice);
+        im.videos.clear();
         im.lastWorld = &world;
     }
     ++im.stamp;
@@ -897,6 +1017,68 @@ void Audio::update(World& world, float dt) {
         if (it->second.seen != im.stamp) {
             if (it->second.voice) stop(it->second.voice);
             it = im.ents.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // ---- Video components: their sound goes to a PCM voice on the Video's bus. The decoder (advanced by update_videos from
+    // the game clock) releases samples up to a short lead after its position, so a paused game goes silent.
+    for (Entity e : world.entities_with(&World::type_of<Video>())) {
+        if (!world.alive(e)) continue;
+        Video* vid = world.get<Video>(e);
+        if (!vid) continue;
+        auto it = im.videos.find(e.bits());
+        if (it != im.videos.end() && it->second.id != world.id_of(e)) {  // slot reused after World::clear()
+            if (it->second.voice) stop(it->second.voice);
+            im.videos.erase(it);
+            it = im.videos.end();
+        }
+        if (it == im.videos.end()) {
+            EntityVideo ev;
+            ev.id = world.id_of(e);
+            it = im.videos.emplace(e.bits(), std::move(ev)).first;
+        }
+        EntityVideo& ev = it->second;
+        ev.seen = im.stamp;
+        const std::shared_ptr<VideoDecoder>& dec = vid->rt.decoder;
+        const bool live = world.active_in_hierarchy(e) && dec && dec->info().hasAudio;
+        if (ev.voice != 0 && (!live || ev.decoder != dec || !is_playing(ev.voice))) {
+            stop(ev.voice);
+            ev.voice = 0;
+        }
+        if (!live) {
+            ev.decoder.reset();
+            continue;
+        }
+        if (ev.voice == 0) {
+            PlayParams p;
+            p.volume = vid->volume;
+            p.loop = true;  // never the first voice evicted when the mixer is full
+            p.bus = vid->bus;
+            ev.voice = open_pcm_voice(dec->info().sampleRate, p, vid->path, ev.id);
+            ev.decoder = dec;
+            ev.epoch = dec->audio_epoch();
+            ev.bus = vid->bus;
+            if (ev.voice == 0) continue;
+        }
+        if (ev.epoch != dec->audio_epoch()) {  // a seek or a loop restart: what waits belongs to the old position
+            ev.epoch = dec->audio_epoch();
+            clear_pcm(ev.voice);
+        }
+        if (ev.bus != vid->bus) {
+            ev.bus = vid->bus;
+            set_voice_bus(ev.voice, vid->bus);
+        }
+        set_voice_volume(ev.voice, vid->volume);
+        im.videoScratch.clear();
+        const std::size_t frames = dec->take_audio(0.08, im.videoScratch);
+        if (frames > 0) push_pcm(ev.voice, im.videoScratch.data(), frames);
+    }
+    for (auto it = im.videos.begin(); it != im.videos.end();) {  // destroyed entities or removed components
+        if (it->second.seen != im.stamp) {
+            if (it->second.voice) stop(it->second.voice);
+            it = im.videos.erase(it);
         } else {
             ++it;
         }

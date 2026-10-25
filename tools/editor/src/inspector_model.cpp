@@ -107,7 +107,7 @@ bool asset_file_matches(std::string_view assetType, std::string_view relPath) {
     const std::string type = asset_type_of(relPath);
     if (type != "other") return type == assetType;
     return assetType != "texture" && assetType != "audio" && assetType != "font" && assetType != "mesh" &&
-           assetType != "script" && assetType != "scene" && assetType != "prefab" && assetType != "material";  // unknown type: anything
+           assetType != "script" && assetType != "scene" && assetType != "prefab" && assetType != "material" && assetType != "video";  // unknown type: anything
 }
 
 bool skip_project_dir(std::string_view name) {
