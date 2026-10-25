@@ -25,6 +25,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,6 +45,7 @@ class Audio;
 class Physics;
 class Renderer;
 class UiSystem;
+class Clipboard;
 class PlatformServices;
 class I18n;
 
@@ -92,6 +94,9 @@ public:
     }
     // The game window, or nullptr when this run has none (the default): `window.available` in scripts.
     virtual WindowControl* window() { return nullptr; }
+    // The clipboard `clipboard.*` reads and writes (the system's in a game window, an in-memory one in headless runs and tests).
+    // nullptr: none, and clipboard.supports is false.
+    virtual Clipboard* clipboard() { return nullptr; }
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
     // `platform` then reports the "none" backend.
     virtual PlatformServices* platform_services() { return nullptr; }
@@ -315,8 +320,12 @@ public:
     // set_date (game.setDate) and every test starts from the start date again. Nothing here reads the clock.
     CalendarDate today() const;
     void set_start_date(const CalendarDate& date);
-    // game.setDate: "" when done, else the teaching error of parse_calendar_date.
-    std::string set_date(std::string_view iso);
+    // game.setDate: "" when done, else the teaching error of parse_calendar_date. `iso` may carry a time ("2026-03-14T23:59:30");
+    // utcOffsetMinutes keeps the current offset unless one is given. Moving to another local day sends "app.dayChanged".
+    std::string set_date(std::string_view iso, std::optional<int> utcOffsetMinutes = std::nullopt);
+    // The host read the clock again (the windowed runner, about once a minute and on focus or resume): game.today() follows it and,
+    // when the local calendar day is not the one it was, the game event "app.dayChanged" goes to the scripts at once.
+    void set_clock_date(const CalendarDate& now);
 
     // What happened to the app: the window gained or lost focus, or the app went to the background (mobile) or came back.
     // Sends the game event "app.<name>" to the scripts at once. Suspend, then, when factoria.json "pauseOnSuspend" is not false
@@ -325,6 +334,10 @@ public:
     // events; tests through game.suspend() / resume() / blur() / focus().
     enum class AppLifecycle { Suspend, Resume, Focus, Blur };
     void app_event(AppLifecycle event);
+    // The player asked to close the window (the close button, Cmd+Q, Alt+F4): sends the game event "app.quit" to the scripts at
+    // once. A handler may call event.cancel(). Returns false when one did (the window stays open), true when the window
+    // may close. A quit the game asked for itself (game.quit()) must not come here: hosts check AppEvent::fromApp.
+    bool close_requested();
     bool app_focused() const;
     bool app_suspended() const;
     // A new test: focus, no suspend (the audio and time.scale are put back by the test reset), the date back to the start date.

@@ -17,6 +17,7 @@
 #include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
+#include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
@@ -1568,6 +1569,38 @@ NATIVE(testQuit) {  // (reset?): whether a quit was requested in this test; true
     return JS_NewBool(ctx, was);
 }
 
+NATIVE(quitCancel) {  // event.cancel() of game.on("quit"): the window stays open
+    SETUP;
+    I->quitCancelled = true;
+    return JS_UNDEFINED;
+}
+
+NATIVE(testCloseWindow) {  // the player clicks the close button: true when the window would close (and a quit is then requested)
+    SETUP;
+    const bool closes = I->owner->close_requested();
+    if (closes) I->request_quit();
+    return JS_NewBool(ctx, closes);
+}
+
+NATIVE(clipboardSupported) {
+    SETUP;
+    Clipboard* c = I->host->clipboard();
+    return JS_NewBool(ctx, c && c->supported());
+}
+
+NATIVE(clipboardGet) {
+    SETUP;
+    Clipboard* c = I->host->clipboard();
+    const std::string text = c && c->supported() ? c->get() : std::string();
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
+NATIVE(clipboardSet) {  // (text)
+    SETUP;
+    if (Clipboard* c = I->host->clipboard(); c && c->supported()) c->set(arg_str(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+}
+
 NATIVE(testSystemLanguages) {  // (list): the languages the device pretends to have; no argument clears
     SETUP;
     I->testSystemLanguages.clear();
@@ -2380,15 +2413,19 @@ NATIVE(testText) {  // (codePoint): one typed character, as the keyboard would s
 }
 
 // ---- the date and the app's life ------------------------------------------------------------------------------------
-NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes]
+NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes, hour, minute, second, utcYear, utcMonth, utcDay]
     SETUP;
     const CalendarDate d = I->owner->today();
-    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes)});
+    const CalendarDate u = d.utc();
+    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes), double(d.hour),
+                          double(d.minute), double(d.second), double(u.year), double(u.month), double(u.day)});
 }
 
-NATIVE(testSetDate) {  // (iso): "" when set, else the teaching error
+NATIVE(testSetDate) {  // (iso, utcOffsetMinutes | undefined): "" when set, else the teaching error
     SETUP;
-    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0)).c_str());
+    std::optional<int> offset;
+    if (argc > 1 && JS_IsNumber(argv[1])) offset = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0), offset).c_str());
 }
 
 NATIVE(appState) {  // [focused, suspended]
@@ -2524,7 +2561,7 @@ const Reg kRegs[] = {
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
     R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
-    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
+    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),

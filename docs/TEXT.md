@@ -73,7 +73,9 @@ A character no font of the chain has draws as nothing, and the engine logs one w
 characters (`U+65E5 '日'`) and what to do. To check text before it is drawn (a translation table, a scene) without a
 window or a GPU, C++ tools use `fa::FontCoverage::load(chain)->missing(utf8)` or `fa::missing_glyphs(utf8, chain)` from
 `fa/render/fonts.h`: they list the code points no font of the chain has. Spaces, controls, zero-width joiners, direction
-marks and variation selectors never count, and a font that is missing or cannot be parsed is an error, not "missing
+marks and variation selectors never count, the Thai SARA AM (U+0E33) and Lao AM (U+0EB3) count as the two parts the shaper
+always draws them with (U+0E4D U+0E32, U+0ECD U+0EB2) whether or not the font has the composed character, so a font without
+U+0E4D is reported, and a font that is missing or cannot be parsed is an error, not "missing
 glyphs".
 
 ## Shaping
@@ -104,15 +106,19 @@ right edge in a right-to-left one (`i18n.direction`), so one Text serves English
 
 ## Line breaking
 
-With `maxWidth` > 0 a line breaks at spaces, and between two Japanese, Chinese or Korean characters (ideographs, kana and
+With `maxWidth` > 0 a line breaks after spaces (U+0020, the en/em/thin spaces U+2000-U+2006 and U+2008-U+200A, U+1680,
+U+205F), after U+200B ZERO WIDTH SPACE (no width, never drawn), after a hyphen (`-` or U+2010, but not before a digit:
+`-5` stays whole), and between two Japanese, Chinese or Korean characters (ideographs, kana and
 Hangul syllables), so text written without spaces wraps. A simple kinsoku rule keeps closing punctuation (`。、」）！？`,
 the prolonged sound mark `ー`, small kana, `…`) off the start of a line and opening brackets (`「（`) off the end. A space at
-a break is not drawn, and a wrapped line starts with no spaces. `\n` always starts a new line, and a tab is four spaces.
+a break (U+200B included) is not drawn, and a wrapped line starts with no spaces. `\n` always starts a new line, and a tab is four spaces.
 A word (or an unbreakable run) wider than `maxWidth` stays on its own line and sticks out.
 
-This is not the full Unicode line breaking algorithm (UAX #14): hyphens, numbers with units and the scripts that need a
-dictionary to find word boundaries (Thai, Khmer, Lao) do not get break opportunities inside a word; wrap those with
-explicit `\n` or spaces.
+The no-break spaces (U+00A0, U+2007, U+202F) never break. This is not the full Unicode line breaking algorithm (UAX #14):
+numbers with units get no break rules. Thai, Khmer, Lao and Burmese are written without spaces and finding their word
+boundaries needs a dictionary, which the engine does not have: unmarked text of those scripts does not break inside a run.
+Translators mark the boundaries where a line may end with U+200B (a tool such as pythainlp can insert them): the line breaks
+there, and the mark takes no width and draws nothing.
 
 ## Measuring
 

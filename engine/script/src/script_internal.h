@@ -164,6 +164,7 @@ struct ScriptSystem::Impl {
 
     // ---- tests: a quit request sets a flag instead of stopping the run; game.setSystemLanguages() fakes the device languages
     bool testQuitRequested = false;
+    bool quitCancelled = false;  // a game.on("quit") handler called event.cancel() during close_requested()
     std::vector<std::string> testSystemLanguages;
     void request_quit();  // the host's quit, except in a test run, where it only sets testQuitRequested
 

@@ -1042,20 +1042,44 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
-    // supports("frameCap" | "renderScale" | "fullscreen" | "resize"): whether this run can do it, so an options menu hides what a
+    // supports("frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
     // with a "did you mean".
     supports(feature) {
-      const names = ["frameCap", "renderScale", "fullscreen", "resize"];
+      const names = ["frameCap", "renderScale", "fullscreen", "resize", "clipboard"];
       if (!names.includes(feature)) {
         const sug = typeof feature === "string" ? closest(feature, names) : "";
         throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
       }
       if (feature === "renderScale") return true;
+      if (feature === "clipboard") return N.clipboardSupported();
       return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
     },
   };
+
+  // The clipboard. A game with a window reads and writes the system's (Windows, macOS, Linux, web); headless runs and tests have
+  // an in-memory one; phones and tablets have none (window.supports("clipboard") is false, read() rejects with code "unsupported").
+  const clipboardApi = {
+    // read(): a Promise of the text on the clipboard ("" when it holds none). On the web the browser lets a page read only inside a
+    // paste, so it resolves with the text of the last paste.
+    read() {
+      if (!N.clipboardSupported()) return clipboardUnsupported("clipboard.read()");
+      const text = N.clipboardGet();
+      return Promise.resolve().then(() => text);
+    },
+    // write(text): puts a string on the clipboard. Throws on a non-string; does nothing where there is no clipboard.
+    write(text) {
+      if (typeof text !== "string") throw new Error(`clipboard.write(text) expects a string, e.g. clipboard.write("ABC123"), but got ${inspect(text)}`);
+      N.clipboardSet(text);
+    },
+  };
+  function clipboardUnsupported(label) {
+    const e = new Error(`${label} failed: this platform has no clipboard for games (hint: check window.supports("clipboard") first)`);
+    e.code = "unsupported";
+    e.hint = 'check window.supports("clipboard") first';
+    return Promise.reject(e);
+  }
 
   const audio = {
     // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
@@ -1270,7 +1294,7 @@
     get current() { return N.scenePath(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1280,26 +1304,42 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
-    // The calendar date: { year, month, day, weekday (0 = Sunday), utcOffsetMinutes, iso: "YYYY-MM-DD" }. The player's real local
-    // date in a game with a window; a fixed date (2026-01-01, or --date) in tests and headless runs; the recorded one in a replay.
+    // The calendar date: { year, month, day, weekday (0 = Sunday), hour, minute, second (the local time of day), utcOffsetMinutes,
+    // iso: "YYYY-MM-DD", utc: { year, month, day, iso } (the date in UTC, the day stores use for their daily boards) }. The player's
+    // real local date and time in a game with a window (read again about once a minute, see game.on("dayChanged")); a fixed date
+    // (2026-01-01 00:00:00, or --date) in tests and headless runs; the recorded one in a replay.
     today() {
       const t = N.today();
       const pad = (n, w) => String(n).padStart(w, "0");
-      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], utcOffsetMinutes: t[4], iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}` });
+      const utc = Object.freeze({ year: t[8], month: t[9], day: t[10], iso: `${pad(t[8], 4)}-${pad(t[9], 2)}-${pad(t[10], 2)}` });
+      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], hour: t[5], minute: t[6], second: t[7], utcOffsetMinutes: t[4],
+        iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}`, utc });
     },
     // True while the game's window has the focus (always true on a phone that is in the foreground).
     get focused() { return N.appState()[0]; },
     // on(event, fn): "suspend" (the app goes to the background), "resume" (comes back), "focus" and "blur" (the window gains or
-    // loses the keyboard focus). fn gets no arguments. Returns the function that stops listening; listeners end with the scene,
+    // loses the keyboard focus), "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was
+    // set; fn gets game.today()). fn gets no arguments otherwise. Returns the function that stops listening; listeners end with the scene,
     // like world.on. With factoria.json "pauseOnSuspend" (default true) the engine freezes the game and the music after the
     // "suspend" handlers ran (unless a handler paused it already) and unfreezes it before the "resume" handlers.
+    // "quit" (desktop windows only: the close button, Cmd+Q, Alt+F4) gets an event { cancel(), cancelled }: event.cancel() keeps
+    // the window open, for a "Really quit?" menu or a last save; call game.quit() later to close it. A quit the game asked for
+    // with game.quit() does not raise "quit".
     on(event, fn) {
       if (!APP_EVENTS.includes(event)) {
         const sug = closest(String(event), APP_EVENTS);
         throw new Error(`game.on(event, fn): unknown event ${inspect(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${APP_EVENTS.map((n) => `"${n}"`).join(", ")}`);
       }
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
-      return addListener("app." + event, () => fn(), null);
+      if (event === "quit") {
+        // The player's close button, Cmd+Q or Alt+F4 (desktop only). event.cancel() keeps the window open; game.quit() closes it
+        // for good (it does not come back to this handler).
+        return addListener("app.quit", () => {
+          const ev = { cancelled: false, cancel() { ev.cancelled = true; N.quitCancel(); } };
+          fn(ev);
+        }, null);
+      }
+      return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
     // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
@@ -1694,11 +1734,17 @@
     },
     stats: platformStats,
     leaderboards: {
-      submit(id, score) { return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score }); },
-      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10).
+      // options.day: "YYYY-MM-DD" on a daily board, to write the board of another day (default: the local date, game.today().iso;
+      // game.today().utc.iso, passed to submit and entries alike, gives one board worldwide).
+      submit(id, score, options = {}) {
+        const o = isObj(options) ? options : {};
+        return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score, day: o.day });
+      },
+      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10); day: "YYYY-MM-DD" on a
+      // daily board (the board of that day instead of today's, keyed as submit wrote it).
       entries(id, options = {}) {
         const o = isObj(options) ? options : {};
-        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count }, leaderboardEntries);
+        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count, day: o.day }, leaderboardEntries);
       },
     },
     cloud: {
@@ -1850,7 +1896,7 @@
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
-    window: windowApi, tween, ease, cancelTweens,
+    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
   };
 
   // ============================================================================================ eval serialization
@@ -2126,14 +2172,21 @@
     get focused() { return game.focused; },
     // setDate("2026-10-23"): the date game.today() answers until the test ends (every test starts from the date of the run:
     // 2026-01-01, or --date). An impossible date (2026-02-29) or a wrong shape throws and says what is wrong.
-    setDate(iso) {
-      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23", but got ${inspect(iso)}`);
-      const err = N.testSetDate(iso);
+    // The string may carry a time ("2026-10-23T23:59:30"; midnight otherwise) and options.utcOffsetMinutes sets the time zone. A move
+    // to another local day sends the "dayChanged" event to game.on listeners once.
+    setDate(iso, options = {}) {
+      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23" or "2026-10-23T23:59:30", but got ${inspect(iso)}`);
+      const off = isObj(options) ? options.utcOffsetMinutes : undefined;
+      if (off !== undefined && !Number.isInteger(off)) throw new Error(`game.setDate(iso, { utcOffsetMinutes }) expects a whole number of minutes east of UTC (60 = UTC+1), but got ${inspect(off)}`);
+      const err = N.testSetDate(iso, off);
       if (err) throw new Error(err);
     },
     // suspend() / resume(): the app goes to the background and comes back, as on a phone: sends the "suspend" / "resume" event to
     // game.on listeners at once and, with pauseOnSuspend (default), freezes the game and the music in between. focus() / blur():
     // the window gains or loses the focus (game.focused). Every test starts focused and running.
+    // closeWindow(): the player clicks the window's close button (Cmd+Q, Alt+F4): sends the game.on("quit") event at once.
+    // Returns true when the window would close (game.quitRequested is then true), false when a handler cancelled it.
+    closeWindow() { return N.testCloseWindow(); },
     suspend() { N.testAppEvent(0); },
     resume() { N.testAppEvent(1); },
     focus() { N.testAppEvent(2); },
@@ -2291,7 +2344,8 @@
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
     // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
-    // shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale }. Throws
+    // shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, width, height,
+    // renderScale }. lights are the 3D lights, lights2d the Light2D ones. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();
@@ -2365,6 +2419,7 @@
       N.captionClear();
       N.testAccessibility();
       N.testQuit(true);
+      N.clipboardSet("");
       N.testSystemLanguages();
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);

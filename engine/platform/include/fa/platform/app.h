@@ -39,6 +39,9 @@ struct AppEvent {
     enum class Type { Resized, FocusLost, FocusGained, Suspended, Resumed, QuitRequested, FilesDropped };
     Type type;
     int width = 0, height = 0;  // Resized: framebuffer pixels
+    // QuitRequested: true when the app itself asked (app_request_quit(): game.quit(), a failed start, --frames): the window
+    // must close then, so hosts do not offer it to the game as the player's close request.
+    bool fromApp = false;
 };
 
 // One candidate image of the window icon: width * height RGBA8 pixels, row 0 = top.
@@ -91,6 +94,15 @@ int app_framebuffer_width();
 int app_framebuffer_height();
 float app_dpi_scale();
 void app_request_quit();
+// Keeps the window open after a QuitRequested event that did not come from the app (the close button, Cmd+Q, Alt+F4).
+// Only meaningful while that event is handled (inside AppDesc::event); no effect anywhere else.
+void app_cancel_quit();
+// The system clipboard (Windows, macOS, Linux, web; the app descriptor enables it). Mobile has none: the getter answers ""
+// and the setter does nothing (app_clipboard_supported() is false). The web lets a page read only inside a paste, so the
+// getter answers the text of the last paste there.
+bool app_clipboard_supported();
+std::string app_clipboard_get();
+void app_clipboard_set(const std::string& text);
 void app_set_title(const std::string& title);
 void app_show_mouse(bool show);
 bool app_is_mobile();

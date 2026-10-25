@@ -1450,16 +1450,20 @@
        "doc": "True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused."
       },
       {
-       "sig": "today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string }",
-       "doc": "The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), utcOffsetMinutes (minutes east of UTC) and iso (\"YYYY-MM-DD\"). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date; `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 unless --date says another; a replay (--input) plays with the date it was recorded on. Tests set it with game.setDate(\"2026-10-23\"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day."
+       "sig": "today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } }",
+       "doc": "The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso (\"YYYY-MM-DD\") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on(\"dayChanged\") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate(\"2026-10-23T23:59:30\"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day."
       },
       {
        "sig": "readonly focused: boolean",
        "doc": "True while the game's window has the keyboard focus (always true on a phone with the app in the foreground, in headless runs and in tests until game.blur()). Changes are announced by game.on(\"focus\") and game.on(\"blur\")."
       },
       {
-       "sig": "on(event: \"suspend\" | \"resume\" | \"focus\" | \"blur\", fn: () => void): () => void",
-       "doc": "Listens to the life of the app: \"suspend\" (the app goes to the background: the home button on a phone, a call), \"resume\" (it is back), \"focus\" and \"blur\" (the window gains or loses the focus; a desktop window that is covered does not suspend). The handler takes no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json \"pauseOnSuspend\" (default true) the engine also freezes the game and the music while suspended: after the \"suspend\" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the \"resume\" ones. Set \"pauseOnSuspend\": false to decide yourself. Example: game.on(\"suspend\", () => pauseMenu.open());"
+       "sig": "on(event: \"suspend\" | \"resume\" | \"focus\" | \"blur\" | \"dayChanged\", fn: (today: { readonly iso: string }) => void): () => void",
+       "doc": "Listens to the life of the app: \"suspend\" (the app goes to the background: the home button on a phone, a call), \"resume\" (it is back), \"focus\" and \"blur\" (the window gains or loses the focus; a desktop window that is covered does not suspend). \"dayChanged\" (the local calendar day changed while the game ran: past midnight, or the clock was set; a game with a window reads the clock about once a minute) calls fn with game.today(); the other handlers take no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json \"pauseOnSuspend\" (default true) the engine also freezes the game and the music while suspended: after the \"suspend\" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the \"resume\" ones. Set \"pauseOnSuspend\": false to decide yourself. Example: game.on(\"suspend\", () => pauseMenu.open());"
+      },
+      {
+       "sig": "on(event: \"quit\", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void",
+       "doc": "Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask \"Really quit?\", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on(\"quit\", (e) => { e.cancel(); flush().then(() => game.quit()); });"
       },
       {
        "sig": "readonly project: Readonly<Json>",
@@ -1552,8 +1556,23 @@
        "doc": "Resolution of the picture as a fraction of the window, from 0.5 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. Works in every run with a renderer, headless tests included (game.screenshot then has that size); a run without graphics only remembers the value. A number outside 0.5 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === \"low\" ? 0.6 : 1."
       },
       {
-       "sig": "supports(feature: \"frameCap\" | \"renderScale\" | \"fullscreen\" | \"resize\"): boolean",
-       "doc": "Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor \"desktop\"; their setters throw otherwise), renderScale works wherever the game runs. An unknown name throws with a \"did you mean\". Read window.supports(\"frameCap\") before offering window.frameCap."
+       "sig": "supports(feature: \"frameCap\" | \"renderScale\" | \"fullscreen\" | \"resize\" | \"clipboard\"): boolean",
+       "doc": "Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor \"desktop\"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a \"did you mean\". Read window.supports(\"frameCap\") before offering window.frameCap."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "ClipboardAPI",
+     "doc": "The clipboard. A game with a window reads and writes the system clipboard on Windows, macOS, Linux and the web; headless runs and tests have an in-memory one (it starts empty in every test); phones and tablets have none yet: window.supports(\"clipboard\") is false there and read() rejects with code \"unsupported\". A focused TextField already pastes with Ctrl+V (Cmd+V) and copies with Ctrl+C (Cmd+C), without any script.",
+     "members": [
+      {
+       "sig": "read(): Promise<string>",
+       "doc": "Resolves with the text on the clipboard (\"\" when it holds none or something that is not text). On the web the browser lets a page read the clipboard only inside a paste, so it resolves with the text of the last paste (the player pressed Ctrl+V or Cmd+V in the page). Rejects with code \"unsupported\" where there is no clipboard (phones, tablets). In a replay the text a read returned is recorded and given back, so a paste replays the same. Example: const text = await clipboard.read();"
+      },
+      {
+       "sig": "write(text: string): void",
+       "doc": "Puts `text` on the clipboard. Throws when it is not a string. Does nothing where there is no clipboard. The web lets a page write only during a key press or click, so a write made in the middle of a frame may not reach the browser's clipboard. Example: clipboard.write(\"ABC123\");"
       }
      ]
     },
@@ -2083,12 +2102,12 @@
      "doc": "Leaderboards of factoria.json platform.leaderboards. A board with \"period\": \"daily\" or \"weekly\" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake keeps one per period; Steam makes one board per period, Game Center and Play Games use their own time scopes: docs/PLATFORM.md, \"Leaderboard periods\"; each store starts a period at its own time).",
      "members": [
       {
-       "sig": "submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>",
-       "doc": "Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs."
+       "sig": "submit(id: string, score: number, options?: { day?: string }): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>",
+       "doc": "Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs. options.day: \"YYYY-MM-DD\" submits to the daily board of that day instead of today's (without it the board of the local date, game.today().iso; pass game.today().utc.iso to submit and entries alike for one board worldwide); only a daily board takes it, and Game Center and Play Games reject a day other than the local or UTC today with code \"unsupported\"."
       },
       {
-       "sig": "entries(id: string, options?: { range?: \"top\" | \"around\" | \"friends\"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>",
-       "doc": "Reads entries: the best (\"top\", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs."
+       "sig": "entries(id: string, options?: { range?: \"top\" | \"around\" | \"friends\"; count?: number; day?: string }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>",
+       "doc": "Reads entries: the best (\"top\", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs. options.day: \"YYYY-MM-DD\" reads the daily board of that day, e.g. yesterday's (the same key submit wrote: the local date by default, game.today().utc.iso if the game submits with it; the fake and Steam keep every day, Game Center and Play Games reject a day other than the local or UTC today with code \"unsupported\")."
       }
      ]
     },
@@ -2449,6 +2468,12 @@
      "name": "window",
      "type": "WindowAPI",
      "doc": "The game window: full screen, size, vsync, frame cap."
+    },
+    {
+     "kind": "const",
+     "name": "clipboard",
+     "type": "ClipboardAPI",
+     "doc": "The clipboard: read and write text."
     },
     {
      "kind": "const",
@@ -3248,7 +3273,7 @@
        "doc": "Same as the script `game.paused`: true while time.scale is 0; setting it keeps and restores time.scale. Reading a member the test game does not have (game.pasued) throws with a did-you-mean."
       },
       {
-       "sig": "today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string }",
+       "sig": "today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } }",
        "doc": "Same as the script `game.today()`: 2026-01-01 at the start of every test, or the date of --date, until game.setDate()."
       },
       {
@@ -3256,8 +3281,12 @@
        "doc": "Same as the script `game.focused`."
       },
       {
-       "sig": "setDate(iso: string): void",
-       "doc": "Sets the date game.today() answers, \"YYYY-MM-DD\", until the test ends (the next test starts from the run's date again). An impossible date such as \"2026-02-29\" or a wrong shape throws with what is wrong and how to fix it. Example: game.setDate(\"2026-10-23\"); expect(game.today().weekday).toBe(5)."
+       "sig": "setDate(iso: string, options?: { utcOffsetMinutes?: number }): void",
+       "doc": "Sets the date game.today() answers, \"YYYY-MM-DD\" or with a time \"YYYY-MM-DDTHH:MM[:SS]\" (midnight without one), until the test ends (the next test starts from the run's date again). options.utcOffsetMinutes sets the time zone (minutes east of UTC; the current one is kept otherwise), which decides game.today().utc. Moving to another local day sends \"dayChanged\" to the game.on listeners once, so a test crosses midnight with game.setDate(\"2026-10-23T23:59:59\") then game.setDate(\"2026-10-24T00:00:01\"). An impossible date or time throws with what is wrong and how to fix it. Example: game.setDate(\"2026-10-23\"); expect(game.today().weekday).toBe(5)."
+      },
+      {
+       "sig": "closeWindow(): boolean",
+       "doc": "The player clicks the window's close button (Cmd+Q, Alt+F4): the game.on(\"quit\") handlers run at once. Returns false when one called event.cancel() (the game goes on), true otherwise: game.quitRequested is then true. Example: expect(game.closeWindow()).toBe(false)."
       },
       {
        "sig": "suspend(): void",
@@ -3328,8 +3357,8 @@
        "doc": "Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: \"desktop\", gpuBackend: \"headless\", memoryGB: 8, tier: \"high\" }. An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: \"phone\", tier: \"low\" })."
       },
       {
-       "sig": "renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number }",
-       "doc": "What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights count the main pass, shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000)."
+       "sig": "renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number }",
+       "doc": "What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 16: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000)."
       },
       {
        "sig": "setAccessibility(settings: { textScale?: number; reduceMotion?: boolean; highContrast?: boolean; screenReader?: boolean }): void",

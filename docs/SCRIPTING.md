@@ -362,8 +362,9 @@ editor's game view), so check `window.available` first or offer the option only 
   `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation. Read `window.supports("frameCap")`
   first and hide the option where it is false instead of catching the Error.
 - `supports(feature)`: `"frameCap"`, `"fullscreen"` and `"resize"` are true in a game window on a desktop (they are false
-  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere. An unknown name
-  throws with a "did you mean".
+  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere; `"clipboard"` is
+  true on Windows, macOS, Linux and the web, and in headless runs and tests (an in-memory clipboard), false on phones
+  and tablets. An unknown name throws with a "did you mean".
 - `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
   of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
   tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
@@ -656,7 +657,8 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
 - `game.today()` (see "The date") · `game.focused` · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
   see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
-  app is in the background)
+  app is in the background) · `game.on("quit", fn)`: see "Window close" below
+- `clipboard.read()` (a Promise of the text) · `clipboard.write(text)`: see "Clipboard" below
 - `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize` ·
   `game.platform` (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"` or `"web"`: e.g. no Quit button on phones)
 - `game.accessibility` (read-only, frozen) → `{ textScale, reduceMotion, highContrast, screenReader }`: the player's
@@ -686,25 +688,67 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
   `factoria:test`; it sets the text the next storage load reads and reloads, then `storage.corrupt` is `true`).
   On the web the save folder lives in IndexedDB and the same rules apply to its copy of the file.
 
+### Window close: `game.on("quit", fn)`
+
+On a desktop window, the close button, Cmd+Q (macOS) and Alt+F4 (Windows) raise `quit` before the window closes. The
+handler gets an event with `cancel()` and `cancelled`; call `event.cancel()` to keep the game running (ask "Quit
+without saving?" and call `game.quit()` when the player agrees). Without a handler, or when no handler cancels, the
+window closes. `game.quit()` closes the window without raising `quit` again, so a handler may call it. The web and
+phones never raise it (a browser tab or the OS closes the app on its own terms), and a headless run only sees it when a
+test calls `game.closeWindow()`. Cancelling is not guaranteed on every platform: a window the OS is shutting down can
+close anyway.
+
+```js
+import { game } from "factoria";
+game.on("quit", (event) => {
+  if (hasUnsavedProgress()) { event.cancel(); openQuitDialog(); }
+});
+```
+
+### Clipboard: `clipboard.read()` and `clipboard.write(text)`
+
+- `clipboard.write(text)` puts a string on the system clipboard (it throws on a non-string).
+- `clipboard.read()` returns a Promise of the clipboard text (`""` when it holds none). Check that its scene is still the
+  current one before acting on the answer.
+- `window.supports("clipboard")` is true on Windows, macOS, Linux and the web. On phones and tablets `read()` rejects with
+  an Error whose `code` is `"unsupported"` and `write` does nothing. Headless runs and tests use an in-memory clipboard
+  (empty at the start of every test), so `write` then `read` gives the text back.
+- On the web a browser only lets a page read the clipboard while the player pastes (Ctrl/Cmd+V), and `read()`
+  resolves with the text of the last paste. Prefer a `TextField` for pasting there.
+- A focused `TextField` pastes with Ctrl+V (Cmd+V on macOS) and copies with Ctrl/Cmd+C by itself (docs/MENUS.md).
+- Replays: a `"clipboard": "text"` entry in a `--input` file puts that text on the clipboard before its frame; editor play
+  sessions record the first thing a frame read, so a replay of a paste is exact.
+
 ### The date: `game.today()` (never `Date`)
 `new Date()` and `Date.now()` read the wall clock, so a run is different every time and a test cannot pin it. Read the
 calendar date with `game.today()` instead, as you use `rng` for chance:
 
 ```js
 import { game, rng } from "factoria";
-const t = game.today();   // { year: 2026, month: 3, day: 14, weekday: 6, utcOffsetMinutes: 60, iso: "2026-03-14" }
+const t = game.today();   // { year: 2026, month: 3, day: 14, weekday: 6, hour: 23, minute: 59, second: 30, utcOffsetMinutes: -300,
+                          //   iso: "2026-03-14", utc: { year: 2026, month: 3, day: 15, iso: "2026-03-15" } }
 rng.seed(t.year * 10000 + t.month * 100 + t.day);   // a daily challenge: everybody plays the same seed on the same day
 ```
 
-`weekday` is 0 = Sunday to 6 = Saturday; `utcOffsetMinutes` is the local offset from UTC. In a built game the date is the
-player's real local date, read when the game starts and again each time the app comes back to the foreground or the
-window gets the focus, before `game.on("resume")` / `game.on("focus")` run: a game left in the background overnight
-sees the new day in its "resume" handler, while one that stays in front past midnight keeps its date until then.
-In `factoria test`, `factoria run --headless`, `call`, `session`, `mcp` and `screenshot` it is the fixed date `2026-01-01`,
-so runs are reproducible; `--date YYYY-MM-DD` chooses another (see CLI.md). A replay recorded in the editor stores the
-date it was played on and plays back with it, so a daily run replays identically (an older replay without a date uses the
-fixed default). In tests `game.setDate("2026-03-14")` changes it (reset before each test); an impossible date throws an
-error that says which part is wrong.
+`weekday` is 0 = Sunday to 6 = Saturday; `hour`, `minute` and `second` are the local time of day; `utcOffsetMinutes` is the
+local offset from UTC and `utc` is the date of the same moment in UTC (pass `utc.iso` as a leaderboard's `options.day` for one daily board
+worldwide, see PLATFORM.md, "Leaderboard periods"). In a built game the date and time are the player's real local ones,
+read when the game starts, about once a minute while it runs, and each time the app comes back to the foreground or the
+window gets the focus (before `game.on("resume")` / `game.on("focus")` run), so `game.today()` is at most a minute behind the
+clock. When the local calendar day changes meanwhile (past midnight, a clock set to another day, a game left in the
+background overnight) the game event `dayChanged` goes to `game.on("dayChanged", (today) => ...)` once, with the new
+`game.today()`: refresh the daily challenge, the daily reward and the daily leaderboard there. A change of time zone or
+daylight saving alone is not a new day.
+In `factoria test`, `factoria run --headless`, `call`, `session`, `mcp` and `screenshot` it is the fixed date
+`2026-01-01` at 00:00:00 and never moves, so runs are reproducible; `--date YYYY-MM-DD[THH:MM[:SS]]` chooses another (see
+CLI.md). A replay recorded in the editor stores the date, time and offset it was played on (`date`, `time`,
+`utcOffsetMinutes`) and plays back with them, so a daily run replays identically even when it was recorded at 23:59 (an
+older replay without a time plays at 00:00:00, one without a date on the fixed default date). The replay keeps the date it
+started on: a midnight crossed during a recorded session is not replayed. In tests `game.setDate("2026-03-14")` changes
+the date (reset before each test); `game.setDate("2026-03-14T23:59:30", { utcOffsetMinutes: -300 })` also sets the time and
+the time zone, and moving to another local day sends `dayChanged` once, so a test crosses midnight with two calls
+(`"2026-03-14T23:59:59"`, then `"2026-03-15T00:00:01"`). An impossible date or time throws an error that says which part is
+wrong.
 
 ### rng (deterministic, seeded per run)
 `rng.seed(n)` reseeds the world RNG (seed → level determinism from tools/tests) · `rng.float()` [0,1) · `rng.range(a, b)` · `rng.int(a, b)` (inclusive) · `rng.chance(p)` · `rng.pick(array)` · `rng.shuffle(array)` (a shuffled copy)
@@ -883,7 +927,8 @@ test("player jumps", () => {
 More `game` calls for tests: `mouseDown(button = "left")` and `mouseUp(button)` hold and release a mouse button (`input.mouse.down(button)`
 follows; with `mouseMove` they test a drag), `wheel(dy)` turns the wheel for the next frame
 (`input.mouse.wheel`), `quitRequested` (true once the game asked to quit with `game.quit()` or an unconsumed Back; a test
-run never stops because of it, and it is cleared before each test), `setSystemLanguages(["es-ES", "en"])` (what
+run never stops because of it, and it is cleared before each test), `closeWindow()` (the player pressed the close
+button: raises `game.on("quit")` and returns true when the window would close, false when a handler cancelled), `setSystemLanguages(["es-ES", "en"])` (what
 `i18n.systemLanguages` answers, so a game's own first-run language choice can be tested; the engine's start language is
 not picked again, a test starts in the default language; empty again before each test) and
 `resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
