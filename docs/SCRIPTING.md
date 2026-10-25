@@ -932,7 +932,8 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
 - `Math.random()` is routed to the deterministic world RNG (`rng.*`); never use
   wall-clock time in simulation.
 - Callbacks running longer than 2 s are aborted ("script took too long") and the
-  behaviour is disabled until its file is reloaded. Exceptions are recorded once
+  behaviour is disabled until its file is reloaded. A timer, tween or `world.on`
+  listener stopped this way ends alone; the scripts after it run. Exceptions are recorded once
   per (file, line, message) with a hint; the behaviour keeps running.
 - `world.on(name, fn)` listeners get `(data, source)`; `this.on(name, fn)` is the
   same. All listeners/timers are dropped when a scene loads.

@@ -100,12 +100,14 @@ struct ScriptSystem::Impl {
     // ---- guard (timeouts)
     struct GuardFrame {
         std::string label;
+        double seconds = 0;
         std::chrono::steady_clock::time_point deadline;
     };
     std::vector<GuardFrame> guards;
     bool timedOut = false;
     bool lastCallTimedOut = false;
     std::string timedOutLabel;
+    size_t timedOutDepth = 0;  // index in `guards` of the frame that ran out (a caller's frame is below the callee's)
     double timedOutSeconds = 0;
     double callbackLimit = 2.0;
 
@@ -196,8 +198,12 @@ struct ScriptSystem::Impl {
                  bool quiet = false);
     JSValue call_method(const std::string& label, const std::string& entityId, JSValueConst obj, const char* method,
                         std::initializer_list<JSValue> args, bool* failed = nullptr, const Behaviour* profile = nullptr);
-    void push_guard(const std::string& label, double seconds);
-    void pop_guard();
+    // push_guard returns the depth of the guard stack before the push; pop_guard(depth) drops every frame above it. A
+    // script the watchdog stops skips the N.guardEnd() of each JS guard it was inside (the interrupt cannot be caught),
+    // so every C++ entry into JS pops back to its own depth: popping one frame would leave the caller's expired frame on
+    // the stack, and every later script would be stopped at its first instruction.
+    size_t push_guard(const std::string& label, double seconds);
+    void pop_guard(size_t depth);
     bool check_interrupt();
     // The debugger is being terminated (the user pressed Stop): an interrupted script was stopped, not slow.
     bool debug_session_ended() const;
@@ -262,6 +268,9 @@ struct ScriptSystem::Impl {
     void remember_destroyed(Entity e, const std::string& id);
     std::string destroyed_id(Entity e) const;
 };
+
+// Replaces the QuickJS built-ins that have bugs (quickjs_fixes.cpp); called on a new context before any script runs.
+void install_quickjs_fixes(JSContext* ctx);
 
 // Embedded prelude sources.
 std::string_view embedded_script(std::string_view name);
