@@ -2159,7 +2159,7 @@
       },
       {
        "sig": "readonly tracking: \"authorized\" | \"denied\" | \"notDetermined\" | \"restricted\" | \"notRequired\"",
-       "doc": "The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet."
+       "doc": "The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet (Android) and on iOS when platform.ads.trackingPrompt is off; otherwise the status of the sheet the ads plugin asks for after the consent form."
       },
       {
        "sig": "readonly canShowAds: boolean",

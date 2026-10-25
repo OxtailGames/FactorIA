@@ -1,0 +1,7 @@
+// Lets the Swift sources `import CFaPlugin`: the plugin API (fa_plugin.h, written next to this file by
+// `factoria call project.new_plugin`) as a Swift module. A module map instead of a bridging header, because a plugin is a
+// library.
+module CFaPlugin {
+    header "fa_plugin.h"
+    export *
+}

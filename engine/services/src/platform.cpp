@@ -362,7 +362,11 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         if (method == "ads.available" || method == "ads.showRewarded") {
             const auto& pl = lookup(cat.placements, need_string(in, "placement", "the id of an ad placement"), "an ad placement",
                                     "ads.placements", "{\"id\": \"more_time\"}");
-            out = Json::object({{"placement", pl.id}, {"adUnitId", pl.store_id(be)}, {"type", pl.type}});
+            // `ids` is every network's id of the placement: AdMob has one ad unit per platform (the Android one is ids.admob, the
+            // iOS one ids.admob_ios), and only the plugin knows which platform it runs on.
+            Json ids = Json::object();
+            for (const auto& [network, unit] : pl.ids) ids[network] = unit;
+            out = Json::object({{"placement", pl.id}, {"adUnitId", pl.store_id(be)}, {"type", pl.type}, {"ids", ids}});
         } else if (method == "ads.setUnderAge") {
             const Json& v = need(in, "underAge", "true when the player is under the age of consent");
             if (!v.is_boolean())

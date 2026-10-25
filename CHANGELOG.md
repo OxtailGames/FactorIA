@@ -63,6 +63,23 @@ Ads with consent on Android
   until the age is told. The menu kit has an `ageGate` part for it (`project.add_menu_kit {"parts": ["ageGate"]}`), and
   its options screen shows an "Ad privacy settings" button when Google requires one. The fake store answers all of it.
 
+Ads with consent on iOS
+
+- The `admob` plugin now has an iOS side, written in Swift: Google's consent form (UMP) first, then, only when
+  `platform.ads.trackingPrompt` is true, Apple's "Allow tracking" sheet (never for a player under age), then the Mobile Ads
+  SDK and the kept rewarded ad per placement. It behaves and answers like the Android one, including the audience,
+  `setUnderAge`, `privacyOptions` and `admob.status`; `platform.ads.consent().tracking` is Apple's status when the game asks
+  for the sheet. macOS has no AdMob SDK: the plugin offers no ads there and `platform.has("ads")` is false.
+- Google's iOS SDK is a download, never in the repository: `platform.add_backend {"backend": "admob", "sdk": "<zip or folder>"}`
+  copies its two XCFrameworks into the plugin (git ignores them) and builds the Swift side with Xcode.
+- A plugin's `ios/plugin.json` can list vendored `xcframeworks` (the iOS export checks them, links the slice of the SDK and
+  embeds a dynamic one) and `infoPlist` keys. The export writes `GADApplicationIdentifier` (`platform.ads.appIds.ios`; a
+  development export always carries Google's iOS test app id), Google's `SKAdNetworkItems` and
+  `NSUserTrackingUsageDescription` (`platform.ads.trackingDescription` or `trackingDescriptionKey`, translated per language of
+  the game). A placement's iOS unit is `ids.admob_ios`. `factoria validate` and the export warn about the sample or missing
+  iOS app id, a placement without `ids.admob_ios`, a tracking prompt with no ads plugin for iOS, and a tracking prompt with
+  `export.ios.privacy.tracking` off.
+
 Menu kit command
 
 - `project.add_menu_kit {parts, overwrite}` (`factoria call project.add_menu_kit`) copies the menu kit of `docs/MENUS.md`
