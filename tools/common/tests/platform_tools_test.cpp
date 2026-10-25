@@ -143,6 +143,16 @@ TEST_CASE("project.new_plugin: template picks a starting point, an unknown one l
     const std::string header = testing::read_all(stdfs::path(dir) / "plugins/store/include/fa_plugin.h");
     CHECK(header.find("FA_PLUGIN_API_VERSION 4") != std::string::npos);
     CHECK(header.find("add_backend") != std::string::npos);
+
+    // A new plugin is declared optional (the game runs without its build) unless `optional: false` says otherwise.
+    project = load_json_file(dir + "/factoria.json");
+    REQUIRE(project.ok());
+    CHECK((*project)["plugins"]["store"]["optional"] == true);
+    auto required = reg.call("project.new_plugin", Json::parse(R"({"name": "needed", "optional": false})"));
+    REQUIRE_MESSAGE(required.ok, required.error.dump());
+    project = load_json_file(dir + "/factoria.json");
+    REQUIRE(project.ok());
+    CHECK_FALSE((*project)["plugins"]["needed"].contains("optional"));
 }
 
 TEST_CASE("platform.add_backend: one command lists every store backend with the arguments each reads") {

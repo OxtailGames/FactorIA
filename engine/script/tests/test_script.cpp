@@ -1042,6 +1042,50 @@ test("a wrong receiver explains the usage", () => {
     CHECK(rep.cases[3].message.find("game.audioLog()") != std::string::npos);
 }
 
+TEST_CASE("audio script API: persist, setVoiceVolume, musicLayers and setLayer") {
+    TestHost h("audiomusic");
+    h.file("assets/m/base.wav", tiny_wav());
+    h.file("assets/m/drums.wav", tiny_wav());
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+test("setVoiceVolume answers false for a voice that is not playing", () => {
+  const id = audio.play("assets/sfx/coin.wav", { loop: true });
+  expect(audio.setVoiceVolume(id, 0.2, 1)).toBe(true);
+  audio.stop(id);
+  expect(audio.setVoiceVolume(id, 1)).toBe(false);
+});
+test("layers: one log entry per layer, setLayer teaches", () => {
+  expect(audio.musicLayers({ base: "assets/m/base.wav", drums: "assets/m/drums.wav" }, { levels: { drums: 0 } })).toBe(true);
+  const log = game.audioLog().filter((e) => e.music);
+  expect(log.map((e) => e.layer)).toEqual(["base", "drums"]);
+  audio.setLayer("drums", 1, 0.5);
+  let message = "";
+  try { audio.setLayer("nope", 1); } catch (e) { message = String(e.message); }
+  expect(message).toContain("base, drums");
+  expect(audio.musicLayers({ a: "assets/m/missing.wav" })).toBe(false);
+  audio.stopMusic(0);
+  let none = "";
+  try { audio.setLayer("base", 1); } catch (e) { none = String(e.message); }
+  expect(none).toContain("No layered music");
+});
+test("a layer set that is not an object throws", () => {
+  expect(() => audio.musicLayers(["assets/m/base.wav"])).toThrow();
+  expect(() => audio.musicLayers({ base: "assets/m/base.wav" }, { levels: { bass: 1 } })).toThrow();
+});
+test("persist is accepted", () => {
+  audio.music("assets/m/base.wav", { persist: true });
+  expect(game.audioLog().filter((e) => e.music).length).toBeGreaterThan(0);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    for (const auto& c : rep.cases) CHECK_MESSAGE(c.passed, c.message);
+}
+
 // ======================================================================================================================
 // rng.create: independent seeded generators (mulberry32)
 // ======================================================================================================================

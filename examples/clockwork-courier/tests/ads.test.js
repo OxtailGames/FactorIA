@@ -116,7 +116,8 @@ describe("the engine's test ad", () => {
     const before = shown();
     game.click("retry_more_time");
     game.step(3);
-    game.click("retry_more_time");
+    // The retry screen hides while the ad is up, so a second click cannot reach the button.
+    expect(() => game.click("retry_more_time")).toThrow(/cannot be clicked/);
     game.step(60);
     expect(shown()).toBe(before + 1);
   });

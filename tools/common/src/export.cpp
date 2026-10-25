@@ -285,7 +285,22 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
         const std::vector<std::string> platforms = project->plugin_platforms(plugin);
         if (std::find(platforms.begin(), platforms.end(), platform) == platforms.end()) continue;
         auto build = plugin_build(generic(p.dir), plugin, platform);
-        if (!build.ok()) return build.error();
+        if (!build.ok()) {
+            if (!o.allowMissingPlugins) {
+                Error e = build.error();
+                e.hint += std::string(e.hint.empty() ? "" : " ") + "To export without this plugin, pass --allow-missing-plugins "
+                          "(the export command's \"allowMissingPlugins\": true); the game then runs without it" +
+                          (plugin.optional ? "." : ", and scripts that call it fail (the plugin is not \"optional\" in factoria.json).");
+                return e;
+            }
+            p.pluginsLeftOut.push_back(plugin.name);
+            warnings.push_back("plugin '" + plugin.name + "' is left out of the " + platform + " export because its build is missing (" +
+                               build.error().message + "); " +
+                               (plugin.optional ? "it is declared optional, so the game runs without it"
+                                                : "it is NOT declared \"optional\", so scripts that call it fail") +
+                               " (allowMissingPlugins / --allow-missing-plugins is on)");
+            continue;
+        }
         p.plugins.push_back({plugin.name, build.value()});
     }
     if (platform != "web" && p.settings.icon_for(platform).empty())  // a web export has no icon to set
@@ -657,6 +672,7 @@ Json ExportReport::to_json() const {
         j["packed"] = packed;
     }
     if (!materials.empty()) j["materials"] = materials;
+    if (!pluginsLeftOut.empty()) j["pluginsLeftOut"] = pluginsLeftOut;
     j["files"] = files;
     j["nextSteps"] = nextSteps;
     j["warnings"] = warnings;
@@ -723,6 +739,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     const stdfs::path& outRoot = plan.outRoot;
     ExportReport report;
     report.warnings = plan.warnings;
+    report.pluginsLeftOut = p.pluginsLeftOut;
 
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);
@@ -843,6 +860,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "format":{"type":"string","enum":["apk","aab","gradle","appimage","msix","folder"],"description":"Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
+        "allowMissingPlugins":{"type":"boolean","description":"Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is \"optional\" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins.","default":false},
         "allowPlayerMismatch":{"type":"boolean","description":"Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
@@ -867,6 +885,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         o.release = tooling_detail::arg_bool(args, "release", false);
         o.allowDebugKey = tooling_detail::arg_bool(args, "allowDebugKey", false);
         o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
+        o.allowMissingPlugins = tooling_detail::arg_bool(args, "allowMissingPlugins", false);
         if (tooling_detail::arg_bool(args, "dryRun", false)) {
             auto plan = plan_export(o);
             if (!plan.ok()) throw CommandError("failed", plan.error().message, plan.error().hint);
