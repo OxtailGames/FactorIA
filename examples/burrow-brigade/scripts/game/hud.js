@@ -57,6 +57,7 @@ export default class Hud extends Behaviour {
         this.final = true;
       }),
       events.on("playerDown", () => this.news(-1, "hud.playerDown", NEWS)),
+      events.on("playerRevived", () => this.news(-1, "hud.playerRevived", 2)),
       events.on("hazardTriggered", (e) => e.phase === "start" && flood[e.kind] && this.news(-1, flood[e.kind], NEWS)),
       events.on("oreStolen", () => this.news(-1, "hud.oreStolen", NEWS)),
       events.on("thiefEscaped", () => this.news(-1, "hud.thiefEscaped", NEWS)),
@@ -115,6 +116,14 @@ export default class Hud extends Behaviour {
     this.setArgs(this.torchText, { count: run.torches });
     for (const b of this.bars) {
       const who = players.get(b.id);
+      if (!who) {
+        // a player who was dropped (pad_watch.js): its bar goes away
+        if (!b.gone) {
+          b.gone = true;
+          for (const e of [b.icon, b.back, b.fill, ...b.hearts]) e.active = false;
+        }
+        continue;
+      }
       const hp = who ? (who.state === "down" ? 0 : who.hp) : 0;
       if (hp !== b.hp) {
         b.hp = hp;

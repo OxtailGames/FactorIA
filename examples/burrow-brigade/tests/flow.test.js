@@ -18,6 +18,14 @@ function startFromTitle() {
   game.step(5);
   game.click("play");
   game.step(1);
+  game.step(30); // the loading screen, then the join screen
+  expect(scene.current).toBe("scenes/join.scene.json");
+  game.gamepad(0).connect();
+  game.step(10);
+  game.gamepad(0).tap("a");
+  game.step(5);
+  game.gamepad(0).tap("start");
+  game.step(1);
   expect(scene.current).toBe("scenes/loading.scene.json"); // the loading screen reads the shift scene ahead of time
   game.step(30);
   expect(scene.current).toBe(SHIFT);

@@ -10,6 +10,8 @@ import * as players from "./players.js";
 import * as events from "./events.js";
 import { live } from "./mine_map.js";
 import { readInput } from "./miner_input.js";
+import * as revive from "./revive.js";
+import { limitMove } from "./camera_views.js";
 import { K, TILE, kindInfo, spriteRegion, SPRITE } from "./tiles.js";
 import { burst } from "./puff.js";
 import { swingDamage } from "./enemy.js";
@@ -98,7 +100,7 @@ export default class Miner extends Behaviour {
     const here0 = map.tileAt(p.x, p.y);
     const water = live.hazards ? live.hazards.speedFactor(here0.tx, here0.ty) : 1;
     const speed = WALK_SPEED * run.upgrades.walkSpeed * water;
-    const moved = map.moveBox(p.x, p.y, HALF, HALF, inp.x * speed * dt, inp.y * speed * dt);
+    const moved = limitMove(this.playerId, p, map.moveBox(p.x, p.y, HALF, HALF, inp.x * speed * dt, inp.y * speed * dt)); // the leash: see camera_views.js
     p.x = moved.x;
     p.y = moved.y;
     const moving = Math.abs(inp.x) + Math.abs(inp.y) > 0.1;
@@ -112,6 +114,14 @@ export default class Miner extends Behaviour {
 
     // torches: a press puts one down on this tile
     if (inp.torch && this.player.state === "active") live.lights?.placeTorch(this.playerId);
+
+    // a friend lying next to the miner: holding the dig button gets them up (revive.js) instead of swinging or digging
+    const reviving = inp.dig && this.player.state === "active" && revive.hold(this.playerId, p, dt);
+    if (reviving) {
+      this.digProgress = 0;
+      this.blockedKey = "";
+      inp.dig = false;
+    }
 
     // the pick: the dig button at an enemy standing in front swings instead of digging
     const swung = inp.dig && this.player.state === "active" && this.trySwing();
@@ -145,7 +155,7 @@ export default class Miner extends Behaviour {
       }
     }
     if (!inp.dig) this.blockedKey = "";
-    this.setDigVisuals(solid && !swung ? t : null, this.digProgress);
+    this.setDigVisuals(solid && !swung && !reviving ? t : null, this.digProgress);
 
     // what is under the feet
     const here = this.tile;
@@ -200,7 +210,7 @@ export default class Miner extends Behaviour {
     return true;
   }
 
-  /** A downed miner lies faded and its lamp is off; getting up (P3) puts both back. */
+  /** A downed miner lies faded and its lamp is off; getting up (revive.js) puts both back. */
   showDown(down) {
     if (down === this.shownDown) return;
     this.shownDown = down;
