@@ -66,18 +66,31 @@ std::vector<int> read_solid(const Tilemap& tm) {
     return s;
 }
 
-std::uint64_t hash_tilemap(const Tilemap& tm, const WorldPose& pose) {
+// What forces a whole-body rebuild: everything about a Tilemap's collision except which tile is where.
+std::uint64_t hash_tilemap_layout(const Tilemap& tm, const TilemapSize& size, const WorldPose& pose) {
     Hasher h;
-    h.add(tm.width); h.add(tm.height); h.add(tm.tileSize.x); h.add(tm.tileSize.y);
+    h.add(size.width); h.add(size.height); h.add(tm.tileSize.x); h.add(tm.tileSize.y);
     h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
-    auto add_json = [&](const Json& j, auto&& self) -> void {
-        if (j.is_array()) { for (const Json& c : j) self(c, self); h.add(std::uint8_t(0xff)); }
-        else if (j.is_number()) h.add(tile_index(int(j.get<double>())));  // flip / rotate flags do not change the collision
-    };
-    add_json(tm.tiles, add_json);
-    h.add(std::uint8_t(0xee));
-    add_json(tm.solidTiles, add_json);
+    if (tm.solidTiles.is_array())
+        for (const Json& j : tm.solidTiles)
+            if (j.is_number()) h.add(tile_index(int(j.get<double>())));
     return h.h;
+}
+
+// One cell's contribution to the tiles hash. The hash is the SUM of these over every cell, so writing one tile changes
+// it by a known amount (see Tilemap::edits): flip / rotate flags do not change the collision, so only the index counts.
+std::uint64_t cell_mix(int cell, int index) {
+    std::uint64_t z = (std::uint64_t(std::uint32_t(cell)) << 32 | std::uint32_t(index)) + 0x9e3779b97f4a7c15ull;
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+    return z ^ (z >> 31);
+}
+
+std::uint64_t hash_tilemap_tiles(const Tilemap& tm, const TilemapSize& size) {
+    std::uint64_t sum = 0;
+    for (int r = 0; r < size.height; ++r)
+        for (int c = 0; c < size.width; ++c) sum += cell_mix(r * size.width + c, tile_index(tilemap_tile_at(tm, size, c, r)));
+    return sum;
 }
 
 b2BodyType to_b2(BodyType t) {
@@ -376,40 +389,60 @@ void Physics2D::sync_tilemaps(World& world) {
         if (!tm) continue;
         const std::uint64_t key = e.bits();
         WorldPose pose = world_pose(world, e);
-        std::uint64_t hash = hash_tilemap(*tm, pose);
+        // The size and the tiles are read in place; nothing is copied out of the Json while the map is unchanged.
+        const TilemapSize size = tilemap_size(*tm);
+        const std::uint64_t layoutHash = hash_tilemap_layout(*tm, size, pose);
+        const std::uint64_t tilesHash = hash_tilemap_tiles(*tm, size);
+        // Tiles written through set_tilemap_tile since the last step; consumed here whatever happens below.
+        const std::vector<TileEdit> edits = std::move(tm->edits);
+        tm->edits.clear();
         auto it = tiles_.find(key);
-        if (it != tiles_.end() && (it->second.hash != hash || it->second.id != world.id_of(e))) {
-            destroy_tile_body(key);
-            it = tiles_.end();
+        bool patch = false;
+        if (it != tiles_.end()) {
+            TileBody& old = it->second;
+            if (old.hash != layoutHash || old.id != world.id_of(e)) {
+                destroy_tile_body(key);
+                it = tiles_.end();
+            } else if (old.tilesHash != tilesHash) {
+                // The edits explain the change exactly when applying them to the old hash gives the new one; any other
+                // difference (a whole-array write, a bypass) rebuilds the body.
+                std::uint64_t expected = old.tilesHash;
+                for (const TileEdit& ed : edits) expected += cell_mix(ed.cell, ed.newIndex) - cell_mix(ed.cell, ed.oldIndex);
+                if (!edits.empty() && expected == tilesHash) {
+                    patch = true;
+                } else {
+                    destroy_tile_body(key);
+                    it = tiles_.end();
+                }
+            }
         }
         const bool active = world.active_in_hierarchy(e);
-        if (it == tiles_.end()) {
-            std::vector<int> solid = read_solid(*tm);
-            // The same grid the renderer draws (rows form: the rows; flat form: width/height).
-            const TilemapGrid grid = tilemap_grid(*tm);
-            if (solid.empty() || grid.empty()) {
-                // No collision: remember nothing; nothing to build.
-                continue;
-            }
-            const int w = grid.width, hgt = grid.height;
-            auto is_solid = [&](int c, int r) {
-                const int t = tile_index(grid.at(c, r));  // a flipped or rotated solid tile is still solid
-                return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
-            };
-            // Horizontal runs per row, then merge identical runs of consecutive rows into taller boxes.
-            struct Run { int c0, c1, r0, r1; };
-            std::vector<Run> runs;
+
+        const float tw = tm->tileSize.x * pose.scale.x, th = tm->tileSize.y * pose.scale.y;
+        b2ShapeDef sd = b2DefaultShapeDef();
+        sd.material.friction = 0.5f;
+        sd.material.restitution = 0.0f;
+        sd.filter.categoryBits = category_bits(0);
+        sd.filter.maskBits = ~0ull;
+        sd.enableSensorEvents = false;
+        sd.enableContactEvents = true;
+        sd.enableHitEvents = true;
+        // Horizontal runs per row, then identical runs of consecutive rows merged into taller boxes, over the cells
+        // c0..c1 x r0..r1 for which `is_solid(c, r)` holds.
+        struct CellRun { int c0, c1, r0, r1; };
+        auto make_runs = [&](int c0, int c1, int r0, int r1, auto&& is_solid) {
+            std::vector<CellRun> runs;
             std::vector<std::size_t> prevIdx;
-            for (int r = 0; r < hgt; ++r) {
+            for (int r = r0; r <= r1; ++r) {
                 std::vector<std::size_t> curIdx;
-                int c = 0;
-                while (c < w) {
+                int c = c0;
+                while (c <= c1) {
                     if (!is_solid(c, r)) { ++c; continue; }
-                    int c0 = c;
-                    while (c < w && is_solid(c, r)) ++c;
+                    int start = c;
+                    while (c <= c1 && is_solid(c, r)) ++c;
                     bool found = false;
                     for (std::size_t idx : prevIdx) {
-                        if (runs[idx].c0 == c0 && runs[idx].c1 == c - 1) {
+                        if (runs[idx].c0 == start && runs[idx].c1 == c - 1) {
                             runs[idx].r1 = r;
                             curIdx.push_back(idx);
                             found = true;
@@ -417,17 +450,96 @@ void Physics2D::sync_tilemaps(World& world) {
                         }
                     }
                     if (!found) {
-                        runs.push_back({c0, c - 1, r, r});
+                        runs.push_back({start, c - 1, r, r});
                         curIdx.push_back(runs.size() - 1);
                     }
                 }
                 prevIdx = std::move(curIdx);
             }
+            return runs;
+        };
+        // Tilemap origin = TOP-LEFT corner, +Y up: tile (c, r) spans x in [c*tw, (c+1)*tw], y in [-(r+1)*th, -r*th].
+        auto add_box = [&](TileBody& tb, const CellRun& run) {
+            float cx = (float(run.c0 + run.c1 + 1) * 0.5f) * tw;
+            float cy = -(float(run.r0 + run.r1 + 1) * 0.5f) * th;
+            float hx = std::max(float(run.c1 - run.c0 + 1) * tw * 0.5f * inv, kMinHalf);
+            float hy = std::max(float(run.r1 - run.r0 + 1) * th * 0.5f * inv, kMinHalf);
+            b2Polygon poly = b2MakeOffsetBox(hx, hy, {cx * inv, cy * inv}, b2MakeRot(0.0f));
+            b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
+            register_shape(sid, e, false, false, &tb.shapeKeys);
+            tb.runs.push_back({run.c0, run.c1, run.r0, run.r1, sid});
+            // world-space AABB (rotation ignored for debug)
+            tb.boxes.push_back(Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv}));
+        };
 
+        if (patch) {
+            // Only the boxes touching a changed tile are rebuilt: those boxes' cells plus the newly solid cells are
+            // re-merged into runs, and the other boxes stay as they are.
+            TileBody& tb = it->second;
+            auto is_solid_index = [&](int t) { return t >= 0 && std::binary_search(tb.solid.begin(), tb.solid.end(), t); };
+            auto solid_at = [&](int c, int r) {
+                return is_solid_index(tile_index(tilemap_tile_at(*tm, size, c, r)));  // a flipped solid tile is still solid
+            };
+            std::vector<std::pair<int, int>> changed;  // cells whose collision changed
+            for (const TileEdit& ed : edits)
+                if (is_solid_index(ed.oldIndex) != is_solid_index(ed.newIndex) && tb.cols > 0)
+                    changed.push_back({ed.cell % tb.cols, ed.cell / tb.cols});
+            if (!changed.empty()) {
+                int c0 = tb.cols, c1 = -1, r0 = tb.rows, r1 = -1;
+                auto grow = [&](int c, int r) { c0 = std::min(c0, c); c1 = std::max(c1, c); r0 = std::min(r0, r); r1 = std::max(r1, r); };
+                std::vector<bool> drop(tb.runs.size(), false);
+                for (std::size_t i = 0; i < tb.runs.size(); ++i)
+                    for (const auto& [c, r] : changed)
+                        if (c >= tb.runs[i].c0 && c <= tb.runs[i].c1 && r >= tb.runs[i].r0 && r <= tb.runs[i].r1) { drop[i] = true; break; }
+                for (std::size_t i = 0; i < tb.runs.size(); ++i)
+                    if (drop[i]) { grow(tb.runs[i].c0, tb.runs[i].r0); grow(tb.runs[i].c1, tb.runs[i].r1); }
+                for (const auto& [c, r] : changed) grow(c, r);
+                const int rw = c1 - c0 + 1, rh = r1 - r0 + 1;
+                std::vector<bool> region(std::size_t(rw) * std::size_t(rh), false);  // cell is part of the rebuilt area
+                auto mark = [&](int c, int r) { region[std::size_t(r - r0) * std::size_t(rw) + std::size_t(c - c0)] = true; };
+                for (std::size_t i = 0; i < tb.runs.size(); ++i)
+                    if (drop[i])
+                        for (int r = tb.runs[i].r0; r <= tb.runs[i].r1; ++r)
+                            for (int c = tb.runs[i].c0; c <= tb.runs[i].c1; ++c) mark(c, r);
+                for (const auto& [c, r] : changed) mark(c, r);
+                // Remove the dropped boxes (keeping the parallel arrays in step), then add the re-merged ones.
+                for (std::size_t i = tb.runs.size(); i-- > 0;) {
+                    if (!drop[i]) continue;
+                    deadNow_.push_back(tb.shapeKeys[i]);
+                    b2DestroyShape(tb.runs[i].shape, false);
+                    tb.runs.erase(tb.runs.begin() + std::ptrdiff_t(i));
+                    tb.shapeKeys.erase(tb.shapeKeys.begin() + std::ptrdiff_t(i));
+                    tb.boxes.erase(tb.boxes.begin() + std::ptrdiff_t(i));
+                }
+                const auto fresh = make_runs(c0, c1, r0, r1, [&](int c, int r) {
+                    return region[std::size_t(r - r0) * std::size_t(rw) + std::size_t(c - c0)] && solid_at(c, r);
+                });
+                for (const CellRun& run : fresh) add_box(tb, run);
+                // Bodies resting on a removed tile must not stay asleep on thin air.
+                wake_after_teleport(tb.body);
+            }
+            tb.tilesHash = tilesHash;
+        }
+
+        if (it == tiles_.end()) {
+            std::vector<int> solid = read_solid(*tm);
+            if (solid.empty() || size.empty()) {
+                // No collision: remember nothing; nothing to build.
+                continue;
+            }
+            const int w = size.width, hgt = size.height;
+            auto is_solid = [&](int c, int r) {
+                const int t = tile_index(tilemap_tile_at(*tm, size, c, r));  // a flipped or rotated solid tile is still solid
+                return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
+            };
             TileBody tb;
             tb.e = e;
             tb.id = world.id_of(e);
-            tb.hash = hash;
+            tb.hash = layoutHash;
+            tb.tilesHash = tilesHash;
+            tb.cols = w;
+            tb.rows = hgt;
+            tb.solid = solid;
             tb.pos = pose.position;
             tb.rotZ = pose.rotZ;
             b2BodyDef bd = b2DefaultBodyDef();
@@ -435,28 +547,7 @@ void Physics2D::sync_tilemaps(World& world) {
             bd.position = {pose.position.x * inv, pose.position.y * inv};
             bd.rotation = b2MakeRot(radians(pose.rotZ));
             tb.body = b2CreateBody(world_, &bd);
-            const float tw = tm->tileSize.x * pose.scale.x, th = tm->tileSize.y * pose.scale.y;
-            b2ShapeDef sd = b2DefaultShapeDef();
-            sd.material.friction = 0.5f;
-            sd.material.restitution = 0.0f;
-            sd.filter.categoryBits = category_bits(0);
-            sd.filter.maskBits = ~0ull;
-            sd.enableSensorEvents = false;
-            sd.enableContactEvents = true;
-            sd.enableHitEvents = true;
-            for (const Run& r : runs) {
-                // Tilemap origin = TOP-LEFT corner, +Y up: tile (c, r) spans x in [c*tw, (c+1)*tw], y in [-(r+1)*th, -r*th].
-                float cx = (float(r.c0 + r.c1 + 1) * 0.5f) * tw;
-                float cy = -(float(r.r0 + r.r1 + 1) * 0.5f) * th;
-                float hx = std::max(float(r.c1 - r.c0 + 1) * tw * 0.5f * inv, kMinHalf);
-                float hy = std::max(float(r.r1 - r.r0 + 1) * th * 0.5f * inv, kMinHalf);
-                b2Polygon poly = b2MakeOffsetBox(hx, hy, {cx * inv, cy * inv}, b2MakeRot(0.0f));
-                b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
-                register_shape(sid, e, false, false, &tb.shapeKeys);
-                // world-space AABB (rotation ignored for debug)
-                float wx = pose.position.x + cx, wy = pose.position.y + cy;
-                tb.boxes.push_back(Rect::from_center({wx, wy}, {hx * 2 / inv, hy * 2 / inv}));
-            }
+            for (const CellRun& run : make_runs(0, w - 1, 0, hgt - 1, is_solid)) add_box(tb, run);
             it = tiles_.emplace(key, std::move(tb)).first;
         }
         TileBody& tb = it->second;

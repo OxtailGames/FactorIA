@@ -144,6 +144,7 @@ are not affected.
 | `isGrounded(tolerance?)` | 2D or 3D physics: standing on something (contact normal up) |
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `animator` | skeletal animation of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
+| `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |
 
@@ -472,6 +473,17 @@ tweens a plain number; `ease` holds the easing functions (`ease.quadOut`; the na
 `onUpdate`, `onComplete`. Tweens run on the game's clock: they pause with `time.scale = 0` and are deterministic in tests.
 `entity.animator` controls the `Animator` component (skinned glTF clips, cross-fades, clip events, state machine).
 Both are described with examples in [ANIMATION.md](ANIMATION.md).
+
+### entity.tilemap
+`entity.tilemap` edits the `Tilemap` component one tile at a time, in place. Do not read `tiles`, change one entry and
+write the whole array back: that copies the grid on every call.
+- `getTile(col, row)` returns the tile index (`-1` for an empty tile or a cell outside the map). Row 0 is the top row.
+- `setTile(col, row, id)` writes one tile: `-1` empties it, otherwise a tile index (with the flip/rotate flags that
+  `scene.import_ascii` writes). It returns `false`, and changes nothing, for a cell outside the map or a bad value.
+- `width` and `height` are the map size in tiles.
+2D physics sees the change on the next step and rebuilds only the colliders of the tiles that changed, so `setTile(x, y,
+-1)` opens a hole a body falls through. The same edit from outside a script is the command `tilemap.set_tile`
+(`{id, col, row, tile}`). Writing the whole `tiles` array still works and rebuilds the colliders.
 
 ### entity.video
 `entity.video` controls the `Video` component (an `.mpg` drawn in a UI rectangle, [ASSETS.md](ASSETS.md), "Video"). It plays

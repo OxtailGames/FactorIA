@@ -494,6 +494,11 @@
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
       return new AnimatorApi(this.$h);
     }
+    get tilemap() {
+      if (!N.hasComp(this.$h, "Tilemap"))
+        throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.import_ascii`);
+      return new TilemapApi(this.$h);
+    }
     get video() {
       if (!N.hasComp(this.$h, "Video"))
         throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
@@ -541,6 +546,25 @@
     set loop(v) { this.component.loop = v; }
     get playing() { return this.component.playing; }
     set playing(v) { this.component.playing = v; }
+  }
+
+  // ======================================================================================================== tilemap
+  // entity.tilemap: reads and writes single tiles of a Tilemap component in place (the tiles array is not copied or
+  // replaced), so a script can dig, build or open doors every frame. 2D physics rebuilds only the colliders it changes.
+  class TilemapApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("Tilemap")); }
+    get width() { const c = this.component; return Array.isArray(c.tiles[0]) ? Math.max(0, ...c.tiles.map((r) => r.length)) : (c.width > 0 ? c.width : c.tiles.length); }
+    get height() { const c = this.component; return Array.isArray(c.tiles[0]) ? c.tiles.length : (c.height > 0 ? c.height : Math.ceil(c.tiles.length / Math.max(1, this.width))); }
+    getTile(x, y) {
+      if (typeof x !== "number" || typeof y !== "number") throw new Error(`tilemap.getTile(x, y) expects two cell numbers, got ${inspect(x)}, ${inspect(y)}`);
+      return N.tileGet(this.$h, x, y);
+    }
+    setTile(x, y, tile) {
+      if (typeof x !== "number" || typeof y !== "number" || typeof tile !== "number")
+        throw new Error(`tilemap.setTile(x, y, tile) expects three numbers (cell column, cell row, tile index or -1), got ${inspect(x)}, ${inspect(y)}, ${inspect(tile)}`);
+      N.tileSet(this.$h, x, y, tile);
+    }
   }
 
   // ========================================================================================================== video
