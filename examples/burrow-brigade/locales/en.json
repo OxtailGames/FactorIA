@@ -16,7 +16,11 @@
     "options": "Options",
     "credits": "Credits",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "continue": "Continue",
+    "daily": "Daily dig",
+    "code": "Seed code",
+    "dailyInfo": "Daily dig {key}: {tries} tries, deepest {depth} m"
   },
   "options": {
     "title": "Options",
@@ -124,8 +128,80 @@
     "nextBoss": "Next: {stratum}, floor {floor} - the Mole King waits",
     "retry": "Again: {stratum}, floor {floor}",
     "victoryEnd": "Back to the surface",
-    "nextFloor": "Next floor",
-    "retryFloor": "Try the floor again",
-    "newRun": "New run"
+    "nextFloor": "To the camp",
+    "retryFloor": "To the camp, then try again",
+    "newRun": "New run",
+    "seed": "Mine code: {code}",
+    "copy": "Copy code",
+    "copied": "Code {code} copied to the clipboard.",
+    "copiedSession": "Code {code} kept for this session only: this build has no system clipboard, so write it down."
+  },
+  "camp": {
+    "title": "The camp",
+    "cash": "Cash: {cash}",
+    "hint": "Spend your cash on upgrades, then go down.",
+    "next": "Next: {stratum}, floor {floor}",
+    "seed": "Mine code: {code}",
+    "copy": "Copy code",
+    "descend": "Down to the mine",
+    "toTitle": "Back to title",
+    "buy": "{name}: {now}  >  {next}  (cost {cost})",
+    "buyMax": "{name}: {now}  (best)",
+    "bought": "Bought {name}: {now}.",
+    "refused": "{message}. {hint}.",
+    "name": {
+      "pickTier": "Pick hardness",
+      "pickSpeed": "Pick speed",
+      "lampOil": "Lamp oil",
+      "lampRadius": "Lamp light",
+      "walkSpeed": "Boots",
+      "torches": "Torches"
+    },
+    "unit": {
+      "tier": "tier {value}",
+      "times": "x{value}",
+      "seconds": "{value} s",
+      "count": "{value}"
+    },
+    "copied": "Code {code} copied to the clipboard.",
+    "copiedSession": "Code {code} kept for this session only: this build has no system clipboard, so write it down."
+  },
+  "slots": {
+    "title": "Choose a slot",
+    "empty": "Slot {slot}: empty - new run",
+    "filled": "Slot {slot}: {stratum}, floor {floor} - {cash} cash - {time} - best {best} m",
+    "broken": "Slot {slot}: cannot be read",
+    "delete": "Delete",
+    "sync": "Sync with the cloud",
+    "syncing": "Syncing with the cloud...",
+    "confirm": "Delete slot {slot}? This cannot be undone.",
+    "yes": "Yes, delete it",
+    "no": "No, keep it",
+    "deleted": "Slot {slot} deleted.",
+    "synced": {
+      "unavailable": "This build has no cloud saves.",
+      "none": "Nothing to sync.",
+      "inSync": "Slots and cloud are the same.",
+      "uploaded": "Slot {slot} sent to the cloud.",
+      "downloaded": "Slot {slot} came down from the cloud.",
+      "conflict": "Slot {slot} was changed in two places: the one with more play time won ({winner}); the other is kept as a backup.",
+      "waiting": "Slot {slot} waits.",
+      "blocked": "{message}. {hint}.",
+      "error": "{message}. {hint}."
+    },
+    "storageDamaged": "The save folder was damaged; the game kept a copy and started empty. Sync with the cloud may bring your slots back.",
+    "imported": "Your old save is now slot {slot}.",
+    "legacy": "An old save could not be imported: {message}. {hint}.",
+    "problem": "{message}. {hint}."
+  },
+  "code": {
+    "title": "Seed code",
+    "prompt": "Type or paste a mine code, like {example}",
+    "paste": "Paste",
+    "play": "Play this mine",
+    "placeholder": "XXXX-XXXX",
+    "pasteEmpty": "Nothing to paste yet: copy a code first, or type it.",
+    "invalid": "{message}. {hint}.",
+    "ok": "Code accepted: {stratum}, floor {floor}."
   }
 }

@@ -9,7 +9,7 @@ import * as events from "./events.js";
 import * as players from "./players.js";
 import * as music from "./music.js";
 
-/** The upgrades and their starting level; P4 raises them. */
+/** The upgrades and their starting level; the camp (upgrades.js) raises them. */
 export const BASE_UPGRADES = Object.freeze({
   pickTier: 0, // 0 digs dirt, rock and the soft ores; 1 also digs hard rock, gold and gems
   pickSpeed: 1, // multiplies the dig rate
@@ -40,11 +40,22 @@ export const BASE_UPGRADES = Object.freeze({
  * @property {number} shiftNumber
  * @property {number} stratum   The stratum the shift was played in.
  * @property {number} floor     The floor within that stratum.
+ * @property {number} seed      The seed of the mine that was played (a seed code names it with the stratum and floor).
  */
 
 export const run = {
   /** True between `startRun` and the end of the game. */
   active: false,
+  /** "normal" for every run but the daily dig, which is "daily" (P5 posts to the daily board from `mode` and `dailyKey`). */
+  mode: "normal",
+  /** The UTC date ("YYYY-MM-DD") a daily dig belongs to; null for every other run. */
+  dailyKey: null,
+  /** The save slot (1 to 3) the run is kept in, or null: the daily dig and a run started from a seed code are not kept. */
+  slot: null,
+  /** Seconds spent in shifts since the slot began (cumulative; a save stores it). */
+  playTime: 0,
+  /** The deepest depth in metres any shift of the slot reached (cumulative; a save stores it). */
+  bestDepth: 0,
   seed: 0,
   stratum: 0,
   floor: 1,
@@ -66,6 +77,8 @@ export const run = {
   exitLocked: false,
   /** True while a shift is being played. */
   inShift: false,
+  /** The seed of the mine of the current (or last) shift. */
+  shiftSeed: 0,
   /** @type {ShiftSummary|null} The summary of the last shift (the results screen reads it). */
   lastShift: null,
 };
@@ -77,11 +90,18 @@ function resetOre() {
 /**
  * Starts a new run: cash 0, base upgrades, and clears the events bus and the players' states.
  * The seed defaults to a draw from the world RNG (deterministic for a given project seed, different run to run in play).
- * @param {{seed?: number, stratum?: number, floor?: number}} [opts]
+ * `mode` is "normal" unless the daily dig asks for "daily" with its `dailyKey` (a "YYYY-MM-DD" date); `slot` is the save
+ * slot that keeps the run (null: not kept); `playTime` and `bestDepth` carry a slot's totals into a new run.
+ * @param {{seed?: number, stratum?: number, floor?: number, mode?: "normal"|"daily", dailyKey?: string|null, slot?: number|null, playTime?: number, bestDepth?: number}} [opts]
  */
 export function startRun(opts = {}) {
   events.clear();
   run.active = true;
+  run.mode = opts.mode ?? "normal";
+  run.dailyKey = run.mode === "daily" ? (opts.dailyKey ?? null) : null;
+  run.slot = run.mode === "daily" ? null : (opts.slot ?? null);
+  run.playTime = opts.playTime ?? 0;
+  run.bestDepth = opts.bestDepth ?? 0;
   run.seed = opts.seed ?? rng.int(1, 0x7fffffff);
   run.stratum = opts.stratum ?? 0;
   run.floor = opts.floor ?? 1;
@@ -127,7 +147,24 @@ export function beginShift(opts = {}) {
     run.lamps[p.id] = { oil: run.upgrades.lampOil, max: run.upgrades.lampOil, out: false, low: false };
     players.setState(p.id, "active");
   }
-  return opts.seed ?? run.seed + run.shiftNumber - 1;
+  run.shiftSeed = opts.seed ?? mineSeed(run.shiftNumber);
+  return run.shiftSeed;
+}
+
+/**
+ * The seed of the mine of shift number `n` of this run. A normal run plays another mine every shift (seed + n - 1, kept inside
+ * 31 bits so a seed code can hold it); the daily dig plays the same mine on a floor however many tries it takes, so every
+ * player meets the same floor.
+ * @param {number} n  1 for the first shift.
+ */
+export function mineSeed(n) {
+  if (run.mode === "daily") return run.seed;
+  return (run.seed + n - 1) % 0x80000000;
+}
+
+/** Metres below the surface shown for a floor: 30 per stratum plus 10 per floor. */
+export function depthOf(stratum, floor) {
+  return stratum * 30 + floor * 10;
 }
 
 /** Light radius (world units) of a lamp that is nearly dry and of a full one. */
@@ -144,6 +181,19 @@ export function lampRadius(lamp) {
 export function lampOf(id) {
   if (!run.lamps[id]) run.lamps[id] = { oil: run.upgrades.lampOil, max: run.upgrades.lampOil, out: false, low: false };
   return run.lamps[id];
+}
+
+/**
+ * Changes the banked cash by `delta` (negative to spend) and emits `cashChanged`. Never takes the cash under zero: the caller
+ * checks first (upgrades.js `buy`).
+ * @param {number} delta
+ * @param {string} [cause]  "shift" (ore banked), "upgrade"...
+ */
+export function addCash(delta, cause = "shift") {
+  if (delta === 0) return run.cash;
+  run.cash = Math.max(0, run.cash + delta);
+  events.emit("cashChanged", { cash: run.cash, delta, cause });
+  return run.cash;
 }
 
 /** Puts ore into the pockets. */
@@ -171,18 +221,24 @@ export function oreValue() {
 export function endShift(outcome) {
   const value = oreValue();
   const banked = outcome === "lift" ? value : 0;
-  run.cash += banked;
+  addCash(banked, "shift");
   run.inShift = false;
+  run.playTime += run.shiftTime;
+  run.bestDepth = Math.max(run.bestDepth, depthOf(run.stratum, run.floor));
   run.lastShift = {
     outcome, ore: { ...run.ore }, oreCount: totalOre(), value, banked, time: run.shiftTime,
     molesRescued: run.molesRescued, molesTotal: run.molesTotal, shiftNumber: run.shiftNumber, stratum: run.stratum, floor: run.floor,
+    seed: run.shiftSeed,
   };
   return run.lastShift;
 }
 
 /** The part of the state a save stores (see save.js). */
 export function snapshot() {
-  return { seed: run.seed, stratum: run.stratum, floor: run.floor, shiftNumber: run.shiftNumber, cash: run.cash, upgrades: { ...run.upgrades } };
+  return {
+    seed: run.seed, stratum: run.stratum, floor: run.floor, shiftNumber: run.shiftNumber, cash: run.cash, upgrades: { ...run.upgrades },
+    playTime: run.playTime, bestDepth: run.bestDepth,
+  };
 }
 
 /** Puts a snapshot back (the save loader). */
@@ -194,5 +250,11 @@ export function restore(data) {
   run.shiftNumber = data.shiftNumber;
   run.cash = data.cash;
   run.upgrades = { ...BASE_UPGRADES, ...data.upgrades };
+  run.playTime = data.playTime ?? 0;
+  run.bestDepth = data.bestDepth ?? 0;
+  run.mode = "normal";
+  run.dailyKey = null;
+  run.slot = data.slot ?? null;
+  run.lastShift = null;
   run.inShift = false;
 }
