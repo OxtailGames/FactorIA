@@ -26,7 +26,8 @@
           "anchor": [0.5, 0],
           "pivot": [0.5, 0.5],
           "align": "center",
-          "layer": 220
+          "layer": 220,
+          "maxTextScale": 1.4
         }
       }
     },
@@ -34,7 +35,7 @@
       "id": "join_note",
       "components": {
         "Transform": {
-          "position": [0, 150, 0]
+          "position": [0, 160, 0]
         },
         "Text": {
           "text": "join.noPlayers",
@@ -45,7 +46,8 @@
           "pivot": [0.5, 0.5],
           "align": "center",
           "layer": 220,
-          "color": [1, 0.8, 0.4, 1]
+          "color": [1, 0.8, 0.4, 1],
+          "maxTextScale": 1.4
         }
       }
     },
@@ -53,11 +55,11 @@
       "id": "slot_0_back",
       "components": {
         "Transform": {
-          "position": [0, 230, 0]
+          "position": [0, 246, 0]
         },
         "Shape2D": {
           "shape": "rectangle",
-          "size": [700, 68],
+          "size": [960, 84],
           "color": [0, 0, 0, 0.45],
           "space": "screen",
           "anchor": [0.5, 0],
@@ -69,7 +71,7 @@
       "id": "slot_0_swatch",
       "components": {
         "Transform": {
-          "position": [-300, 230, 0]
+          "position": [-440, 246, 0]
         },
         "Shape2D": {
           "shape": "circle",
@@ -85,7 +87,7 @@
       "id": "slot_0_text",
       "components": {
         "Transform": {
-          "position": [-260, 230, 0]
+          "position": [-396, 246, 0]
         },
         "Text": {
           "text": "join.slotEmpty",
@@ -98,7 +100,11 @@
           "layer": 220,
           "keyArgs": {
             "player": "P1"
-          }
+          },
+          "maxWidth": 860,
+          "maxHeight": 76,
+          "autoShrink": true,
+          "minFontSize": 14
         }
       }
     },
@@ -106,11 +112,11 @@
       "id": "slot_1_back",
       "components": {
         "Transform": {
-          "position": [0, 314, 0]
+          "position": [0, 342, 0]
         },
         "Shape2D": {
           "shape": "rectangle",
-          "size": [700, 68],
+          "size": [960, 84],
           "color": [0, 0, 0, 0.45],
           "space": "screen",
           "anchor": [0.5, 0],
@@ -122,7 +128,7 @@
       "id": "slot_1_swatch",
       "components": {
         "Transform": {
-          "position": [-300, 314, 0]
+          "position": [-440, 342, 0]
         },
         "Shape2D": {
           "shape": "circle",
@@ -138,7 +144,7 @@
       "id": "slot_1_text",
       "components": {
         "Transform": {
-          "position": [-260, 314, 0]
+          "position": [-396, 342, 0]
         },
         "Text": {
           "text": "join.slotEmpty",
@@ -151,7 +157,11 @@
           "layer": 220,
           "keyArgs": {
             "player": "P2"
-          }
+          },
+          "maxWidth": 860,
+          "maxHeight": 76,
+          "autoShrink": true,
+          "minFontSize": 14
         }
       }
     },
@@ -159,11 +169,11 @@
       "id": "slot_2_back",
       "components": {
         "Transform": {
-          "position": [0, 398, 0]
+          "position": [0, 438, 0]
         },
         "Shape2D": {
           "shape": "rectangle",
-          "size": [700, 68],
+          "size": [960, 84],
           "color": [0, 0, 0, 0.45],
           "space": "screen",
           "anchor": [0.5, 0],
@@ -175,7 +185,7 @@
       "id": "slot_2_swatch",
       "components": {
         "Transform": {
-          "position": [-300, 398, 0]
+          "position": [-440, 438, 0]
         },
         "Shape2D": {
           "shape": "circle",
@@ -191,7 +201,7 @@
       "id": "slot_2_text",
       "components": {
         "Transform": {
-          "position": [-260, 398, 0]
+          "position": [-396, 438, 0]
         },
         "Text": {
           "text": "join.slotEmpty",
@@ -204,7 +214,11 @@
           "layer": 220,
           "keyArgs": {
             "player": "P3"
-          }
+          },
+          "maxWidth": 860,
+          "maxHeight": 76,
+          "autoShrink": true,
+          "minFontSize": 14
         }
       }
     },
@@ -212,11 +226,11 @@
       "id": "slot_3_back",
       "components": {
         "Transform": {
-          "position": [0, 482, 0]
+          "position": [0, 534, 0]
         },
         "Shape2D": {
           "shape": "rectangle",
-          "size": [700, 68],
+          "size": [960, 84],
           "color": [0, 0, 0, 0.45],
           "space": "screen",
           "anchor": [0.5, 0],
@@ -228,7 +242,7 @@
       "id": "slot_3_swatch",
       "components": {
         "Transform": {
-          "position": [-300, 482, 0]
+          "position": [-440, 534, 0]
         },
         "Shape2D": {
           "shape": "circle",
@@ -244,7 +258,7 @@
       "id": "slot_3_text",
       "components": {
         "Transform": {
-          "position": [-260, 482, 0]
+          "position": [-396, 534, 0]
         },
         "Text": {
           "text": "join.slotEmpty",
@@ -257,7 +271,11 @@
           "layer": 220,
           "keyArgs": {
             "player": "P4"
-          }
+          },
+          "maxWidth": 860,
+          "maxHeight": 76,
+          "autoShrink": true,
+          "minFontSize": 14
         }
       }
     },
@@ -265,7 +283,7 @@
       "id": "join_hint",
       "components": {
         "Transform": {
-          "position": [0, 640, 0]
+          "position": [0, 650, 0]
         },
         "Text": {
           "text": "join.hint",
@@ -276,7 +294,10 @@
           "pivot": [0.5, 0.5],
           "align": "center",
           "layer": 220,
-          "maxWidth": 1180
+          "maxWidth": 1200,
+          "maxHeight": 110,
+          "autoShrink": true,
+          "minFontSize": 14
         }
       }
     },

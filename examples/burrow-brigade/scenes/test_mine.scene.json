@@ -56,132 +56,6 @@
       }
     },
     {
-      "id": "hud_ore",
-      "components": {
-        "Transform": {
-          "position": [24, 18, 0]
-        },
-        "Text": {
-          "text": "hud.ore",
-          "key": "hud.ore",
-          "fontSize": 26,
-          "space": "screen",
-          "anchor": [0, 0],
-          "pivot": [0, 1],
-          "align": "left",
-          "layer": 220,
-          "keyArgs": {
-            "count": 0,
-            "value": 0
-          }
-        }
-      }
-    },
-    {
-      "id": "hud_moles",
-      "components": {
-        "Transform": {
-          "position": [24, 50, 0]
-        },
-        "Text": {
-          "text": "hud.moles",
-          "key": "hud.moles",
-          "fontSize": 26,
-          "space": "screen",
-          "anchor": [0, 0],
-          "pivot": [0, 1],
-          "align": "left",
-          "layer": 220,
-          "keyArgs": {
-            "rescued": 0,
-            "total": 0
-          }
-        }
-      }
-    },
-    {
-      "id": "hud_depth",
-      "components": {
-        "Transform": {
-          "position": [-24, 18, 0]
-        },
-        "Text": {
-          "text": "hud.depth",
-          "key": "hud.depth",
-          "fontSize": 26,
-          "space": "screen",
-          "anchor": [1, 0],
-          "pivot": [1, 1],
-          "align": "right",
-          "layer": 220,
-          "keyArgs": {
-            "floor": 0,
-            "depth": 0
-          }
-        }
-      }
-    },
-    {
-      "id": "hud_time",
-      "components": {
-        "Transform": {
-          "position": [-24, 50, 0]
-        },
-        "Text": {
-          "text": "hud.time",
-          "key": "hud.time",
-          "fontSize": 26,
-          "space": "screen",
-          "anchor": [1, 0],
-          "pivot": [1, 1],
-          "align": "right",
-          "layer": 220,
-          "keyArgs": {
-            "time": "0:00"
-          }
-        }
-      }
-    },
-    {
-      "id": "hud_stratum",
-      "components": {
-        "Transform": {
-          "position": [-24, 82, 0]
-        },
-        "Text": {
-          "text": "strata.topsoil",
-          "key": "strata.topsoil",
-          "fontSize": 26,
-          "space": "screen",
-          "anchor": [1, 0],
-          "pivot": [1, 1],
-          "align": "right",
-          "layer": 220
-        }
-      }
-    },
-    {
-      "id": "hud_torches",
-      "components": {
-        "Transform": {
-          "position": [24, 82, 0]
-        },
-        "Text": {
-          "text": "hud.torches",
-          "key": "hud.torches",
-          "fontSize": 26,
-          "space": "screen",
-          "anchor": [0, 0],
-          "pivot": [0, 1],
-          "align": "left",
-          "layer": 220,
-          "keyArgs": {
-            "count": 0
-          }
-        }
-      }
-    },
-    {
       "id": "hud_banner",
       "components": {
         "Transform": {
@@ -195,7 +69,9 @@
           "anchor": [0.5, 0],
           "pivot": [0.5, 1],
           "align": "center",
-          "layer": 220
+          "layer": 220,
+          "maxTextScale": 1.4,
+          "maxWidth": 1000
         }
       }
     },
@@ -206,6 +82,144 @@
           "path": "scripts/pause_menu.js"
         }
       }
+    },
+    {
+      "id": "hud_left",
+      "components": {
+        "Transform": {
+          "position": [24, 14, 0]
+        },
+        "Panel": {
+          "anchor": [0, 0],
+          "pivot": [0, 1],
+          "layout": "column",
+          "spacing": 2,
+          "padding": [0, 0, 0, 0],
+          "color": [0, 0, 0, 0],
+          "fit": true,
+          "align": "start",
+          "layer": 220
+        }
+      },
+      "children": [
+        {
+          "id": "hud_ore",
+          "components": {
+            "Text": {
+              "text": "hud.ore",
+              "key": "hud.ore",
+              "fontSize": 26,
+              "space": "screen",
+              "layer": 220,
+              "keyArgs": {
+                "count": 0,
+                "value": 0
+              },
+              "maxTextScale": 1.4
+            }
+          }
+        },
+        {
+          "id": "hud_moles",
+          "components": {
+            "Text": {
+              "text": "hud.moles",
+              "key": "hud.moles",
+              "fontSize": 26,
+              "space": "screen",
+              "layer": 220,
+              "keyArgs": {
+                "rescued": 0,
+                "total": 0
+              },
+              "maxTextScale": 1.4
+            }
+          }
+        },
+        {
+          "id": "hud_torches",
+          "components": {
+            "Text": {
+              "text": "hud.torches",
+              "key": "hud.torches",
+              "fontSize": 26,
+              "space": "screen",
+              "layer": 220,
+              "keyArgs": {
+                "count": 0
+              },
+              "maxTextScale": 1.4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud_right",
+      "components": {
+        "Transform": {
+          "position": [-24, 14, 0]
+        },
+        "Panel": {
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "layout": "column",
+          "spacing": 2,
+          "padding": [0, 0, 0, 0],
+          "color": [0, 0, 0, 0],
+          "fit": true,
+          "align": "end",
+          "layer": 220
+        }
+      },
+      "children": [
+        {
+          "id": "hud_depth",
+          "components": {
+            "Text": {
+              "text": "hud.depth",
+              "key": "hud.depth",
+              "fontSize": 26,
+              "space": "screen",
+              "layer": 220,
+              "keyArgs": {
+                "floor": 0,
+                "depth": 0
+              },
+              "maxTextScale": 1.4
+            }
+          }
+        },
+        {
+          "id": "hud_time",
+          "components": {
+            "Text": {
+              "text": "hud.time",
+              "key": "hud.time",
+              "fontSize": 26,
+              "space": "screen",
+              "layer": 220,
+              "keyArgs": {
+                "time": "0:00"
+              },
+              "maxTextScale": 1.4
+            }
+          }
+        },
+        {
+          "id": "hud_stratum",
+          "components": {
+            "Text": {
+              "text": "strata.topsoil",
+              "key": "strata.topsoil",
+              "fontSize": 26,
+              "space": "screen",
+              "layer": 220,
+              "maxTextScale": 1.4
+            }
+          }
+        }
+      ]
     }
   ],
   "settings": {

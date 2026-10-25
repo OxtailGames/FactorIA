@@ -49,99 +49,116 @@
               "text": "Burrow Brigade",
               "key": "menu.title",
               "fontSize": 56,
-              "space": "screen"
+              "space": "screen",
+              "maxTextScale": 1.3
             }
           }
         },
         {
-          "id": "continue",
+          "id": "menu_buttons",
           "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Continue",
-              "key": "menu.continue",
-              "size": [240, 48]
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "column",
+              "fallbackLayout": "grid",
+              "columns": 2,
+              "spacing": 8,
+              "fit": true,
+              "uniformSize": true
             }
           },
-          "active": false
-        },
-        {
-          "id": "play",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Play",
-              "key": "menu.play",
-              "autoFocus": true,
-              "size": [240, 48]
+          "children": [
+            {
+              "id": "continue",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Continue",
+                  "key": "menu.continue",
+                  "size": [240, 48]
+                }
+              },
+              "active": false
+            },
+            {
+              "id": "play",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Play",
+                  "key": "menu.play",
+                  "autoFocus": true,
+                  "size": [240, 48]
+                }
+              }
+            },
+            {
+              "id": "daily",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Daily dig",
+                  "key": "menu.daily",
+                  "size": [240, 48]
+                }
+              }
+            },
+            {
+              "id": "code_button",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Seed code",
+                  "key": "menu.code",
+                  "size": [240, 48]
+                }
+              }
+            },
+            {
+              "id": "options_button",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Options",
+                  "key": "menu.options",
+                  "size": [240, 48]
+                }
+              }
+            },
+            {
+              "id": "credits_button",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Credits",
+                  "key": "menu.credits",
+                  "size": [240, 48]
+                }
+              }
+            },
+            {
+              "id": "boards_button",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Boards",
+                  "key": "menu.boards",
+                  "size": [240, 48]
+                }
+              }
+            },
+            {
+              "id": "quit",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Quit",
+                  "key": "menu.quit",
+                  "size": [240, 48]
+                }
+              }
             }
-          }
-        },
-        {
-          "id": "daily",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Daily dig",
-              "key": "menu.daily",
-              "size": [240, 48]
-            }
-          }
-        },
-        {
-          "id": "code_button",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Seed code",
-              "key": "menu.code",
-              "size": [240, 48]
-            }
-          }
-        },
-        {
-          "id": "options_button",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Options",
-              "key": "menu.options",
-              "size": [240, 48]
-            }
-          }
-        },
-        {
-          "id": "credits_button",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Credits",
-              "key": "menu.credits",
-              "size": [240, 48]
-            }
-          }
-        },
-        {
-          "id": "boards_button",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Boards",
-              "key": "menu.boards",
-              "size": [240, 48]
-            }
-          }
-        },
-        {
-          "id": "quit",
-          "components": {
-            "Button": {
-              "autoSize": true,
-              "text": "Quit",
-              "key": "menu.quit",
-              "size": [240, 48]
-            }
-          }
+          ]
         },
         {
           "id": "menu_message",
@@ -150,8 +167,9 @@
               "text": "",
               "fontSize": 22,
               "space": "screen",
-              "maxWidth": 560,
-              "align": "center"
+              "maxWidth": 900,
+              "align": "center",
+              "maxTextScale": 1.4
             }
           }
         }
@@ -178,7 +196,8 @@
               "text": "slots.title",
               "key": "slots.title",
               "fontSize": 48,
-              "space": "screen"
+              "space": "screen",
+              "maxTextScale": 1.2
             }
           }
         },
@@ -401,7 +420,8 @@
               "text": "code.title",
               "key": "code.title",
               "fontSize": 48,
-              "space": "screen"
+              "space": "screen",
+              "maxTextScale": 1.2
             }
           }
         },
@@ -417,7 +437,8 @@
                 "example": "3K7Q-2XF9"
               },
               "maxWidth": 560,
-              "align": "center"
+              "align": "center",
+              "maxTextScale": 1.3
             }
           }
         },
@@ -462,7 +483,8 @@
               "fontSize": 22,
               "space": "screen",
               "maxWidth": 560,
-              "align": "center"
+              "align": "center",
+              "maxTextScale": 1.3
             }
           }
         },
@@ -533,12 +555,12 @@
       "active": false,
       "components": {
         "Panel": {
-          "size": [860, 650],
           "anchor": [0.5, 0.5],
           "layer": 300,
           "layout": "column",
           "spacing": 12,
-          "padding": [24, 20, 24, 20]
+          "padding": [24, 20, 24, 20],
+          "fit": true
         },
         "Script": {
           "path": "scripts/ui/boards.js"
@@ -553,7 +575,8 @@
               "key": "boards.title",
               "fontSize": 40,
               "space": "screen",
-              "layer": 301
+              "layer": 301,
+              "maxTextScale": 1.2
             }
           }
         },
@@ -561,11 +584,13 @@
           "id": "boards_tabs",
           "components": {
             "Panel": {
-              "size": [812, 52],
               "layout": "row",
               "spacing": 10,
               "color": [0, 0, 0, 0],
-              "layer": 301
+              "layer": 301,
+              "fit": true,
+              "fallbackLayout": "column",
+              "uniformSize": true
             }
           },
           "children": [
@@ -613,7 +638,8 @@
               "layer": 301,
               "color": [0, 0, 0, 0.25],
               "spacing": 8,
-              "padding": [16, 12, 16, 12]
+              "padding": [16, 12, 16, 12],
+              "fill": true
             }
           }
         },
@@ -626,7 +652,8 @@
               "color": [0.75, 0.8, 0.9, 1],
               "space": "screen",
               "maxWidth": 780,
-              "layer": 302
+              "layer": 302,
+              "maxTextScale": 1.3
             }
           }
         },
@@ -649,14 +676,14 @@
       "active": false,
       "components": {
         "Panel": {
-          "size": [360, 240],
           "anchor": [1, 0],
           "pivot": [1, 1],
           "layer": 20,
           "layout": "column",
           "spacing": 10,
           "padding": [16, 14, 16, 14],
-          "color": [0.08, 0.1, 0.16, 0.92]
+          "color": [0.08, 0.1, 0.16, 0.92],
+          "fit": true
         },
         "Transform": {
           "position": [-24, 24, 0]
@@ -693,11 +720,13 @@
           "id": "consent_buttons",
           "components": {
             "Panel": {
-              "size": [328, 48],
               "layout": "row",
+              "fallbackLayout": "column",
               "spacing": 10,
               "color": [0, 0, 0, 0],
-              "layer": 21
+              "layer": 21,
+              "fit": true,
+              "uniformSize": true
             }
           },
           "children": [
@@ -705,11 +734,12 @@
               "id": "consent_yes",
               "components": {
                 "Button": {
-                  "size": [150, 44],
                   "text": "Yes, send",
                   "key": "online.consentYes",
                   "fontSize": 20,
-                  "layer": 22
+                  "layer": 22,
+                  "autoSize": true,
+                  "size": [150, 44]
                 }
               }
             },
@@ -717,11 +747,12 @@
               "id": "consent_no",
               "components": {
                 "Button": {
-                  "size": [150, 44],
                   "text": "No, thanks",
                   "key": "online.consentNo",
                   "fontSize": 20,
-                  "layer": 22
+                  "layer": 22,
+                  "autoSize": true,
+                  "size": [150, 44]
                 }
               }
             }
@@ -758,7 +789,6 @@
           "position": [0, -28, 0]
         },
         "Panel": {
-          "size": [640, 40],
           "anchor": [0.5, 1],
           "pivot": [0.5, 0],
           "layout": "row",
@@ -766,7 +796,8 @@
           "color": [0, 0, 0, 0],
           "align": "center",
           "justify": "center",
-          "layer": 10
+          "layer": 10,
+          "fit": true
         }
       }
     },

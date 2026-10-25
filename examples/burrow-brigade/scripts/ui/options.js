@@ -43,6 +43,32 @@ export default class Options extends Behaviour {
     });
   }
 
+  /**
+   * The rows sit in a scrolling list (`options_scroll`) so the panel never outgrows the screen. The list is left-aligned and its
+   * width is mine: as wide as its widest visible row (at most the screen), so at a normal text size the panel is as narrow as
+   * it always was and at a big one it grows with the rows.
+   */
+  fitList() {
+    const list = world.find("options_scroll");
+    if (!list?.alive || !this.entity.active) return;
+    const origin = ui.rectOf(list) ?? [0, 0, 0, 0];
+    let widest = 520;
+    const visit = (e) => {
+      for (const c of e.children) {
+        if (!c.active) continue;
+        if (c.has("Button") || c.has("Toggle") || c.has("Slider") || c.has("Text")) {
+          const r = ui.rectOf(c);
+          if (r) widest = Math.max(widest, Math.ceil(r[0] + r[2] - origin[0]));
+        }
+        visit(c);
+      }
+    };
+    visit(list);
+    const size = list.get("ScrollList").size;
+    const width = Math.min(widest + 8, 1232);
+    if (Math.abs(size[0] - width) > 0.5) list.get("ScrollList").size = [width, size[1]];
+  }
+
   showTab(name) {
     for (const tab of TABS) {
       world.find(`${tab}_section`).active = tab === name;
@@ -194,14 +220,14 @@ export default class Options extends Behaviour {
   setupControls() {
     const list = world.find("bindings");
     this.seat = 0;
-    world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [640, 32], fontSize: 20, layer: 302 } } }, { parent: list });
+    world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [640, 32], autoSize: true, fontSize: 20, layer: 302 } } }, { parent: list });
     ui.on("click", "controls_player", () => {
       if (this.waiting) return;
       this.seat = (this.seat + 1) % players.MAX_PLAYERS;
       this.refreshControls();
     });
     for (const action of controls.ACTIONS) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [640, 32], fontSize: 20, layer: 302 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [640, 32], autoSize: true, fontSize: 20, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };
@@ -269,6 +295,7 @@ export default class Options extends Behaviour {
   }
 
   onUpdate() {
+    this.fitList();
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
       MenuStack.busy = this.release = false;
