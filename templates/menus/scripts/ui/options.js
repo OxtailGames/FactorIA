@@ -1,6 +1,6 @@
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
-// colour filter, an accessibility option that works without a window),
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
+// monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
 // Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
@@ -54,14 +54,24 @@ export default class Options extends Behaviour {
     const s = this.s;
     const has = window.available; // false in headless runs and tests: the rows stay visible, greyed out
     world.find("video_note").active = !has;
-    const fullscreen = world.find("fullscreen").get("Toggle");
     const vsync = world.find("vsync").get("Toggle");
-    fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
-    fullscreen.interactable = vsync.interactable = world.find("frame_cap").get("Button").interactable = has;
+    vsync.interactable = world.find("frame_cap").get("Button").interactable = world.find("window_mode").get("Button").interactable = has;
+    // The monitor row only exists where the game can move between monitors and this computer has more than one.
+    world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
     this.refreshVideo();
 
-    ui.on("change", "fullscreen", (e) => this.video("full screen", () => { window.setFullscreen(e.value); s.fullscreen = e.value; }));
+    ui.on("click", "window_mode", () => {
+      // windowed -> borderless -> fullscreen -> windowed (macOS cannot go from fullscreen straight to borderless); a platform without borderless skips it.
+      const modes = window.supports("borderless") ? ["windowed", "borderless", "fullscreen"] : ["windowed", "fullscreen"];
+      const next = modes[(modes.indexOf(window.mode) + 1) % modes.length];
+      this.video("window mode", () => { window.setMode(next); s.windowMode = next; });
+    });
+    ui.on("click", "monitor", () => {
+      const count = window.monitors().length;
+      const next = (window.monitor + 1) % count;
+      this.video("monitor", () => { window.setMonitor(next); s.monitor = settings.monitorChoice(next); });
+    });
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
       const sizes = window.resolutions();
@@ -96,6 +106,9 @@ export default class Options extends Behaviour {
 
   refreshVideo() {
     const size = window.size;
+    world.find("window_mode").get("Button").text = i18n.t("options.windowMode", { mode: i18n.t(`options.mode.${window.mode}`) });
+    const monitors = window.monitors();
+    world.find("monitor").get("Button").text = i18n.t("options.monitor", { n: window.monitor + 1, name: monitors[window.monitor]?.name ?? "" });
     const resolution = world.find("resolution").get("Button");
     resolution.text = window.fullscreen
       ? i18n.t("options.windowSizeFullscreen")

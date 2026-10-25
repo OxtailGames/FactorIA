@@ -22,6 +22,54 @@ Recording input and starting a scene with props
   `scene.load` command's `props`, and `factoria run --props JSON|FILE`. `game.sceneProps()` returns them from the scene's
   first `onStart`. A reload keeps them; a load without props gives `{}`.
 
+Monitor choice and window modes
+
+- `window.monitors()` lists the monitors (`index`, `name`, `size`, `primary`, `current`), `window.monitor` is the one the
+  window is on and `window.setMonitor(i)` moves it there (Windows, macOS, Linux; XRandR on Linux is loaded when the game
+  starts, so a machine without it lists one monitor). `window.setMode("windowed" | "borderless" | "fullscreen")` and
+  `window.mode` choose how the window is shown; `setFullscreen(bool)` keeps working. On Windows and Linux full screen is
+  a frameless window over the monitor, so `"fullscreen"` and `"borderless"` look the same; on macOS `"fullscreen"` is the
+  native Space and `"borderless"` a frameless window that hides the menu bar and the Dock. SCRIPTING.md says what each
+  OS does. `window.supports("borderless")` and `window.supports("monitors")` tell what the platform can do.
+- Menu kit options screen: the Full screen toggle is now a Window mode button (windowed, borderless, full screen) and a
+  Monitor button (only with more than one monitor). `settings.js` saves `windowMode` and `monitor` (`{ index, name }`)
+  instead of `fullscreen` (a save from the older kit is still read) and restores the monitor, then the mode, at start.
+  The locale tables have `options.windowMode`, `options.mode.*` and `options.monitor` instead of `options.fullscreen`.
+
+`http.fetch` on every platform
+
+- `import { http } from "factoria"`: `http.fetch(url, { method, headers, body, timeout })` returns a Promise of
+  `{ status, ok, headers, text, json() }`. Windows uses WinHTTP, macOS and iOS `NSURLSession`, Linux libcurl (loaded
+  when first used: the player does not link it, and without it `platform.has("http")` is false), Android
+  `HttpURLConnection` and the web build the browser's `fetch` (CORS applies). An HTTP error status resolves with
+  `ok: false`; a request that did not complete rejects with `code` and `hint`.
+- A game declares the servers it calls in `factoria.json` `"network": { "hosts": [...], "purpose": "..." }`: `https://`
+  only (plain `http://` to `localhost` for a test server), the host must be listed (`"*.example.com"` covers
+  subdomains), no password in the URL, redirects only to https. `factoria validate` checks the section and warns about a
+  script that calls `http.fetch` with no host declared. The Android export adds the `INTERNET` permission only when
+  hosts are declared.
+- Tests, `factoria call`, `session`, headless runs and MCP never touch the network: the fake answers what
+  `game.platform.respond("http.fetch", { status, headers, text, json, error })` scripted. An input recording
+  (`input.record`, editor play sessions) keeps the answers in the `"http"` field of the replay, and
+  `factoria run --headless --input` plays them back.
+- `platform.state` shows `httpBackend`, `httpWhy` and `networkHosts`. A plugin cannot offer the `"http"` service.
+- New [NETWORKING.md](docs/NETWORKING.md); LEGAL.md and MOBILE.md no longer say that games have no network.
+
+Audio buses: effects, ducking and snapshots
+
+- Every bus (`sfx`, `music`, `ui`) is mixed into its own buffer before the master, so a bus can have effects:
+  `audio.bus("music").lowpass(800)` (12 dB per octave, 0 or null = off), `.reverb(0.3)` (a small room), and
+  `.duck("sfx", 0.5, 0.05, 0.5)` to push the music down while a sound effect plays (`.unduck()` or `duck(null)` ends it).
+  `lowpass`, `reverb` and `volume` take `{ fade }` to slide; a bus with no effect does no effect work. The master takes
+  a low-pass and a reverb too, but no ducking. Effects stay across scene loads, like volumes.
+- Changing a bus volume (`audio.setVolume`, `audio.bus(name).volume(v)`) now ramps over about 10 ms instead of jumping, so
+  it no longer clicks; `{ fade }` makes it a longer, straight-line fade.
+- Snapshots: factoria.json `audio.snapshots` names sets of bus settings (volume scale, low-pass, reverb, ducking) and
+  `audio.snapshot("underwater", { fade: 1 })` moves every bus to one, a bus it does not list going back to neutral.
+  `factoria validate` reports a bad catalog with the JSON pointer, a fix and a "did you mean".
+- Commands `audio.bus` (set or read a bus) and `audio.snapshot` (apply one, or list them) for MCP and the CLI.
+  SCRIPTING.md ("Audio buses") has the cost of each effect and a recipe.
+
 Test runner and `ui.check_layout`
 
 - `game.click(widget)` (and `mouseMove`, `touch`, `touchStart`, `touchMove` with a widget) lays the UI out first, so a

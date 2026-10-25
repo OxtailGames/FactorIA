@@ -21,6 +21,10 @@ if (bought.status === "purchased") {
 Do not confuse `platform` (this API) with `game.platform` of the `factoria` module (the operating system's name:
 `"windows"`, `"ios"`...) and with `game.platform` of `factoria:test` (the fake store's test hooks, below).
 
+A game's own web requests (`http.fetch`) go through the same machinery (a Promise, `platform.has("http")`, the fake in
+tests, `game.platform.respond`) but are **not** a store service: they are served by the system's HTTP client in a running
+game, need hosts declared in `factoria.json` and are written up in [NETWORKING.md](NETWORKING.md).
+
 ## 1. The catalog: `"platform"` in factoria.json
 
 A game declares what it uses. The engine checks every id against it before a request leaves the game, so a typo is an
@@ -112,7 +116,7 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | Call | Resolves with |
 |---|---|
 | `platform.backend` | The name of the backend that runs: `"fake"`, `"none"`, `"steam"`... (the plugin's name). |
-| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`, `"ads"`. Check it before using a service that a store may not have. |
+| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`, `"ads"`, and `"http"` (`http.fetch`, [NETWORKING.md](NETWORKING.md): the system's HTTP client, or the fake in tests). Check it before using a service that a store may not have. |
 | `platform.release` | `true` in a shipped game, `false` in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development (a test-ad stub, a cheat button). |
 | `platform.player` | The last known `{ id, name, signedIn }` (empty and signed out until the store tells). |
 | `platform.signIn()` | `{ id, name, signedIn }`. Always allowed. |
@@ -285,7 +289,7 @@ player what happened (`e.hint`) and grant nothing.
 
 The fake backend runs in development and in **every** headless run: `factoria test`, `factoria call`, `factoria
 session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all nine
-services, and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
+services and `http.fetch` ([NETWORKING.md](NETWORKING.md), "Testing with the fake"), and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
 `{ id: "fake-player", name: "Player", signedIn: true }`; `buy` answers `purchased` with the transaction `fake-1`,
 `fake-2`... and the receipt `fake-receipt-1`...; the purchase stays unfinished until `finish`; consumables are never
 "owned"; `products()` takes title and price from the catalog (`$0.99`, or `2.99 EUR`); a leaderboard shows the player's
@@ -357,6 +361,12 @@ backend; with no ads plugin, `ads.*` goes to the store backend when that offers 
 `"platform": { "ads": { "backend": "admob" } }` picks, otherwise the first by name with a warning. `platform.state` shows
 `adsBackend` and `adsWhy` next to `backend` and `why`. A development run or a test never uses an ads plugin: it keeps the fake,
 and `adsWhy` says so.
+
+**So does `http.fetch`.** The engine serves it with the system's HTTP client in every run that is not headless, a test,
+`factoria call`, `session` or MCP (those use the fake, which never reaches the network); no plugin can offer it, and a
+plugin that lists `"http"` among its services is refused with a message that says so. `platform.state` shows
+`httpBackend` (`"nsurlsession"`, `"winhttp"`, `"curl"`, `"httpurlconnection"`, `"fetch"` or `"fake"`), `httpWhy` and the declared
+`networkHosts`. [NETWORKING.md](NETWORKING.md) has the rest.
 
 | Backend | Status |
 |---|---|

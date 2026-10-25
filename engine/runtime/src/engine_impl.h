@@ -24,12 +24,16 @@ constexpr double kMaxFrameDt = 0.25;  // Engine::frame clamps dt to this (a repl
 // for a game that owns a window (not headless, not the editor's game view); window_control.cpp.
 class AppWindowControl final : public WindowControl {
 public:
-    bool fullscreen() const override;
+    std::string mode() const override;
+    bool supports_modes() const override;
+    bool supports_monitors() const override;
+    std::vector<WindowMonitor> monitors() const override;
     void size(int& width, int& height) const override;
     void display_size(int& width, int& height) const override;
     bool vsync() const override;
     int frame_cap() const override { return cap_; }
-    std::string set_fullscreen(bool on) override;
+    std::string set_mode(const std::string& mode) override;
+    std::string set_monitor(int index) override;
     std::string set_size(int width, int height) override;
     std::string set_vsync(bool on) override;
     std::string set_frame_cap(int fps) override;
