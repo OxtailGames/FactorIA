@@ -1036,7 +1036,7 @@ TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the
     CHECK(a.result == Json::parse(R"({"available": true})"));
     a = g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})"));
     CHECK(a.result == Json::parse(R"({"rewarded": true})"));
-    CHECK(g.fake().state()["calls"][1]["args"] == Json::parse(R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded"})"));
+    CHECK(g.fake().state()["calls"][1]["args"] == Json::parse(R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded", "audience": "general", "underAge": null, "release": false})"));
 
     REQUIRE(g.fake().set_ad("closedEarly").ok());
     CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result == Json::parse(R"({"rewarded": false, "reason": "closedEarly"})"));
@@ -1044,9 +1044,9 @@ TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the
     CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == false);
     CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result["reason"] == "noFill");
     REQUIRE(g.fake().set_ad("consentRefused").ok());
-    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "denied", "tracking": "denied", "canShowAds": false})"));
+    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "denied", "tracking": "denied", "canShowAds": false, "privacyOptions": "notRequired"})"));
     REQUIRE(g.fake().set_ad("watched", "granted", "notRequired").ok());
-    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "granted", "tracking": "notRequired", "canShowAds": true})"));
+    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "granted", "tracking": "notRequired", "canShowAds": true, "privacyOptions": "notRequired"})"));
     CHECK(g.fake().state()["ads"]["shown"] == 2);
     CHECK(g.fake().state()["ads"]["rewarded"] == 1);
 
@@ -1064,6 +1064,224 @@ TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the
     CHECK(has(r.error().hint, "closedEarly"));
     g.fake().reset();
     CHECK(g.fake().state()["ads"]["outcome"] == "watched");
+}
+
+// ---------------------------------------------------------------------------------------------- the ads backend ----
+namespace {
+
+// A store backend (Steam-like, it even offers "ads") and a plugin backend that offers only "ads", both answering at once.
+struct TwoBackends {
+    PlatformServices ps;
+    Recorder* store = nullptr;
+    Recorder* ads = nullptr;
+    explicit TwoBackends(const char* catalogText) {
+        ps.set_catalog(catalog(catalogText));
+        auto s = std::make_unique<Recorder>();
+        s->backendName = "steam";
+        s->offered = {"achievements", "overlay", "ads"};
+        s->handler = [](const Recorder::Call& c, const PlatformSink& sink) { sink.complete(c.id, Json::object({{"from", "store"}})); };
+        store = s.get();
+        ps.set_backend(std::move(s), "test");
+        auto a = std::make_unique<Recorder>();
+        a->backendName = "admob";
+        a->offered = {"ads"};
+        a->handler = [](const Recorder::Call& c, const PlatformSink& sink) { sink.complete(c.id, Json::object({{"from", "ads"}})); };
+        ads = a.get();
+        ps.set_ads_backend(std::move(a), "platform.ads.backend is \"admob\"");
+    }
+    Json ask(const std::string& method, const Json& args = Json::object()) {
+        auto r = ps.start(method, args);
+        REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+        REQUIRE(r->answer.has_value());
+        REQUIRE_MESSAGE(r->answer->ok, r->answer->error.message);
+        return r->answer->result;
+    }
+};
+
+const char* kAdsCatalog = R"({
+  "achievements": [{"id": "first_win", "name": "First win", "ids": {"steam": "ACH_WIN"}}],
+  "ads": {"placements": [{"id": "more_time", "ids": {"admob": "ca-app-pub-3940256099942544/5224354917", "steam": "not-an-ad"}}]}
+})";
+
+}  // namespace
+
+TEST_CASE("platform: an ads-only plugin backend gets ads.*, the store backend gets the rest") {
+    TwoBackends t(kAdsCatalog);
+    CHECK(t.ask("ads.available", Json::parse(R"({"placement": "more_time"})"))["from"] == "ads");
+    CHECK(t.ask("ads.consent")["from"] == "ads");
+    CHECK(t.ask("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["from"] == "store");
+    REQUIRE(t.ads->calls.size() == 2);
+    REQUIRE(t.store->calls.size() == 1);
+    CHECK(t.store->calls[0].args["storeId"] == "ACH_WIN");
+    // The ids are the ads backend's own: its name picks the placement's id, not the store's.
+    CHECK(t.ads->calls[0].args["adUnitId"] == "ca-app-pub-3940256099942544/5224354917");
+
+    // Both backends are told about every frame.
+    t.ps.frame();
+    CHECK(t.ads->frames == 1);
+    CHECK(t.store->frames == 1);
+
+    // What the game sees: the services of both, and which backend answers ads.
+    const Json info = t.ps.info();
+    CHECK(info["backend"] == "steam");
+    CHECK(info["adsBackend"] == "admob");
+    CHECK(t.ps.has_service("ads"));
+    CHECK(t.ps.has_service("achievements"));
+    CHECK(t.ps.ads_why() == "platform.ads.backend is \"admob\"");
+
+    // An answer of the ads backend comes back through the engine like any other, once, with the method of the request.
+    auto later = std::make_unique<Recorder>();
+    later->backendName = "admob";
+    later->offered = {"ads"};
+    Recorder* lp = later.get();
+    t.ps.set_ads_backend(std::move(later), "again");
+    auto r = t.ps.start("ads.consent", Json::object());
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->answer.has_value());  // the backend answers later
+    REQUIRE(lp->calls.size() == 1);
+    lp->kept.complete(lp->calls[0].id, Json::object({{"gdpr", "granted"}}));
+    auto answers = t.ps.take_answers();
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].method == "ads.consent");
+    CHECK(answers[0].result["gdpr"] == "granted");
+}
+
+TEST_CASE("platform: without an ads plugin the store backend serves ads, or nothing does, and platform.state says which") {
+    PlatformServices ps;
+    ps.set_catalog(catalog(kAdsCatalog));
+    auto store = std::make_unique<Recorder>();
+    store->offered = {"achievements"};
+    ps.set_backend(std::move(store));
+    CHECK(ps.info()["adsBackend"] == "none");
+    CHECK(has(ps.ads_why(), "no backend offers the ads service"));
+    CHECK_FALSE(ps.has_service("ads"));
+
+    auto withAds = std::make_unique<Recorder>();
+    withAds->offered = {"achievements", "ads"};
+    ps.set_backend(std::move(withAds));
+    CHECK(ps.info()["adsBackend"] == "steam");
+    CHECK(has(ps.ads_why(), "serves ads itself"));
+
+    // The fake plays the ads too.
+    Game g(kAdsCatalog);
+    CHECK(g.ps.info()["adsBackend"] == "fake");
+}
+
+TEST_CASE("platform: setUnderAge reaches the backend, with the audience, and is kept for the requests that follow") {
+    TwoBackends t(R"({"ads": {"audience": "general", "placements": [{"id": "more_time"}]}})");
+    CHECK(t.ps.info()["underAge"].is_null());
+    t.ask("ads.available", Json::parse(R"({"placement": "more_time"})"));
+    CHECK(t.ads->calls.back().args["underAge"].is_null());
+    CHECK(t.ads->calls.back().args["audience"] == "general");
+
+    t.ask("ads.setUnderAge", Json::parse(R"({"underAge": true})"));
+    CHECK(t.ads->calls.back().method == "ads.setUnderAge");
+    CHECK(t.ads->calls.back().args["underAge"] == true);
+    CHECK(t.store->calls.empty());  // the store backend never hears about the age
+    CHECK(t.ps.info()["underAge"] == true);
+    t.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})"));
+    CHECK(t.ads->calls.back().args["underAge"] == true);
+    t.ask("ads.consent");
+    CHECK(t.ads->calls.back().args["underAge"] == true);
+
+    t.ask("ads.setUnderAge", Json::parse(R"({"underAge": false})"));
+    CHECK(t.ps.info()["underAge"] == false);
+
+    // A new session forgets the answer: the game asks again.
+    t.ps.reset_session();
+    CHECK(t.ps.info()["underAge"].is_null());
+
+    auto bad = t.ps.start("ads.setUnderAge", Json::parse(R"({"underAge": "yes"})"));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(has(bad.error().message, "must be true or false"));
+    CHECK(has(bad.error().hint, "ageGate"));
+    auto missing = t.ps.start("ads.setUnderAge", Json::object());
+    REQUIRE_FALSE(missing.ok());
+    CHECK(has(missing.error().message, "underAge"));
+}
+
+TEST_CASE("platform: audience \"children\" counts every player as a child; \"mixed\" waits for the age") {
+    SUBCASE("children") {
+        TwoBackends t(R"({"ads": {"audience": "children", "placements": [{"id": "more_time"}]}})");
+        t.ask("ads.available", Json::parse(R"({"placement": "more_time"})"));
+        CHECK(t.ads->calls.back().args["underAge"] == true);
+        CHECK(t.ads->calls.back().args["audience"] == "children");
+        CHECK(t.ps.info()["underAge"] == true);
+        auto adult = t.ps.start("ads.setUnderAge", Json::parse(R"({"underAge": false})"));
+        REQUIRE_FALSE(adult.ok());
+        CHECK(has(adult.error().message, "every player counts as a child"));
+        CHECK(has(adult.error().hint, "\"mixed\""));
+        t.ask("ads.setUnderAge", Json::parse(R"({"underAge": true})"));  // saying the same thing is fine
+    }
+    SUBCASE("mixed") {
+        TwoBackends t(R"({"ads": {"audience": "mixed", "placements": [{"id": "more_time"}]}})");
+        // Before the game knows the age nothing reaches the network: no consent form, no ad.
+        CHECK(t.ask("ads.available", Json::parse(R"({"placement": "more_time"})")) == Json::parse(R"({"available": false})"));
+        CHECK(t.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")) ==
+              Json::parse(R"({"rewarded": false, "reason": "consentRefused"})"));
+        CHECK(t.ads->calls.empty());
+        t.ask("ads.setUnderAge", Json::parse(R"({"underAge": false})"));
+        CHECK(t.ask("ads.available", Json::parse(R"({"placement": "more_time"})"))["from"] == "ads");
+        CHECK(t.ads->calls.back().args["underAge"] == false);
+        CHECK(t.ads->calls.back().args["audience"] == "mixed");
+    }
+}
+
+TEST_CASE("fake: setUnderAge is kept, and the privacy options form shows only when it is required") {
+    Game g(R"({"ads": {"audience": "mixed", "placements": [{"id": "more_time"}]}})");
+    CHECK(g.ps.info()["underAge"].is_null());
+    CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == false);  // age unknown
+    g.ok("ads.setUnderAge", Json::parse(R"({"underAge": true})"));
+    CHECK(g.ps.info()["underAge"] == true);
+    CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == true);
+    CHECK(g.fake().state()["calls"][0]["method"] == "ads.setUnderAge");
+
+    CHECK(g.ok("ads.consent")["privacyOptions"] == "notRequired");
+    CHECK(g.ok("ads.privacyOptions") == Json::parse(R"({"shown": false})"));
+    REQUIRE(g.fake().set_ad("watched", "", "", "required").ok());
+    CHECK(g.ok("ads.consent")["privacyOptions"] == "required");
+    CHECK(g.ok("ads.privacyOptions") == Json::parse(R"({"shown": true})"));
+    CHECK(g.fake().state()["ads"]["privacyShown"] == 1);
+    auto bad = g.fake().set_ad("", "", "", "needed");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(has(bad.error().hint, "required"));
+    g.fake().reset();
+    CHECK(g.fake().state()["ads"]["privacyOptions"] == "notRequired");
+}
+
+TEST_CASE("platform catalog: ads appIds, audience and backend parse, and mistakes teach") {
+    auto good = parse_platform_catalog(Json::parse(R"({"ads": {
+        "appIds": {"android": "ca-app-pub-3940256099942544~3347511713"}, "audience": "mixed", "backend": "admob",
+        "placements": [{"id": "more_time"}]}})"));
+    REQUIRE_MESSAGE(good.ok(), std::string(good.issues.empty() ? "" : good.issues[0].message));
+    CHECK(good.catalog.adsAppIds.at("android") == "ca-app-pub-3940256099942544~3347511713");
+    CHECK(good.catalog.adsAudience == "mixed");
+    CHECK(good.catalog.adsBackend == "admob");
+    REQUIRE(good.catalog.backendRefs.size() == 1);  // validate checks the plugin exists
+    CHECK(good.catalog.backendRefs[0].pointer == "/platform/ads/backend");
+
+    auto defaults = parse_platform_catalog(Json::parse(R"({"ads": {"placements": [{"id": "p"}]}})"));
+    CHECK(defaults.catalog.adsAudience == "general");
+    CHECK(defaults.catalog.adsBackend.empty());
+    CHECK(defaults.catalog.adsAppIds.empty());
+    CHECK(parse_platform_catalog(Json::parse(R"({"ads": {"backend": "auto"}})")).catalog.adsBackend.empty());
+
+    auto text = [](const char* json) {
+        auto r = parse_platform_catalog(Json::parse(json));
+        std::string all;
+        for (const PlatformIssue& i : r.issues) all += i.pointer + " " + i.message + " | " + i.hint + "\n";
+        return all;
+    };
+    const std::string audience = text(R"({"ads": {"audience": "kids"}})");
+    CHECK(has(audience, "/platform/ads/audience"));
+    CHECK(has(audience, "children"));
+    const std::string slash = text(R"({"ads": {"appIds": {"android": "ca-app-pub-3940256099942544/5224354917"}}})");
+    CHECK(has(slash, "/platform/ads/appIds/android"));
+    CHECK(has(slash, "is not an AdMob app id"));
+    CHECK(has(slash, "ad unit"));
+    const std::string platformName = text(R"({"ads": {"appIds": {"androd": "ca-app-pub-3940256099942544~3347511713"}}})");
+    CHECK(has(platformName, "did you mean \"android\""));
+    CHECK(has(text(R"({"ads": {"appIds": "x"}})"), "expected an object"));
 }
 
 TEST_CASE("fake: leaderboards keep one board per day or week of the date source; a store backend gets the period too") {

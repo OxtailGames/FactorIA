@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the AdMob libraries need from the app's manifest; Gradle merges this into it. The ${...} values are manifest placeholders
+     that the exported app defines (platforms/android/app/build.gradle), from factoria.json: platform.ads.appIds.android,
+     platform.ads.audience, and "test" for every export that is not a release. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- The AdMob app id (AdMob > Apps > App settings). Without it the Mobile Ads SDK stops the app at start. A development
+             export carries Google's sample id, which shows test ads only. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${factoriaAdsAppId}" />
+
+        <!-- Read by the plugin (Ads.java): "true" for an export that is not a release, which always shows Google's test ads. -->
+        <meta-data
+            android:name="factoria.ads.test"
+            android:value="${factoriaAdsTest}" />
+
+        <!-- "general", "children" or "mixed": the audience of the game (platform.ads.audience). -->
+        <meta-data
+            android:name="factoria.ads.audience"
+            android:value="${factoriaAdsAudience}" />
+    </application>
+</manifest>

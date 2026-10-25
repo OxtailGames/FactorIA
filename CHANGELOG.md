@@ -26,6 +26,21 @@ Physics across platforms
   test asserts what is robust instead of an exact frame count. Clockwork Courier's "shortcut is not slower" test uses it
   (FB-0055).
 
+Ads with consent on Android
+
+- A plugin backend that offers only the `"ads"` service is an **ads backend**: it works next to the game's store backend, the
+  engine sends `ads.*` to it and everything else to the store backend, `platform.ads.backend` picks one when a game has
+  several, and `platform.state` shows `adsBackend` and `adsWhy`. Development runs and tests keep the fake.
+- `platform.add_backend {"backend": "admob"}` writes and builds the `admob` plugin: Google's consent form (UMP) first, then
+  the Mobile Ads SDK, one kept rewarded ad per placement, `{rewarded: true}` only from the SDK's reward callback. The
+  app id is `platform.ads.appIds.android` in factoria.json, written into the manifest by the export; a development
+  export always uses Google's test app id and test rewarded ad. `factoria validate` and a release export warn about the
+  sample id, a missing app id or a placement without `ids.admob`. The command `admob.status` lists what is wrong.
+- `platform.ads.audience` (`"general"`, `"children"`, `"mixed"`), `platform.ads.setUnderAge(bool)` and
+  `platform.ads.privacyOptions()`; `platform.ads.consent()` gains `privacyOptions`. In a `"mixed"` game nothing is requested
+  until the age is told. The menu kit has an `ageGate` part for it (`project.add_menu_kit {"parts": ["ageGate"]}`), and
+  its options screen shows an "Ad privacy settings" button when Google requires one. The fake store answers all of it.
+
 Menu kit command
 
 - `project.add_menu_kit {parts, overwrite}` (`factoria call project.add_menu_kit`) copies the menu kit of `docs/MENUS.md`

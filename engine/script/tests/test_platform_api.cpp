@@ -349,9 +349,9 @@ test("a refused consent shows nothing and says so", async () => {
   game.platform.ad("consentRefused");
   expect(await platform.ads.available("more_time")).toBe(false);
   expect(await platform.ads.showRewarded("more_time")).toEqual({ rewarded: false, reason: "consentRefused" });
-  expect(await platform.ads.consent()).toEqual({ gdpr: "denied", tracking: "denied", canShowAds: false });
+  expect(await platform.ads.consent()).toEqual({ gdpr: "denied", tracking: "denied", canShowAds: false, privacyOptions: "notRequired" });
   game.platform.ad("watched", { gdpr: "notRequired", tracking: "notDetermined" });
-  expect(await platform.ads.consent()).toEqual({ gdpr: "notRequired", tracking: "notDetermined", canShowAds: true });
+  expect(await platform.ads.consent()).toEqual({ gdpr: "notRequired", tracking: "notDetermined", canShowAds: true, privacyOptions: "notRequired" });
   expect((await platform.ads.showRewarded("more_time")).rewarded).toBe(true);
 });
 
@@ -387,6 +387,78 @@ test("the none backend answers unavailable", async () => {
     MESSAGE(rep.summary());
     CHECK(rep.ok());
     CHECK(rep.passed == 8);
+}
+
+TEST_CASE("platform api: the age of the player reaches the ad network, and the privacy options show only when required") {
+    Json mixed = settings();
+    mixed["platform"]["ads"]["audience"] = "mixed";
+    TestHost h("platform_ads_age", mixed);
+    h.file("tests/age.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform } from "factoria";
+
+test("a mixed game shows no ad before it knows the age", async () => {
+  expect(platform.ads.audience).toBe("mixed");
+  expect(platform.ads.underAge).toBe(null);
+  expect(platform.adsBackend).toBe("fake");
+  expect(await platform.ads.available("more_time")).toBe(false);
+  expect(await platform.ads.showRewarded("more_time")).toEqual({ rewarded: false, reason: "consentRefused" });
+  expect(game.platform.state().underAge).toBe(null);
+});
+
+test("setUnderAge is kept and reaches the requests", async () => {
+  game.resetState();
+  expect(platform.ads.underAge).toBe(null);  // reset forgets the answer
+  await platform.ads.setUnderAge(true);
+  expect(platform.ads.underAge).toBe(true);
+  expect(await platform.ads.available("more_time")).toBe(true);
+  const call = game.platform.calls().filter((c) => c.method === "ads.available")[0];
+  expect(call.args.underAge).toBe(true);
+  expect(call.args.audience).toBe("mixed");
+  expect(game.platform.state().underAge).toBe(true);
+});
+
+test("the privacy options form opens only when the consent says it is required", async () => {
+  game.resetState();
+  await platform.ads.setUnderAge(false);
+  expect((await platform.ads.consent()).privacyOptions).toBe("notRequired");
+  expect(await platform.ads.privacyOptions()).toEqual({ shown: false });
+  game.platform.ad("watched", { privacyOptions: "required" });
+  expect((await platform.ads.consent()).privacyOptions).toBe("required");
+  expect(await platform.ads.privacyOptions()).toEqual({ shown: true });
+  expect(game.platform.state().fake.ads.privacyShown).toBe(1);
+});
+
+test("mistakes teach", async () => {
+  expect(() => platform.ads.setUnderAge("yes")).toThrow("true or false");
+  expect(() => game.platform.ad("watched", { privacyOptions: "sometimes" })).toThrow("required");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/age.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 4);
+
+    Json children = settings();
+    children["platform"]["ads"]["audience"] = "children";
+    TestHost c("platform_ads_children", children);
+    c.file("tests/children.test.js", R"(
+import { test, expect } from "factoria:test";
+import { platform } from "factoria";
+
+test("a children's game counts every player as under age", async () => {
+  expect(platform.ads.underAge).toBe(true);
+  let message = "";
+  try { await platform.ads.setUnderAge(false); } catch (e) { message = e.message; }
+  expect(message).toContain("every player counts as a child");
+});
+)");
+    REQUIRE(c.start());
+    TestReport crep = c.scripts.run_tests({"tests/children.test.js"});
+    MESSAGE(crep.summary());
+    CHECK(crep.ok());
+    CHECK(crep.passed == 1);
 }
 
 TEST_CASE("platform api: a daily leaderboard is empty again the next day, a weekly one the next week") {

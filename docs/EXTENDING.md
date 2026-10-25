@@ -677,7 +677,9 @@ copies the library into the plugin's folder for this computer: `windows/example.
 is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
 store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `"googleplay"` the
 Google Play one, a C bridge plus a Java module with Billing, Play Games and Play Integrity: the example to copy for an
-Android SDK ([PLATFORM.md](PLATFORM.md#7-google-play-billing-play-games-services-and-play-integrity)); `factoria call
+Android SDK ([PLATFORM.md](PLATFORM.md#7-google-play-billing-play-games-services-and-play-integrity)), and `"admob"` the ads backend for
+Android (Google's consent form and rewarded ads; it offers only the `ads` service, so it works next to a store backend,
+[PLATFORM.md](PLATFORM.md#8-ads-on-android-google-admob-and-the-consent-form-ump)); `factoria call
 platform.add_backend` sets one up in a single step; an unknown name lists the ones there are):
 
 ```js

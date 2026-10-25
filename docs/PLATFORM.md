@@ -55,7 +55,10 @@ error with a "did you mean", not a silent failure inside a store SDK. Every sect
 | achievements | `name` (required unless `nameKey`), `nameKey`, `description`, `descriptionKey`, `hidden` (default false). |
 | stats | `type`: `"int"` (default) or `"float"`. An int stat takes whole numbers. |
 | leaderboards | `name` (required unless `nameKey`), `nameKey`, `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times), `period`: `"allTime"` (default), `"daily"` or `"weekly"` (below). |
-| `ads.placements` | `id` (where the game offers an ad), `type`: `"rewarded"` (the only kind so far), `description` (for you), `ids` (the ad unit id per network, e.g. `{"admob": "ca-app-pub-..."}`). Section 3b. |
+| `ads.placements` | `id` (where the game offers an ad), `type`: `"rewarded"` (the only kind so far), `description` (for you), `ids` (the ad unit id per network, e.g. `{"admob": "ca-app-pub-1234567890123456/1234567890"}`). [Ads](#ads). |
+| `ads.appIds` | The ad network's app id per platform: `{"android": "ca-app-pub-1234567890123456~1234567890"}` (AdMob's, with a tilde). A release Android export writes it into the manifest. [Section 8](#8-ads-on-android-google-admob-and-the-consent-form-ump). |
+| `ads.audience` | Who plays: `"general"` (default), `"children"` (the whole game is for children) or `"mixed"` (children and adults: the game asks the age). [Children and consent](#children-and-consent). |
+| `ads.backend` | Which ads plugin to use when the game has several: its plugin name. `"auto"` or absent: the only one, or the first by name with a warning. |
 | products | `type`: `"consumable"`, `"nonConsumable"` or `"subscription"` (required), `title` (required unless `titleKey`), `titleKey`, `description`, `descriptionKey`, `price` (a number, `currency` default `"USD"`). Only the fake store uses `price`: real stores give their own, localized. |
 | `backend` | Which backend plugin to use: `"auto"` (default), a plugin's name, or one per platform: `{"windows": "steam", "macos": "steam", "linux": "steam", "ios": "apple", "android": "googleplay"}`. See section 5. |
 
@@ -132,7 +135,11 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.presence.set(text, data?)` | "What the player is doing" for friends. `data`: an object whose values are strings. |
 | `platform.ads.available(placement)` | `true` when a rewarded ad is ready at the placement (`false`: no fill, or the consent was refused). |
 | `platform.ads.showRewarded(placement)` | `{ rewarded, reason? }` when the ad ends. `rewarded` is true only when the player watched it to the end: pay the reward then. Otherwise `reason` is `"closedEarly"`, `"noFill"` or `"consentRefused"`. A network failure rejects. |
-| `platform.ads.consent()` | `{ gdpr, tracking, canShowAds }`: what the consent sheets answered. `gdpr`: `"granted"`, `"denied"`, `"notRequired"` or `"unknown"`; `tracking` (Apple's App Tracking Transparency): `"authorized"`, `"denied"`, `"notDetermined"`, `"restricted"` or `"notRequired"`; `canShowAds` is false when the GDPR consent was refused. |
+| `platform.ads.consent()` | `{ gdpr, tracking, canShowAds, privacyOptions }`: what the consent sheets answered. `gdpr`: `"granted"`, `"denied"`, `"notRequired"` or `"unknown"`; `tracking` (Apple's App Tracking Transparency): `"authorized"`, `"denied"`, `"notDetermined"`, `"restricted"` or `"notRequired"` (always, on Android); `canShowAds` is false when the GDPR consent was refused; `privacyOptions`: `"required"` when the game must offer a button that opens the form where the player changes their choices, else `"notRequired"` (or `"unknown"` before the consent flow ended). |
+| `platform.ads.setUnderAge(underAge)` | Nothing. Tells the platform whether the player is under the age of consent, after the game asked the age (the menu kit's `ageGate` part does). Required for `audience: "mixed"`. [Children and consent](#children-and-consent). |
+| `platform.ads.privacyOptions()` | `{ shown }` when the form closes. Opens the form where the player changes their ad choices; show its button only when `consent().privacyOptions` is `"required"`. |
+| `platform.ads.audience`, `platform.ads.underAge` | `"general"`, `"children"` or `"mixed"` from the catalog; and the answer of `setUnderAge` (`true` for a children's game, `null` while the game has not asked). |
+| `platform.adsBackend` | Which backend answers `platform.ads`: an ads plugin (`"admob"`), the store backend when it offers ads itself (`"fake"`), or `"none"`. |
 | `platform.integrity.token(challenge)` | `{ token }`: a signed token for **your server** to verify (see below). `challenge` is a string your server made: 16 to 500 characters of URL-safe Base64 (`A-Z a-z 0-9 - _ =`); anything else throws at once. |
 
 ### Ads
@@ -152,9 +159,18 @@ for the GDPR, Apple's App Tracking Transparency) are the platform's job: the gam
 `platform.ads.consent()` and never needs its own stub. **The fake backend answers with a scripted test ad**, the same
 path in development and in tests, so a game has no ad provider of its own. It draws nothing: the ad ends at once (or after
 `delayFrames`) the way `game.platform.ad(...)` says, "watched" unless told otherwise. Check `platform.release` to keep a
-development-only control out of a shipped build. **The real networks are not built yet**: Google UMP and AdMob, Apple ATT and the GDPR/COPPA
-screen are M12's next packages. Until then no store backend offers the `"ads"` service, so `platform.has("ads")` is false
-there and every ads call rejects with `unavailable`.
+development-only control out of a shipped build.
+
+Who answers in a shipped game:
+
+| Platform | Ads |
+|---|---|
+| Android with the `admob` plugin (`platform.add_backend {"backend": "admob"}`) | Google AdMob rewarded ads and Google's consent form (UMP): [section 8](#8-ads-on-android-google-admob-and-the-consent-form-ump). |
+| Anything else | No backend offers the `"ads"` service yet (Apple's ATT screen is a later package), so `platform.has("ads")` is false and every ads call rejects with `unavailable`. |
+
+An ads plugin offers only the `"ads"` service, so it works **next to** the store backend of the game (Steam, Apple, Google
+Play): the engine sends `ads.*` to it and everything else to the store backend. Development runs and tests keep the
+fake, which serves ads itself, so a test never reaches a real ad network.
 
 ### Leaderboard periods
 
@@ -272,7 +288,7 @@ once, without `game.step()`.
 | `game.platform.respond(method, answer, times = 1)` | Queues the answer of the next `times` calls of `method` (`"purchases.buy"`; first come, first served). `answer` is `{ error: "network", message?, hint? }` to fail, `{ result: value }` to answer exactly that, or fields merged into the default result: `{ status: "cancelled" }`. A cancelled buy owns nothing. |
 | `game.platform.emit(event, data)` | Sends `"purchase"`, `"overlay"` or `"player"` to the `platform.on` listeners at the next `game.step()`. An emitted purchased `purchase` is also an unfinished transaction. |
 | `game.platform.revoke(productId)` | Takes a purchase back, as a refund does: `restore()` no longer lists it, its unfinished transaction is dropped, and `platform.on("purchase")` listeners get `{ status: "revoked", productId, transactionId, receipt }` at the next `game.step()` (take the goods away). A product the player does not own throws, listing the owned ones. Command: `platform.revoke`. |
-| `game.platform.ad(outcome, { gdpr, tracking })` | How the fake's test ad ends from now on: `"watched"` (default, rewarded), `"closedEarly"`, `"noFill"` (no ad: `ads.available()` is false) or `"consentRefused"` (also answers denied in `ads.consent()`). `gdpr` and `tracking` set what `ads.consent()` answers; a denied `gdpr` stops every ad. `reset()` restores the defaults; `state().fake.ads` counts `shown` and `rewarded`. Command: `platform.set_ad`. |
+| `game.platform.ad(outcome, { gdpr, tracking, privacyOptions })` | How the fake's test ad ends from now on: `"watched"` (default, rewarded), `"closedEarly"`, `"noFill"` (no ad: `ads.available()` is false) or `"consentRefused"` (also answers denied in `ads.consent()`). `gdpr`, `tracking` and `privacyOptions` (`"required"`, `"notRequired"`, `"unknown"`) set what `ads.consent()` answers; a denied `gdpr` stops every ad, and with `privacyOptions: "required"` `platform.ads.privacyOptions()` "shows" the form and `state().fake.ads.privacyShown` counts it. `reset()` restores the defaults (and forgets the answer of `setUnderAge`); `state().fake.ads` counts `shown` and `rewarded`. Command: `platform.set_ad`. |
 | `game.platform.set({ signedIn, delayFrames, backend })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
@@ -306,7 +322,7 @@ test("the store overlay pauses the game", () => {
 
 The same controls are commands, for MCP clients and `factoria call` (they work on the fake only, and say which backend
 runs when it is another): `platform.state`, `platform.reset`, `platform.respond {method, answer, times}`,
-`platform.emit {event, data}`, `platform.set_ad {outcome, gdpr, tracking}`, `platform.set_fake {signedIn, delayFrames, backend}` (an unknown option is refused with a "did you mean").
+`platform.emit {event, data}`, `platform.set_ad {outcome, gdpr, tracking, privacyOptions}`, `platform.set_fake {signedIn, delayFrames, backend}` (an unknown option is refused with a "did you mean").
 
 ## 4. Which backend runs
 
@@ -323,6 +339,13 @@ Choosing a plugin: one loaded plugin that registered a backend is used. Several:
 (or one per platform) picks, otherwise the first by name with a warning that lists them. A `backend` that names a plugin
 that did not load falls back as above and logs why. `factoria call platform.state` shows `backend` and `why`.
 
+**Ads have a backend of their own.** A plugin whose backend offers only `["ads"]` is an **ads backend**: it is chosen apart
+from the store backend and works next to it. The engine sends `ads.*` to the ads backend and everything else to the store
+backend; with no ads plugin, `ads.*` goes to the store backend when that offers ads (the fake does). Several ads plugins:
+`"platform": { "ads": { "backend": "admob" } }` picks, otherwise the first by name with a warning. `platform.state` shows
+`adsBackend` and `adsWhy` next to `backend` and `why`. A development run or a test never uses an ads plugin: it keeps the fake,
+and `adsWhy` says so.
+
 | Backend | Status |
 |---|---|
 | `fake` | Done. Development and tests. |
@@ -330,13 +353,14 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 | Steam (Steamworks) | Done: the `steam` plugin, [below](#steam-steamworks). |
 | Apple (StoreKit 2, Game Center, iCloud) | Done: iOS and macOS, `platform.add_backend {"backend": "apple"}`, [section 6](#6-apple-storekit-2-game-center-and-icloud). |
 | Google Play (Billing, Play Games Services, Play Integrity) | Done: Android, `platform.add_backend {"backend": "googleplay"}`, [section 7](#7-google-play-billing-play-games-services-and-play-integrity). |
+| AdMob (Google's consent form UMP, rewarded ads) | Done: Android, an ads backend, `platform.add_backend {"backend": "admob"}`, [section 8](#8-ads-on-android-google-admob-and-the-consent-form-ump). |
 
 ### Store backends: one command sets them up
 
-`factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`, or `"googleplay"`) does the setup of a store
+`factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`, `"googleplay"` or the ads backend `"admob"`) does the setup of a
 backend in one call: it writes the backend's plugin from its template (`project.new_plugin` with `"template":
 "<backend>"`) unless factoria.json already declares it, builds it for this computer with CMake (the CMake `setup`
-installs when there is none; the Google Play bridge is built with the Android SDK's NDK instead), and adds what that
+installs when there is none; the Google Play and AdMob bridges are built with the Android SDK's NDK instead), and adds what that
 store needs. Running it again keeps what is there. It patches factoria.json instead of rewriting it (only `plugins.<backend>` is added; the other keys, their order and the layout stay as they are). `"dryRun": true` writes, builds and copies nothing and lists the `files` and factoria.json `keys` it would write (`wouldDo` has the steps); an argument it does not know is an error with a "did you mean". Its result lists what it did (`done`) and what only a person can do
 (`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which arguments it reads.
 
@@ -885,5 +909,121 @@ Play, the build installed from the internal testing track:
 6. Kill the app after a `buy` and before `finish`: the next run delivers the purchase as a `purchase` event.
 7. `cloud.save` on one phone, `cloud.load` on another with the same Google account.
 8. `integrity.token` returns a token that your server can decode.
+
+Record what a real check finds in `ENGINE_FEEDBACK.json`.
+
+## 8. Ads on Android: Google AdMob and the consent form (UMP)
+
+The backend `"admob"` is a plugin with a C bridge and a Java Gradle module (`platforms/plugins/admob`, written into the game by
+`platform.add_backend`) for **Android**. It is an **ads backend**: it offers only the `"ads"` service and works next to the
+game's store backend ([section 4](#4-which-backend-runs)), so a game with Google Play purchases and AdMob ads has both.
+
+| Call | On AdMob |
+|---|---|
+| `platform.ads.consent()` | Google's User Messaging Platform (UMP). `gdpr` is `"notRequired"` (the player is outside the regions that need the form), `"granted"`, `"denied"` or `"unknown"` (the flow has not ended, or the game has not told the age of a `"mixed"` audience); `tracking` is always `"notRequired"` (Android has no tracking sheet); `canShowAds` is UMP's `canRequestAds`; `privacyOptions` is `"required"` when the player must be able to change their choices. |
+| `platform.ads.available(placement)` | Loads one rewarded ad for the placement and keeps it. `true` when one is ready; `false` when there is none (no fill, no consent, no network, or 30 s without an answer). A kept ad older than 55 minutes is thrown away and loaded again (Google expires rewarded ads after an hour). |
+| `platform.ads.showRewarded(placement)` | Shows the kept ad. `{ rewarded: true }` **only from the SDK's reward callback**; closing the ad early is `{ rewarded: false, reason: "closedEarly" }`, no ad is `reason: "noFill"` and a player who refused the consent is `reason: "consentRefused"`. The next ad of that placement loads in the background. |
+| `platform.ads.setUnderAge(bool)`, `platform.ads.privacyOptions()` | [Children and consent](#children-and-consent). |
+
+### Setup, in one command
+
+```bash
+factoria call platform.add_backend '{"backend": "admob"}'
+```
+
+It writes the plugin to `plugins/admob` from its template and declares it for Android in factoria.json (unless it is declared
+already), and builds the C bridge for `arm64-v8a` and `x86_64` with the **Android SDK's NDK, CMake and Ninja**, the way
+[section 7](#7-google-play-billing-play-games-services-and-play-integrity) does for Google Play. `"admobBuild": false` only
+writes and declares the plugin. The plugin holds no Google code: when the game is exported, Gradle fetches the Mobile Ads SDK and
+Google's consent library from Google's Maven repository and merges the plugin's manifest
+([MOBILE.md](MOBILE.md#native-plugins-on-android)).
+
+The result lists `nextSteps`, with the ids of your catalog filled in. What only a person can do:
+
+1. **Nothing, to see ads at all.** A development export (`factoria export --platform android`, without `--release`) uses
+   Google's test ads, below.
+2. **AdMob console** (admob.google.com): add the app (the package name of factoria.json's `id`) and copy its **app id**
+   (`ca-app-pub-1234567890123456~1234567890`, with a tilde) into `"platform": { "ads": { "appIds": { "android": "..." } } }`.
+3. **Ad units**: create a rewarded ad unit for each placement and copy its id (`ca-app-pub-1234567890123456/1234567890`, with a
+   slash) into the placement: `"ids": { "admob": "..." }`. An app id in a unit field, or the other way round, is an error that says so.
+4. **Consent**: in AdMob > Privacy & messaging, create and publish the GDPR message (and the US states message if you sell
+   there). Without a published message the consent library has no form to show.
+5. **Audience**: `platform.ads.audience` for a game for children or for children and adults ([below](#children-and-consent)).
+
+### Test ads and real ads
+
+| Export | App id in the manifest | Ad unit loaded |
+|---|---|---|
+| `factoria export --platform android` (development) | Google's sample app id `ca-app-pub-3940256099942544~3347511713`, whatever the catalog says | Google's sample rewarded unit `ca-app-pub-3940256099942544/5224354917` for every placement |
+| `factoria export --platform android --release` | `platform.ads.appIds.android` (the sample id when it is not set, with a warning) | the placement's `ids.admob`; a placement without a valid one rejects with `unknownId` and says how to add it |
+
+Test ads are labelled as such, earn nothing, and cannot get your account flagged for clicking your own ads. The mode comes
+from the manifest (`factoria.ads.test`, written by the export), not from `platform.release`: an exported game always runs without
+a fallback store, so `platform.release` is true in every APK, test ads or not. `factoria validate` and a release export warn when
+the game has the admob plugin for Android and `platform.ads.appIds.android` is missing or Google's sample id, when a placement has no
+`ids.admob` (or the sample unit), and when the audience is `"mixed"` and no script calls `setUnderAge`.
+
+### Children and consent
+
+The start order is Google's, and the plugin keeps it: the consent form (a player in the EEA, the UK or Switzerland answers it
+once; Google keeps the answer) comes first, and the Mobile Ads SDK starts only when the player's choices allow requesting ads.
+Nothing runs before the game's activity is in front. `ads.available` and `ads.showRewarded` wait for that to finish, and answer
+"no ad" if it ends without the player's consent or if the SDK start takes more than 120 s after the form. While the consent form is still open the wait
+goes on: the player may take minutes to read it, and the flow ends by itself with an error if the network fails.
+
+`platform.ads.audience` in factoria.json says who plays:
+
+| Audience | What the engine does |
+|---|---|
+| `"general"` (default) | Nothing special: consent as UMP decides. A game that told the age with `setUnderAge` has it passed on. |
+| `"children"` | The game is made for children. Every player counts as under age: UMP and every ad request are tagged for child-directed treatment and the under age of consent, with the maximum content rating G. `setUnderAge(false)` is ignored. Check Google's families policies before you ship ads in a children's game. |
+| `"mixed"` | Children and adults play. **Until the game calls `platform.ads.setUnderAge(bool)`, nothing is requested**: no consent form, no SDK start, no ad (`available` is false, `showRewarded` is `consentRefused`, `consent().gdpr` is `"unknown"`), so a child is never shown the form untagged. The answer tags UMP and every ad request the way `"children"` does for a child (`true`), or as not child-directed (`false`). |
+
+For `"mixed"`, add the menu kit's age gate: `factoria call project.add_menu_kit '{"parts": ["ageGate"]}'`
+([MENUS.md](MENUS.md#age-gate)). It asks the year of birth, keeps only whether the player is under age (never the year; a player
+who prefers not to say counts as a child), and calls `platform.ads.setUnderAge`; later runs read the stored answer and call it
+again. The engine keeps the answer for the run and sends it to the backend with every ads request. `platform.reset()` (tests)
+forgets it.
+
+`platform.ads.privacyOptions()` opens UMP's form where the player changes their choices or takes consent back. Google requires a
+button for it whenever `platform.ads.consent().privacyOptions` is `"required"`; show it **only then** (the menu kit's options screen
+does). It resolves `{ shown }`; if the player took consent back, the ads kept in memory are discarded and no new one loads.
+
+The **fake backend** answers all of it for development and tests: `game.platform.ad("watched", { gdpr: "granted", privacyOptions:
+"required" })` sets what `consent()` answers, both calls appear in `state().fake.calls`, and `state().fake.ads.privacyShown` counts the forms.
+
+### When something does not work: `admob.status`
+
+The plugin registers the command **`admob.status`** (from a script: `fa.call("admob.status", {})`): the manifest's app id, whether
+this is a test build, the audience, the age the game told, the consent answer, whether the SDK started, each placement's unit,
+whether its ad is ready and its last error, and a `problems` list of sentences that say what to fix. Run it first.
+
+| Situation | What the game gets |
+|---|---|
+| The audience is `"mixed"` and the game never told the age | No consent form and no ads, as above. `problems` says so. |
+| The player refused the consent | `available` false, `showRewarded` `{ rewarded: false, reason: "consentRefused" }`. |
+| No ad to show (no fill, no network, a new app that AdMob still reviews) | `available` false; `showRewarded` `reason: "noFill"`. The log has Google's error code. |
+| Release build with no valid `ids.admob` for the placement | `unknownId`, naming the placement and the catalog key to add. |
+| The ad failed to show | `failed`, with Google's code and message. |
+| No AdMob app id in the manifest | AdMob stops the app at start; `factoria validate` warns before. |
+
+### CI and manual checks
+
+CI exports the game with the plugin, checks that the APK carries both libraries, the plugin's classes (with the Mobile Ads SDK
+and UMP linked into the dex) and the manifest with the app id, and starts it on the emulator to see that the plugin registered the
+**ads** backend and answers `admob.status` through the C bridge. It does not load an ad: that needs Google's network and an
+image with Google Play. The tooling tests cover the setup command, the manifest of an export (the app id, the test flag, the
+audience) and the validate warnings. By hand, on an emulator with Google Play (for instance the AVD `Pixel7_API35`), with the
+development export of a game that has the plugin:
+
+1. `adb install -r game.apk`, start it and read `adb logcat -s FactorIA.admob`: `AdMob: development export, Google's test ads`,
+   then `ads: consent {...}` (a European test device shows UMP's form first; elsewhere the status is `notRequired`) and
+   `ads: the Mobile Ads SDK is ready`.
+2. Open the screen that offers the ad: `ads: a rewarded ad is ready for '<placement>'`. Show it: Google's test ad, then
+   `ads: the player earned the reward of '<placement>' (...)` and `ads: the rewarded ad of '<placement>' was closed, rewarded: true`.
+3. Close a second ad before the reward: `rewarded: false`, `reason: "closedEarly"`, and the game grants nothing.
+4. With `consent().privacyOptions` `"required"` (a test device in UMP's debug geography), the options button shows UMP's form.
+5. In a `"mixed"` game, check that nothing is requested before the age gate is answered (`admob.status` says
+   `consentFlowStarted: false`).
 
 Record what a real check finds in `ENGINE_FEEDBACK.json`.

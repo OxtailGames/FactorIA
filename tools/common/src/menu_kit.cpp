@@ -303,6 +303,8 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
         next.push_back("Add one entity with the script scripts/pause_menu.js to every level scene: { \"id\": \"pause_menu\", \"components\": { \"Script\": { \"path\": \"scripts/pause_menu.js\" } } }.");
     if (wanted.count("options"))
         next.push_back("Set Options.actions in prefabs/ui/options.prefab.json to the actions the player may rebind (the kit lists move_left, move_right, jump and pause; the Controls tab leaves out the ones the game does not have), and add a string options.action.<action> to every locales/<language>.json for each.");
+    if (wanted.count("ageGate"))
+        next.push_back("Set platform.ads.audience to \"mixed\" in factoria.json when children and adults play: the main menu then opens the age gate once, before any ad, and gives the answer to platform.ads.setUnderAge() (a game with another audience never shows it). A game without the main-menu part calls openAgeGate() of scripts/ui/age_gate.js from its first scene.");
     if (wanted.count("keyboard"))
         next.push_back("Add one entity with scripts/ui/keyboard.js to every scene that has a TextField.");
     next.push_back("Run `factoria validate`, then `factoria test`" + std::string(wanted.count("main-menu") ? " (tests/recipe.test.js drives the main menu with a gamepad)." : "."));
@@ -329,7 +331,7 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
         "The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game "
         "(scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of "
         "factoria.json \"localization\" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts "
-        "that others need come along (the main menu needs core, options, credits and shop) and are listed in `requiredBy`. A kit file the game already "
+        "that others need come along (the main menu needs core, options, credits, shop and ageGate) and are listed in `requiredBy`. A kit file the game already "
         "has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so "
         "running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing "
         "ones are added. A language the kit has no texts for gets the English ones. The \"pause\" part also adds the input action \"pause\" to "

@@ -64,6 +64,7 @@
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
+    "privacyOptions": "Privacidad de los anuncios",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"
@@ -92,5 +93,13 @@
     "space": "Espacio",
     "delete": "Borrar",
     "done": "Hecho"
+  },
+  "ageGate": {
+    "title": "Antes de jugar",
+    "question": "¿En qué año naciste?",
+    "why": "Solo lo usamos para elegir qué anuncios se pueden mostrar. Guardamos si eres menor, no tu año de nacimiento.",
+    "year": "Año de nacimiento",
+    "continue": "Continuar",
+    "skip": "Prefiero no decirlo"
   }
 }
