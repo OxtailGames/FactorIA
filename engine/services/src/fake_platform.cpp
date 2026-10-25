@@ -30,7 +30,7 @@ std::string format_price(double price, const std::string& currency) {
 // Methods that answer with an array (or null): a scripted answer for them must be {"result": ...} or {"error": ...}.
 bool answers_with_array(const std::string& method) {
     return method == "achievements.list" || method == "leaderboards.entries" || method == "cloud.list" || method == "purchases.products" ||
-           method == "purchases.restore";
+           method == "purchases.restore" || method == "remotePlay.sessions";
 }
 
 // The board a leaderboard request is about: the id, plus the period's key for a daily or weekly board.
@@ -62,6 +62,10 @@ void FakeBackend::reset() {
     privacyOptions_ = "notRequired";
     adsShown_ = adsRewarded_ = adsPrivacyShown_ = 0;
     cloud_.clear();
+    cloudModified_.clear();
+    cloudClock_ = kCloudClockStart;
+    guests_.clear();
+    nextGuest_ = 1;
     owned_.clear();
     unfinished_.clear();
     presence_ = Json::object({{"text", ""}, {"data", Json::object()}});
@@ -133,6 +137,10 @@ Result<void> FakeBackend::set_ad(const std::string& outcome, const std::string& 
 Result<void> FakeBackend::emit(const std::string& event, const Json& data) {
     if (!std::count(platform_events().begin(), platform_events().end(), event))
         return make_error("platform.emit: " + in_quotes(event) + " is not a platform event", did_you_mean(event, platform_events()));
+    if (event == "remotePlay")
+        return make_error("platform.emit: a \"remotePlay\" event comes with a session that platform.remote_play_connect keeps",
+                          "Use game.platform.remotePlayConnect({ guestName: \"Ana\" }) and remotePlayDisconnect(id): they send the event and "
+                          "update what remotePlay.sessions() answers.");
     if (!data.is_null() && !data.is_object())
         return make_error("platform.emit: the data must be an object, got " + describe_json_value(data), {});
     if (!sink_.alive()) return make_error("platform.emit: the fake backend is not attached to a running game", "Use it through an Engine.");
@@ -155,6 +163,72 @@ Result<void> FakeBackend::emit(const std::string& event, const Json& data) {
             return make_error("platform.emit: an \"overlay\" event needs \"open\": true or false", "Example: {\"open\": true}.");
     }
     sink_.emit(event, std::move(d));
+    return {};
+}
+
+Result<Json> FakeBackend::connect_guest(const Json& info) {
+    if (!sink_.alive())
+        return make_error("platform.remote_play_connect: the fake backend is not attached to a running game", "Use it through an Engine.");
+    if (!info.is_null() && !info.is_object())
+        return make_error("platform.remote_play_connect: the guest's info must be an object, got " + describe_json_value(info),
+                          "Example: {\"guestName\": \"Ana\", \"formFactor\": \"phone\"}.");
+    static const std::vector<std::string> keys = {"guestName", "guestId", "deviceName", "formFactor", "resolution"};
+    static const std::vector<std::string> forms = {"unknown", "phone", "tablet", "computer", "tv", "vr"};
+    const Json in = info.is_null() ? Json::object() : info;
+    for (auto it = in.begin(); it != in.end(); ++it)
+        if (!std::count(keys.begin(), keys.end(), it.key()))
+            return make_error("platform.remote_play_connect: " + in_quotes(it.key()) + " is not a field of a Remote Play session",
+                              did_you_mean(it.key(), keys) + " Fields: " + join(keys, ", ") + ".");
+    for (const char* key : {"guestName", "guestId", "deviceName"})
+        if (in.contains(key) && !in[key].is_string())
+            return make_error(std::string("platform.remote_play_connect: \"") + key + "\" must be a string, got " + describe_json_value(in[key]), {});
+    if (in.contains("formFactor") &&
+        (!in["formFactor"].is_string() || !std::count(forms.begin(), forms.end(), in["formFactor"].get<std::string>())))
+        return make_error("platform.remote_play_connect: " + describe_json_value(in["formFactor"]) + " is not a form factor",
+                          (in["formFactor"].is_string() ? did_you_mean(in["formFactor"].get<std::string>(), forms) + " " : std::string()) +
+                              "Use one of " + join(forms, ", ") + ".");
+    Json resolution = Json::object({{"width", 1920}, {"height", 1080}});
+    if (in.contains("resolution")) {
+        const Json& r = in["resolution"];
+        auto dimension = [](const Json& v) { return v.is_number_integer() && v.get<long long>() > 0 && v.get<long long>() <= 65535; };
+        if (!r.is_object() || !r.contains("width") || !r.contains("height") || !dimension(r["width"]) || !dimension(r["height"]))
+            return make_error("platform.remote_play_connect: \"resolution\" must be {width, height} in whole pixels, got " + describe_json_value(r),
+                              "Example: {\"width\": 1280, \"height\": 720}.");
+        resolution = Json::object({{"width", r["width"]}, {"height", r["height"]}});
+    }
+    const long long id = nextGuest_++;
+    const Json session = Json::object({{"id", id},
+                                       {"guestName", in.value("guestName", "Guest " + std::to_string(id))},
+                                       {"guestId", in.value("guestId", "fake-guest-" + std::to_string(id))},
+                                       {"deviceName", in.value("deviceName", std::string("Fake device"))},
+                                       {"formFactor", in.value("formFactor", std::string("computer"))},
+                                       {"resolution", resolution}});
+    guests_.push_back(session);
+    sink_.emit("remotePlay", Json::object({{"status", "connected"}, {"session", session}}));
+    return session;
+}
+
+Result<Json> FakeBackend::disconnect_guest(long long sessionId) {
+    if (!sink_.alive())
+        return make_error("platform.remote_play_disconnect: the fake backend is not attached to a running game", "Use it through an Engine.");
+    for (auto it = guests_.begin(); it != guests_.end(); ++it) {
+        if ((*it)["id"].get<long long>() != sessionId) continue;
+        const Json session = *it;
+        guests_.erase(it);
+        sink_.emit("remotePlay", Json::object({{"status", "disconnected"}, {"session", session}}));
+        return session;
+    }
+    std::string hint = guests_.empty() ? "No guest is connected: platform.remote_play_connect adds one." : "Connected session ids:";
+    for (std::size_t i = 0; i < guests_.size(); ++i) hint += (i ? ", " : " ") + std::to_string(guests_[i]["id"].get<long long>());
+    if (!guests_.empty()) hint += ".";
+    return make_error("platform.remote_play_disconnect: no guest has the session id " + std::to_string(sessionId), hint);
+}
+
+Result<void> FakeBackend::set_cloud_clock(long long unixSeconds) {
+    if (unixSeconds < 0)
+        return make_error("platform.set_fake: cloudClock must be Unix seconds, 0 or more, got " + std::to_string(unixSeconds),
+                          "Example: 1767225600 is 2026-01-01T00:00:00Z.");
+    cloudClock_ = unixSeconds;
     return {};
 }
 
@@ -336,7 +410,10 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
     } else if (method == "cloud.save") {
         const std::string key = args.value("key", std::string()), data = args.value("data", std::string());
         o.result = Json::object({{"key", key}, {"bytes", data.size()}});
-        o.commit = [this, key, data](const Json&) { cloud_[key] = data; };
+        o.commit = [this, key, data](const Json&) {
+            cloud_[key] = data;
+            cloudModified_[key] = cloudClock_++;  // the save's time; then the clock moves on, so the next save is newer
+        };
     } else if (method == "cloud.load") {
         const std::string key = args.value("key", std::string());
         const auto it = cloud_.find(key);
@@ -345,10 +422,21 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
         Json keys = Json::array();
         for (const auto& [key, text] : cloud_) keys.push_back(key);
         o.result = std::move(keys);
+    } else if (method == "cloud.stat") {
+        const std::string key = args.value("key", std::string());
+        const auto it = cloud_.find(key);
+        if (it == cloud_.end()) o.result = Json::object({{"exists", false}});
+        else o.result = Json::object({{"exists", true}, {"size", it->second.size()}, {"modified", cloudModified_[key]}});
     } else if (method == "cloud.remove") {
         const std::string key = args.value("key", std::string());
         o.result = Json::object();
-        o.commit = [this, key](const Json&) { cloud_.erase(key); };
+        o.commit = [this, key](const Json&) {
+            cloud_.erase(key);
+            cloudModified_.erase(key);
+        };
+    } else if (method == "remotePlay.sessions") {
+        o.result = Json::array();
+        for (const Json& g : guests_) o.result.push_back(g);
     } else if (method == "purchases.products") {
         Json list = Json::array();
         for (const Json& p : args["products"]) {
@@ -433,6 +521,9 @@ Json FakeBackend::state() const {
     for (const auto& [id, v] : stats_) stats[id] = v;
     for (const auto& [id, v] : bests_) boards[id] = v;
     for (const auto& [key, text] : cloud_) cloud[key] = text;
+    Json cloudModified = Json::object(), guests = Json::array();
+    for (const auto& [key, at] : cloudModified_) cloudModified[key] = at;
+    for (const Json& g : guests_) guests.push_back(g);
     for (const auto& [method, queue] : scripted_) {
         int n = 0;
         for (const Scripted& s : queue) n += s.times;
@@ -454,6 +545,9 @@ Json FakeBackend::state() const {
                          {"stats", stats},
                          {"leaderboards", boards},
                          {"cloud", cloud},
+                         {"cloudModified", cloudModified},
+                         {"cloudClock", cloudClock_},
+                         {"remotePlay", guests},
                          {"owned", owned},
                          {"unfinished", unfinished},
                          {"presence", presence_},

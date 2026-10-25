@@ -1453,7 +1453,7 @@ declare module "factoria" {
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "remotePlay";
 
   /**
    * Who is signed in to the store.
@@ -1610,6 +1610,60 @@ declare module "factoria" {
   }
 
   /**
+   * A guest connected through Steam's Remote Play Together, as the store describes the session.
+   */
+  export interface PlatformRemotePlaySession {
+    /**
+     * The session id Steam gave the guest's connection (the fake numbers them from 1). It identifies the session in the "disconnected" event too.
+     */
+    readonly id: number;
+    /**
+     * The guest's name on the store (Steam's persona name); "" when the store does not say.
+     */
+    readonly guestName: string;
+    /**
+     * The guest's account id on the store (a SteamID as decimal text); "" when unknown.
+     */
+    readonly guestId: string;
+    /**
+     * The name of the guest's device, as Steam reports it.
+     */
+    readonly deviceName: string;
+    /**
+     * The kind of device the guest plays on: a phone or a tablet has no keyboard and a small screen, so a game may show bigger touch-free prompts.
+     */
+    readonly formFactor: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr";
+    /**
+     * The guest's screen in pixels; null when Steam does not know it.
+     */
+    readonly resolution: { width: number; height: number } | null;
+  }
+
+  /**
+   * The payload of platform.on("remotePlay").
+   */
+  export interface PlatformRemotePlayEvent {
+    /**
+     * connected: a guest joined; disconnected: the guest left (the session is as it was when they were connected).
+     */
+    readonly status: "connected" | "disconnected";
+    /**
+     * The guest's session. It says who is connected, not which pad is theirs: the guest's input arrives as one more gamepad (input.gamepad(i), game.on("gamepadConnected")), and the engine does not map a session to a pad index.
+     */
+    readonly session: PlatformRemotePlaySession;
+  }
+
+  /**
+   * Remote Play Together: friends who join the game through Steam and play on their own device. Offered by the Steam backend (check platform.has("remotePlay")); the fake backend simulates guests in tests (game.platform.remotePlayConnect). Steam shows each guest's controller to the game as one more gamepad, so a local multiplayer game already works with them; this API tells who is connected.
+   */
+  export interface PlatformRemotePlayAPI {
+    /**
+     * The guests connected now (an empty array when nobody is). Guests already connected when the game starts are listed here but no "remotePlay" event announces them: read this list at the start. Rejects with code "unavailable" when the backend has no remotePlay service.
+     */
+    sessions(): Promise<PlatformRemotePlaySession[]>;
+  }
+
+  /**
    * Cloud saves: small named values the store keeps for the player across devices.
    */
   export interface PlatformCloudAPI {
@@ -1629,6 +1683,10 @@ declare module "factoria" {
      * Deletes a key.
      */
     remove(key: string): Promise<void>;
+    /**
+     * Reads the size and modified time of a key without returning its text: { exists: false } for a key that is not there (not an error), else size (bytes of the saved JSON text) and modified (Unix seconds, a number you can compare, or null when the store keeps no time: Apple's iCloud key-value store). Steam answers the file's time, Google Play the snapshot's last modified time, the fake a counter that starts at 1767225600 and goes up one second with each save (game.platform.set({ cloudClock }) sets it). A store's time comes from the clock of the device that saved, which may be wrong: to decide which of two saves is newer, keep a revision counter inside the saved value and use `modified` only as a hint.
+     */
+    stat(key: string): Promise<{ exists: false } | { exists: true; size: number; modified: number | null }>;
   }
 
   /**
@@ -1740,7 +1798,7 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -1775,6 +1833,10 @@ declare module "factoria" {
      * The signed-in player changed.
      */
     on(event: "player", fn: (e: PlatformPlayer) => void): () => void;
+    /**
+     * A guest joined or left through Remote Play Together ({ status, session }). Only a backend with the "remotePlay" service (Steam; the fake in tests) sends it.
+     */
+    on(event: "remotePlay", fn: (e: PlatformRemotePlayEvent) => void): () => void;
     readonly achievements: PlatformAchievementsAPI;
     readonly stats: PlatformStatsAPI;
     readonly leaderboards: PlatformLeaderboardsAPI;
@@ -1783,6 +1845,7 @@ declare module "factoria" {
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
     readonly integrity: PlatformIntegrityAPI;
+    readonly remotePlay: PlatformRemotePlayAPI;
     readonly ads: PlatformAdsAPI;
     /**
      * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
@@ -1969,7 +2032,7 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
 
@@ -5349,15 +5412,23 @@ declare module "factoria:test" {
      */
     ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
-     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
+     * A guest joins Remote Play Together: platform.remotePlay.sessions() lists the session and platform.on("remotePlay") listeners get { status: "connected", session } at the next game.step(). What info leaves out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080); the sessions are numbered from 1. Returns the session. The guest's input is not simulated: drive the pad they would use with game.gamepad(i). An unknown field or form factor throws with a suggestion.
+     */
+    remotePlayConnect(info?: { guestName?: string; guestId?: string; deviceName?: string; formFactor?: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr"; resolution?: { width: number; height: number } }): PlatformRemotePlaySession;
+    /**
+     * The guest with that session id leaves: sessions() no longer lists it and listeners get { status: "disconnected", session } at the next game.step(). Throws, listing the connected ids, when no guest has that id.
+     */
+    remotePlayDisconnect(id: number): PlatformRemotePlaySession;
+    /**
+     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in, no Remote Play guests.
      */
     reset(): void;
     /**
-     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
+     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer. cloudClock n (Unix seconds) is the modified time the next cloud.save gets, which cloud.stat() reports: it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up one second with each save, so saves are ordered without the wall clock.
      */
-    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none" }): void;
+    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none"; cloudClock?: number }): void;
     /**
-     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
+     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, cloudModified, remotePlay, owned, unfinished, presence, scripted, calls... } }.
      */
     state(): Json;
     /**

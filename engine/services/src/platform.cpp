@@ -17,12 +17,12 @@ namespace fa {
 
 // ------------------------------------------------------------------------------------------------------ tables ----
 const std::vector<std::string>& platform_services_all() {
-    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"};
+    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay"};
     return v;
 }
 
 const std::vector<std::string>& platform_events() {
-    static const std::vector<std::string> v = {"purchase", "overlay", "player"};
+    static const std::vector<std::string> v = {"purchase", "overlay", "player", "remotePlay"};
     return v;
 }
 
@@ -46,6 +46,9 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"cloud.load", "cloudSave", "Read the text stored under a key."},
         {"cloud.list", "cloudSave", "List the keys stored in the player's cloud."},
         {"cloud.remove", "cloudSave", "Delete a key from the player's cloud."},
+        {"cloud.stat", "cloudSave",
+         "Read the size and the modified time of a key without returning its text (result: exists, and when it does: size in bytes, modified in "
+         "Unix seconds or null when the store keeps no time)."},
         {"purchases.products", "purchases", "Read the store's titles and prices of products."},
         {"purchases.buy", "purchases", "Start the purchase of a product."},
         {"purchases.finish", "purchases", "Tell the store the game delivered what a purchase paid for."},
@@ -66,6 +69,9 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"ads.privacyOptions", "ads",
          "Open the consent form where the player changes their ad choices, when ads.consent says privacyOptions is \"required\" "
          "(result: shown)."},
+        {"remotePlay.sessions", "remotePlay",
+         "List the guests connected through Remote Play Together now (result: an array of { id, guestName, guestId, deviceName, formFactor, "
+         "resolution })."},
     };
     return v;
 }
@@ -468,6 +474,8 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
                       hint};
         return Json::object({{"challenge", challenge}});
     }
+
+    if (method == "remotePlay.sessions") return Json::object();
 
     throw Bad{"no preparation for " + method, "This is an engine bug; report it."};
 }

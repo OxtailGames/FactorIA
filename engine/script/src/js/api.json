@@ -1967,7 +1967,7 @@
     {
      "kind": "alias",
      "name": "PlatformService",
-     "type": "\"achievements\" | \"stats\" | \"leaderboards\" | \"cloudSave\" | \"purchases\" | \"overlay\" | \"presence\" | \"integrity\" | \"ads\"",
+     "type": "\"achievements\" | \"stats\" | \"leaderboards\" | \"cloudSave\" | \"purchases\" | \"overlay\" | \"presence\" | \"integrity\" | \"ads\" | \"remotePlay\"",
      "doc": "A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code \"unavailable\"."
     },
     {
@@ -2133,6 +2133,63 @@
     },
     {
      "kind": "interface",
+     "name": "PlatformRemotePlaySession",
+     "doc": "A guest connected through Steam's Remote Play Together, as the store describes the session.",
+     "members": [
+      {
+       "sig": "readonly id: number",
+       "doc": "The session id Steam gave the guest's connection (the fake numbers them from 1). It identifies the session in the \"disconnected\" event too."
+      },
+      {
+       "sig": "readonly guestName: string",
+       "doc": "The guest's name on the store (Steam's persona name); \"\" when the store does not say."
+      },
+      {
+       "sig": "readonly guestId: string",
+       "doc": "The guest's account id on the store (a SteamID as decimal text); \"\" when unknown."
+      },
+      {
+       "sig": "readonly deviceName: string",
+       "doc": "The name of the guest's device, as Steam reports it."
+      },
+      {
+       "sig": "readonly formFactor: \"unknown\" | \"phone\" | \"tablet\" | \"computer\" | \"tv\" | \"vr\"",
+       "doc": "The kind of device the guest plays on: a phone or a tablet has no keyboard and a small screen, so a game may show bigger touch-free prompts."
+      },
+      {
+       "sig": "readonly resolution: { width: number; height: number } | null",
+       "doc": "The guest's screen in pixels; null when Steam does not know it."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "PlatformRemotePlayEvent",
+     "doc": "The payload of platform.on(\"remotePlay\").",
+     "members": [
+      {
+       "sig": "readonly status: \"connected\" | \"disconnected\"",
+       "doc": "connected: a guest joined; disconnected: the guest left (the session is as it was when they were connected)."
+      },
+      {
+       "sig": "readonly session: PlatformRemotePlaySession",
+       "doc": "The guest's session. It says who is connected, not which pad is theirs: the guest's input arrives as one more gamepad (input.gamepad(i), game.on(\"gamepadConnected\")), and the engine does not map a session to a pad index."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "PlatformRemotePlayAPI",
+     "doc": "Remote Play Together: friends who join the game through Steam and play on their own device. Offered by the Steam backend (check platform.has(\"remotePlay\")); the fake backend simulates guests in tests (game.platform.remotePlayConnect). Steam shows each guest's controller to the game as one more gamepad, so a local multiplayer game already works with them; this API tells who is connected.",
+     "members": [
+      {
+       "sig": "sessions(): Promise<PlatformRemotePlaySession[]>",
+       "doc": "The guests connected now (an empty array when nobody is). Guests already connected when the game starts are listed here but no \"remotePlay\" event announces them: read this list at the start. Rejects with code \"unavailable\" when the backend has no remotePlay service."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "PlatformCloudAPI",
      "doc": "Cloud saves: small named values the store keeps for the player across devices.",
      "members": [
@@ -2151,6 +2208,10 @@
       {
        "sig": "remove(key: string): Promise<void>",
        "doc": "Deletes a key."
+      },
+      {
+       "sig": "stat(key: string): Promise<{ exists: false } | { exists: true; size: number; modified: number | null }>",
+       "doc": "Reads the size and modified time of a key without returning its text: { exists: false } for a key that is not there (not an error), else size (bytes of the saved JSON text) and modified (Unix seconds, a number you can compare, or null when the store keeps no time: Apple's iCloud key-value store). Steam answers the file's time, Google Play the snapshot's last modified time, the fake a counter that starts at 1767225600 and goes up one second with each save (game.platform.set({ cloudClock }) sets it). A store's time comes from the clock of the device that saved, which may be wrong: to decide which of two saves is newer, keep a revision counter inside the saved value and use `modified` only as a hint."
       }
      ]
     },
@@ -2271,7 +2332,7 @@
     {
      "kind": "interface",
      "name": "PlatformAPI",
-     "doc": "Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json \"platform\" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` (\"unavailable\", \"notSignedIn\", \"notAllowed\", \"unknownId\", \"network\" or \"failed\") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.",
+     "doc": "Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests. factoria.json \"platform\" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` (\"unavailable\", \"notSignedIn\", \"notAllowed\", \"unknownId\", \"network\" or \"failed\") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.",
      "members": [
       {
        "sig": "readonly backend: string",
@@ -2306,6 +2367,10 @@
        "doc": "The signed-in player changed."
       },
       {
+       "sig": "on(event: \"remotePlay\", fn: (e: PlatformRemotePlayEvent) => void): () => void",
+       "doc": "A guest joined or left through Remote Play Together ({ status, session }). Only a backend with the \"remotePlay\" service (Steam; the fake in tests) sends it."
+      },
+      {
        "sig": "readonly achievements: PlatformAchievementsAPI",
        "doc": ""
       },
@@ -2335,6 +2400,10 @@
       },
       {
        "sig": "readonly integrity: PlatformIntegrityAPI",
+       "doc": ""
+      },
+      {
+       "sig": "readonly remotePlay: PlatformRemotePlayAPI",
        "doc": ""
       },
       {
@@ -2553,7 +2622,7 @@
      "kind": "const",
      "name": "platform",
      "type": "PlatformAPI",
-     "doc": "Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md)."
+     "doc": "Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests (docs/PLATFORM.md)."
     },
     {
      "kind": "const",
@@ -3293,16 +3362,24 @@
        "doc": "How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr, options.tracking and options.privacyOptions set what ads.consent() answers (with privacyOptions \"required\", platform.ads.privacyOptions() counts a form shown); a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded."
       },
       {
-       "sig": "reset(): void",
-       "doc": "Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in."
+       "sig": "remotePlayConnect(info?: { guestName?: string; guestId?: string; deviceName?: string; formFactor?: \"unknown\" | \"phone\" | \"tablet\" | \"computer\" | \"tv\" | \"vr\"; resolution?: { width: number; height: number } }): PlatformRemotePlaySession",
+       "doc": "A guest joins Remote Play Together: platform.remotePlay.sessions() lists the session and platform.on(\"remotePlay\") listeners get { status: \"connected\", session } at the next game.step(). What info leaves out is made up (\"Guest 1\", \"fake-guest-1\", \"Fake device\", \"computer\", 1920 x 1080); the sessions are numbered from 1. Returns the session. The guest's input is not simulated: drive the pad they would use with game.gamepad(i). An unknown field or form factor throws with a suggestion."
       },
       {
-       "sig": "set(options: { signedIn?: boolean; delayFrames?: number; backend?: \"fake\" | \"none\" }): void",
-       "doc": "An unknown option throws with a \"did you mean\". backend \"none\" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects \"unavailable\", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with \"notSignedIn\"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a \"waiting\" state and game.step(n) to get the answer."
+       "sig": "remotePlayDisconnect(id: number): PlatformRemotePlaySession",
+       "doc": "The guest with that session id leaves: sessions() no longer lists it and listeners get { status: \"disconnected\", session } at the next game.step(). Throws, listing the connected ids, when no guest has that id."
+      },
+      {
+       "sig": "reset(): void",
+       "doc": "Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in, no Remote Play guests."
+      },
+      {
+       "sig": "set(options: { signedIn?: boolean; delayFrames?: number; backend?: \"fake\" | \"none\"; cloudClock?: number }): void",
+       "doc": "An unknown option throws with a \"did you mean\". backend \"none\" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects \"unavailable\", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with \"notSignedIn\"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a \"waiting\" state and game.step(n) to get the answer. cloudClock n (Unix seconds) is the modified time the next cloud.save gets, which cloud.stat() reports: it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up one second with each save, so saves are ordered without the wall clock."
       },
       {
        "sig": "state(): Json",
-       "doc": "What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }."
+       "doc": "What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, cloudModified, remotePlay, owned, unfinished, presence, scripted, calls... } }."
       },
       {
        "sig": "calls(): TestPlatformCall[]",

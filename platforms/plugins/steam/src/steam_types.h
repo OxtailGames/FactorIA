@@ -1,6 +1,6 @@
 // The Steamworks types this plugin reads: the callback ids and the layout of the callback structures, declared by the
 // plugin itself (no Valve header is part of this repository). Taken from the public Steamworks headers, SDK 1.58 to 1.64
-// (isteamuserstats.h, isteamapps.h, isteamfriends.h, isteamuser.h, steam_api_internal.h).
+// (isteamuserstats.h, isteamapps.h, isteamfriends.h, isteamuser.h, isteamremoteplay.h, steam_api_internal.h).
 //
 // Packing: Steam packs its callback structures at 4 bytes on Linux and macOS and at 8 on Windows ("VALVE_CALLBACK_PACK_SMALL"
 // and "_LARGE" in steamclientpublic.h). The structures below use the same, or the fields of the 64-bit ones land at the
@@ -25,6 +25,8 @@ enum CallbackId : int {
     kSteamServersConnected = 101,
     kSteamServersDisconnected = 103,
     kGameOverlayActivated = 331,
+    kSteamRemotePlaySessionConnected = 5701,
+    kSteamRemotePlaySessionDisconnected = 5702,
     kSteamAPICallCompleted = 703,
     kGamepadTextInputDismissed = 714,
     kFloatingGamepadTextInputDismissed = 738,
@@ -83,6 +85,16 @@ struct GamepadTextInputDismissed {  // the modal keyboard (ShowGamepadTextInput)
     static constexpr int kCallback = kGamepadTextInputDismissed;
     bool submitted;
     u32 submittedText;  // length of the text GetEnteredGamepadTextInput returns
+};
+
+struct SteamRemotePlaySessionConnected {  // a Remote Play Together guest joined (isteamremoteplay.h)
+    static constexpr int kCallback = kSteamRemotePlaySessionConnected;
+    u32 sessionId;  // RemotePlaySessionID_t
+};
+
+struct SteamRemotePlaySessionDisconnected {
+    static constexpr int kCallback = kSteamRemotePlaySessionDisconnected;
+    u32 sessionId;
 };
 
 struct DlcInstalled {

@@ -1,7 +1,7 @@
 # {{NAME}}: the Steam backend
 
 A native plugin that makes the game's `platform.*` calls (achievements, stats, leaderboards, cloud saves, purchases, overlay, rich
-presence; `factoria docs read platform`) go to **Steam**, through the Steamworks flat C API. The game is written once against
+presence, Remote Play guests; `factoria docs read platform`) go to **Steam**, through the Steamworks flat C API. The game is written once against
 `platform`; this plugin is what answers on Steam. It holds no Valve code: it loads Valve's redistributable at run time.
 
 **The quick way:** `factoria call platform.add_backend '{"backend": "steam", "sdk": "<Steamworks SDK folder or .zip>"}'` does all of
@@ -12,7 +12,7 @@ This folder is what it leaves behind, so you can also do it by hand.
 
 - `src/`: the plugin. `plugin.cpp` (entry point), `steam_loader.cpp` (loads the redistributable, starts Steam), `backend.cpp`
   (callbacks, call results), `methods_game.cpp` (achievements, stats, leaderboards, cloud), `methods_store.cpp` (purchases,
-  overlay, presence), `text_input.cpp` (the Steam Deck keyboard), `steam_functions.h` and `steam_types.h` (the part of the Steamworks API it uses, declared here).
+  overlay, presence), `remote_play.cpp` (Remote Play Together guests), `text_input.cpp` (the Steam Deck keyboard), `steam_functions.h` and `steam_types.h` (the part of the Steamworks API it uses, declared here).
   `include/fa_plugin.h` is the engine's plugin API.
 - `CMakeLists.txt`: builds it and copies the library into this folder, one subfolder per platform: `windows/{{NAME}}.dll`,
   `macos/lib{{NAME}}.dylib`, `linux/lib{{NAME}}.so`. It needs no Steamworks SDK to build.
@@ -64,12 +64,14 @@ id from Steam. A game exported without Steam running, or without the redistribut
 | `achievements.unlock / progress / list / reset` | `SetAchievement` + `StoreStats`; progress shows Steam's "n of 100" notice; `reset` is `ResetAllStats` (development). |
 | `stats.get / set` | Int and float stats; stored once per frame. |
 | `leaderboards.submit / entries` | `FindOrCreateLeaderboard` (created on first use with the catalog's order), keep-best uploads, `top`, `around` and `friends` ranges. |
-| `cloud.save / load / list / remove` | Steam Cloud files named `<key>.json`. Needs Cloud turned on for the app in the Steamworks partner site. |
+| `cloud.save / load / list / remove / stat` | Steam Cloud files named `<key>.json`. Needs Cloud turned on for the app in the Steamworks partner site. `stat` answers `{exists, size, modified}` with `GetFileSize` and `GetFileTimestamp` (Unix seconds); a missing key is `{exists: false}`. |
 | `purchases.*` | **DLC**: `buy` opens the DLC in the Steam overlay's cart and answers `pending`; when the player owns it, a `purchase` event follows. Consumables and subscriptions are `unavailable` (Steam's microtransactions need your own server). |
 | `overlay.open` | The overlay's achievements and friends, the store page of the game or a DLC, or the game's leaderboards page. |
 | `presence.set(text, data)` | Rich presence: `text` is the key `status`; `data` keys are sent as they are (`connect`, `steam_display`...). |
+| `remotePlay.sessions()` | The Remote Play Together guests connected now (`ISteamRemotePlay`: session id, the guest's persona name and SteamID, device name, form factor, resolution). Offered only when the Steam library has `ISteamRemotePlay`. |
 
-Events: `overlay` (opened or closed), `purchase` (a DLC the player got), `player` (Steam went online or offline).
+Events: `overlay` (opened or closed), `purchase` (a DLC the player got), `player` (Steam went online or offline), `remotePlay` (a
+guest joined or left; the guest's controller reaches the game as one more gamepad, which this plugin does not touch).
 
 Every engine that loads this plugin starts Steam, because a plugin cannot know which backend the engine will pick: `factoria run`,
 but also `factoria test`, `factoria call` and the MCP server on this game start Steam when it is running (your friends see you in
