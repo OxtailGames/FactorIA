@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The time of day and the day boundary
+
+- `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the
+  date in UTC). A built game reads the clock again about once a minute and on focus or resume, and `game.on("dayChanged",
+  fn)` runs once when the local calendar day changes. `game.setDate`, `--date` and replay files (`time`) take a time,
+  `game.setDate(iso, { utcOffsetMinutes })` the time zone; moving a test across midnight sends `dayChanged`.
+- `platform.leaderboards.submit(id, score, { day })` and `entries(id, { day })` address the daily board of a given day (the
+  fake and Steam keep every day). Without `day` a daily board is the local date's; pass `game.today().utc.iso` to both
+  for one board worldwide. Game Center and Play Games reject a day other than the local or UTC today with `unsupported`.
+
 Thai line breaks and the sara am check
 
 - A wrapped line now also breaks after U+200B ZERO WIDTH SPACE (no width, never drawn), the UAX #14 spaces (U+1680,
