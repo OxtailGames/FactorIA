@@ -9,17 +9,37 @@ using namespace fa::test;
 namespace {
 
 // A window that records what scripts ask of it (the real one is AppWindowControl in fa_runtime, tested in a real window).
+// Two fake monitors (a 1920x1080 primary and a 1280x720 one on its right) and the macOS rule that borderless cannot be reached from
+// full screen directly, so the platform-independent parts of window.* are covered without a display.
 struct FakeWindow final : WindowControl {
-    bool full = false, sync = true;
-    int w = 1000, h = 562, cap = 0;
-    bool fullscreen() const override { return full; }
+    std::string mode_ = "windowed";
+    bool sync = true;
+    int w = 1000, h = 562, cap = 0, mon = 0;
+    bool borderless_ok = true, monitors_ok = true;
+    bool full() const { return mode_ != "windowed"; }
+    std::string mode() const override { return mode_; }
+    bool supports_modes() const override { return borderless_ok; }
+    bool supports_monitors() const override { return monitors_ok; }
+    std::vector<WindowMonitor> monitors() const override {
+        return {{"Main", 1920, 1080, true, mon == 0}, {"Side", 1280, 720, false, mon == 1}};
+    }
+    std::string set_mode(const std::string& m) override {
+        if (m == "borderless" && !borderless_ok) return "this platform has no borderless mode";
+        mode_ = m;
+        return {};
+    }
+    std::string set_monitor(int i) override {
+        if (!monitors_ok) return "this platform shows the game on one display";
+        if (i < 0 || i >= 2) return "there is no monitor " + std::to_string(i) + "; this computer has 2";
+        mon = i;
+        return {};
+    }
     void size(int& a, int& b) const override { a = w; b = h; }
-    void display_size(int& a, int& b) const override { a = 1920; b = 1080; }
+    void display_size(int& a, int& b) const override { a = mon == 0 ? 1920 : 1280; b = mon == 0 ? 1080 : 720; }
     bool vsync() const override { return sync; }
     int frame_cap() const override { return cap; }
-    std::string set_fullscreen(bool on) override { full = on; return {}; }
     std::string set_size(int a, int b) override {
-        if (full) return "the window is full screen. Call window.setFullscreen(false) first.";
+        if (full()) return "the window is full screen. Call window.setFullscreen(false) first.";
         w = a;
         h = b;
         return {};
@@ -117,6 +137,115 @@ test("vsync and frame cap", () => {
   expect(window.frameCap).toBe(144);
   window.frameCap = 0;
   expect(window.frameCap).toBe(0);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("window modes and monitors: a fake set of monitors, mode changes, refusals and supports()") {
+    WindowedHost h("window_modes", Json::parse(R"({"display": {"width": 1000, "height": 562}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { window } from "factoria";
+test("monitors are listed primary first with index, name and size", () => {
+  const list = window.monitors();
+  expect(list.length).toBe(2);
+  expect(list[0].index).toBe(0);
+  expect(list[0].name).toBe("Main");
+  expect(list[0].size.x).toBe(1920);
+  expect(list[0].primary).toBe(true);
+  expect(list[1].index).toBe(1);
+  expect(list[1].size.y).toBe(720);
+  expect(list[1].primary).toBe(false);
+  expect(window.monitor).toBe(0);
+  expect(list[0].current).toBe(true);
+});
+test("setMonitor moves the window and the display size follows", () => {
+  window.setMonitor(1);
+  expect(window.monitor).toBe(1);
+  expect(window.monitors()[1].current).toBe(true);
+  expect(window.displaySize.x).toBe(1280);
+  expect(window.resolutions()[window.resolutions().length - 1]).toEqual({ width: 1280, height: 720 });
+  window.setMonitor(0);
+  expect(window.displaySize.x).toBe(1920);
+});
+test("setMonitor explains a bad index", () => {
+  expect(() => window.setMonitor(5)).toThrow("window.setMonitor: there is no monitor 5; this computer has 2");
+  expect(() => window.setMonitor(-1)).toThrow("expects the number of a monitor from window.monitors()");
+  expect(() => window.setMonitor(1.5)).toThrow("window.setMonitor(1)");
+  expect(() => window.setMonitor("1")).toThrow("but got");
+});
+test("setMode switches between windowed, borderless and fullscreen; fullscreen is true for both covering modes", () => {
+  expect(window.mode).toBe("windowed");
+  expect(window.fullscreen).toBe(false);
+  window.setMode("borderless");
+  expect(window.mode).toBe("borderless");
+  expect(window.fullscreen).toBe(true);
+  window.setMode("fullscreen");
+  expect(window.mode).toBe("fullscreen");
+  window.setMode("windowed");
+  expect(window.mode).toBe("windowed");
+  window.setFullscreen(true);
+  expect(window.mode).toBe("fullscreen");
+  window.setFullscreen(false);
+  expect(window.mode).toBe("windowed");
+});
+test("setMode rejects an unknown name with a suggestion", () => {
+  expect(() => window.setMode("borderles")).toThrow('did you mean "borderless"?');
+  expect(() => window.setMode(true)).toThrow('expects "windowed", "borderless" or "fullscreen"');
+});
+test("supports says what this platform can do and a refusal is thrown with the function name", () => {
+  expect(window.supports("borderless")).toBe(true);
+  expect(window.supports("monitors")).toBe(true);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("window modes on a platform without borderless or monitor choice") {
+    WindowedHost h("window_modes_web", Json::parse(R"({"display": {"width": 1000, "height": 562}})"));
+    h.win.borderless_ok = false;
+    h.win.monitors_ok = false;
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { window } from "factoria";
+test("supports is false and the setters explain", () => {
+  expect(window.supports("borderless")).toBe(false);
+  expect(window.supports("monitors")).toBe(false);
+  expect(() => window.setMode("borderless")).toThrow("window.setMode: this platform has no borderless mode");
+  expect(() => window.setMonitor(1)).toThrow("window.setMonitor: this platform shows the game on one display");
+  window.setMode("fullscreen");
+  expect(window.mode).toBe("fullscreen");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("window modes and monitors without a window: one monitor from factoria.json, setters throw") {
+    TestHost h("window_modes_headless", Json::parse(R"({"display": {"width": 800, "height": 600, "fullscreen": true}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { window } from "factoria";
+test("one display, the project's mode, and no support", () => {
+  expect(window.mode).toBe("fullscreen");
+  const list = window.monitors();
+  expect(list.length).toBe(1);
+  expect(list[0].primary).toBe(true);
+  expect(list[0].size.x).toBe(800);
+  expect(window.monitor).toBe(0);
+  expect(window.supports("borderless")).toBe(false);
+  expect(window.supports("monitors")).toBe(false);
+  expect(() => window.setMode("borderless")).toThrow("window.setMode: this run has no window");
+  expect(() => window.setMonitor(0)).toThrow("window.setMonitor: this run has no window");
 });
 )JS");
     REQUIRE(h.start());

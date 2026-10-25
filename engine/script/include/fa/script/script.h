@@ -52,17 +52,28 @@ class I18n;
 // The game's own window, as `window.*` in scripts reaches it. Only a game that owns a real window has one (factoria run,
 // an exported game, a phone or tablet player); headless runs, tests, the MCP server and the editor's game view have none,
 // and ScriptHost::window() is nullptr there. Sizes are logical pixels (see fa/platform/app.h).
+struct WindowMonitor {
+    std::string name;
+    int width = 0, height = 0;  // logical pixels
+    bool primary = false;
+    bool current = false;  // the window is on it
+};
+
 class WindowControl {
 public:
     virtual ~WindowControl() = default;
-    virtual bool fullscreen() const = 0;
+    virtual std::string mode() const = 0;  // "windowed", "borderless" or "fullscreen"
+    virtual bool supports_modes() const = 0;     // a desktop window: windowed / borderless / fullscreen can be chosen
+    virtual bool supports_monitors() const = 0;  // the monitors can be listed and one chosen
+    virtual std::vector<WindowMonitor> monitors() const = 0;  // primary first; one entry when the platform cannot list them
     virtual void size(int& width, int& height) const = 0;          // client size now
     virtual void display_size(int& width, int& height) const = 0;  // the monitor the window is on (the window size if unknown)
     virtual bool vsync() const = 0;
     virtual int frame_cap() const = 0;  // frames per second, 0 = unlimited
     // The setters return "" when done, else a sentence that says why not and what to do instead (the script layer puts
     // `window.<function>: ` in front and throws it).
-    virtual std::string set_fullscreen(bool on) = 0;
+    virtual std::string set_mode(const std::string& mode) = 0;  // "windowed" | "borderless" | "fullscreen"
+    virtual std::string set_monitor(int index) = 0;             // an index of monitors()
     virtual std::string set_size(int width, int height) = 0;
     virtual std::string set_vsync(bool on) = 0;
     virtual std::string set_frame_cap(int fps) = 0;  // 0 or 15..1000, already checked by the script layer

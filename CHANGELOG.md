@@ -4,6 +4,20 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Monitor choice and window modes
+
+- `window.monitors()` lists the monitors (`index`, `name`, `size`, `primary`, `current`), `window.monitor` is the one the
+  window is on and `window.setMonitor(i)` moves it there (Windows, macOS, Linux; XRandR on Linux is loaded when the game
+  starts, so a machine without it lists one monitor). `window.setMode("windowed" | "borderless" | "fullscreen")` and
+  `window.mode` choose how the window is shown; `setFullscreen(bool)` keeps working. On Windows and Linux full screen is
+  a frameless window over the monitor, so `"fullscreen"` and `"borderless"` look the same; on macOS `"fullscreen"` is the
+  native Space and `"borderless"` a frameless window that hides the menu bar and the Dock. SCRIPTING.md says what each
+  OS does. `window.supports("borderless")` and `window.supports("monitors")` tell what the platform can do.
+- Menu kit options screen: the Full screen toggle is now a Window mode button (windowed, borderless, full screen) and a
+  Monitor button (only with more than one monitor). `settings.js` saves `windowMode` and `monitor` (`{ index, name }`)
+  instead of `fullscreen` (a save from the older kit is still read) and restores the monitor, then the mode, at start.
+  The locale tables have `options.windowMode`, `options.mode.*` and `options.monitor` instead of `options.fullscreen`.
+
 Test runner and `ui.check_layout`
 
 - `game.click(widget)` (and `mouseMove`, `touch`, `touchStart`, `touchMove` with a widget) lays the UI out first, so a

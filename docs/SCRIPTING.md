@@ -347,7 +347,22 @@ Settings an options menu needs. The getters work everywhere (a headless run or a
 every setter throws an Error that says what to do when the run has no window (`factoria run --headless`, tests, the
 editor's game view), so check `window.available` first or offer the option only in `factoria run` and exported games.
 - `available` is true when a real window exists. `fullscreen` (read only) and `setFullscreen(on)`: `window.setFullscreen(true)`
-  toggles at once (it takes `true` or `false`, nothing else).
+  toggles at once (it takes `true` or `false`, nothing else): `setMode("fullscreen")` and `setMode("windowed")` below.
+- `mode` (read only) and `setMode("windowed" | "borderless" | "fullscreen")`. Windowed has a frame and the size of
+  `setSize`; the other two cover the monitor the window is on (`fullscreen` is true for both). What "fullscreen" means
+  depends on the OS: **Windows and Linux** have no exclusive full screen in the engine, so `"fullscreen"` and
+  `"borderless"` are the same frameless window over the monitor (the name only remembers what the player picked);
+  **macOS** runs `"fullscreen"` as the OS's native full screen (a Space of its own, the menu bar slides in) and
+  `"borderless"` as a frameless window over the monitor that hides the menu bar and the Dock but stays on the desktop's
+  Space. On macOS, going from `"fullscreen"` straight to `"borderless"` throws (the Space takes a second to leave): set
+  `"windowed"` first (the menu kit's button cycles windowed, borderless, fullscreen, so it never does). The web and
+  phones have no borderless mode (`supports("borderless")` is false); phones are always `"fullscreen"`.
+- `monitors()` lists `[{ index, name, size, primary, current }]`, primary first; `monitor` is the index of the one the
+  window is on and `setMonitor(index)` moves the window there (centred when windowed, covering it when full screen or
+  borderless). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
+  a machine without it lists the whole screen as one monitor). Elsewhere `monitors()` has one entry and `setMonitor`
+  throws; on macOS it also throws while the window is in its native full screen. Two identical monitors have the same
+  `name`: show the index too. A saved choice should keep the name, since indices change when a monitor is unplugged.
 - `size` (Vec2, window pixels without the title bar) and `setSize(width, height)` (whole numbers, 160 to 16384). Setting
   the size while full screen throws: leave full screen first. `displaySize` is the monitor's size.
   `resolutions()` lists `[{ width, height }]`, smallest first: 16:9 and 16:10 sizes that fit the monitor plus the game's
@@ -362,9 +377,15 @@ editor's game view), so check `window.available` first or offer the option only 
   `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation. Read `window.supports("frameCap")`
   first and hide the option where it is false instead of catching the Error.
 - `supports(feature)`: `"frameCap"`, `"fullscreen"` and `"resize"` are true in a game window on a desktop (they are false
-  headless and on phones and tablets, where their setters throw); `"renderScale"` is true everywhere; `"clipboard"` is
+  headless and on phones and tablets, where their setters throw); `"borderless"` is true in a desktop game window
+  (Windows, macOS, Linux), `"monitors"` where the monitors can be listed and chosen (the same three; it is true with one
+  monitor too, so offer the choice when `window.monitors().length > 1`); `"renderScale"` is true everywhere; `"clipboard"` is
   true on Windows, macOS, Linux and the web, and in headless runs and tests (an in-memory clipboard), false on phones
   and tablets. An unknown name throws with a "did you mean".
+- Window modes and monitor choice, checked by hand on: nothing yet (the script layer is covered by tests with a fake set
+  of monitors). To be checked: macOS (borderless, native full screen, a second monitor), Windows (two monitors, windowed
+  and full screen moves) and Linux X11 (two monitors with XRandR; `_NET_WM_FULLSCREEN_MONITORS` depends on the window
+  manager).
 - `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
   of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
   tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
@@ -386,9 +407,9 @@ const canCap = window.supports("frameCap");                      // hide the fra
 ```
 ```js
 import { window, storage } from "factoria";
-const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
+const s = storage.get("video", { windowMode: "windowed", vsync: true, cap: 0 });
 if (window.available) {
-  window.setFullscreen(s.fullscreen);
+  window.setMode(s.windowMode);   // "windowed" | "borderless" | "fullscreen"; window.setMonitor(i) first to pick the monitor
   window.setVsync(s.vsync);
   window.frameCap = s.cap;
 }
