@@ -635,7 +635,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
            "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "
            "drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, "
-           "triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. "
+           "triangles, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, "
+           "width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d "
+           "and lights2dDropped count the Light2D lights (at most 16: the ones that reach the camera view are kept first). "
            "width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() "
            "in tests. Needs graphics. Example: game.render_stats {}",
            parse_schema(R"({"type":"object","properties":{}})"),

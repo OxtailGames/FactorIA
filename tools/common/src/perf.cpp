@@ -320,7 +320,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     m.description =
         "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
         "{runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory "
-        "of the process), drawCalls, entities, triangles, lights (of the main pass) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
+        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
         "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time "
         "(`factoria call --no-graphics perf.measure`). Example: {\"frames\":300}.";
     m.inputSchema = Json::parse(R"({"type":"object","properties":{

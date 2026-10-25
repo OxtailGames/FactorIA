@@ -131,20 +131,29 @@ void update_parallax(World& world, Vec2 camPos) {
 
 namespace {
 
-// Collects the Light2D entities of the frame into f.lights2d: directional lights first, then point lights nearest to
-// the camera, at most kMaxLights2D.
+// Collects the Light2D entities of the frame into f.lights2d, at most kMaxLights2D: directional lights first, then the
+// point lights that light the view. A point light whose radius reaches the camera's visible rectangle is always kept
+// over one that does not; among those in view the ones with more of their radius inside the rectangle come first, then
+// the more intense ones, then the nearest to the camera. Counts what it kept and dropped in the frame's stats.
 void gather_lights(World& world, Frame& f) {
     f.lights2d.clear();
     f.ambient2d = world.settings().ambientLight;
     struct Candidate {
         Light2DData data;
-        float key;  // -1 directional, else the squared distance to the camera
+        bool directional = false;
+        bool inView = true;
+        float inside = 1.0f;     // share of the light's bounding square (2 * radius) that is inside the view
+        float intensity = 0.0f;
+        float dist2 = 0.0f;      // squared distance to the camera
     };
     std::vector<Candidate> found;
     const Vec2 cam = f.cam.position.xy();
+    const Rect view = f.cam.visible;
+    const bool useView = !f.cam.perspective && view.w > 0.0f && view.h > 0.0f;
     world.each<Light2D>([&](Entity e, Light2D& l) {
         if (!entity_active(world, e) || l.intensity <= 0.0f) return;
         Candidate c{};
+        c.intensity = l.intensity;
         c.data.color[0] = l.color.r * l.intensity;
         c.data.color[1] = l.color.g * l.intensity;
         c.data.color[2] = l.color.b * l.intensity;
@@ -155,7 +164,7 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[1] = -std::sin(d) * std::cos(el);
             c.data.pos[2] = std::sin(el);
             c.data.pos[3] = -1.0f;
-            c.key = -1.0f;
+            c.directional = true;
         } else {
             if (l.radius <= 0.0f) return;
             const Vec3 p = world.world_matrix(e).translation();
@@ -163,13 +172,42 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[1] = p.y;
             c.data.pos[2] = std::max(l.height, 0.0f);
             c.data.pos[3] = l.radius;
-            c.key = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
+            c.dist2 = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
+            if (useView) {
+                // The light must reach the rectangle itself; "inside" is its bounding square against the view.
+                const float cx = std::clamp(p.x, view.x, view.x + view.w), cy = std::clamp(p.y, view.y, view.y + view.h);
+                const float dx = p.x - cx, dy = p.y - cy;
+                c.inView = dx * dx + dy * dy < l.radius * l.radius;
+                const float ox = std::max(0.0f, std::min(p.x + l.radius, view.x + view.w) - std::max(p.x - l.radius, view.x));
+                const float oy = std::max(0.0f, std::min(p.y + l.radius, view.y + view.h) - std::max(p.y - l.radius, view.y));
+                c.inside = ox * oy / (4.0f * l.radius * l.radius);
+            }
         }
         found.push_back(c);
     });
-    std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) { return a.key < b.key; });
+    std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.directional != b.directional) return a.directional;
+        if (a.directional) return false;
+        if (a.inView != b.inView) return a.inView;
+        if (a.inside != b.inside) return a.inside > b.inside;
+        if (a.intensity != b.intensity) return a.intensity > b.intensity;
+        return a.dist2 < b.dist2;
+    });
+    int inViewCount = 0;
+    for (const Candidate& c : found) inViewCount += (c.directional || c.inView) ? 1 : 0;
+    const int total = int(found.size());
     if (found.size() > std::size_t(kMaxLights2D)) found.resize(std::size_t(kMaxLights2D));
     for (const Candidate& c : found) f.lights2d.push_back(c.data);
+    if (f.stats) {
+        f.stats->lights2d = int(f.lights2d.size());
+        f.stats->lights2dDropped = total - int(f.lights2d.size());
+    }
+    if (inViewCount > kMaxLights2D && f.warnedLights2d && !*f.warnedLights2d) {
+        *f.warnedLights2d = true;
+        FA_WARN("render", "{} Light2D lights are in view but a frame shades at most {}; the others (the ones with the least of "
+                "their radius in view, then the dimmest) are left out. Use fewer or smaller lights, or move them out of view",
+                inViewCount, kMaxLights2D);
+    }
 }
 
 }  // namespace

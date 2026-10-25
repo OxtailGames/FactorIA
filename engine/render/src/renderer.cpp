@@ -32,6 +32,7 @@ Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
                 {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
                 {"triangles", triangles}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
+                {"lights2d", lights2d}, {"lights2dDropped", lights2dDropped},
                 {"materials", materials}, {"materialFallbacks", materialFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
@@ -109,6 +110,8 @@ struct Renderer::Impl {
     RenderStats stats;
     CameraInfo lastCam;
     bool warnedNoLight = false;
+    bool warnedLights2d = false;      // the "more than 16 Light2D in view" warning, once per scene
+    std::string lights2dScene;        // the scene path warnedLights2d belongs to
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
@@ -677,6 +680,8 @@ void Renderer::Impl::render(World& world, float dt) {
     fr.fonts = fonts.get();
     fr.textScale = textScale;
     fr.renderScale = renderScale;
+    if (world.scene_path() != lights2dScene) { lights2dScene = world.scene_path(); warnedLights2d = false; }
+    fr.warnedLights2d = &warnedLights2d;
 
     flush_particle_bursts(world);
     update_animators(world, fr, false);

@@ -4,7 +4,7 @@
 // the events received between two frames mean. Each frame's dt and fixed-step count go to "timing": [[dt, steps], ...],
 // so the headless replay runs the same frames (exact even when the editor ran slower or faster than the fixed rate).
 // No ImGui, no Editor: tests feed it directly.
-// Not recorded (the replay format has no field for them): mouse wheel, typed text. The editor feeds no gamepad or touch.
+// Not recorded (the replay format has no field for them): mouse wheel, typed text. Clipboard reads are. The editor feeds no gamepad or touch.
 #pragma once
 
 #include <cstdint>
@@ -36,6 +36,12 @@ public:
         if (down) buttons_.insert(b); else buttons_.erase(b);
         entry(frame)["mouse"][button_name(b)] = down;
     }
+    // What a clipboard read returned during `frame` ("clipboard" of the replay entry): the replay puts that text on the clipboard
+    // before the frame, so a paste plays back the same. The first read of a frame wins (a later one may be a text the game wrote).
+    void clipboard(std::uint64_t frame, const std::string& text) {
+        Json& e = entry(frame);
+        if (!e.contains("clipboard")) e["clipboard"] = text;
+    }
     // Everything held is let go (the editor does this on Pause / focus loss, the engine does the same to its input).
     void release_all(std::uint64_t frame) {
         for (Key k : std::set<Key>(keys_)) key(frame, k, false);
@@ -50,14 +56,16 @@ public:
     }
     // The calendar date the session plays on (game.today()): "date" and "utcOffsetMinutes" of the replay, so the headless replay
     // sees the same day (a daily seed, a calendar event). Not set = the file has neither and replays on the fixed default date.
-    void set_date(const std::string& iso, int utcOffsetMinutes) {
+    void set_date(const std::string& iso, int utcOffsetMinutes, const std::string& time = "") {
         date_ = iso;
+        time_ = time;
         utcOffsetMinutes_ = utcOffsetMinutes;
     }
     Json input() const {
         Json j = Json::object({{"frames", frames_}, {"timing", timing_}});
         if (!date_.empty()) {
             j["date"] = date_;
+            if (!time_.empty()) j["time"] = time_;
             j["utcOffsetMinutes"] = utcOffsetMinutes_;
         }
         return j;
@@ -67,7 +75,7 @@ private:
     static const char* button_name(MouseButton b) { return b == MouseButton::Left ? "left" : b == MouseButton::Right ? "right" : "middle"; }
     Json& entry(std::uint64_t frame) { return frames_[std::to_string(frame >= start_ ? frame - start_ : 0)]; }
 
-    std::string date_;
+    std::string date_, time_;
     int utcOffsetMinutes_ = 0;
     std::uint64_t start_ = 0;
     Json frames_ = Json::object();
