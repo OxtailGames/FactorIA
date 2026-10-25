@@ -1661,8 +1661,13 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     int w = display.value("width", 1280), h = display.value("height", 720);
     bool fullscreen = display.value("fullscreen", false), vsync = display.value("vsync", true);
     int dw = w, dh = h, cap = 0;
+    std::string mode = fullscreen ? "fullscreen" : "windowed";
+    bool modes = false, monitors = false;
     if (win) {
-        fullscreen = win->fullscreen();
+        mode = win->mode();
+        fullscreen = mode != "windowed";
+        modes = win->supports_modes();
+        monitors = win->supports_monitors();
         win->size(w, h);
         win->display_size(dw, dh);
         vsync = win->vsync();
@@ -1671,6 +1676,9 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "available", JS_NewBool(ctx, win != nullptr));
     JS_SetPropertyStr(ctx, o, "fullscreen", JS_NewBool(ctx, fullscreen));
+    JS_SetPropertyStr(ctx, o, "mode", JS_NewString(ctx, mode.c_str()));
+    JS_SetPropertyStr(ctx, o, "supportsModes", JS_NewBool(ctx, modes));
+    JS_SetPropertyStr(ctx, o, "supportsMonitors", JS_NewBool(ctx, monitors));
     JS_SetPropertyStr(ctx, o, "width", JS_NewInt32(ctx, w));
     JS_SetPropertyStr(ctx, o, "height", JS_NewInt32(ctx, h));
     JS_SetPropertyStr(ctx, o, "displayWidth", JS_NewInt32(ctx, dw));
@@ -1680,7 +1688,32 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     return o;
 }
 
-NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> "" or the reason it did not happen
+NATIVE(windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
+    SETUP;
+    (void)argc;
+    (void)argv;
+    std::vector<WindowMonitor> list;
+    if (WindowControl* win = I->host->window()) {
+        list = win->monitors();
+    } else {
+        Json p = I->host->project_settings();
+        const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+        list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true});
+    }
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < list.size(); ++i) {
+        JSValue m = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, m, "name", JS_NewString(ctx, list[i].name.c_str()));
+        JS_SetPropertyStr(ctx, m, "width", JS_NewInt32(ctx, list[i].width));
+        JS_SetPropertyStr(ctx, m, "height", JS_NewInt32(ctx, list[i].height));
+        JS_SetPropertyStr(ctx, m, "primary", JS_NewBool(ctx, list[i].primary));
+        JS_SetPropertyStr(ctx, m, "current", JS_NewBool(ctx, list[i].current));
+        JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), m);
+    }
+    return arr;
+}
+
+NATIVE(windowSet) {  // (kind 0 mode|1 size|2 vsync|3 frame cap|4 monitor, a, b) -> "" or the reason it did not happen
     SETUP;
     WindowControl* win = I->host->window();
     if (!win)
@@ -1688,9 +1721,10 @@ NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> 
                                  "apply to a windowed run (factoria run, an exported game); check window.available first.");
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     std::string err;
-    if (kind == 0) err = win->set_fullscreen(arg_bool(ctx, argc, argv, 1));
+    if (kind == 0) err = win->set_mode(arg_str(ctx, argc, argv, 1));
     else if (kind == 1) err = win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
     else if (kind == 2) err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
+    else if (kind == 4) err = win->set_monitor(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     else err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     return JS_NewString(ctx, err.c_str());
 }
@@ -2575,7 +2609,7 @@ const Reg kRegs[] = {
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
+    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),

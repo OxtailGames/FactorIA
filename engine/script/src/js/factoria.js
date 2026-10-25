@@ -1003,7 +1003,24 @@
   const windowApi = {
     get available() { return N.windowInfo().available; },
     get fullscreen() { return N.windowInfo().fullscreen; },
-    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on); },
+    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on ? "fullscreen" : "windowed"); },
+    get mode() { return N.windowInfo().mode; },
+    setMode(mode) {
+      const modes = ["windowed", "borderless", "fullscreen"];
+      if (!modes.includes(mode)) {
+        const sug = typeof mode === "string" ? closest(mode, modes) : "";
+        throw new Error(`window.setMode(mode) expects "windowed", "borderless" or "fullscreen", e.g. window.setMode("borderless"), but got ${inspect(mode)}${sug ? ` (did you mean "${sug}"?)` : ""}`);
+      }
+      winSet("setMode", 0, mode);
+    },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
+    setMonitor(index) {
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error(`window.setMonitor(index) expects the number of a monitor from window.monitors(), counted from 0, e.g. window.setMonitor(1), but got ${inspect(index)}`);
+      }
+      winSet("setMonitor", 4, index);
+    },
     get size() { const w = N.windowInfo(); return new Vec2(w.width, w.height); },
     get displaySize() { const w = N.windowInfo(); return new Vec2(w.displayWidth, w.displayHeight); },
     setSize(width, height) {
@@ -1042,18 +1059,20 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
-    // supports("frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
+    // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
     // with a "did you mean".
     supports(feature) {
-      const names = ["frameCap", "renderScale", "fullscreen", "resize", "clipboard"];
+      const names = ["frameCap", "renderScale", "fullscreen", "borderless", "monitors", "resize", "clipboard"];
       if (!names.includes(feature)) {
         const sug = typeof feature === "string" ? closest(feature, names) : "";
         throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
       }
       if (feature === "renderScale") return true;
       if (feature === "clipboard") return N.clipboardSupported();
+      if (feature === "borderless") return N.windowInfo().supportsModes;
+      if (feature === "monitors") return N.windowInfo().supportsMonitors;
       return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
     },
   };

@@ -1079,6 +1079,37 @@ declare module "factoria" {
   }
 
   /**
+   * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.
+   */
+  export type WindowMode = "windowed" | "borderless" | "fullscreen";
+
+  /**
+   * One monitor, from window.monitors().
+   */
+  export interface MonitorInfo {
+    /**
+     * Its place in window.monitors(), the number window.setMonitor() takes. The primary monitor is 0.
+     */
+    index: number;
+    /**
+     * What the OS calls it ("DELL U2723QE", "Built-in Retina Display", "HDMI-1"; Windows gives the graphics driver's text, often "Generic PnP Monitor"). Two identical monitors have the same name: show the index too.
+     */
+    name: string;
+    /**
+     * Its size in logical pixels.
+     */
+    size: Vec2;
+    /**
+     * The OS's main monitor (the one with the taskbar or menu bar).
+     */
+    primary: boolean;
+    /**
+     * The game window is on it now.
+     */
+    current: boolean;
+  }
+
+  /**
    * A window size in logical pixels, from window.resolutions().
    */
   export interface Resolution {
@@ -1099,9 +1130,29 @@ declare module "factoria" {
      */
     readonly fullscreen: boolean;
     /**
-     * Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     * Enters or leaves full screen: `setMode("fullscreen")` for true, `setMode("windowed")` for false. `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
      */
     setFullscreen(on: boolean): void;
+    /**
+     * "windowed", "borderless" or "fullscreen" ("fullscreen" when the project's display.fullscreen is on and there is no window, and always on phones and tablets). `window.fullscreen` is true for both borderless and fullscreen.
+     */
+    readonly mode: WindowMode;
+    /**
+     * Chooses how the window is shown. "windowed" has a frame and the size window.setSize() gave. "borderless" has no frame and covers the monitor the window is on. "fullscreen" covers it too, and where the OS has a native full screen it uses it: on macOS that is the OS's own full screen Space (the menu bar slides in, Mission Control shows it as a Space; borderless instead hides the menu bar and the Dock but stays on the desktop's Space); on Windows and Linux the engine has no exclusive mode, so fullscreen and borderless are the same frameless window over the monitor and the two names only keep what the player picked. On macOS going from fullscreen straight to borderless throws (the Space takes a moment to leave): go through "windowed" and wait a second. Use window.supports("borderless") before offering borderless. Throws without a window, on an unknown name, and on phones and tablets for anything but "fullscreen".
+     */
+    setMode(mode: WindowMode): void;
+    /**
+     * The monitors, primary first. A run without a window, phones, tablets and the web answer with one entry, the display the game runs on (a run without a window: the project's display size). Linux lists the connected XRandR outputs (one entry for the whole screen when libXrandr is missing).
+     */
+    monitors(): MonitorInfo[];
+    /**
+     * The index in window.monitors() of the monitor the window is on (0 when there is only one).
+     */
+    readonly monitor: number;
+    /**
+     * Moves the window to monitor `index` of window.monitors(): a windowed window is centred on it, a fullscreen or borderless one covers it. Works on Windows, macOS and Linux; throws on other platforms, without a window, for an index that does not exist, and on macOS while the window is in its native full screen Space (leave it with setMode("windowed") first). `window.displaySize` and `window.resolutions()` describe the new monitor afterwards (on Linux a moment later, when the window manager has moved the window). Check window.supports("monitors") first.
+     */
+    setMonitor(index: number): void;
     /**
      * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
      */
@@ -1135,9 +1186,9 @@ declare module "factoria" {
      */
     renderScale: number;
     /**
-     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". borderless needs a desktop window (Windows, macOS, Linux; not the web), monitors needs a desktop window that can list and move between monitors (Windows, macOS, Linux; true with one monitor too: offer the choice when window.monitors().length > 1). Read window.supports("frameCap") before offering window.frameCap.
      */
-    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): boolean;
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): boolean;
   }
 
   /**
