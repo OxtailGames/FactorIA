@@ -1137,6 +1137,10 @@ From the project's [platform settings](#platform-settings) the export takes:
   data. `export.ios.privacy` adds what the game or its plugins do. `Info.plist` also gets `ITSAppUsesNonExemptEncryption`
   (`false`; `export.ios.usesNonExemptEncryption` changes it). What to put in both, and in Google Play's Data safety form:
   [MOBILE.md](MOBILE.md#store-privacy-forms).
+- **Plugin entries in `Info.plist`.** A plugin's `ios/plugin.json` can ask for Info.plist keys (`infoPlist`) and vendored
+  XCFrameworks (`xcframeworks`); the AdMob plugin adds `GADApplicationIdentifier`, `SKAdNetworkItems` and, with
+  `platform.ads.trackingPrompt`, `NSUserTrackingUsageDescription` (one `InfoPlist.strings` per language of the game when
+  `platform.ads.trackingDescriptionKey` is set). [MOBILE.md](MOBILE.md#native-plugins-ios).
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). Each plugin declared for iOS needs `ios/iphoneos/lib<name>.a` and
 `ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it

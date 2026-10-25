@@ -5,6 +5,7 @@
 # Needs FA_GAME_BUNDLE_ID, FA_GAME_NAME, FA_GAME_VERSION and FA_GAME_ORIENTATION (landscape | portrait | any) set, and
 # CMAKE_OSX_DEPLOYMENT_TARGET. FA_GAME_BUILD (optional) is the build number, CFBundleVersion; empty = FA_GAME_VERSION.
 # FA_GAME_NON_EXEMPT_ENCRYPTION (optional, default OFF) is ITSAppUsesNonExemptEncryption.
+# FA_GAME_INFO_PLIST_EXTRA (optional) is a file of more <key>/<value> pairs for the plist (the plugins' keys).
 # A macro (not a function) so the variables Info.plist.in reads land in the caller's scope.
 set(FA_IOS_PLIST_DIR ${CMAKE_CURRENT_LIST_DIR})  # captured at include time: inside the macro it would be the caller's dir
 
@@ -39,6 +40,16 @@ macro(fa_ios_configure_plist out)
         set(FA_IOS_NON_EXEMPT_ENCRYPTION "<true/>")
     else()
         set(FA_IOS_NON_EXEMPT_ENCRYPTION "<false/>")
+    endif()
+    # The keys the plugins ask for (plugin.json "infoPlist") and the ads plugin's (GADApplicationIdentifier, ...): `factoria export`
+    # writes them as <key>/<value> lines to the file build_ios.sh passes as FA_GAME_INFO_PLIST_EXTRA.
+    set(FA_IOS_PLIST_EXTRA "")
+    if(FA_GAME_INFO_PLIST_EXTRA)
+        if(NOT EXISTS "${FA_GAME_INFO_PLIST_EXTRA}")
+            message(FATAL_ERROR "FA_GAME_INFO_PLIST_EXTRA='${FA_GAME_INFO_PLIST_EXTRA}' does not exist. "
+                "Export the game again with `factoria export --platform ios` (it writes the file next to build_ios.sh).")
+        endif()
+        file(READ "${FA_GAME_INFO_PLIST_EXTRA}" FA_IOS_PLIST_EXTRA)
     endif()
     # XML-escape the display name for the plist.
     string(REPLACE "&" "&amp;" FA_GAME_NAME_XML "${FA_GAME_NAME}")

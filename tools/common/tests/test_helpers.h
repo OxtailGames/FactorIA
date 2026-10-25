@@ -1,8 +1,11 @@
 #pragma once
 #include <filesystem>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "fa/core/json.h"
 #include "fa/core/fs.h"
@@ -38,6 +41,37 @@ inline std::string read_all(const std::filesystem::path& p) {
 inline void write_all(const std::filesystem::path& p, const std::string& s) {
     std::filesystem::create_directories(p.parent_path());
     std::ofstream(p, std::ios::binary) << s;
+}
+
+// A .zip with the entries stored (no compression), made without a zip program: the setup under test unpacks it with the system's
+// tar/unzip. `entries` are {name inside the zip, contents}; a name ending in "/" is not needed (folders are made on unpacking).
+inline void write_stored_zip(const std::filesystem::path& file, const std::vector<std::pair<std::string, std::string>>& entries) {
+    auto crc32 = [](const std::string& data) {
+        std::uint32_t crc = 0xFFFFFFFFu;
+        for (unsigned char c : data) {
+            crc ^= c;
+            for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+        return ~crc;
+    };
+    std::string out, central;
+    auto u16 = [](std::string& s, std::uint32_t v) { s += static_cast<char>(v & 0xFF); s += static_cast<char>((v >> 8) & 0xFF); };
+    auto u32 = [&](std::string& s, std::uint32_t v) { u16(s, v & 0xFFFF); u16(s, v >> 16); };
+    for (const auto& e : entries) {
+        const std::uint32_t offset = static_cast<std::uint32_t>(out.size()), crc = crc32(e.second), size = static_cast<std::uint32_t>(e.second.size());
+        u32(out, 0x04034b50); u16(out, 20); u16(out, 0); u16(out, 0); u16(out, 0); u16(out, 33);
+        u32(out, crc); u32(out, size); u32(out, size); u16(out, static_cast<std::uint32_t>(e.first.size())); u16(out, 0);
+        out += e.first + e.second;
+        u32(central, 0x02014b50); u16(central, 20); u16(central, 20); u16(central, 0); u16(central, 0); u16(central, 0); u16(central, 33);
+        u32(central, crc); u32(central, size); u32(central, size); u16(central, static_cast<std::uint32_t>(e.first.size()));
+        u16(central, 0); u16(central, 0); u16(central, 0); u16(central, 0); u32(central, 0); u32(central, offset);
+        central += e.first;
+    }
+    const std::uint32_t centralOffset = static_cast<std::uint32_t>(out.size());
+    out += central;
+    u32(out, 0x06054b50); u16(out, 0); u16(out, 0); u16(out, static_cast<std::uint32_t>(entries.size()));
+    u16(out, static_cast<std::uint32_t>(entries.size())); u32(out, static_cast<std::uint32_t>(central.size())); u32(out, centralOffset); u16(out, 0);
+    write_all(file, out);
 }
 
 }  // namespace fa::testing
