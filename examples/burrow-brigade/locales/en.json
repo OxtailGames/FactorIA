@@ -55,7 +55,11 @@
       "move_down": "Move down",
       "dig": "Dig",
       "pause": "Pause",
-      "torch": "Place torch"
+      "torch": "Place torch",
+      "left": "Left",
+      "right": "Right",
+      "up": "Up",
+      "down": "Down"
     },
     "binding": "{action}: {button}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
@@ -66,7 +70,10 @@
     "privacyOptions": "Ad privacy settings",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "playerPress": "{action}: press a key or a button (Esc cancels)"
   },
   "pause": {
     "title": "Paused",
@@ -95,7 +102,9 @@
     "bossStarted": "The Mole King wakes!",
     "bossDefeated": "The Mole King falls! The lift is free.",
     "exitJammed": "The Mole King jams the lift!",
-    "shiftAllDown": "Every miner is down..."
+    "shiftAllDown": "Every miner is down...",
+    "playerRevived": "A miner is back on their feet!",
+    "reviving": "Hold dig next to a downed friend to get them up."
   },
   "strata": {
     "topsoil": "Topsoil",
@@ -127,5 +136,20 @@
     "nextFloor": "Next floor",
     "retryFloor": "Try the floor again",
     "newRun": "New run"
+  },
+  "join": {
+    "title": "Who is digging?",
+    "noPlayers": "Nobody has joined yet.",
+    "slotEmpty": "{player}: press A (gamepad) or Enter (keyboard) to join",
+    "slotPad": "{player} - Gamepad {pad}",
+    "slotPadHost": "{player} - Gamepad {pad} - Start begins the shift",
+    "slotKeyboard": "{player} - Keyboard",
+    "slotKeyboardHost": "{player} - Keyboard - Enter begins the shift",
+    "hint": "A / Enter: join.   B / Esc: leave (or go back to the title).   The first player presses Start / Enter to begin. Up to 4 players: a keyboard and three gamepads, or four gamepads."
+  },
+  "pads": {
+    "lost": "Reconnect the controller for {player}",
+    "handOver": "Press A on another controller (or Enter on the keyboard) to give {player}'s miner to it.",
+    "drop": "Or another player presses Y (Backspace on the keyboard) to drop {player} from the shift."
   }
 }

@@ -19,6 +19,7 @@ import { Lights } from "./lights.js";
 import { Fog } from "./fog.js";
 import * as music from "./music.js";
 import * as saveFile from "./save.js";
+import * as revive from "./revive.js";
 
 /** Seconds every lamp has to stay out before the shift ends in the dark. */
 export const DARK_GRACE = 2;
@@ -45,6 +46,7 @@ export default class Shift extends Behaviour {
     const seed = beginShift();
     const hasRows = Array.isArray(this.rows) && this.rows.length > 0;
     this.mine = hasRows ? fromRows(this.rows, { seed, stratum: run.stratum, floor: run.floor }) : generate(seed, run.stratum, run.floor);
+    revive.reset();
     this.map = new MineMap(this.mine);
     live.map = this.map;
     live.mine = this.mine;
@@ -99,6 +101,7 @@ export default class Shift extends Behaviour {
     if (this.ended || !run.inShift) return;
     run.shiftTime += dt;
     this.hazards.update(dt);
+    revive.update(dt);
     this.lights.update(dt);
     this.fog.update(dt, { torches: this.lights.torches });
     const alive = players.alive();
@@ -146,6 +149,7 @@ export default class Shift extends Behaviour {
     this.hazards?.dispose();
     this.lights?.dispose();
     this.fog?.dispose();
+    revive.reset();
     run.inShift = false;
     live.map = null;
     live.mine = null;

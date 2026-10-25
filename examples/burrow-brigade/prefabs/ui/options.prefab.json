@@ -193,7 +193,7 @@
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
-            "spacing": 12
+            "spacing": 6
           }
         },
         "children": [
@@ -280,7 +280,7 @@
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
-            "spacing": 12
+            "spacing": 6
           }
         },
         "children": [
@@ -319,7 +319,7 @@
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
-            "spacing": 12
+            "spacing": 6
           }
         },
         "children": [
