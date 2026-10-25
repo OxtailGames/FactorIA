@@ -281,6 +281,11 @@ does not need a window or a GPU. The chain it tries:
 - The `$name` of a language, which a language menu draws whatever language the game runs in: an error when the
   language itself cannot draw it, a warning when only some other language of the game cannot.
 
+Thai SARA AM (U+0E33) and Lao AM (U+0EB3) are checked as the parts HarfBuzz always decomposes them into (U+0E4D U+0E32,
+U+0ECD U+0EB2): a font that has the composed character but not the nikhahit would silently drop it. Thai, Khmer, Lao and
+Burmese have no spaces between words and the engine has no dictionary: mark the places where a line may break with U+200B
+ZERO WIDTH SPACE in the translation (it takes no width and draws nothing).
+
 The error names the first characters (`U+65E5 '日'`), the text, the file, the pointer or the table key, the fonts that were
 tried, and the fix: change the text, or list a font that has them in `localization.languageFonts."<tag>"` or
 `localization.fallbackFonts`, with the Noto Sans font for the script to download (SIL Open Font License). A font that

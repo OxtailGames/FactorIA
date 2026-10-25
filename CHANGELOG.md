@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Thai line breaks and the sara am check
+
+- A wrapped line now also breaks after U+200B ZERO WIDTH SPACE (no width, never drawn), the UAX #14 spaces (U+1680,
+  U+2000-U+2006, U+2008-U+200A, U+205F) and a hyphen (`-` unless a digit follows, U+2010), so Thai, Khmer, Lao and Burmese
+  text whose translator marks word boundaries with U+200B wraps there. Unmarked text still needs a dictionary and is not broken.
+- `FontCoverage::missing`, `localization validate` and the runtime missing-glyph warning check U+0E33 and U+0EB3 as the parts
+  HarfBuzz always decomposes them into (U+0E4D U+0E32, U+0ECD U+0EB2), so a font lacking the nikhahit is reported.
+
 Video player
 
 - A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every
