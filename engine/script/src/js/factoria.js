@@ -554,8 +554,9 @@
   class TilemapApi {
     constructor(h) { this.$h = h; }
     get component() { return viewOf(this.$h, typeOf("Tilemap")); }
-    get width() { const c = this.component; return Array.isArray(c.tiles[0]) ? Math.max(0, ...c.tiles.map((r) => r.length)) : (c.width > 0 ? c.width : c.tiles.length); }
-    get height() { const c = this.component; return Array.isArray(c.tiles[0]) ? c.tiles.length : (c.height > 0 ? c.height : Math.ceil(c.tiles.length / Math.max(1, this.width))); }
+    // The size drawing and collision use, read natively: `tiles` is not copied to the script.
+    get width() { return N.tileDims(this.$h)[0]; }
+    get height() { return N.tileDims(this.$h)[1]; }
     getTile(x, y) {
       if (typeof x !== "number" || typeof y !== "number") throw new Error(`tilemap.getTile(x, y) expects two cell numbers, got ${inspect(x)}, ${inspect(y)}`);
       return N.tileGet(this.$h, x, y);
