@@ -608,6 +608,181 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "renderStats, perf.measure and maxLights do not count Light2D",
+      "missing": "renderStats().lights counts 3D lights only. In a 2D game with 16 Light2D lamps perf.measure reports lights 0 and the maxLights budget guards nothing",
+      "workaround": "tests/render_budget.test.js counts the active Light2D entities itself (cap 16) on the busiest floor, next to the draw call and entity budgets",
+      "workaroundFiles": [
+        "tests/render_budget.test.js",
+        "perf.json"
+      ],
+      "suggestion": "Count Light2D in renderStats().lights (or add light2d) and let perf.json maxLights apply to both",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "The exported player has no input replay, state dump or screenshot option",
+      "missing": "factoria_player accepts only [projectDir|game.pak] --scene --fullscreen --frames --version, so an exported build cannot be driven by a replay or asked for its state; 'it starts and takes input' cannot be proven on the exported binary itself",
+      "workaround": "SHIPPING.md: the exported app is smoke-tested with --frames (exit 0, logs the scene load), input is proven by factoria run --headless --input with a state dump on the same project and scripts; the real keyboard and pad run on the exported build is a manual check",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Give factoria_player --input FILE, --state-out FILE and --screenshot-at in a release build too (headless or windowed), or document that the player is not testable",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "No way to start a scene with parameters or to record an input replay",
+      "missing": "A scene cannot be given arguments from the command line or factoria call, and nothing records the keys and pads of a real or bot-driven session into a replay JSON",
+      "workaround": "A generated scene per shot (store/make_store.py) holds a script with literal props; store/record.test.js drives MinerBots under factoria test and prints @@REPLAY lines the script turns into replays; scripts/game/busiest.js reads an override export for tests",
+      "workaroundFiles": [
+        "store/make_store.py",
+        "store/record.test.js",
+        "scripts/game/busiest.js"
+      ],
+      "suggestion": "factoria run --prop name=value (read through an engine API) and input.record(path) that writes the replay format",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "A declared Steam plugin without Valve's library logs an ERROR on every run and blocks the other platforms' exports",
+      "missing": "platform.add_backend steam writes plugins/steam, but the library libsteam_api for each OS comes from Valve's SDK, which is not redistributable. Without it every run logs an ERROR and validate warns that the windows and linux plugin builds are missing",
+      "workaround": "plugins/steam is not committed (.gitignore); SHIPPING.md says to run platform.add_backend with sdk on each build machine before exporting. Without it the game runs with platform services off",
+      "workaroundFiles": [
+        ".gitignore",
+        "SHIPPING.md"
+      ],
+      "suggestion": "Let a plugin be optional per platform (skip with an INFO when the library is missing) or keep the backend declaration apart from the build of the library",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The installed windows, linux and mobile players carry no build fingerprint",
+      "missing": "Players in ~/.factoria/players/0.2.0 for windows, linux and mobile have no build fingerprint, so export refuses them as a mismatch with this factoria",
+      "workaround": "export with --allow-player-mismatch for windows and linux and say in SHIPPING.md that those two builds were not run",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Stamp the fingerprint when a player is built or fetched, or compare by engine version when it is absent",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "publish.steam refuses app 480 even in a dry run",
+      "missing": "A project that uses Valve's test app 480 (the only id available before paying the Steam fee) cannot see the upload plan: the dry run fails with 'a build cannot be uploaded to it'",
+      "workaround": "The dry run is shown with an explicit appId placeholder (factoria call publish.steam '{\"dryRun\":true,\"appId\":1234567}'); steam_appid.txt keeps 480 for the Spacewar check",
+      "workaroundFiles": [
+        "SHIPPING.md",
+        "steam_appid.txt"
+      ],
+      "suggestion": "Allow dryRun with app 480 (print the plan and a warning) and refuse only the real upload",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "No way to frame a still of the game from a camera that follows the players",
+      "missing": "The key art needs the four miners, their lights and the camp in one composed frame, but the camera follows the miners and the capsule logo covers the middle; assets.draw_capsules only crops the key art by a focus point",
+      "workaround": "store/make_store.py renders a staged keyart scene, lifts the picture with PIL (KEYART_LIFT) so the logo sits below the miners, then calls assets.draw_capsules",
+      "workaroundFiles": [
+        "store/make_store.py",
+        "store/scenes/keyart.scene.json"
+      ],
+      "suggestion": "assets.draw_capsules option for a safe area or a logo anchor so the focus keeps the subject clear of the logo",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A test cannot write a file, so a recording has to go through stdout",
+      "missing": "factoria test scripts have no file-writing API, so a bot session cannot save the replay it produced",
+      "workaround": "store/record.test.js prints one @@REPLAY JSON line per floor and make_store.py parses them out of the test output",
+      "workaroundFiles": [
+        "store/record.test.js",
+        "store/make_store.py"
+      ],
+      "suggestion": "A files.write under the project's build/ folder available to tests (tools already have project files)",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
