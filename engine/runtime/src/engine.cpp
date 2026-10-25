@@ -145,7 +145,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     refresh_from_disk();
     hasPendingScene = false;
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
@@ -180,7 +180,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     hasPendingScene = false;
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
     LoadReport report = fa::load_scene(world, scene, sourceName);

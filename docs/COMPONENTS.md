@@ -812,7 +812,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `fogDensity` | float | `0.0` | Fog thickness; 0 disables fog. Range 0.0..10.0. |
 | `skyColor` | color | `[0.45,0.62,0.85,1.0]` | Top color of the 3D background gradient (used when a perspective camera clears). |
 | `horizonColor` | color | `[0.8,0.85,0.9,1.0]` | Bottom color of the 3D background gradient. |
-| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. |
+| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. |
 | `musicVolume` | float | `0.6` | Volume of the background music, 0..1. Range 0.0..1.0. |
 
 
@@ -908,6 +908,7 @@ Make the store page images (capsules, heroes, covers, screenshots) at each store
 
 Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/EXPORTING.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
 The `logo` is placed by the rule of each asset: capsules and covers get it centred (Microsoft: in the upper part, the bottom third is overlaid; Steam library capsule: low), heroes, page backgrounds and screenshots get none (Steam's library hero must have no text), and the logo-only assets (Steam library logo 1280x720, Epic logo 960x540) are a transparent PNG with just the logo. `logo` is {"image": "assets/logo.png"} (transparent PNG) or {"text": "My Game", font, fill, outline} (title drawn like assets.draw_icon draws text; fill default white, outline default a dark one, false = none). Without a logo the art is cut without one and the logo-only assets are skipped.
+`safeArea` is the margin the logo keeps from the edges, as fractions of the image (default 0.05 on every side, and the bottom third on the Microsoft poster and box art, which the store overlays with text): a number, {left, top, right, bottom}, or {default, steam, ...} per store. The logo is cut to fit inside it and never leaves it. `logoAnchor` puts the logo somewhere else than the asset's rule does: center, top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight, or a point [x, y] of the safe area ([0, 0] its top-left corner, [1, 1] the bottom-right one). When the art already has the capsule's proportions (within 1%) the crop has nothing to choose, so a given `focus` moves the logo instead, by its distance from [0.5, 0.5] (0.2 of the width left of the middle moves it 0.3 of the width left), still inside the safe area.
 `orientation` (landscape, default; or portrait) turns the phone and tablet screenshot sizes of Google Play and the App Store. Capsules are not the store screenshots: take those at the stores' sizes with `--render-scale` (a 1280x720 game at 1.5 gives 1920x1080).
 Example: {"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}.
 
@@ -916,6 +917,8 @@ Example: {"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern 
 | `keyArt` | string | yes | The art to cut the capsules from: a project image path, 1920x1080 or bigger is best (a screenshot taken with --render-scale). |
 | `focus` | array | no | The point of the art that must stay in view when it is cropped, as fractions [x, y]. Default [0.5, 0.5]. |
 | `logo` | object | no | The logo: give image or text. |
+| `logoAnchor` | any | no | Where the logo sits in the safe area instead of the asset's own rule: a name or a point [x, y] (0..1; [0, 0] touches the top-left corner of the safe area). |
+| `safeArea` | any | no | Margins the logo stays inside, as fractions of the image (0..0.45): a number for all sides, {left, top, right, bottom}, or per store {default, steam, epic, ...} each of those. Default 0.05, and the bottom third of the Microsoft poster and box art. |
 | `stores` | array | no | Which stores. Default all. |
 | `name` | string | no | File name prefix. Default: the project name. |
 | `orientation` | string ["landscape","portrait"] | no | Phone and tablet screenshot sizes of Google Play and the App Store. Default landscape. |
@@ -1168,7 +1171,7 @@ Not released yet (on main after 0.2.0).
 
 Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
 
-Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Peaks at -3 dBFS. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
+Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Levelled to about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
 - bark: a dog bark: two short rough barks.
 - growl: a low growl: a rattling low saw with noise.
 - meow: a cat meow: a rising then falling vowel-like tone.
@@ -1202,7 +1205,7 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 
 List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
 
-Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
+Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1932,6 +1935,7 @@ Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon 
 | `format` | string ["apk","aab","gradle","appimage","msix","folder"] | no | Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
+| `allowMissingPlugins` | boolean | no | Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is "optional" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins. Default false. |
 | `allowPlayerMismatch` | boolean | no | Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can. Default false. |
 | `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
 
@@ -1964,7 +1968,7 @@ Since 0.1.6.
 
 Create a native plugin (C/C++) for this game and declare it in factoria.json.
 
-Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. With `dryRun` true nothing is written: the result lists the `files` and the `keys` of factoria.json it would write. An argument that does not exist is an error with a "did you mean". Returns {folder, files[], keys[], plugin, nextSteps[], dryRun?}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. With `dryRun` true nothing is written: the result lists the `files` and the `keys` of factoria.json it would write. An argument that does not exist is an error with a "did you mean". Returns {folder, files[], keys[], plugin, nextSteps[], dryRun?}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1972,6 +1976,7 @@ Writes a plugin folder (default plugins/<name>, or `path`: project-relative, abs
 | `template` | string | no | What to start from: "basic" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones. Default "basic". |
 | `path` | string | no | Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts. |
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
+| `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
 
 ### `project.templates`
@@ -2106,7 +2111,7 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `account` | string | no | Steam account that uploads (the builder account, with the 'Edit App Metadata' permission). Default: publish.steam.account of factoria.json. Its password is never stored: steamcmd keeps the login. |
-| `appId` | integer | no | Steam app id. Default: the number in steam_appid.txt of the project (not 480, Valve's test app). |
+| `appId` | integer | no | Steam app id. Default: the number in steam_appid.txt of the project (a dry run accepts 480, Valve's test app, with a warning; a real upload refuses it). |
 | `branch` | string | no | Beta branch to set the build live on after the upload. Default: publish.steam.branch, else none. 'default' is refused: Steam sets that one by hand. |
 
 ## scene
@@ -2458,7 +2463,7 @@ Since 0.2.0.
 
 Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen.
 
-For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text scale, plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened ("[" + vowels doubled + "]", at least 40 % longer) to show where an unknown, longer language would break. Returns {ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter string). Only texts with a localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only. It RELOADS scenes: afterwards the running scene is loaded again and the language, text size and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {"textScales":[1,2],"pseudo":true}
+For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text scale, plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened ("[" + vowels doubled + "]", at least 40 % longer) to show where an unknown, longer language would break. Returns {ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter string). A widget inside a ScrollList is checked on the part the list shows (its rectangle intersected with the list's), so a row half scrolled out is not reported for the half that is clipped, and a row fully outside is skipped. `steps` runs actions per scene (clicks on widgets by name or id, keys, actions, frames) before the checks, with a layout pass between them, so a panel a click opens is checked too; the state they reach stays for every case of that scene. Only texts with a localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only (and in the state the steps reach). It RELOADS scenes: afterwards the running scene is loaded again and the language, text size and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {"textScales":[1,2],"pseudo":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2466,6 +2471,7 @@ For every scene (default: each scene with UI) and every case it loads the scene,
 | `languages` | array | no | Languages to check, as in factoria.json localization.languages. Default: all of them (the current one when the game has no localization). |
 | `textScales` | array | no | Text size options (ui.set_text_scale) to check. Default: [1, 2]. |
 | `pseudo` | boolean | no | Also run the pseudo-localized pass (default language, every text scale). Default: true. |
+| `steps` | object | no | Per scene (project-relative path, as in `scenes`), a list run once after the scene loads and settles, before the checks, to reach a panel or state that is not there at the start: {"click":"widget name or id"} (the centre of its laid-out rectangle; an error when it is hidden, clipped or has no area), {"key":"Enter"} (press and release), {"action":"jump"} (press and release an input action), {"frames":n} (step n frames). The UI is laid out between steps. Example: {"scenes/menu.scene.json":[{"click":"options_button"},{"frames":10}]}. |
 | `settleFrames` | integer | no | Frames stepped after each change so scripts and layout settle. Default: 4. |
 
 ### `ui.clear_captions` (modifies state)
@@ -3250,11 +3256,29 @@ declare module "factoria" {
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
+    /**
+     * Stops every sound and the music now, a persisted track included.
+     */
     stopAll(): void;
     /**
-     * Starts looping background music.
+     * Starts looping background music on the "music" bus (volume default 0.6, fade-in `fade` seconds default 0.5). The same track already playing is only retuned. A scene load (scene.load, reload) stops every sound and the music, and then starts the new scene's SceneSettings.music, even when it is the same track as before; with persist: true this track keeps playing through scene loads (a scene whose SceneSettings.music is the same track does not restart it; another track replaces it). Example: audio.music("assets/theme.ogg", { persist: true }).
      */
-    music(path: string, opts?: { volume?: number; fade?: number }): void;
+    music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void;
+    /**
+     * Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: "assets/m/base.ogg", drums: "assets/m/drums.ogg" }, { levels: { drums: 0 } }); later audio.setLayer("drums", 1, 2).
+     */
+    musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean;
+    /**
+     * Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer.
+     */
+    setLayer(name: string, level: number, fade?: number): void;
+    /**
+     * Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play("assets/wind.ogg", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3).
+     */
+    setVoiceVolume(voice: number, volume: number, fade?: number): boolean;
+    /**
+     * Stops the music (and every layer) fading out over `fade` seconds (default 0.5).
+     */
     stopMusic(fade?: number): void;
     /**
      * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
@@ -7480,7 +7504,7 @@ declare module "factoria" {
     get horizonColor(): Color;
     set horizonColor(value: ColorLike);
     /**
-     * Looping background music asset path. Empty = none. (asset path: audio)
+     * Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. (asset path: audio)
      */
     music: string;
     /**
@@ -7703,6 +7727,10 @@ declare module "factoria:test" {
     readonly bus: "sfx" | "music" | "ui";
     readonly loop: boolean;
     /**
+     * The layer name when audio.musicLayers started it; "" otherwise.
+     */
+    readonly layer: string;
+    /**
      * Started with audio.music() or SceneSettings.music.
      */
     readonly music: boolean;
@@ -7880,6 +7908,10 @@ declare module "factoria:test" {
      * Press for one frame, then release.
      */
     tap(action: string): void;
+    /**
+     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     */
+    tapKey(key: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
     /**
@@ -7948,7 +7980,7 @@ declare module "factoria:test" {
     resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
-     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**

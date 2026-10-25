@@ -1100,7 +1100,31 @@
       return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0);
     },
     stop: (id) => N.audioStop(id), stopAll: () => N.audioStopAll(),
-    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5); },
+    // music(path, { volume, fade, persist }): looping music on the "music" bus. A scene load stops it unless persist is true.
+    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0); },
+    // musicLayers({ name: path }, { volume, fade, persist, levels }) -> true when every layer started. All layers start on the
+    // same sample and loop; setLayer fades them in and out. levels = starting level per name (default 1).
+    musicLayers(layers, o = {}) {
+      if (layers === null || typeof layers !== "object" || Array.isArray(layers)) throw new Error(`audio.musicLayers(layers, options): layers is an object of layer name to clip path, e.g. { base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, but got ${inspect(layers)}`);
+      const names = Object.keys(layers);
+      if (names.length === 0) throw new Error("audio.musicLayers(layers): needs at least one layer, e.g. { base: \"assets/music/base.ogg\" }");
+      const levels = o.levels ?? {};
+      for (const n of Object.keys(levels)) {
+        if (!(n in layers)) throw new Error(`audio.musicLayers(layers, { levels }): '${n}' is not a layer; the layers are ${names.join(", ")}`);
+      }
+      const list = names.map((name) => {
+        if (typeof layers[name] !== "string") throw new Error(`audio.musicLayers(layers): layer '${name}' must be a clip path string, e.g. "assets/music/${name}.ogg", but got ${inspect(layers[name])}`);
+        return { name, path: layers[name], level: levels[name] ?? 1 };
+      });
+      return N.audioMusicLayers(list, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0);
+    },
+    setLayer(name, level, fade = 0) {
+      if (!N.audioSetLayer(name, level, fade)) {
+        const current = N.audioLayerNames();
+        throw new Error(`audio.setLayer(${inspect(name)}, ...): no such music layer. ${current.length ? "The layers playing are " + current.join(", ") : "No layered music is playing: start it with audio.musicLayers({ name: path, ... })"}`);
+      }
+    },
+    setVoiceVolume(id, volume, fade = 0) { return N.audioSetVoiceVolume(id, volume, fade); },
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
     getVolume: (bus) => N.audioGetVolume(bus),
@@ -2131,9 +2155,14 @@
   const stepN = (n) => N.testStep(n);
   // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
   // game.step after game.setSafeArea).
+  // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
   const posArg = (p, what) => {
     if (typeof p === "string" || p instanceof Entity) {
-      const r = N.screenRect(entityHandle(p, what));
+      const h = entityHandle(p, what);
+      N.uiLayout();
+      const why = what === "game.mouseMove" ? null : N.uiUnclickable(h);
+      if (why) throw new Error(`${what}: ${inspect(p)} cannot be clicked: ${why}`);
+      const r = N.screenRect(h);
       if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
       return [r[0] + r[2] / 2, r[1] + r[3] / 2];
     }
@@ -2176,6 +2205,9 @@
     press(action) { N.inSetAction(action, true); },
     release(action) { N.inSetAction(action, false); },
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
+    // Presses a key and releases it over one frame, like tap does for an action (keyDown / keyUp hold it): game.tapKey("Enter")
+    // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A".
+    tapKey(key) { N.inKeyEvent(key, true); stepN(1); N.inKeyEvent(key, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
     // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change

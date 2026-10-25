@@ -624,6 +624,9 @@ export class MenuStack {
 
 ### `scripts/main_menu.js`
 
+A line that ends with `// @kit:<part>` belongs to that optional part: `project.add_menu_kit` leaves it out when the
+part is not added and removes the marker when it is, so the game's copy has no markers.
+
 ```js scripts/main_menu.js
 // @ts-check
 // The title screen (scenes/menu.scene.json): Play, Options, Credits, Quit, and Shop when the shop part is in the game.
