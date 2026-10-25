@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <chrono>
 #include <optional>
 
 #include "engine_impl.h"
@@ -31,6 +32,7 @@ struct WindowedState {
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
     // The player's date when it came from the wall clock (no --date): read again when the app comes back, see refresh_clock_date.
     std::optional<CalendarDate> clockDate;
+    std::chrono::steady_clock::time_point clockRead = std::chrono::steady_clock::now();  // when the clock was last read
     // What the window shows of Input's requested cursor and on-screen keyboard state (input.mouse.visible/locked,
     // input.showKeyboard): scripts change Input, apply_input_requests() makes the window follow.
     bool mouseVisible = true, mouseLocked = false, keyboardShown = false;
@@ -45,15 +47,16 @@ void apply_input_requests(WindowedState& st) {
     in.clear_vibrations();
 }
 
-// A player whose date came from the clock reads it again when the app comes back (resume, focus), before the scripts hear
-// about it: a game left in the background overnight sees the new day in its "resume" handler. Only a change of the clock's
-// date moves game.today(), so nothing else the game did to the date is undone by a focus change.
+// A player whose date came from the clock reads it again about once a minute and when the app comes back (resume, focus), before
+// the scripts hear about it: a game left in the background overnight sees the new day in its "resume" handler, and one that stays
+// in front past midnight gets "dayChanged". Only a change of the clock moves game.today(), so nothing else is undone.
 void refresh_clock_date(WindowedState& st) {
     if (!st.clockDate) return;
     const CalendarDate today = local_calendar_date();
-    if (today == *st.clockDate) return;
+    st.clockRead = std::chrono::steady_clock::now();
+    if (today.iso_datetime() == st.clockDate->iso_datetime() && today.utcOffsetMinutes == st.clockDate->utcOffsetMinutes) return;
     st.clockDate = today;
-    st.engine.scripts().set_start_date(today);
+    st.engine.scripts().set_clock_date(today);  // game.today() follows; "dayChanged" when the local day changed
 }
 
 // The device's safe area (notch, rounded corners, system bars) as insets of the renderer's target, in design pixels: the
@@ -163,7 +166,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         // does (--date overrides, and then it never changes).
         if (st->cfg.date.empty()) {
             const CalendarDate today = local_calendar_date();
-            st->cfg.date = today.iso();
+            st->cfg.date = today.iso_datetime();
             st->cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
             st->clockDate = today;
         }
@@ -187,6 +190,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     };
     d.frame = [st](double dt) {
         if (!st->ok) return;
+        // The clock is read again about once a minute (outside the simulation, like the first read) so game.today() moves on.
+        if (st->clockDate && std::chrono::steady_clock::now() - st->clockRead >= std::chrono::seconds(60)) refresh_clock_date(*st);
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
         st->engine.frame(dt);
@@ -372,16 +377,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                               options.inputReplayPath + ")";
             return finish(2);
         }
-        // Optional "date" ("YYYY-MM-DD") and "utcOffsetMinutes": the calendar date the run was recorded on, which game.today()
-        // answers again so a daily seed replays. --date wins; a file without it plays on the fixed default date.
+        // Optional "date" ("YYYY-MM-DD"), "time" ("HH:MM:SS") and "utcOffsetMinutes": the local date and time the run was recorded
+        // on, which game.today() answers again so a daily seed replays (a run recorded at 23:59 plays back on that day). --date
+        // wins; a file without a date plays on the fixed default date, one without a time at 00:00:00.
         if (config.date.empty()) {
             if (const Json& dj = r.value().value("date", Json()); !dj.is_null()) {
-                auto parsed = dj.is_string() ? parse_calendar_date(dj.get<std::string>(), "date") : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"", "Example: \"date\": \"2026-10-23\"."});
+                std::string text = dj.is_string() ? dj.get<std::string>() : std::string();
+                if (const Json& tj = r.value().value("time", Json()); !tj.is_null() && tj.is_string()) text += "T" + tj.get<std::string>();
+                auto parsed = dj.is_string() ? parse_calendar_date(text, "date") : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"", "Example: \"date\": \"2026-10-23\", \"time\": \"23:59:00\"."});
                 if (!parsed.ok()) {
                     report["error"] = "Input replay " + options.inputReplayPath + ": " + parsed.error().to_string();
                     return finish(2);
                 }
-                effective.date = dj.get<std::string>();
+                effective.date = text;
                 effective.dateUtcOffsetMinutes = r.value().value("utcOffsetMinutes", 0);
             }
         }
@@ -468,7 +476,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
         maxDrawCalls = std::max(maxDrawCalls, rs.drawCalls);
         maxTriangles = std::max(maxTriangles, rs.triangles);
-        maxLights = std::max(maxLights, rs.lights);
+        maxLights = std::max(maxLights, rs.lights + rs.lights2d);  // 3D and Light2D lights of one frame
         maxTextureBytes = std::max(maxTextureBytes, r->texture_bytes());
     };
     // Profiler (options.profile): measure the frames after the warm-up into report["profile"]; the setting is put back at the end.

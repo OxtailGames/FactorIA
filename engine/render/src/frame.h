@@ -21,6 +21,7 @@ struct Frame {
     // Lit 2D visuals (Sprite.lit, Tilemap.lit): the lights of this frame (gather_2d) and the base light.
     std::vector<Light2DData> lights2d;
     Color ambient2d{0.25f, 0.25f, 0.3f, 1.0f};
+    bool* warnedLights2d = nullptr;  // set once gather_2d warned that more than kMaxLights2D lights are in view (per scene)
 };
 
 // Emits the 4 vertices of an axis-aligned local rectangle (y up) transformed by `m`.

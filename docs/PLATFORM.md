@@ -192,6 +192,15 @@ Monday's date for a week, `""` for `allTime`) and `date`. Every backend maps the
   time scope of the same board.
 - **Play Games** reads the daily or weekly table of the same board (`TIME_SPAN_DAILY`, `TIME_SPAN_WEEKLY`).
 
+**A board of another day.** `submit(id, score, { day: "2026-10-22" })` and `entries(id, { day })` address the daily board
+of that day instead of today's, for "yesterday's best" screens and for a day boundary crossed while the game ran. The
+backend gets that day as `periodKey`. Without `day` a daily board is the one of the player's local date
+(`game.today().iso`), so players in different time zones write different boards for a few hours; a game that wants one
+board for the whole world passes the UTC day (`game.today().utc.iso`) to `submit` and `entries` alike. Only a daily board takes `day` (on
+a weekly or allTime board the call throws). The fake and Steam keep one board per day, so they answer for any day; Game
+Center and Play Games only have the store's own current day, so they reject a `day` that is neither the local nor the UTC
+date of `game.today()` with the code `unsupported`.
+
 Each store starts a period at its own time, not always at the game's `periodKey`:
 
 | Backend | A day starts | A week starts | `periodStart` / `periodEnd` |

@@ -56,14 +56,16 @@ public:
     }
     // The calendar date the session plays on (game.today()): "date" and "utcOffsetMinutes" of the replay, so the headless replay
     // sees the same day (a daily seed, a calendar event). Not set = the file has neither and replays on the fixed default date.
-    void set_date(const std::string& iso, int utcOffsetMinutes) {
+    void set_date(const std::string& iso, int utcOffsetMinutes, const std::string& time = "") {
         date_ = iso;
+        time_ = time;
         utcOffsetMinutes_ = utcOffsetMinutes;
     }
     Json input() const {
         Json j = Json::object({{"frames", frames_}, {"timing", timing_}});
         if (!date_.empty()) {
             j["date"] = date_;
+            if (!time_.empty()) j["time"] = time_;
             j["utcOffsetMinutes"] = utcOffsetMinutes_;
         }
         return j;
@@ -73,7 +75,7 @@ private:
     static const char* button_name(MouseButton b) { return b == MouseButton::Left ? "left" : b == MouseButton::Right ? "right" : "middle"; }
     Json& entry(std::uint64_t frame) { return frames_[std::to_string(frame >= start_ ? frame - start_ : 0)]; }
 
-    std::string date_;
+    std::string date_, time_;
     int utcOffsetMinutes_ = 0;
     std::uint64_t start_ = 0;
     Json frames_ = Json::object();

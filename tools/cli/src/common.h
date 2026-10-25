@@ -87,7 +87,7 @@ EngineConfig project_engine_config(const std::string& projectDir, const std::str
 // The --date flag: "" when absent, else the date checked with parse_calendar_date. A date that does not exist (2026-02-29) or
 // is not YYYY-MM-DD throws a UsageError that says what is wrong and how to fix it, before any engine starts.
 std::string date_flag(const Args& args);
-inline const FlagSpec kDateFlag{"date", "YYYY-MM-DD", "The calendar date game.today() answers (default 2026-01-01: a run never reads the clock). A daily seed, a calendar event or a weekend bonus is tested by choosing the date. A replay (--input) carries its own date; --date overrides it."};
+inline const FlagSpec kDateFlag{"date", "YYYY-MM-DD[THH:MM[:SS]]", "The calendar date (and optionally the local time of day, default 00:00:00) game.today() answers (default 2026-01-01: a run never reads the clock). A daily seed, a calendar event or a weekend bonus is tested by choosing the date. A replay (--input) carries its own date; --date overrides it."};
 // Makes `cfg` a headless run (`factoria run --headless`, the debugger's headless mode): no window, no audio device,
 // the fake platform backend (a development run never talks to a real store, docs/PLATFORM.md). Frames are simulated
 // but drawn only on demand unless `renderAll`; `storage.*` stays in memory unless `persistStorage`.
