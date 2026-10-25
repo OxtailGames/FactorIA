@@ -7,6 +7,7 @@
 import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
+import * as analytics from "../game/analytics.js";
 
 const TABS = ["video", "audio", "controls", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
@@ -30,6 +31,7 @@ export default class Options extends Behaviour {
     this.setupControls();
     this.setupLanguage();
     this.setupPrivacy();
+    this.setupAnalytics();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
@@ -180,6 +182,13 @@ export default class Options extends Behaviour {
     const button = world.find("language").get("Button");
     button.text = i18n.t("options.language", { language: i18n.name(i18n.language) });
     button.interactable = i18n.languages.length > 1; // a game with one language has nothing to choose
+  }
+
+  // ----------------------------------------------------------------------------------------------------- analytics
+  /** The opt-in switch for anonymous play statistics (scripts/game/analytics.js): off until the player says yes. */
+  setupAnalytics() {
+    world.find("analytics").get("Toggle").value = analytics.enabled();
+    ui.on("change", "analytics", (e) => analytics.setConsent(!!e.value));
   }
 
   // ------------------------------------------------------------------------------------------------------- privacy

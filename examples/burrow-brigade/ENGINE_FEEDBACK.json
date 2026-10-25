@@ -269,6 +269,136 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "networking",
+      "severity": "major",
+      "title": "No HTTP, news, remote-config or analytics API",
+      "missing": "A game script cannot fetch a JSON file or post an event: there is no http/fetch API, no news feed, no remote config and no analytics service in the engine",
+      "workaround": "scripts/game/online.js is a transport seam (offline by default, a fake in tests); news, balance and analytics go through it, and every feature works offline. A real transport has to be plugged in when the engine offers one",
+      "workaroundFiles": [
+        "scripts/game/online.js",
+        "scripts/game/news.js",
+        "scripts/game/balance.js",
+        "scripts/game/analytics.js"
+      ],
+      "suggestion": "A promise-based http module with timeouts and a test fake (game.http), plus a consent-aware analytics.track",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "A daily leaderboard cannot be targeted by date",
+      "missing": "A leaderboard with period daily picks its day from game.today(), which is the LOCAL date, and leaderboards.submit has no way to name a day, so a daily-seed run keyed by a UTC date (the usual seed key) can land on the wrong day near midnight",
+      "workaround": "scripts/game/boards.js posts to the daily board only when run.dailyKey is within one day of game.today().iso and records lastPost.daily.skipped otherwise",
+      "workaroundFiles": [
+        "scripts/game/boards.js"
+      ],
+      "suggestion": "leaderboards.submit(id, score, {day:'YYYY-MM-DD'}) or game.today() with a utc option",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No Steam Deck detection API",
+      "missing": "No platform.isSteamDeck or device query; only a connected pad of type steamdeck says the game runs on a Deck",
+      "workaround": "scripts/game/deck.js isDeck() looks for a connected pad of type steamdeck, so a Deck driven by the keyboard or touch is not detected",
+      "workaroundFiles": [
+        "scripts/game/deck.js"
+      ],
+      "suggestion": "platform.device with {steamDeck, handheld}",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "No quit or window-close event",
+      "missing": "game.on has suspend and resume but no quit event, so a game cannot send a last message when the window closes",
+      "workaround": "Only the Quit button of the title flushes the analytics (scripts/main_menu.js quit()); closing the window loses the unsent events, which stay queued only in memory",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scripts/game/analytics.js"
+      ],
+      "suggestion": "game.on('quit', fn) with a short grace period",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No clipboard API",
+      "missing": "No text clipboard: a seed code cannot be copied or pasted",
+      "workaround": "scripts/game/text_entry.js cleans typed codes to an alphabet without 0/O/1/I and the screens show the code to read aloud",
+      "workaroundFiles": [
+        "scripts/game/text_entry.js"
+      ],
+      "suggestion": "input.clipboard.read/write behind a user gesture",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The test runner cannot press Enter on a TextField",
+      "missing": "game.press only takes input actions and TextField ignores ui_submit, so a test cannot submit a TextField",
+      "workaround": "tests/deck.test.js checks onChange only; onSubmit in text_entry.js is used the same way and is untested",
+      "workaroundFiles": [
+        "tests/deck.test.js"
+      ],
+      "suggestion": "game.pressKey('Enter') or game.submit(id)",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

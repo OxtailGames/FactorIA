@@ -337,6 +337,18 @@
         ]
       },
       {
+        "id": "analytics",
+        "components": {
+          "Toggle": {
+            "autoSize": true,
+            "label": "Send anonymous play statistics",
+            "key": "options.analytics",
+            "size": [560, 44],
+            "layer": 302
+          }
+        }
+      },
+      {
         "id": "privacy_options",
         "active": false,
         "components": {
