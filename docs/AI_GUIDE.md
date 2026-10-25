@@ -619,6 +619,10 @@ export default class Jumper extends Behaviour {
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
 
+A scene load stops every sound and the music, and then starts the new scene's `settings.music` (the same track again when both scenes name it). Music that should play across scenes (a menu theme into the first level) is started by a script with `audio.music(path, { persist: true })`: it survives scene loads, and a scene whose `settings.music` is the same track does not restart it.
+
+Change a sound while it plays with `audio.setVoiceVolume(id, volume, fadeSeconds)` (`id` from `audio.play`; wind that swells, an engine hum). For music in layers (drums that come in when the fight starts) use `audio.musicLayers({ base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, { levels: { drums: 0 } })` and then `audio.setLayer("drums", 1, 2)`: the layers start on the same sample and stay in step while they loop, as long as the clips have the same length.
+
 Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
@@ -1498,6 +1502,7 @@ Inside `script.eval`, the globals are the `"factoria"` names: `world`, `input`, 
 - `keys`: raw keys, `{"Space": true}` for down, `false` for up.
 - `mouse`: `{"position": [x, y], "left": true, "right": false, "middle": false}` in design pixels.
 - `gamepad`: `{"index": 0, "buttons": {"A": true, "DpadLeft": false}, "axes": {"LeftX": -1, "RightTrigger": 0.5}}`, or an array of those for several pads. `index` is 0 to 3 (default 0), `"connected": false` unplugs the pad. Buttons are `A B X Y Start Back Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes are `LeftX LeftY RightX RightY` (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). The state stays until a later frame sets it again, so set an axis back to 0 to release the stick.
+- `clipboard`: a string put on the (in-memory) clipboard before the frame; a focused TextField reads it when `keys` presses Ctrl+V.
 - `touch`: `{"id": 1, "position": [x, y], "down": true}`, or an array for several fingers. `down` defaults to true: a new `id` begins a finger, a known `id` moves it; `"down": false` lifts it (`position` is not needed then). The first finger also drives the mouse, as on a device.
 
 ```json

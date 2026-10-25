@@ -706,7 +706,13 @@ fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiV
   a warning in `factoria validate`, not an error. Without the build, `plugins.<name>` still exists but throws "the native
   plugin is not loaded" when a function is used, and the runtime logs a warning and goes on, so wrap calls in
   `try`/`catch` or rely on what the plugin provides (a store backend falls back to the development fake store).
-  `factoria export` still fails without the build for the target platform, so a store build cannot ship without it by accident.
+  `project.new_plugin` and `platform.add_backend` write `"optional": true` (pass `optional: false` to `project.new_plugin` for a
+  plugin the game cannot do without). `factoria export` still fails without the build for the target platform (optional or
+  not), so a store build cannot ship without it by accident; `--allow-missing-plugins` (the `project.export` argument
+  `allowMissingPlugins`) is the deliberate way around it: the export leaves out every plugin whose build is missing, names
+  each in a warning and lists them in `pluginsLeftOut`. It works for a plugin that is not `optional` too, and says in
+  the warning that scripts calling it will fail. A plugin is built only for the computer it is built on, so for the other
+  platforms take its build from CI or the other computer ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
 
 The folder holds one build per platform:
 

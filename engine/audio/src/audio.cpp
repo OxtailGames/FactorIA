@@ -76,6 +76,10 @@ struct Voice {
     float fade = 1.0f, fadeTarget = 1.0f, fadeStep = 0.0f;
     long fadeFrames = 0;
     bool stopAtFadeEnd = false;
+    // A ramp of `volume` itself (set_voice_volume with a fade): per frame `volume += volStep` for volFrames frames.
+    float volTarget = 1.0f, volStep = 0.0f;
+    long volFrames = 0;
+    bool protect = false;  // music and its layers: never the voice a full mixer evicts
     bool dead = false;
     std::unique_ptr<Stream> stream;  // set for a streamed clip: `pos` then counts frames of the whole timeline
     std::unique_ptr<PcmFeed> pcm;    // set for a voice the game feeds (no clip)
@@ -148,6 +152,14 @@ struct Audio::Impl {
     float master = 1.0f;
     VoiceId musicVoice = 0;
     std::string musicPath;
+    float layerVolume = 0.6f;   // the `volume` musicLayers got: a layer plays at layerVolume * its level
+    bool musicPersist = false;  // the music (or its layers) survives scene loads
+    struct Layer {
+        std::string name;
+        VoiceId voice = 0;
+        float level = 1.0f;
+    };
+    std::vector<Layer> layers;  // audio.musicLayers: voices that started on the same sample
 
     bool paused = false;  // set_paused: the mix is silent and no voice advances
     bool recording = false;
@@ -175,7 +187,8 @@ struct Audio::Impl {
     std::uint64_t playSeq = 0;
     std::uint64_t playDropped = 0;
 
-    void log_play(std::string_view path, const PlayParams& p, bool music, std::string_view source, bool ok) {
+    void log_play(std::string_view path, const PlayParams& p, bool music, std::string_view source, bool ok,
+                  std::string_view layer = {}) {
         AudioEvent ev;
         ev.seq = ++playSeq;
         if (const World* w = clockWorld ? clockWorld : lastWorld) {
@@ -190,6 +203,7 @@ struct Audio::Impl {
         ev.loop = p.loop;
         ev.music = music;
         ev.source = std::string(source);
+        ev.layer = std::string(layer);
         ev.ok = ok;
         std::lock_guard<std::mutex> lk(mu);
         playLog.push_back(std::move(ev));
@@ -343,7 +357,8 @@ struct Audio::Impl {
 
     VoiceId add_voice_locked(std::shared_ptr<const Clip> clip, const PlayParams& p, std::unique_ptr<Stream> stream) {
         if (voices.size() >= kMaxVoices) {
-            auto it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.loop && v.id != musicVoice; });
+            auto it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.loop && !v.protect && v.id != musicVoice; });
+            if (it == voices.end()) it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.protect; });
             if (it == voices.end()) it = voices.begin();
             if (it->id == musicVoice) musicVoice = 0;
             voices.erase(it);
@@ -385,6 +400,42 @@ struct Audio::Impl {
         v.stopAtFadeEnd = stopAtEnd;
     }
 
+    void start_volume_ramp(Voice& v, float target, float seconds) {
+        target = std::max(target, 0.0f);
+        if (seconds <= 0.0f) {
+            v.volume = target;
+            v.volFrames = 0;
+            return;
+        }
+        const long frames = std::max(1L, long(std::lround(double(seconds) * deviceRate)));
+        v.volTarget = target;
+        v.volFrames = frames;
+        v.volStep = (target - v.volume) / float(frames);
+    }
+
+    // Advances the volume ramp by one frame (the mixers call it after each frame they mix).
+    static void step_volume(Voice& v) {
+        if (v.volFrames > 0) {
+            v.volume += v.volStep;
+            if (--v.volFrames == 0) v.volume = v.volTarget;
+        }
+    }
+
+    void erase_voice_locked(VoiceId id) {
+        voices.erase(std::remove_if(voices.begin(), voices.end(), [&](const Voice& v) { return v.id == id; }), voices.end());
+    }
+
+    // Stops every layer of the current layered music, fading out over `fade` seconds (0 = at once).
+    void drop_layers_locked(float fade) {
+        for (const Layer& l : layers) {
+            if (Voice* v = find_voice(l.voice)) {
+                if (fade > 0.0f) start_fade(*v, 0.0f, fade, true);
+                else erase_voice_locked(l.voice);
+            }
+        }
+        layers.clear();
+    }
+
     // ------------------------------------------------------------- mixing
     // Adds a PCM voice into `out`: the same pan law, bus and fade as a clip voice. A dry queue makes silence, not an end.
     void mix_pcm_locked(Voice& v, float* out, int frames) {
@@ -393,7 +444,7 @@ struct Audio::Impl {
         const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
         const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
         const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-        const float base = v.volume * busVol[v.bus] * master;
+        const float base = busVol[v.bus] * master;
         const float* d = p.queue.data() + p.head;
         const std::size_t avail = p.frames();
         for (int f = 0; f < frames; ++f) {
@@ -402,10 +453,11 @@ struct Audio::Impl {
             const float t = float(p.pos - double(i0));
             const float l = d[2 * i0] + (d[2 * i0 + 2] - d[2 * i0]) * t;
             const float r = d[2 * i0 + 1] + (d[2 * i0 + 3] - d[2 * i0 + 1]) * t;
-            const float g = base * v.fade;
+            const float g = base * v.volume * v.fade;
             out[2 * f] += l * gl * g;
             out[2 * f + 1] += r * gr * g;
             p.pos += step;
+            step_volume(v);
             if (v.fadeFrames > 0) {
                 v.fade += v.fadeStep;
                 if (--v.fadeFrames == 0) {
@@ -442,7 +494,7 @@ struct Audio::Impl {
             // Equal-power pan law normalised to unity at the centre (gain capped at 1 on the loud side).
             const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
             const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-            const float base = v.volume * busVol[v.bus] * master * c.gain;
+            const float base = busVol[v.bus] * master * c.gain;
             for (int f = 0; f < frames; ++f) {
                 float l, r;
                 if (stream) {
@@ -461,10 +513,11 @@ struct Audio::Impl {
                     l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * t;
                     r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * t;
                 }
-                float g = base * v.fade;
+                float g = base * v.volume * v.fade;
                 out[2 * f] += l * gl * g;
                 out[2 * f + 1] += r * gr * g;
                 v.pos += step;
+                step_volume(v);
                 if (v.fadeFrames > 0) {
                     v.fade += v.fadeStep;
                     if (--v.fadeFrames == 0) {
@@ -588,6 +641,8 @@ void Audio::shutdown() {
     impl_->videos.clear();
     impl_->musicVoice = 0;
     impl_->musicPath.clear();
+    impl_->musicPersist = false;
+    impl_->layers.clear();
     impl_->recording = false;
     impl_->rec.clear();
     impl_->device = false;
@@ -658,6 +713,34 @@ void Audio::stop_all() {
     std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->voices.clear();
     impl_->musicVoice = 0;
+    impl_->musicPath.clear();
+    impl_->musicPersist = false;
+    impl_->layers.clear();
+}
+
+void Audio::on_scene_load() {
+    Impl& im = *impl_;
+    {
+        std::lock_guard<std::mutex> lk(im.mu);
+        if (im.musicPersist) {
+            // The persisted track (or layers) plays on; everything else stops.
+            std::vector<VoiceId> keep;
+            if (im.musicVoice) keep.push_back(im.musicVoice);
+            for (const Impl::Layer& l : im.layers) keep.push_back(l.voice);
+            auto& vs = im.voices;
+            vs.erase(std::remove_if(vs.begin(), vs.end(),
+                                    [&](const Voice& v) { return std::find(keep.begin(), keep.end(), v.id) == keep.end(); }),
+                     vs.end());
+        } else {
+            im.voices.clear();
+            im.musicVoice = 0;
+            im.musicPath.clear();
+            im.layers.clear();
+        }
+    }
+    // The new scene's SceneSettings.music starts from scratch: update() sees it as a change.
+    im.sceneMusic.clear();
+    im.sceneMusicVolume = -1.0f;
 }
 
 bool Audio::is_playing(VoiceId voice) const {
@@ -665,9 +748,9 @@ bool Audio::is_playing(VoiceId voice) const {
     return impl_->find_voice(voice) != nullptr;
 }
 
-void Audio::set_voice_volume(VoiceId voice, float volume) {
+void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds) {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    if (Voice* v = impl_->find_voice(voice)) v->volume = std::max(volume, 0.0f);
+    if (Voice* v = impl_->find_voice(voice)) impl_->start_volume_ramp(*v, volume, fadeSeconds);
 }
 
 void Audio::set_bus_volume(std::string_view bus, float volume) {
@@ -695,7 +778,7 @@ void Audio::set_master_volume(float volume) {
     impl_->master = std::max(volume, 0.0f);
 }
 
-void Audio::play_music(std::string_view clipPath, float volume, float fadeSeconds) {
+void Audio::play_music(std::string_view clipPath, float volume, float fadeSeconds, bool persist) {
     auto clip = impl_->get_clip(clipPath);
     PlayParams p;
     p.volume = volume;
@@ -716,22 +799,24 @@ void Audio::play_music(std::string_view clipPath, float volume, float fadeSecond
     }
     std::lock_guard<std::mutex> lk(impl_->mu);
     Impl& im = *impl_;
+    im.drop_layers_locked(std::max(fadeSeconds, 0.0f));
     if (Voice* cur = im.find_voice(im.musicVoice)) {
         if (im.musicPath == clip->path) {  // already playing this track: just retune
             cur->volume = std::max(volume, 0.0f);
+            cur->volFrames = 0;
+            im.musicPersist = persist;
             if (cur->fadeTarget < 1.0f) im.start_fade(*cur, 1.0f, std::max(fadeSeconds, 0.0f), false);
             return;
         }
         if (fadeSeconds > 0.0f) {
             im.start_fade(*cur, 0.0f, fadeSeconds, true);
         } else {
-            const VoiceId oldId = cur->id;
-            auto& vs = im.voices;
-            vs.erase(std::remove_if(vs.begin(), vs.end(), [&](const Voice& v) { return v.id == oldId; }), vs.end());
+            im.erase_voice_locked(cur->id);
         }
     }
     VoiceId id = im.add_voice_locked(clip, p, std::move(stream));
     if (Voice* v = im.find_voice(id)) {
+        v->protect = true;
         if (fadeSeconds > 0.0f) {
             v->fade = 0.0f;
             im.start_fade(*v, 1.0f, fadeSeconds, false);
@@ -739,22 +824,95 @@ void Audio::play_music(std::string_view clipPath, float volume, float fadeSecond
     }
     im.musicVoice = id;
     im.musicPath = clip->path;
+    im.musicPersist = persist;
+}
+
+bool Audio::play_music_layers(const std::vector<MusicLayer>& layers, float volume, float fadeSeconds, bool persist) {
+    Impl& im = *impl_;
+    if (layers.empty()) return false;
+    struct Loaded {
+        std::shared_ptr<const Clip> clip;
+        std::unique_ptr<Stream> stream;
+        const MusicLayer* spec;
+    };
+    PlayParams p;
+    p.volume = volume;
+    p.loop = true;
+    p.bus = "music";
+    std::vector<Loaded> loaded;
+    bool ok = true;
+    for (const MusicLayer& l : layers) {  // decode and open the streams outside the lock
+        auto clip = im.get_clip(l.path);
+        im.log_play(l.path, p, true, "", clip != nullptr, l.name);
+        if (!clip) { ok = false; continue; }
+        std::string err;
+        std::unique_ptr<Stream> stream = Impl::open_stream(*clip, true, &err);
+        if (clip->encoded && !stream) {
+            FA_ERROR("audio", "Music layer '{}' ('{}') cannot be streamed: {}", l.name, l.path, err);
+            ok = false;
+            continue;
+        }
+        loaded.push_back({std::move(clip), std::move(stream), &l});
+    }
+    if (!ok || loaded.empty()) return false;  // all or nothing: a missing layer would drift out of the mix
+    // One lock for every voice: the device callback takes the same mutex, so no block of audio holds some layers only.
+    std::lock_guard<std::mutex> lk(im.mu);
+    if (Voice* cur = im.find_voice(im.musicVoice)) {
+        if (fadeSeconds > 0.0f) im.start_fade(*cur, 0.0f, fadeSeconds, true);
+        else im.erase_voice_locked(cur->id);
+    }
+    im.musicVoice = 0;
+    im.musicPath.clear();
+    im.drop_layers_locked(std::max(fadeSeconds, 0.0f));
+    for (Loaded& l : loaded) {
+        const float level = std::max(l.spec->level, 0.0f);
+        PlayParams lp = p;
+        lp.volume = volume * level;
+        const VoiceId id = im.add_voice_locked(l.clip, lp, std::move(l.stream));
+        if (Voice* v = im.find_voice(id)) {
+            v->protect = true;
+            if (fadeSeconds > 0.0f) {
+                v->fade = 0.0f;
+                im.start_fade(*v, 1.0f, fadeSeconds, false);
+            }
+        }
+        im.layers.push_back({l.spec->name, id, level});
+    }
+    im.layerVolume = volume;
+    im.musicPersist = persist;
+    return true;
+}
+
+bool Audio::set_layer(std::string_view name, float level, float fadeSeconds) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl& im = *impl_;
+    for (Impl::Layer& l : im.layers) {
+        if (l.name != name) continue;
+        l.level = std::max(level, 0.0f);
+        if (Voice* v = im.find_voice(l.voice)) im.start_volume_ramp(*v, im.layerVolume * l.level, fadeSeconds);
+        return true;
+    }
+    return false;
+}
+
+std::vector<std::string> Audio::layer_names() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    std::vector<std::string> out;
+    for (const Impl::Layer& l : impl_->layers) out.push_back(l.name);
+    return out;
 }
 
 void Audio::stop_music(float fadeSeconds) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     Impl& im = *impl_;
     if (Voice* cur = im.find_voice(im.musicVoice)) {
-        if (fadeSeconds > 0.0f) {
-            im.start_fade(*cur, 0.0f, fadeSeconds, true);
-        } else {
-            VoiceId id = cur->id;
-            im.voices.erase(std::remove_if(im.voices.begin(), im.voices.end(), [&](const Voice& v) { return v.id == id; }),
-                            im.voices.end());
-        }
+        if (fadeSeconds > 0.0f) im.start_fade(*cur, 0.0f, fadeSeconds, true);
+        else im.erase_voice_locked(cur->id);
     }
+    im.drop_layers_locked(std::max(fadeSeconds, 0.0f));
     im.musicVoice = 0;
     im.musicPath.clear();
+    im.musicPersist = false;
 }
 
 void Audio::set_paused(bool paused) {
@@ -793,7 +951,7 @@ std::uint64_t Audio::play_log_dropped() const {
 Json AudioEvent::to_json() const {
     return Json::object({{"seq", seq}, {"frame", frame}, {"time", time}, {"path", path}, {"volume", volume},
                          {"pitch", pitch}, {"pan", pan}, {"bus", bus}, {"loop", loop}, {"music", music},
-                         {"source", source}, {"ok", ok}});
+                         {"source", source}, {"ok", ok}, {"layer", layer}});
 }
 
 void Audio::start_recording() {
@@ -1089,8 +1247,16 @@ void Audio::update(World& world, float dt) {
     if (ss.music != im.sceneMusic) {
         im.sceneMusic = ss.music;
         im.sceneMusicVolume = ss.musicVolume;
-        if (ss.music.empty()) stop_music(0.5f);
-        else play_music(ss.music, ss.musicVolume, 0.5f);
+        if (ss.music.empty()) {
+            stop_music(0.5f);
+        } else {
+            bool keep;  // a persisted track that is the scene's own music stays persisted
+            {
+                std::lock_guard<std::mutex> lk(im.mu);
+                keep = im.musicPersist && im.musicPath == fs::normalize(ss.music);
+            }
+            play_music(ss.music, ss.musicVolume, 0.5f, keep);
+        }
     } else if (!ss.music.empty() && ss.musicVolume != im.sceneMusicVolume) {
         im.sceneMusicVolume = ss.musicVolume;
         std::lock_guard<std::mutex> lk(im.mu);
