@@ -1,0 +1,108 @@
+{
+  "$name": "English",
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.",
+    "art": "Art: Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), CC0. The mole, the lift arrows and the cracks are drawn for this game.",
+    "sounds": "Sound effects: made with FactorIA's sound synthesiser, CC0."
+  },
+  "loading": {
+    "text": "Loading..."
+  },
+  "menu": {
+    "title": "Burrow Brigade",
+    "play": "Play",
+    "options": "Options",
+    "credits": "Credits",
+    "quit": "Quit",
+    "back": "Back"
+  },
+  "options": {
+    "title": "Options",
+    "tab": {
+      "video": "Video",
+      "audio": "Audio",
+      "controls": "Controls",
+      "language": "Language"
+    },
+    "fullscreen": "Full screen",
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "colorFilter": "Color filter: {filter}",
+    "filter": {
+      "none": "off",
+      "greyscale": "greyscale",
+      "highContrast": "high contrast",
+      "protanopia": "protanopia (red)",
+      "deuteranopia": "deuteranopia (green)",
+      "tritanopia": "tritanopia (blue)"
+    },
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": {
+      "master": "Master",
+      "music": "Music",
+      "effects": "Effects",
+      "interface": "Interface"
+    },
+    "action": {
+      "move_left": "Move left",
+      "move_right": "Move right",
+      "move_up": "Move up",
+      "move_down": "Move down",
+      "dig": "Dig",
+      "pause": "Pause"
+    },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language: {language}",
+    "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
+    "on": "on",
+    "off": "off",
+    "percent": "{value} percent"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "mainMenu": "Main menu"
+  },
+  "hud": {
+    "ore": "Ore: {count}  (worth {value})",
+    "moles": "Moles: {rescued} / {total}",
+    "depth": "Floor {floor} - {depth} m deep",
+    "time": "Shift {time}",
+    "lampLow": "Your lamp is running low! Find oil or ride the lift up.",
+    "lampOut": "Lamp out! Everything goes dark.",
+    "moleRescued": "A mole is free!",
+    "liftWait": "On the lift. Waiting for the others...",
+    "shiftLift": "Back on the lift. Good shift!",
+    "shiftDark": "Lost in the dark..."
+  },
+  "strata": {
+    "topsoil": "Topsoil",
+    "rockLayers": "Rock layers",
+    "deep": "The deep"
+  },
+  "results": {
+    "titleLift": "Shift {shift} done",
+    "titleDark": "Lost in the dark",
+    "noteLift": "The lift brought everyone and the ore back up.",
+    "noteDark": "The lamps went out. The ore stayed behind.",
+    "copper": "Copper: {count}",
+    "silver": "Silver: {count}",
+    "gold": "Gold: {count}",
+    "gem": "Gems: {count}",
+    "value": "Ore value: {value}  (banked: {banked})",
+    "time": "Time: {time}",
+    "moles": "Moles rescued: {rescued} / {total}",
+    "cash": "Cash: {cash}",
+    "again": "Another shift",
+    "toTitle": "Back to title"
+  }
+}

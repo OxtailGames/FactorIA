@@ -1,0 +1,175 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Camera": {
+          "projection": "orthographic",
+          "orthoSize": 144,
+          "clearColor": [0.02, 0.02, 0.03, 1],
+          "primary": true
+        },
+        "Script": {
+          "path": "scripts/game/follow_camera.js"
+        }
+      }
+    },
+    {
+      "id": "mine",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Tilemap": {
+          "tileset": "assets/tiles.png",
+          "tileSize": [16, 16],
+          "lit": true,
+          "layer": -10
+        }
+      }
+    },
+    {
+      "id": "shift",
+      "components": {
+        "Script": {
+          "path": "scripts/game/shift.js",
+          "props": {
+            "rows": [
+              "BBBBBBBBBBBBBBBBBBBBBBBB", "B.S.#c........o....E...B", "B###R###H###g###G##s###B",
+              "B.................m....B", "BBBBBBBBBBBBBBBBBBBBBBBB"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "hud",
+      "components": {
+        "Script": {
+          "path": "scripts/game/hud.js"
+        }
+      }
+    },
+    {
+      "id": "hud_ore",
+      "components": {
+        "Transform": {
+          "position": [24, 18, 0]
+        },
+        "Text": {
+          "text": "hud.ore",
+          "key": "hud.ore",
+          "fontSize": 26,
+          "space": "screen",
+          "anchor": [0, 0],
+          "pivot": [0, 1],
+          "align": "left",
+          "layer": 220,
+          "keyArgs": {
+            "count": 0,
+            "value": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_moles",
+      "components": {
+        "Transform": {
+          "position": [24, 50, 0]
+        },
+        "Text": {
+          "text": "hud.moles",
+          "key": "hud.moles",
+          "fontSize": 26,
+          "space": "screen",
+          "anchor": [0, 0],
+          "pivot": [0, 1],
+          "align": "left",
+          "layer": 220,
+          "keyArgs": {
+            "rescued": 0,
+            "total": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_depth",
+      "components": {
+        "Transform": {
+          "position": [-24, 18, 0]
+        },
+        "Text": {
+          "text": "hud.depth",
+          "key": "hud.depth",
+          "fontSize": 26,
+          "space": "screen",
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "align": "right",
+          "layer": 220,
+          "keyArgs": {
+            "floor": 0,
+            "depth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_time",
+      "components": {
+        "Transform": {
+          "position": [-24, 50, 0]
+        },
+        "Text": {
+          "text": "hud.time",
+          "key": "hud.time",
+          "fontSize": 26,
+          "space": "screen",
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "align": "right",
+          "layer": 220,
+          "keyArgs": {
+            "time": "0:00"
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_banner",
+      "components": {
+        "Transform": {
+          "position": [0, 96, 0]
+        },
+        "Text": {
+          "text": "hud.shiftLift",
+          "key": "hud.shiftLift",
+          "fontSize": 34,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0.5, 1],
+          "align": "center",
+          "layer": 220
+        }
+      }
+    },
+    {
+      "id": "pause",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    }
+  ],
+  "settings": {
+    "ambientLight": [0.07, 0.07, 0.1, 1]
+  }
+}

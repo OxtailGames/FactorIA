@@ -1,0 +1,23 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Miner",
+    "tags": ["miner"],
+    "components": {
+      "Transform": {},
+      "Sprite": {
+        "texture": "assets/sprites.png",
+        "region": [0, 0, 16, 16],
+        "size": [16, 16],
+        "layer": 10,
+        "lit": true
+      },
+      "Script": {
+        "path": "scripts/game/miner.js",
+        "props": {
+          "playerId": 0
+        }
+      }
+    }
+  }
+}
