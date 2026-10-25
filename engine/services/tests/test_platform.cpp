@@ -1384,6 +1384,55 @@ TEST_CASE("fake: leaderboards keep one board per day or week of the date source;
     CHECK(rp->calls == 2);
 }
 
+TEST_CASE("platform: an explicit day addresses another daily board; Game Center and Play Games only know the current day") {
+    Game g(R"({"leaderboards": [{"id": "d", "name": "D", "order": "ascending", "period": "daily"},
+                                {"id": "w", "name": "W", "period": "weekly"}]})");
+    CalendarDate now = parse_calendar_date("2026-10-23T23:30:00").value();
+    now.utcOffsetMinutes = -120;  // UTC is already 2026-10-24 01:30
+    CHECK(now.utc().iso() == "2026-10-24");
+    g.ps.set_date_source([&] { return now; });
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "d", "score": 5, "day": "2026-10-22"})"));
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "d", "score": 9})"));
+    CHECK(g.fake().state()["calls"][0]["args"]["periodKey"] == "2026-10-22");
+    CHECK(g.fake().state()["calls"][1]["args"]["periodKey"] == "2026-10-23");
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})")).result[0]["score"] == 5);
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d"})")).result[0]["score"] == 9);
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "w", "day": "2026-10-22"})")), "only addresses a daily board"));
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-02-30"})")), "YYYY-MM-DD"));
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "d", "day": 5})")), "must be a string"));
+
+    struct Store : PlatformBackend {
+        explicit Store(std::string n) : n_(std::move(n)) {}
+        std::string n_;
+        Json last;
+        std::string name() const override { return n_; }
+        std::vector<std::string> services() const override { return {"leaderboards"}; }
+        void request(std::uint64_t id, const std::string&, const Json& args, const PlatformSink& sink) override {
+            last = args;
+            sink.complete(id, Json::object());
+        }
+    };
+    for (const char* backend : {"apple", "googleplay"}) {
+        g.ps.set_backend(std::make_unique<Store>(backend));
+        auto old = g.ps.start("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})"));
+        REQUIRE(old.ok());
+        REQUIRE(old->answer.has_value());
+        CHECK(old->answer->error.code == "unsupported");
+        CHECK(has(old->answer->error.message, "2026-10-22"));
+        // The local day and the UTC day are both "current".
+        for (const char* current : {"2026-10-23", "2026-10-24"}) {
+            auto ok = g.ps.start("leaderboards.entries", Json{{"id", "d"}, {"day", current}});
+            REQUIRE(ok.ok());
+            CHECK_FALSE((ok->answer.has_value() && ok->answer->error.code == "unsupported"));
+        }
+    }
+    g.ps.set_backend(std::make_unique<Store>("steam"));  // Steam names a board per key: any day works
+    auto steam = g.ps.start("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})"));
+    REQUIRE(steam.ok());
+    const bool rejected = steam->answer.has_value() && !steam->answer->ok;
+    CHECK_FALSE(rejected);
+}
+
 TEST_CASE("platform: release is a flag of the run, and a backend without the ads service answers unavailable") {
     PlatformServices ps;
     ps.set_catalog(catalog(R"({"ads": {"placements": [{"id": "p"}]}})"));

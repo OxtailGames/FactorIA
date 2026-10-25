@@ -1246,7 +1246,7 @@
     get current() { return N.scenePath(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1256,17 +1256,22 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
-    // The calendar date: { year, month, day, weekday (0 = Sunday), utcOffsetMinutes, iso: "YYYY-MM-DD" }. The player's real local
-    // date in a game with a window; a fixed date (2026-01-01, or --date) in tests and headless runs; the recorded one in a replay.
+    // The calendar date: { year, month, day, weekday (0 = Sunday), hour, minute, second (the local time of day), utcOffsetMinutes,
+    // iso: "YYYY-MM-DD", utc: { year, month, day, iso } (the date in UTC, the day stores use for their daily boards) }. The player's
+    // real local date and time in a game with a window (read again about once a minute, see game.on("dayChanged")); a fixed date
+    // (2026-01-01 00:00:00, or --date) in tests and headless runs; the recorded one in a replay.
     today() {
       const t = N.today();
       const pad = (n, w) => String(n).padStart(w, "0");
-      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], utcOffsetMinutes: t[4], iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}` });
+      const utc = Object.freeze({ year: t[8], month: t[9], day: t[10], iso: `${pad(t[8], 4)}-${pad(t[9], 2)}-${pad(t[10], 2)}` });
+      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], hour: t[5], minute: t[6], second: t[7], utcOffsetMinutes: t[4],
+        iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}`, utc });
     },
     // True while the game's window has the focus (always true on a phone that is in the foreground).
     get focused() { return N.appState()[0]; },
     // on(event, fn): "suspend" (the app goes to the background), "resume" (comes back), "focus" and "blur" (the window gains or
-    // loses the keyboard focus). fn gets no arguments. Returns the function that stops listening; listeners end with the scene,
+    // loses the keyboard focus), "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was
+    // set; fn gets game.today()). fn gets no arguments otherwise. Returns the function that stops listening; listeners end with the scene,
     // like world.on. With factoria.json "pauseOnSuspend" (default true) the engine freezes the game and the music after the
     // "suspend" handlers ran (unless a handler paused it already) and unfreezes it before the "resume" handlers.
     on(event, fn) {
@@ -1275,7 +1280,7 @@
         throw new Error(`game.on(event, fn): unknown event ${inspect(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${APP_EVENTS.map((n) => `"${n}"`).join(", ")}`);
       }
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
-      return addListener("app." + event, () => fn(), null);
+      return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
     // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
@@ -1670,11 +1675,16 @@
     },
     stats: platformStats,
     leaderboards: {
-      submit(id, score) { return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score }); },
-      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10).
+      // options.day: "YYYY-MM-DD" (a UTC day, game.today().utc.iso is today's) on a daily board, to write the board of another day.
+      submit(id, score, options = {}) {
+        const o = isObj(options) ? options : {};
+        return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score, day: o.day });
+      },
+      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10); day: "YYYY-MM-DD" on a
+      // daily board (a UTC day; the board of that day instead of today's).
       entries(id, options = {}) {
         const o = isObj(options) ? options : {};
-        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count }, leaderboardEntries);
+        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count, day: o.day }, leaderboardEntries);
       },
     },
     cloud: {
@@ -2102,9 +2112,13 @@
     get focused() { return game.focused; },
     // setDate("2026-10-23"): the date game.today() answers until the test ends (every test starts from the date of the run:
     // 2026-01-01, or --date). An impossible date (2026-02-29) or a wrong shape throws and says what is wrong.
-    setDate(iso) {
-      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23", but got ${inspect(iso)}`);
-      const err = N.testSetDate(iso);
+    // The string may carry a time ("2026-10-23T23:59:30"; midnight otherwise) and options.utcOffsetMinutes sets the time zone. A move
+    // to another local day sends the "dayChanged" event to game.on listeners once.
+    setDate(iso, options = {}) {
+      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23" or "2026-10-23T23:59:30", but got ${inspect(iso)}`);
+      const off = isObj(options) ? options.utcOffsetMinutes : undefined;
+      if (off !== undefined && !Number.isInteger(off)) throw new Error(`game.setDate(iso, { utcOffsetMinutes }) expects a whole number of minutes east of UTC (60 = UTC+1), but got ${inspect(off)}`);
+      const err = N.testSetDate(iso, off);
       if (err) throw new Error(err);
     },
     // suspend() / resume(): the app goes to the background and comes back, as on a phone: sends the "suspend" / "resume" event to

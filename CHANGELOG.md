@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The time of day and the day boundary
+
+- `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the
+  date in UTC). A built game reads the clock again about once a minute and on focus or resume, and `game.on("dayChanged",
+  fn)` runs once when the local calendar day changes. `game.setDate`, `--date` and replay files (`time`) take a time,
+  `game.setDate(iso, { utcOffsetMinutes })` the time zone; moving a test across midnight sends `dayChanged`.
+- `platform.leaderboards.submit(id, score, { day })` and `entries(id, { day })` address the daily board of a UTC day (the
+  fake and Steam keep every day); Game Center and Play Games reject a day that is not the current one with `unsupported`.
+
 Video player
 
 - A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every
