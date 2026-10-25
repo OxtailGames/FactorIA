@@ -88,6 +88,12 @@ bool is_visible(char32_t cp) {
            !(cp >= 0xE0100 && cp <= 0xE01EF);
 }
 
+std::u32string_view composed_parts(char32_t cp) {
+    if (cp == 0x0E33) return U"\u0E4D\u0E32";
+    if (cp == 0x0EB3) return U"\u0ECD\u0EB2";
+    return {};
+}
+
 bool is_cjk(char32_t cp) {
     return (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xA960 && cp <= 0xA97F) ||
            (cp >= 0xAC00 && cp <= 0xD7FF) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF00 && cp <= 0xFFEF) ||

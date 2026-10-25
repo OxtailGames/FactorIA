@@ -91,7 +91,7 @@ Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, 
 
 Since 0.2.0.
 
-A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. The light sits at the entity's position (Transform) and ignores layers.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -812,7 +812,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `fogDensity` | float | `0.0` | Fog thickness; 0 disables fog. Range 0.0..10.0. |
 | `skyColor` | color | `[0.45,0.62,0.85,1.0]` | Top color of the 3D background gradient (used when a perspective camera clears). |
 | `horizonColor` | color | `[0.8,0.85,0.9,1.0]` | Bottom color of the 3D background gradient. |
-| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. |
+| `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. |
 | `musicVolume` | float | `0.6` | Volume of the background music, 0..1. Range 0.0..1.0. |
 
 
@@ -1171,7 +1171,7 @@ Not released yet (on main after 0.2.0).
 
 Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
 
-Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Peaks at -3 dBFS. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
+Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (pitch and timing move a little). Levelled to about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
 - bark: a dog bark: two short rough barks.
 - growl: a low growl: a rattling low saw with noise.
 - meow: a cat meow: a rising then falling vowel-like tone.
@@ -1205,7 +1205,7 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 
 List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
 
-Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
+Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1500,7 +1500,7 @@ Not released yet (on main after 0.2.0).
 
 What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 16: the ones that reach the camera view are kept first). width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -1689,7 +1689,7 @@ Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
-Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles, lights (of the main pass) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3255,11 +3255,29 @@ declare module "factoria" {
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
+    /**
+     * Stops every sound and the music now, a persisted track included.
+     */
     stopAll(): void;
     /**
-     * Starts looping background music.
+     * Starts looping background music on the "music" bus (volume default 0.6, fade-in `fade` seconds default 0.5). The same track already playing is only retuned. A scene load (scene.load, reload) stops every sound and the music, and then starts the new scene's SceneSettings.music, even when it is the same track as before; with persist: true this track keeps playing through scene loads (a scene whose SceneSettings.music is the same track does not restart it; another track replaces it). Example: audio.music("assets/theme.ogg", { persist: true }).
      */
-    music(path: string, opts?: { volume?: number; fade?: number }): void;
+    music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void;
+    /**
+     * Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: "assets/m/base.ogg", drums: "assets/m/drums.ogg" }, { levels: { drums: 0 } }); later audio.setLayer("drums", 1, 2).
+     */
+    musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean;
+    /**
+     * Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer.
+     */
+    setLayer(name: string, level: number, fade?: number): void;
+    /**
+     * Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play("assets/wind.ogg", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3).
+     */
+    setVoiceVolume(voice: number, volume: number, fade?: number): boolean;
+    /**
+     * Stops the music (and every layer) fading out over `fade` seconds (default 0.5).
+     */
     stopMusic(fade?: number): void;
     /**
      * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
@@ -3563,17 +3581,21 @@ declare module "factoria" {
      */
     paused: boolean;
     /**
-     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), utcOffsetMinutes (minutes east of UTC) and iso ("YYYY-MM-DD"). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date; `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 unless --date says another; a replay (--input) plays with the date it was recorded on. Tests set it with game.setDate("2026-10-23"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
+     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso ("YYYY-MM-DD") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on("dayChanged") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate("2026-10-23T23:59:30"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
      */
-    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * True while the game's window has the keyboard focus (always true on a phone with the app in the foreground, in headless runs and in tests until game.blur()). Changes are announced by game.on("focus") and game.on("blur").
      */
     readonly focused: boolean;
     /**
-     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). The handler takes no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
+     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was set; a game with a window reads the clock about once a minute) calls fn with game.today(); the other handlers take no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
      */
-    on(event: "suspend" | "resume" | "focus" | "blur", fn: () => void): () => void;
+    on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
+    /**
+     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
+     */
+    on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;
     /**
      * factoria.json contents.
      */
@@ -3654,9 +3676,23 @@ declare module "factoria" {
      */
     renderScale: number;
     /**
-     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
      */
-    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize"): boolean;
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): boolean;
+  }
+
+  /**
+   * The clipboard. A game with a window reads and writes the system clipboard on Windows, macOS, Linux and the web; headless runs and tests have an in-memory one (it starts empty in every test); phones and tablets have none yet: window.supports("clipboard") is false there and read() rejects with code "unsupported". A focused TextField already pastes with Ctrl+V (Cmd+V) and copies with Ctrl+C (Cmd+C), without any script.
+   */
+  export interface ClipboardAPI {
+    /**
+     * Resolves with the text on the clipboard ("" when it holds none or something that is not text). On the web the browser lets a page read the clipboard only inside a paste, so it resolves with the text of the last paste (the player pressed Ctrl+V or Cmd+V in the page). Rejects with code "unsupported" where there is no clipboard (phones, tablets). In a replay the text a read returned is recorded and given back, so a paste replays the same. Example: const text = await clipboard.read();
+     */
+    read(): Promise<string>;
+    /**
+     * Puts `text` on the clipboard. Throws when it is not a string. Does nothing where there is no clipboard. The web lets a page write only during a key press or click, so a write made in the middle of a frame may not reach the browser's clipboard. Example: clipboard.write("ABC123");
+     */
+    write(text: string): void;
   }
 
   /**
@@ -4085,13 +4121,13 @@ declare module "factoria" {
    */
   export interface PlatformLeaderboardsAPI {
     /**
-     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs.
+     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs. options.day: "YYYY-MM-DD" submits to the daily board of that day instead of today's (without it the board of the local date, game.today().iso; pass game.today().utc.iso to submit and entries alike for one board worldwide); only a daily board takes it, and Game Center and Play Games reject a day other than the local or UTC today with code "unsupported".
      */
-    submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
+    submit(id: string, score: number, options?: { day?: string }): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
     /**
-     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs.
+     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs. options.day: "YYYY-MM-DD" reads the daily board of that day, e.g. yesterday's (the same key submit wrote: the local date by default, game.today().utc.iso if the game submits with it; the fake and Steam keep every day, Game Center and Play Games reject a day other than the local or UTC today with code "unsupported").
      */
-    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
+    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number; day?: string }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
   }
 
   /**
@@ -4402,6 +4438,11 @@ declare module "factoria" {
    * The game window: full screen, size, vsync, frame cap.
    */
   export const window: WindowAPI;
+
+  /**
+   * The clipboard: read and write text.
+   */
+  export const clipboard: ClipboardAPI;
 
   /**
    * Save data.
@@ -4968,7 +5009,7 @@ declare module "factoria" {
     readonly offset: Vec2;
   }
   /**
-   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -7462,7 +7503,7 @@ declare module "factoria" {
     get horizonColor(): Color;
     set horizonColor(value: ColorLike);
     /**
-     * Looping background music asset path. Empty = none. (asset path: audio)
+     * Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. (asset path: audio)
      */
     music: string;
     /**
@@ -7685,6 +7726,10 @@ declare module "factoria:test" {
     readonly bus: "sfx" | "music" | "ui";
     readonly loop: boolean;
     /**
+     * The layer name when audio.musicLayers started it; "" otherwise.
+     */
+    readonly layer: string;
+    /**
      * Started with audio.music() or SceneSettings.music.
      */
     readonly music: boolean;
@@ -7812,15 +7857,19 @@ declare module "factoria:test" {
     /**
      * Same as the script `game.today()`: 2026-01-01 at the start of every test, or the date of --date, until game.setDate().
      */
-    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * Same as the script `game.focused`.
      */
     readonly focused: boolean;
     /**
-     * Sets the date game.today() answers, "YYYY-MM-DD", until the test ends (the next test starts from the run's date again). An impossible date such as "2026-02-29" or a wrong shape throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
+     * Sets the date game.today() answers, "YYYY-MM-DD" or with a time "YYYY-MM-DDTHH:MM[:SS]" (midnight without one), until the test ends (the next test starts from the run's date again). options.utcOffsetMinutes sets the time zone (minutes east of UTC; the current one is kept otherwise), which decides game.today().utc. Moving to another local day sends "dayChanged" to the game.on listeners once, so a test crosses midnight with game.setDate("2026-10-23T23:59:59") then game.setDate("2026-10-24T00:00:01"). An impossible date or time throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
      */
-    setDate(iso: string): void;
+    setDate(iso: string, options?: { utcOffsetMinutes?: number }): void;
+    /**
+     * The player clicks the window's close button (Cmd+Q, Alt+F4): the game.on("quit") handlers run at once. Returns false when one called event.cancel() (the game goes on), true otherwise: game.quitRequested is then true. Example: expect(game.closeWindow()).toBe(false).
+     */
+    closeWindow(): boolean;
     /**
      * The app goes to the background, as on a phone: the game.on("suspend") handlers run at once and, with pauseOnSuspend (the default), the game and the music freeze (game.paused is true) unless a handler paused it itself. Every test starts running.
      */
@@ -7881,9 +7930,9 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high" }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights count the main pass, shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 16: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      */

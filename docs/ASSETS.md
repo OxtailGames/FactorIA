@@ -139,7 +139,8 @@ assets.synth_sound {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
 
 `preset` is `bark`, `growl`, `meow`, `screech`, `whoosh`, `explosion`, `hit`, `coin`, `pickup`, `jump`, `powerup`, `laser`,
 `blip`, `click`, `error`, `splash` or `footstep` (an unknown name is an error with a "did you mean"). The result is a mono
-16-bit 44.1 kHz WAV that peaks at -3 dBFS, and the same `preset`, `seed` and `seconds` always give the same bytes; change
+16-bit 44.1 kHz WAV levelled to about -18 LUFS (every preset: a square and a sine sound equally loud, the peak stays under
+-1 dBFS, so `factoria validate` has no loudness warning for it), and the same `preset`, `seed` and `seconds` always give the same bytes; change
 `seed` for another take (pitch and timing move a little). `seconds` (0.02 to 10) overrides the preset's length.
 `overwrite` replaces an existing file. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with
 the preset and the seed. These are synthesizer sounds: fine for a game's feedback, not a replacement for recorded or

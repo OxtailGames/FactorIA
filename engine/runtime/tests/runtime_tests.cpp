@@ -1,5 +1,8 @@
 #include <doctest.h>
 
+#include "fa/platform/clipboard.h"
+#include "fa/ui/ui.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -1468,5 +1471,34 @@ test('render stats of the fixture scene', () => {
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["width"] == 320);
     CHECK(r.result["triangles"] == 50);
+    e.shutdown();
+}
+
+TEST_CASE("clipboard: a replay's clipboard entry is pasted by Ctrl+V into the focused TextField, and reads are logged") {
+    const char* scene = R"({"format":"factoria.scene/1","entities":[
+      {"id":"cam","name":"Camera","components":{"Camera":{}}},
+      {"id":"name","components":{"TextField":{"size":[200,30],"text":"Ann","maxLength":12,"autoFocus":true}}}]})";
+    TempProject p("engine_clipboard_paste", kPadProject, scene);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    REQUIRE(e.clipboard() != nullptr);
+    CHECK(e.clipboard()->supported());
+    e.log_clipboard_reads(true);
+    Entity field = e.world().find("name");
+    REQUIRE(field != kNullEntity);
+    REQUIRE(e.ui()->set_focus(e.world(), field));
+    e.step(2);
+    std::vector<std::string> problems;
+    e.apply_input_entry(Json::parse(R"({"clipboard":"Bob\nSmith 1234567","keys":{"LeftControl":true,"V":true}})"), problems, 2);
+    CHECK(problems.empty());
+    e.step(1);
+    CHECK(e.world().get<TextField>(field)->text == "AnnBobSmith ");  // 12 code points: the newline is dropped, the rest cut
+    CHECK(e.take_clipboard_reads() == std::vector<std::string>{"Bob\nSmith 1234567"});
+    CHECK(e.take_clipboard_reads().empty());
+
+    e.apply_input_entry(Json::parse(R"({"clipboard":5})"), problems, 3);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].find("'clipboard' must be a string") != std::string::npos);
     e.shutdown();
 }

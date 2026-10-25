@@ -473,7 +473,7 @@ bool Editor::boot(const std::string& dirIn) {
         cfg.audioDevice = !autotest_;
         if (!autotest_) {  // playing in the editor is playing: the player's real date (the autotest keeps the fixed one)
             const CalendarDate today = local_calendar_date();
-            cfg.date = today.iso();
+            cfg.date = today.iso_datetime();
             cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
         }
         engine_ = std::make_unique<Engine>();
@@ -787,6 +787,8 @@ void Editor::on_frame(double dt) {
             frameDt = dt;
             if (play_ == PlayState::Playing) session_frame(dt, frameBefore);
         }
+        for (const std::string& text : engine_->take_clipboard_reads())
+            if (run_.active) run_.rec.clipboard(frameBefore, text);
         if (run_.active && engine_->frame_index() > frameBefore) {
             const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
             run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());

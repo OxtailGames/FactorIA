@@ -143,7 +143,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
 | `--record-video f.avi` | Record a video of the run: every frame drawn at `--render-scale`, at the project's `fixedHz` fps, with the audio mix when the run is not silent. `.avi` (Motion-JPEG + PCM) needs nothing; `.mp4` (H.264 + AAC) needs ffmpeg (`FACTORIA_FFMPEG`, `publish.ffmpeg` in `~/.factoria/export.json`, or `PATH`). Relative to the current directory; see `docs/EXPORTING.md` "Store page material" |
 | `--seed N` | World RNG seed |
-| `--date YYYY-MM-DD` | The calendar date `game.today()` returns. Headless runs use the fixed date `2026-01-01` by default (never the clock), and a replay (`--input`) that recorded a `"date"` plays with it; `--date` wins over both. An impossible date (`2026-02-29`) or another format is a usage error (exit 2) that says what is wrong. A windowed run uses the real local date |
+| `--date YYYY-MM-DD[THH:MM[:SS]]` | The calendar date `game.today()` returns. Headless runs use the fixed date `2026-01-01` by default (never the clock), and a replay (`--input`) that recorded a `"date"` plays with it; `--date` wins over both. An impossible date (`2026-02-29`) or another format is a usage error (exit 2) that says what is wrong. A windowed run uses the real local date |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
 | `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
 | `--persist-storage` | Let scripts' `storage.*` use the real save file (default headless: in memory, so runs do not leak state) |

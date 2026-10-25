@@ -485,6 +485,20 @@ test("daily board starts over with game.setDate", async () => {
   expect(call.args.periodKey).toBe("2026-10-23");
 });
 
+test("a daily board read with yesterday's day returns yesterday's scores", async () => {
+  game.setDate("2026-10-23");
+  await platform.leaderboards.submit("daily_route", 90000);
+  game.setDate("2026-10-24");
+  await platform.leaderboards.submit("daily_route", 70000);
+  expect((await platform.leaderboards.entries("daily_route"))[0].score).toBe(70000);
+  const yesterday = await platform.leaderboards.entries("daily_route", { day: "2026-10-23" });
+  expect(yesterday.length).toBe(1);
+  expect(yesterday[0].score).toBe(90000);
+  expect((await platform.leaderboards.submit("daily_route", 80000, { day: "2026-10-23" })).best).toBe(80000);
+  expect(game.platform.calls().filter((c) => c.method === "leaderboards.entries").pop().args.periodKey).toBe("2026-10-23");
+  expect(game.today().utc.iso).toBe("2026-10-24");
+});
+
 test("weekly board lasts Monday to Sunday", async () => {
   game.setDate("2026-10-19");  // a Monday
   await platform.leaderboards.submit("weekly_best", 10);
@@ -522,5 +536,5 @@ test("the date is the test's again", async () => {
     TestReport rep = h.scripts.run_tests({"tests/periods.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 5);
+    CHECK(rep.passed == 6);
 }

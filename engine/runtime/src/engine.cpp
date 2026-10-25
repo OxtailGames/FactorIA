@@ -145,7 +145,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     refresh_from_disk();
     hasPendingScene = false;
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
@@ -180,7 +180,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     hasPendingScene = false;
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
     LoadReport report = fa::load_scene(world, scene, sourceName);
@@ -419,8 +419,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.windowed = gfx != nullptr && !config.headless;
     if (I.windowed && !config.editorMode) {
         I.appWindow = std::make_unique<AppWindowControl>();
+        I.clipboard.use_system(true);
         speech().set_backend_factory(make_system_speech_backend);  // headless runs, tests and the editor only record
     }
+    I.ui.set_clipboard(&I.clipboard);  // a TextField's Ctrl+V / Ctrl+C
 
     // World + input.
     I.world.rng().reseed(config.seed);
@@ -820,6 +822,9 @@ Json Engine::project_settings() const {
 }
 double Engine::fixed_dt() const { return impl_->fixedDt; }
 WindowControl* Engine::window() { return impl_->appWindow.get(); }
+Clipboard* Engine::clipboard() { return &impl_->clipboard; }
+void Engine::log_clipboard_reads(bool on) { impl_->clipboard.log_reads(on); }
+std::vector<std::string> Engine::take_clipboard_reads() { return impl_->clipboard.take_reads(); }
 
 double Engine::render_scale() const { return impl_->renderer ? impl_->heldScale : ScriptHost::render_scale(); }
 

@@ -526,3 +526,33 @@ TEST_CASE("lit shapes: shaded by Light2D and the ambient light, unlit shapes kee
     CHECK(near(img.pixel(272, 54), Color{0.9f * 0.15f, 0.6f * 0.15f, 0.3f * 0.2f, 1}, 0.03f));
     expect_golden(img, "2d_lit_shapes");
 }
+
+TEST_CASE("Light2D: of 20 lights 16 are kept and the off-view ones are the ones left out, counted in the stats") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    camera_at(w);
+    lit_sprite(w, "", {0, 0, 0});
+    // Four bright lights far off the view come first in the entity order: still left out.
+    for (int i = 0; i < 4; ++i) {
+        Entity e = make(w, "far", {1000.0f + float(i) * 10.0f, 0, 0});
+        auto& l = w.add<Light2D>(e);
+        l.radius = 50;
+        l.intensity = 5;
+    }
+    for (int i = 0; i < 16; ++i) {
+        Entity e = make(w, "near", {-150.0f + float(i) * 20.0f, 0, 0});
+        auto& l = w.add<Light2D>(e);
+        l.radius = 30;
+    }
+    g.render(w);
+    CHECK(g.renderer.stats().lights2d == 16);
+    CHECK(g.renderer.stats().lights2dDropped == 4);
+    CHECK(g.renderer.stats().lights == 0);
+    // A directional light takes a slot first: one more of the lights in view is left out.
+    sun(w, 270, 45);
+    g.render(w);
+    CHECK(g.renderer.stats().lights2d == 16);
+    CHECK(g.renderer.stats().lights2dDropped == 5);
+}
