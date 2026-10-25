@@ -114,6 +114,21 @@ A 3D example game for phones
   mouse and the wheel. `ui.check_layout` finds no issue in it. Its studio intro is a video (FB-0051) and its dogs
   follow the courier across the rope bridges (FB-0056): no entry of its feedback is open.
 
+A couch co-op example game for the desktop
+
+- Burrow Brigade (`examples/burrow-brigade`) is a complete 2D game for one to four players on one screen, made for the
+  desktop and Steam first, the way your AI makes a game: the miners dig down through mines generated from a seed (the
+  same mine on every machine), in three strata with water, cave-ins and magma, gather ore, rescue moles and ride the lift
+  up before their lamps burn out, while beetles, goblin thieves and the Mole King hunt them through the tunnels they dig.
+  It has a join screen for four pads or a keyboard, per-player rebinding, a shared camera, revives, a pad unplugged
+  mid-game, a camp with upgrades, three save slots whose format changed once (old saves are migrated), cloud copies, a
+  daily dig and seed codes, achievements, stats and all-time and daily leaderboards on the test store, rich presence and
+  Steam Deck checks, a news panel, remote balance values and opt-in analytics from its own server (a fake one in tests),
+  music layers, ducking and captioned sound cues, display options, hold or toggle, a game speed for assist, English,
+  Russian and Thai, and store texts, images and a trailer rebuilt by scripts. Its `SHIPPING.md` says how the Windows,
+  Linux and macOS exports were made and what is still done by hand, and its `ENGINE_FEEDBACK.json` what it had to work
+  around: those entries rank the next milestone.
+
 Sliders and lists
 
 - `Slider.format` shows the value as a pattern: `"{v:1}x"`, `"{percent}%"` (the value times 100); `Slider.formatKey` takes the
