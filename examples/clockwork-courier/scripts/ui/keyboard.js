@@ -5,7 +5,9 @@
 // d-pad walks the keys, A types one, "Delete" removes the last character, "Done" closes it and sends ui.submit for the
 // field (what Enter does), B closes it and keeps the text. Typing goes through the same events a real keyboard sends
 // (ui.change), so the game's code does not know the difference. Phones and keyboards use their own keyboard: the engine
-// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad.
+// raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad. A
+// platform that has a keyboard for pads (the Steam Deck, through a native plugin) shows its own: while
+// input.platformKeyboard is true this one stays closed too.
 //
 // The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
 import { Behaviour, ui, input, world, i18n } from "factoria";
@@ -68,7 +70,8 @@ export default class OnScreenKeyboard extends Behaviour {
     }
     // A on a focused field opens the keyboard again after B closed it.
     const f = ui.focused;
-    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && input.pressed("ui_submit")) this.open(f);
+    if (!this.ignore && f && f.has("TextField") && input.lastDevice === "gamepad" && !input.platformKeyboard && input.pressed("ui_submit"))
+      this.open(f);
   }
 
   onFocus(entity) {
@@ -79,7 +82,7 @@ export default class OnScreenKeyboard extends Behaviour {
       return;
     }
     if (this.ignore === entity.id) return; // the focus we gave back ourselves (onUpdate forgets it two frames later)
-    if (entity.has("TextField") && input.lastDevice === "gamepad") this.open(entity);
+    if (entity.has("TextField") && input.lastDevice === "gamepad" && !input.platformKeyboard) this.open(entity);
   }
 
   open(field) {
