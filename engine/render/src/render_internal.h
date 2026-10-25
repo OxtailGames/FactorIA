@@ -265,6 +265,7 @@ struct QuadItem {
     Rect clip{};  // screen-space scissor rectangle in target pixels; w <= 0 = none (ScrollList content)
     bool lit = false;                 // shaded by the 2D lights (kModeLit quads)
     TextureAsset* normal = nullptr;   // lit: the normal map laid out like `tex`; null = a flat surface
+    bool plain = true;                // every quad is kModeTextured (QuadList::quad clears it)
 };
 
 struct QuadBatch {
@@ -276,6 +277,9 @@ struct QuadBatch {
     Rect clip{};  // batches only merge with an equal clip
     bool lit = false;                // lit batches only merge with the same texture and normal map
     TextureAsset* normal = nullptr;
+    // Only plain textured quads (kModeTextured, not lit, not BlendMode::Multiply): drawn with the lean quad_plain shader.
+    // Merging never waits on it: a batch that takes in one other quad is drawn with the full shader.
+    bool plain = true;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -362,9 +366,10 @@ public:
     // Makes a texture from CPU pixels (RGBA8) with an optional mip chain.
     TextureAsset* make_texture(const std::string& name, const Image& img, bool mips);
 
-    // The texture that shows the current picture of a Video's decoder: made on first use and uploaded again whenever the decoder
-    // has a new picture (the image is recreated; the TextureAsset pointer stays valid). Never null. end_video_frame() frees the
-    // textures of decoders no video_texture() asked for since the last call (call it once per drawn frame).
+    // The texture that shows the current picture of a Video's decoder: made on first use (one write-transient image, made
+    // again only when the picture size changes; the TextureAsset pointer stays valid) and written with the decoder's
+    // picture once per sokol frame that draws it. Never null. end_video_frame() frees the textures of decoders no
+    // video_texture() asked for since the last call (call it once per drawn frame).
     TextureAsset* video_texture(const std::shared_ptr<VideoDecoder>& decoder);
     void end_video_frame();
 
@@ -448,7 +453,8 @@ public:
     void shutdown();
 
     sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
-    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
+    // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
+    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false);
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
     // `shader` = a program of a custom material (the pipeline is keyed by it); default = the built-in mesh program.
@@ -495,7 +501,7 @@ public:
     int sample_count() const { return sampleCount_; }
     bool shadows_supported() const { return shadowsSupported_; }
 
-    sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
+    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
