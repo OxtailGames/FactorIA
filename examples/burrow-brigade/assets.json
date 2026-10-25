@@ -1,0 +1,146 @@
+{
+  "format": "factoria.assets/1",
+  "defaults": {
+    "audio": {
+      "normalize": true,
+      "targetLufs": -18
+    }
+  },
+  "assets": {
+    "assets/audio/blocked.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset click, 0.04 s, seed 3",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/dig.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset footstep, 0.14 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/dig2.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 4,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset footstep, 0.14 s, seed 4",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/dug.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset hit, 0.18 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/lamp_out.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset error, 0.40 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/lift.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset whoosh, 0.60 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/oil.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset pickup, 0.25 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/ore.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset coin, 0.35 s, seed 0",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/rescue.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset powerup, 0.60 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/sprites.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), mole and cracks drawn by the Burrow Brigade project"
+      }
+    },
+    "assets/tiles.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/roguelike-caves-dungeons + https://kenney.nl/assets/tiny-dungeon (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), re-packed and extended by the Burrow Brigade project"
+      }
+    }
+  }
+}

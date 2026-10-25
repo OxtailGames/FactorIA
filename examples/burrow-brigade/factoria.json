@@ -4,18 +4,69 @@
   "id": "com.oxtailgames.burrowbrigade",
   "version": "0.1.0",
   "engine": "0.2.0",
-  "mainScene": "scenes/main.scene.json",
-  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
-  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "mainScene": "scenes/menu.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": false
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
   "input": {
     "actions": {
-      "move_left": ["A", "Left"],
-      "move_right": ["D", "Right"],
-      "move_up": ["W", "Up"],
-      "move_down": ["S", "Down"],
-      "action": ["Space", "MouseLeft", "Touch"]
+      "move_left": [
+        "A",
+        "Left",
+        "GamepadDpadLeft",
+        "GamepadLeftStickLeft"
+      ],
+      "move_right": [
+        "D",
+        "Right",
+        "GamepadDpadRight",
+        "GamepadLeftStickRight"
+      ],
+      "move_up": [
+        "W",
+        "Up",
+        "GamepadDpadUp",
+        "GamepadLeftStickUp"
+      ],
+      "move_down": [
+        "S",
+        "Down",
+        "GamepadDpadDown",
+        "GamepadLeftStickDown"
+      ],
+      "dig": [
+        "Space",
+        "J",
+        "GamepadA",
+        "GamepadX"
+      ],
+      "pause": [
+        "Escape",
+        "P",
+        "GamepadStart"
+      ]
     }
   },
-  "platforms": ["windows", "macos", "linux"],
-  "feedbackFile": "ENGINE_FEEDBACK.json"
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "localization": {
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ]
+  }
 }

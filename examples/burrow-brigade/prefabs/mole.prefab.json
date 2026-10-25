@@ -1,0 +1,24 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Mole",
+    "tags": ["mole"],
+    "components": {
+      "Transform": {},
+      "Sprite": {
+        "texture": "assets/sprites.png",
+        "region": [64, 0, 16, 16],
+        "size": [16, 16],
+        "layer": 8,
+        "lit": true
+      },
+      "Script": {
+        "path": "scripts/game/mole.js",
+        "props": {
+          "tx": 0,
+          "ty": 0
+        }
+      }
+    }
+  }
+}
