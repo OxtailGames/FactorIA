@@ -131,7 +131,9 @@
             "Text": {
               "text": "",
               "fontSize": 22,
-              "space": "screen"
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         }
@@ -287,7 +289,9 @@
             "Text": {
               "text": "",
               "fontSize": 22,
-              "space": "screen"
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         },
@@ -328,7 +332,9 @@
               "space": "screen",
               "keyArgs": {
                 "slot": 1
-              }
+              },
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         },
@@ -391,7 +397,9 @@
               "space": "screen",
               "keyArgs": {
                 "example": "3K7Q-2XF9"
-              }
+              },
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         },
@@ -434,7 +442,9 @@
             "Text": {
               "text": "",
               "fontSize": 22,
-              "space": "screen"
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         },

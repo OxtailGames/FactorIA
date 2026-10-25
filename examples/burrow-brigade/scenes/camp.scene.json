@@ -260,7 +260,9 @@
               "text": "camp.hint",
               "key": "camp.hint",
               "fontSize": 26,
-              "space": "screen"
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
             }
           }
         }
