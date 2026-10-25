@@ -4,6 +4,34 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The time of day and the day boundary
+
+- `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the
+  date in UTC). A built game reads the clock again about once a minute and on focus or resume, and `game.on("dayChanged",
+  fn)` runs once when the local calendar day changes. `game.setDate`, `--date` and replay files (`time`) take a time,
+  `game.setDate(iso, { utcOffsetMinutes })` the time zone; moving a test across midnight sends `dayChanged`.
+- `platform.leaderboards.submit(id, score, { day })` and `entries(id, { day })` address the daily board of a given day (the
+  fake and Steam keep every day). Without `day` a daily board is the local date's; pass `game.today().utc.iso` to both
+  for one board worldwide. Game Center and Play Games reject a day other than the local or UTC today with `unsupported`.
+
+Thai line breaks and the sara am check
+
+- A wrapped line now also breaks after U+200B ZERO WIDTH SPACE (no width, never drawn), the UAX #14 spaces (U+1680,
+  U+2000-U+2006, U+2008-U+200A, U+205F) and a hyphen (`-` unless a digit follows, U+2010), so Thai, Khmer, Lao and Burmese
+  text whose translator marks word boundaries with U+200B wraps there. Unmarked text still needs a dictionary and is not broken.
+- `FontCoverage::missing`, `localization validate` and the runtime missing-glyph warning check U+0E33 and U+0EB3 as the parts
+  HarfBuzz always decomposes them into (U+0E4D U+0E32, U+0ECD U+0EB2), so a font lacking the nikhahit is reported.
+
+Light2D in the stats and the perf budget
+
+- `RenderStats` (`game.render_stats`, `game.renderStats()`) gets `lights2d` and `lights2dDropped`: the Light2D lights
+  that shade a frame (at most 16) and the ones left out. `lights` and `lightsDropped` stay the 3D lights.
+- `perf.measure`'s `lights`, and so the `maxLights` budget, is now the most 2D plus 3D lights of any frame: a budget
+  written for a 2D game used to watch nothing.
+- The 16 Light2D lights of a frame are the ones that light the view: directional lights first, then the point lights whose
+  radius reaches the camera's visible rectangle (more of their radius in view first, then the more intense ones). A light
+  entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene naming the count.
+
 Clipboard and window close
 
 - `clipboard.read()` (a Promise) and `clipboard.write(text)` work on Windows, macOS, Linux and the web

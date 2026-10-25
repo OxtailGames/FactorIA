@@ -717,19 +717,30 @@ calendar date with `game.today()` instead, as you use `rng` for chance:
 
 ```js
 import { game, rng } from "factoria";
-const t = game.today();   // { year: 2026, month: 3, day: 14, weekday: 6, utcOffsetMinutes: 60, iso: "2026-03-14" }
+const t = game.today();   // { year: 2026, month: 3, day: 14, weekday: 6, hour: 23, minute: 59, second: 30, utcOffsetMinutes: -300,
+                          //   iso: "2026-03-14", utc: { year: 2026, month: 3, day: 15, iso: "2026-03-15" } }
 rng.seed(t.year * 10000 + t.month * 100 + t.day);   // a daily challenge: everybody plays the same seed on the same day
 ```
 
-`weekday` is 0 = Sunday to 6 = Saturday; `utcOffsetMinutes` is the local offset from UTC. In a built game the date is the
-player's real local date, read when the game starts and again each time the app comes back to the foreground or the
-window gets the focus, before `game.on("resume")` / `game.on("focus")` run: a game left in the background overnight
-sees the new day in its "resume" handler, while one that stays in front past midnight keeps its date until then.
-In `factoria test`, `factoria run --headless`, `call`, `session`, `mcp` and `screenshot` it is the fixed date `2026-01-01`,
-so runs are reproducible; `--date YYYY-MM-DD` chooses another (see CLI.md). A replay recorded in the editor stores the
-date it was played on and plays back with it, so a daily run replays identically (an older replay without a date uses the
-fixed default). In tests `game.setDate("2026-03-14")` changes it (reset before each test); an impossible date throws an
-error that says which part is wrong.
+`weekday` is 0 = Sunday to 6 = Saturday; `hour`, `minute` and `second` are the local time of day; `utcOffsetMinutes` is the
+local offset from UTC and `utc` is the date of the same moment in UTC (pass `utc.iso` as a leaderboard's `options.day` for one daily board
+worldwide, see PLATFORM.md, "Leaderboard periods"). In a built game the date and time are the player's real local ones,
+read when the game starts, about once a minute while it runs, and each time the app comes back to the foreground or the
+window gets the focus (before `game.on("resume")` / `game.on("focus")` run), so `game.today()` is at most a minute behind the
+clock. When the local calendar day changes meanwhile (past midnight, a clock set to another day, a game left in the
+background overnight) the game event `dayChanged` goes to `game.on("dayChanged", (today) => ...)` once, with the new
+`game.today()`: refresh the daily challenge, the daily reward and the daily leaderboard there. A change of time zone or
+daylight saving alone is not a new day.
+In `factoria test`, `factoria run --headless`, `call`, `session`, `mcp` and `screenshot` it is the fixed date
+`2026-01-01` at 00:00:00 and never moves, so runs are reproducible; `--date YYYY-MM-DD[THH:MM[:SS]]` chooses another (see
+CLI.md). A replay recorded in the editor stores the date, time and offset it was played on (`date`, `time`,
+`utcOffsetMinutes`) and plays back with them, so a daily run replays identically even when it was recorded at 23:59 (an
+older replay without a time plays at 00:00:00, one without a date on the fixed default date). The replay keeps the date it
+started on: a midnight crossed during a recorded session is not replayed. In tests `game.setDate("2026-03-14")` changes
+the date (reset before each test); `game.setDate("2026-03-14T23:59:30", { utcOffsetMinutes: -300 })` also sets the time and
+the time zone, and moving to another local day sends `dayChanged` once, so a test crosses midnight with two calls
+(`"2026-03-14T23:59:59"`, then `"2026-03-15T00:00:01"`). An impossible date or time throws an error that says which part is
+wrong.
 
 ### rng (deterministic, seeded per run)
 `rng.seed(n)` reseeds the world RNG (seed → level determinism from tools/tests) · `rng.float()` [0,1) · `rng.range(a, b)` · `rng.int(a, b)` (inclusive) · `rng.chance(p)` · `rng.pick(array)` · `rng.shuffle(array)` (a shuffled copy)

@@ -1022,17 +1022,17 @@ declare module "factoria" {
      */
     paused: boolean;
     /**
-     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), utcOffsetMinutes (minutes east of UTC) and iso ("YYYY-MM-DD"). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date; `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 unless --date says another; a replay (--input) plays with the date it was recorded on. Tests set it with game.setDate("2026-10-23"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
+     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso ("YYYY-MM-DD") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on("dayChanged") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate("2026-10-23T23:59:30"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
      */
-    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * True while the game's window has the keyboard focus (always true on a phone with the app in the foreground, in headless runs and in tests until game.blur()). Changes are announced by game.on("focus") and game.on("blur").
      */
     readonly focused: boolean;
     /**
-     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). The handler takes no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
+     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was set; a game with a window reads the clock about once a minute) calls fn with game.today(); the other handlers take no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
      */
-    on(event: "suspend" | "resume" | "focus" | "blur", fn: () => void): () => void;
+    on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
     /**
      * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
      */
@@ -1562,13 +1562,13 @@ declare module "factoria" {
    */
   export interface PlatformLeaderboardsAPI {
     /**
-     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs.
+     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs. options.day: "YYYY-MM-DD" submits to the daily board of that day instead of today's (without it the board of the local date, game.today().iso; pass game.today().utc.iso to submit and entries alike for one board worldwide); only a daily board takes it, and Game Center and Play Games reject a day other than the local or UTC today with code "unsupported".
      */
-    submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
+    submit(id: string, score: number, options?: { day?: string }): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
     /**
-     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs.
+     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs. options.day: "YYYY-MM-DD" reads the daily board of that day, e.g. yesterday's (the same key submit wrote: the local date by default, game.today().utc.iso if the game submits with it; the fake and Steam keep every day, Game Center and Play Games reject a day other than the local or UTC today with code "unsupported").
      */
-    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
+    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number; day?: string }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
   }
 
   /**
@@ -2450,7 +2450,7 @@ declare module "factoria" {
     readonly offset: Vec2;
   }
   /**
-   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -5294,15 +5294,15 @@ declare module "factoria:test" {
     /**
      * Same as the script `game.today()`: 2026-01-01 at the start of every test, or the date of --date, until game.setDate().
      */
-    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * Same as the script `game.focused`.
      */
     readonly focused: boolean;
     /**
-     * Sets the date game.today() answers, "YYYY-MM-DD", until the test ends (the next test starts from the run's date again). An impossible date such as "2026-02-29" or a wrong shape throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
+     * Sets the date game.today() answers, "YYYY-MM-DD" or with a time "YYYY-MM-DDTHH:MM[:SS]" (midnight without one), until the test ends (the next test starts from the run's date again). options.utcOffsetMinutes sets the time zone (minutes east of UTC; the current one is kept otherwise), which decides game.today().utc. Moving to another local day sends "dayChanged" to the game.on listeners once, so a test crosses midnight with game.setDate("2026-10-23T23:59:59") then game.setDate("2026-10-24T00:00:01"). An impossible date or time throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
      */
-    setDate(iso: string): void;
+    setDate(iso: string, options?: { utcOffsetMinutes?: number }): void;
     /**
      * The player clicks the window's close button (Cmd+Q, Alt+F4): the game.on("quit") handlers run at once. Returns false when one called event.cancel() (the game goes on), true otherwise: game.quitRequested is then true. Example: expect(game.closeWindow()).toBe(false).
      */
@@ -5367,9 +5367,9 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high" }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights count the main pass, shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 16: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      */
