@@ -36,6 +36,14 @@ export const BURN_TIME = 0.5;
 export const WATER_SLOW = 0.5;
 /** Seconds from stepping on a cracked tile to the rocks falling. */
 export const CAVE_WARNING = 1.4;
+/**
+ * The numbers the hazards use while a shift runs. They start as the constants above; balance.js (remote balance values) may change
+ * them between shifts, so read `TUNING.x` and not the constant.
+ */
+export const TUNING = {
+  waterWave: WATER_WAVE, magmaWave: MAGMA_WAVE, waveTiles: WAVE_TILES, drownTime: DROWN_TIME,
+  burnTime: BURN_TIME, waterSlow: WATER_SLOW, caveWarning: CAVE_WARNING,
+};
 /** Tiles a pocket without a generator description can spread over. */
 export const DEFAULT_VOLUME = { water: 12, magma: 8 };
 /** Damage a cave-in does to an enemy under it. */
@@ -103,7 +111,7 @@ export class Hazards {
         const described = hazards.find((h) => h.tiles && h.tiles.some((t) => tiles.has(t.ty * map.width + t.tx)));
         const water = kind === K.WATER;
         const budget = described && typeof described.volume === "number" ? described.volume : water ? DEFAULT_VOLUME.water : DEFAULT_VOLUME.magma;
-        this.groups.push({ kind: water ? "flood" : "magma", tileKind: kind, tiles, budget, timer: water ? WATER_WAVE : MAGMA_WAVE, open: false, origin: { tx, ty } });
+        this.groups.push({ kind: water ? "flood" : "magma", tileKind: kind, tiles, budget, timer: water ? TUNING.waterWave : TUNING.magmaWave, open: false, origin: { tx, ty } });
       }
     }
   }
@@ -117,7 +125,7 @@ export class Hazards {
 
   /** Speed multiplier for a miner on this tile: slower in water. */
   speedFactor(tx, ty) {
-    return this.map.kindAt(tx, ty) === K.WATER ? WATER_SLOW : 1;
+    return this.map.kindAt(tx, ty) === K.WATER ? TUNING.waterSlow : 1;
   }
 
   /** Seconds of exposure of a player: `{water, magma}` (a test and HUD helper). */
@@ -176,8 +184,8 @@ export class Hazards {
       }
       g.timer -= dt;
       if (g.timer > 0) continue;
-      g.timer = g.kind === "flood" ? WATER_WAVE : MAGMA_WAVE;
-      const take = Math.min(WAVE_TILES, g.budget, front.length);
+      g.timer = g.kind === "flood" ? TUNING.waterWave : TUNING.magmaWave;
+      const take = Math.min(TUNING.waveTiles, g.budget, front.length);
       for (let i = 0; i < take; i++) {
         const t = front[i];
         map.setKind(t.tx, t.ty, g.tileKind, g.kind);
@@ -198,8 +206,8 @@ export class Hazards {
       const kind = map.kindAt(m.tx, m.ty);
       e.water = kind === K.WATER ? e.water + dt : Math.max(0, e.water - dt * 0.5);
       e.magma = kind === K.MAGMA ? e.magma + dt : Math.max(0, e.magma - dt * 2);
-      if (e.water >= DROWN_TIME) this.putDown(m, "flood", "drowned");
-      else if (e.magma >= BURN_TIME) this.putDown(m, "magma", "burned");
+      if (e.water >= TUNING.drownTime) this.putDown(m, "flood", "drowned");
+      else if (e.magma >= TUNING.burnTime) this.putDown(m, "magma", "burned");
     }
   }
 
@@ -238,7 +246,7 @@ export class Hazards {
       const blink = Math.floor(cave.t * 6) % 2 === 0;
       for (const s of cave.signs) if (s.alive) s.get("Sprite").color = [1, 1, 1, blink ? 0.95 : 0.4];
       // the rocks drop in the last third of a second
-      const fall = Math.max(0, Math.min(1, (cave.t - (CAVE_WARNING - 0.3)) / 0.3));
+      const fall = Math.max(0, Math.min(1, (cave.t - (TUNING.caveWarning - 0.3)) / 0.3));
       if (fall > 0 && cave.rocks.length === 0) {
         for (const s of cave.signs) {
           if (!s.alive) continue;
@@ -248,7 +256,7 @@ export class Hazards {
       cave.rocks.forEach((r, i) => {
         if (r.alive) r.position.y = cave.signs[i].position.y + 40 * (1 - fall);
       });
-      if (cave.t >= CAVE_WARNING) this.collapse(cave, here);
+      if (cave.t >= TUNING.caveWarning) this.collapse(cave, here);
     }
   }
 

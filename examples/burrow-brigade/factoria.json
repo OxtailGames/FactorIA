@@ -73,5 +73,107 @@
     "languages": [
       "en"
     ]
+  },
+  "platform": {
+    "achievements": [
+      {
+        "id": "first_ore",
+        "nameKey": "achievements.first_ore.name",
+        "descriptionKey": "achievements.first_ore.description",
+        "ids": {
+          "steam": "ACH_FIRST_ORE"
+        }
+      },
+      {
+        "id": "mole_rescuer",
+        "nameKey": "achievements.mole_rescuer.name",
+        "descriptionKey": "achievements.mole_rescuer.description",
+        "ids": {
+          "steam": "ACH_MOLE_RESCUER"
+        }
+      },
+      {
+        "id": "mole_king",
+        "nameKey": "achievements.mole_king.name",
+        "descriptionKey": "achievements.mole_king.description",
+        "ids": {
+          "steam": "ACH_MOLE_KING"
+        }
+      },
+      {
+        "id": "bright_stratum",
+        "nameKey": "achievements.bright_stratum.name",
+        "descriptionKey": "achievements.bright_stratum.description",
+        "ids": {
+          "steam": "ACH_BRIGHT_STRATUM"
+        }
+      },
+      {
+        "id": "full_house",
+        "nameKey": "achievements.full_house.name",
+        "descriptionKey": "achievements.full_house.description",
+        "ids": {
+          "steam": "ACH_FULL_HOUSE"
+        }
+      },
+      {
+        "id": "bug_squasher",
+        "nameKey": "achievements.bug_squasher.name",
+        "descriptionKey": "achievements.bug_squasher.description",
+        "ids": {
+          "steam": "ACH_BUG_SQUASHER"
+        }
+      }
+    ],
+    "stats": [
+      {
+        "id": "oreDug",
+        "type": "int",
+        "ids": {
+          "steam": "NumOreDug"
+        }
+      },
+      {
+        "id": "molesRescued",
+        "type": "int",
+        "ids": {
+          "steam": "NumMolesRescued"
+        }
+      },
+      {
+        "id": "floorsCleared",
+        "type": "int",
+        "ids": {
+          "steam": "NumFloorsCleared"
+        }
+      },
+      {
+        "id": "enemiesDefeated",
+        "type": "int",
+        "ids": {
+          "steam": "NumEnemiesDefeated"
+        }
+      }
+    ],
+    "leaderboards": [
+      {
+        "id": "best_run_cash",
+        "nameKey": "boards.name.best_run_cash",
+        "order": "descending",
+        "period": "allTime",
+        "ids": {
+          "steam": "BestRunCash"
+        }
+      },
+      {
+        "id": "daily_run_cash",
+        "nameKey": "boards.name.daily_run_cash",
+        "order": "descending",
+        "period": "daily",
+        "ids": {
+          "steam": "DailyRunCash"
+        }
+      }
+    ]
   }
 }

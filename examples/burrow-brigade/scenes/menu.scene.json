@@ -28,13 +28,13 @@
       "id": "main_menu",
       "components": {
         "Transform": {
-          "position": [0, 20, 0]
+          "position": [0, 8, 0]
         },
         "Panel": {
           "anchor": [0.5, 0.5],
           "color": [0, 0, 0, 0],
           "layout": "column",
-          "spacing": 12,
+          "spacing": 8,
           "fit": true
         },
         "Script": {
@@ -48,7 +48,7 @@
             "Text": {
               "text": "Burrow Brigade",
               "key": "menu.title",
-              "fontSize": 64,
+              "fontSize": 56,
               "space": "screen"
             }
           }
@@ -59,7 +59,8 @@
             "Button": {
               "autoSize": true,
               "text": "Continue",
-              "key": "menu.continue"
+              "key": "menu.continue",
+              "size": [240, 48]
             }
           },
           "active": false
@@ -71,7 +72,8 @@
               "autoSize": true,
               "text": "Play",
               "key": "menu.play",
-              "autoFocus": true
+              "autoFocus": true,
+              "size": [240, 48]
             }
           }
         },
@@ -81,7 +83,8 @@
             "Button": {
               "autoSize": true,
               "text": "Daily dig",
-              "key": "menu.daily"
+              "key": "menu.daily",
+              "size": [240, 48]
             }
           }
         },
@@ -91,7 +94,8 @@
             "Button": {
               "autoSize": true,
               "text": "Seed code",
-              "key": "menu.code"
+              "key": "menu.code",
+              "size": [240, 48]
             }
           }
         },
@@ -101,7 +105,8 @@
             "Button": {
               "autoSize": true,
               "text": "Options",
-              "key": "menu.options"
+              "key": "menu.options",
+              "size": [240, 48]
             }
           }
         },
@@ -111,7 +116,19 @@
             "Button": {
               "autoSize": true,
               "text": "Credits",
-              "key": "menu.credits"
+              "key": "menu.credits",
+              "size": [240, 48]
+            }
+          }
+        },
+        {
+          "id": "boards_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Boards",
+              "key": "menu.boards",
+              "size": [240, 48]
             }
           }
         },
@@ -121,7 +138,8 @@
             "Button": {
               "autoSize": true,
               "text": "Quit",
-              "key": "menu.quit"
+              "key": "menu.quit",
+              "size": [240, 48]
             }
           }
         },
@@ -509,6 +527,256 @@
           }
         }
       ]
+    },
+    {
+      "id": "boards",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [860, 650],
+          "anchor": [0.5, 0.5],
+          "layer": 300,
+          "layout": "column",
+          "spacing": 12,
+          "padding": [24, 20, 24, 20]
+        },
+        "Script": {
+          "path": "scripts/ui/boards.js"
+        }
+      },
+      "children": [
+        {
+          "id": "boards_title",
+          "components": {
+            "Text": {
+              "text": "Boards",
+              "key": "boards.title",
+              "fontSize": 40,
+              "space": "screen",
+              "layer": 301
+            }
+          }
+        },
+        {
+          "id": "boards_tabs",
+          "components": {
+            "Panel": {
+              "size": [812, 52],
+              "layout": "row",
+              "spacing": 10,
+              "color": [0, 0, 0, 0],
+              "layer": 301
+            }
+          },
+          "children": [
+            {
+              "id": "tab_alltime",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "All time",
+                  "key": "boards.tabAllTime",
+                  "layer": 302,
+                  "autoFocus": true
+                }
+              }
+            },
+            {
+              "id": "tab_daily",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Daily dig",
+                  "key": "boards.tabDaily",
+                  "layer": 302
+                }
+              }
+            },
+            {
+              "id": "tab_trophies",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Trophies",
+                  "key": "boards.tabTrophies",
+                  "layer": 302
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "boards_list",
+          "components": {
+            "ScrollList": {
+              "size": [812, 400],
+              "layer": 301,
+              "color": [0, 0, 0, 0.25],
+              "spacing": 8,
+              "padding": [16, 12, 16, 12]
+            }
+          }
+        },
+        {
+          "id": "boards_note",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 18,
+              "color": [0.75, 0.8, 0.9, 1],
+              "space": "screen",
+              "maxWidth": 780,
+              "layer": 302
+            }
+          }
+        },
+        {
+          "id": "boards_back",
+          "tags": ["back"],
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Back",
+              "key": "menu.back",
+              "layer": 302
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "consent",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [360, 240],
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "layer": 20,
+          "layout": "column",
+          "spacing": 10,
+          "padding": [16, 14, 16, 14],
+          "color": [0.08, 0.1, 0.16, 0.92]
+        },
+        "Transform": {
+          "position": [-24, 24, 0]
+        }
+      },
+      "children": [
+        {
+          "id": "consent_title",
+          "components": {
+            "Text": {
+              "text": "Anonymous play statistics",
+              "key": "online.consentTitle",
+              "fontSize": 22,
+              "space": "screen",
+              "layer": 21
+            }
+          }
+        },
+        {
+          "id": "consent_body",
+          "components": {
+            "Text": {
+              "text": "Help improve the game by sending when a shift ends, which floor you reach and when you quit. No name, no device, nothing you typed. You can change this in Options.",
+              "key": "online.consentBody",
+              "fontSize": 17,
+              "color": [0.85, 0.88, 0.95, 1],
+              "space": "screen",
+              "maxWidth": 326,
+              "layer": 21
+            }
+          }
+        },
+        {
+          "id": "consent_buttons",
+          "components": {
+            "Panel": {
+              "size": [328, 48],
+              "layout": "row",
+              "spacing": 10,
+              "color": [0, 0, 0, 0],
+              "layer": 21
+            }
+          },
+          "children": [
+            {
+              "id": "consent_yes",
+              "components": {
+                "Button": {
+                  "size": [150, 44],
+                  "text": "Yes, send",
+                  "key": "online.consentYes",
+                  "fontSize": 20,
+                  "layer": 22
+                }
+              }
+            },
+            {
+              "id": "consent_no",
+              "components": {
+                "Button": {
+                  "size": [150, 44],
+                  "text": "No, thanks",
+                  "key": "online.consentNo",
+                  "fontSize": 20,
+                  "layer": 22
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "news_text",
+      "components": {
+        "Transform": {
+          "position": [24, 24, 0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 20,
+          "color": [0.9, 0.84, 0.6, 1],
+          "space": "screen",
+          "anchor": [0, 0],
+          "pivot": [0, 1],
+          "align": "left",
+          "maxWidth": 380,
+          "layer": 10,
+          "maxHeight": 80,
+          "autoShrink": true,
+          "minFontSize": 14
+        }
+      }
+    },
+    {
+      "id": "hints",
+      "components": {
+        "Transform": {
+          "position": [0, -28, 0]
+        },
+        "Panel": {
+          "size": [640, 40],
+          "anchor": [0.5, 1],
+          "pivot": [0.5, 0],
+          "layout": "row",
+          "spacing": 16,
+          "color": [0, 0, 0, 0],
+          "align": "center",
+          "justify": "center",
+          "layer": 10
+        }
+      }
+    },
+    {
+      "id": "title_online",
+      "components": {
+        "Script": {
+          "path": "scripts/title_online.js"
+        }
+      }
     }
   ]
 }

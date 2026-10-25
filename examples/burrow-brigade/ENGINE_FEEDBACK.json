@@ -357,16 +357,17 @@
       "severity": "major",
       "title": "Scripts cannot read or write the system clipboard",
       "missing": "No clipboard API in the factoria module and no paste shortcut in TextField, so a seed code cannot be copied to another program or pasted from one",
-      "workaround": "scripts/game/clipboard.js keeps a session buffer behind copy()/paste() and a useSystem({write,read}) hook; the camp and results say honestly when the code only stayed in the game; the title has a Paste button that reads the buffer",
+      "workaround": "scripts/game/clipboard.js keeps a session buffer behind copy()/paste() and a useSystem({write,read}) hook; the camp and results say honestly when the code only stayed in the game; the title has a Paste button that reads the buffer; scripts/game/text_entry.js (P5) cleans a typed code to an alphabet without 0/O/1/I, so a code read aloud or from a screen is typed back without mistakes",
       "workaroundFiles": [
         "scripts/game/clipboard.js",
         "scripts/camp.js",
         "scripts/results.js",
-        "scripts/ui/title_flow.js"
+        "scripts/ui/title_flow.js",
+        "scripts/game/text_entry.js"
       ],
       "suggestion": "clipboard.read()/clipboard.write(text) in the factoria module (async on web), and Ctrl+V / Cmd+V in a focused TextField",
       "effort": "medium",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -429,6 +430,115 @@
         "tests/cloud.test.js"
       ],
       "suggestion": "game.click throws 'widget not laid out yet: step once after activating it'",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "networking",
+      "severity": "major",
+      "title": "No HTTP, news, remote-config or analytics API",
+      "missing": "A game script cannot fetch a JSON file or post an event: there is no http/fetch API, no news feed, no remote config and no analytics service in the engine",
+      "workaround": "scripts/game/online.js is a transport seam (offline by default, a fake in tests); news, balance and analytics go through it, and every feature works offline. A real transport has to be plugged in when the engine offers one",
+      "workaroundFiles": [
+        "scripts/game/online.js",
+        "scripts/game/news.js",
+        "scripts/game/balance.js",
+        "scripts/game/analytics.js"
+      ],
+      "suggestion": "A promise-based http module with timeouts and a test fake (game.http), plus a consent-aware analytics.track",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "A daily leaderboard cannot be targeted by date",
+      "missing": "A leaderboard with period daily picks its day from game.today() at the moment of the post, and leaderboards.submit has no way to name a day, so a daily-seed try that began before midnight and ends after it posts to the next day's board, and a game that keys its daily seed by UTC (the usual choice for a worldwide daily) cannot post to the matching board",
+      "workaround": "scripts/game/boards.js posts to the daily board only when run.dailyKey (the local date the try began on, scripts/game/daily.js) is within one day of game.today().iso and records lastPost.daily.skipped otherwise",
+      "workaroundFiles": [
+        "scripts/game/boards.js"
+      ],
+      "suggestion": "leaderboards.submit(id, score, {day:'YYYY-MM-DD'}) or game.today() with a utc option",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No Steam Deck detection API",
+      "missing": "No platform.isSteamDeck or device query; only a connected pad of type steamdeck says the game runs on a Deck",
+      "workaround": "scripts/game/deck.js isDeck() looks for a connected pad of type steamdeck, so a Deck driven by the keyboard or touch is not detected",
+      "workaroundFiles": [
+        "scripts/game/deck.js"
+      ],
+      "suggestion": "platform.device with {steamDeck, handheld}",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0023",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "No quit or window-close event",
+      "missing": "game.on has suspend and resume but no quit event, so a game cannot send a last message when the window closes",
+      "workaround": "Only the Quit button of the title flushes the analytics (scripts/main_menu.js quit()); closing the window loses the unsent events, which stay queued only in memory",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scripts/game/analytics.js"
+      ],
+      "suggestion": "game.on('quit', fn) with a short grace period",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0024",
+      "date": "2026-10-25",
+      "reporter": {
+        "kind": "ai",
+        "agent": "burrow-brigade-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The test runner cannot press Enter on a TextField",
+      "missing": "game.press only takes input actions and TextField ignores ui_submit, so a test cannot submit a TextField",
+      "workaround": "tests/deck.test.js checks onChange only; onSubmit in text_entry.js is used the same way and is untested",
+      "workaroundFiles": [
+        "tests/deck.test.js"
+      ],
+      "suggestion": "game.pressKey('Enter') or game.submit(id)",
       "effort": "small",
       "occurrences": 1,
       "status": "open"
