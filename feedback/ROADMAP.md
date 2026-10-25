@@ -18,11 +18,12 @@ minor, 4 nice-to-have, no blocker). M26's 23 packages fixed 49 of them (2026-10-
 workarounds; M27 (2026-10-25) fixed the last one, CC/FB-0051 (playing a video), the parts of three left to M12 (the real
 ads, the stores' leaderboard periods, the Steam Deck's keyboard) and CC/FB-0056 (the navmesh over bridges and moving
 platforms), found by M26's close-out: no entry is open. What is left of M12 and M19 is ranked in their sections and
-waits for a game that asks for it.
+waits for a game that asks for it. M28, a third reference game (2D, couch co-op, desktop and Steam first), is in
+progress: it is how what is left of M19 and M12 gets ranked.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
-Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
+Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
 0 entries from 6 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
@@ -734,7 +735,81 @@ Left open:
 
 Next: no example game has an open entry. What is left of M12 and M19 is ranked in their sections and waits for a game
 that asks for it, like M23's consoles; the manual checks against real stores and devices (M8, M9, M12 and the list
-above) need accounts and hardware this machine does not have.
+above) need accounts and hardware this machine does not have. M28 below is a third reference game that asks for them.
+
+## M28. A third reference game: couch co-op on the desktop (L, high) — in progress (the `m28/reference-game` PR)
+
+Planned 2026-10-25 against `e9384f7`. No example game has an open entry, and what is left of M19 (save slots,
+networking, audio effects, grid pathfinding and behaviour trees, split screen) and of M12 (analytics and remote config,
+Steam beyond the store basics) waits for a game that asks for it. Lantern Keep (M21) is a 2D platformer for one player
+and Clockwork Courier (M25) a 3D phone game: neither has had several players at one screen, a world that changes under
+the players' feet, levels generated from a seed, a dark world lit by many lights, online features, or the desktop and the
+Steam Deck as its main target. **Burrow Brigade** (`examples/burrow-brigade`, ids `BB/FB-n`) is that game: one to four
+miners dig down through a mine seen from above, gather ore, rescue trapped moles and ride the lift back up before their
+lamps burn out, while beetles, goblin thieves and, at the bottom, the Mole King hunt them through the tunnels they dig.
+Each shift is a mine generated from a seed (one seed gives the same mine on every machine), in three strata: the
+Topsoil, the Crystal Caves and the Magma Deep. Between shifts the brigade spends its ore at the camp on picks, lamps and
+boots. Gamepad first (up to four pads, or a keyboard and three pads), keyboard and mouse too; Windows, Linux, macOS and
+the Steam Deck.
+
+Built like Lantern Keep and Clockwork Courier: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria
+docs` and the public commands, no engine change. The game asks on purpose for what the engine may not have; each gap
+gets its workaround and an `ENGINE_FEEDBACK.json` entry, and those entries rank what is left of M19 and M12:
+- pathfinding on a `Tilemap` that changes as the players dig, and a behaviour-tree helper for the enemies;
+- per-player input (actions bound to one player's device, rebinding per player) and split screen (one viewport per
+  player when they drift apart);
+- audio effects on the buses: muffled under water and behind the pause menu, an echo in big caverns, the music ducked
+  under alarms, snapshots;
+- save slots with a version and a migration hook (the game changes its save format during the milestone and migrates
+  the old saves);
+- online: the daily dig's seed and its board, a news panel and balance values from the game's own server, opt-in
+  analytics;
+- a dark mine lit by more than 16 2D lights (every miner's lamp, torches, glowing crystals), walls that block the light,
+  and unexplored tunnels that stay dark;
+- Steam beyond M12's basics: rich presence in the player's language, Remote Play Together, button glyphs that match the
+  pad, the Steam Deck (gamepad only, 1280x800, its keyboard), a seed shared as a code through the clipboard;
+- desktop display options (windowed, borderless, fullscreen, resolution, monitor, vsync, frame cap), and one player's pad
+  unplugged mid-game;
+- Russian (several plural forms) and Thai (no spaces between words).
+
+Assets are CC0 only, imported with `assets.import` and recorded in `assets.json` (top-down tiles, characters and sounds
+from Kenney's packs, loops from OpenGameArt; P1 and P2 choose them).
+
+Packages, in this order: P1, P2, then P3-P5 at once, then P6, then P7 and P8 at once.
+- **P1 miner, digging and the mine (L)**: one miner on a top-down tile map, digging dirt and rock, ore and its pickup,
+  the lamp and its oil, darkness, the mine generator (rooms, tunnels, veins, the lift) from a seed, the shift flow (title,
+  shift, results), the HUD, a test mine, and the contracts the other packages build on (the generator's API, the
+  players, game events, the run state).
+- **P2 world and enemies (L)**: the three strata with their tiles and hazards (water that floods an opened pocket,
+  cave-ins, magma), torches and crystals, beetles, goblin thieves and the Mole King chasing through dug tunnels with a
+  behaviour tree, music per stratum, and a bot that clears floors from fixed seeds.
+- **P3 couch co-op (M)**: a join screen (up to four players: press A, or Enter on the keyboard), each player's device
+  and colour, per-player bindings and their rebinding, a shared camera that zooms out and splits the screen when the
+  players are too far apart, downed miners revived by a friend, a pad unplugged mid-game, Remote Play Together.
+- **P4 camp, progress and saves (M)**: the camp and its upgrades, three save slots with a versioned format (v1 first,
+  then v2 with the migration of v1 saves, fixtures of both in the tests), cloud saves, the daily dig and seed codes.
+- **P5 Steam and online (M)**: achievements, stats and leaderboards (all-time and daily, M27.3) on the fake store, rich
+  presence, the Steam Deck checks, button glyphs, and the news panel, remote balance values and opt-in analytics from
+  the game's own server.
+- **P6 sound, options and accessibility (M)**: music layers that rise in a chase, the bus effects, ducking and
+  snapshots, captions for sound cues, the display options, hold or toggle for held actions, a game speed for assist, ore
+  and hazards readable without colour, reduced flashing near magma.
+- **P7 shipping (M)**: the icon, key art and capsules, store texts in English, Russian and Thai, store screenshots and a
+  trailer rebuilt by scripts, the Steam backend (Valve's test app 480 for the manual check), the Windows, Linux and macOS
+  exports, render and perf budgets on the busiest floor, `SHIPPING.md`.
+- **P8 languages (M)**: Russian and Thai (a Noto Sans Thai subset, Thai lines broken between words), every screen at
+  100 % and 200 % text.
+
+Acceptance criteria:
+- ctest (`example_burrow-brigade_*`) runs a bot that clears floors of every stratum from fixed seeds, alone and with four
+  players; one seed gives the same mine on every desktop job (a hash in a test).
+- Four-player tests drive joining, a shift and a revive with four simulated pads; keyboard-only and gamepad-only tests
+  drive the menus.
+- The Windows, Linux and macOS exports are made, and the macOS one starts and takes input on this Mac; the Windows and
+  Linux runs and Valve's app 480 are manual checks in `SHIPPING.md`.
+- The busiest floor (four players, every light) stays under its draw-call budget in a headless run.
+- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
+  next milestone.
 
 ## Out of scope: Roblox
 
