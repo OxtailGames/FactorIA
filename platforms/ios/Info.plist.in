@@ -52,5 +52,5 @@
 	<array>
 		@FA_IOS_ORIENTATIONS_IPAD@
 	</array>
-</dict>
+@FA_IOS_PLIST_EXTRA@</dict>
 </plist>
