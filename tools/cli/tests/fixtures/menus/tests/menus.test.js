@@ -39,10 +39,7 @@ test("controls: a gamepad button rebinds jump and keeps its keyboard keys", () =
   pad.tap("DpadRight");
   pad.tap("A"); // the Controls tab
   pad.tap("DpadDown");
-  expect(focused()).toBe("bind_move_left");
-  pad.tap("DpadDown");
-  pad.tap("DpadDown");
-  expect(focused()).toBe("bind_jump");
+  expect(focused()).toBe("bind_jump"); // input.actions() order: the game's actions without the ui_* ones
   pad.tap("A");
   expect(game.find("bind_jump").get("Button").text).toContain("press a key or button");
   pad.tap("B"); // captured as the new binding, so it does not close the panel

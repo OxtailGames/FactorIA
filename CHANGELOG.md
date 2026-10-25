@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Menu kit: optional shop and age gate, a Controls tab from the actions
+
+- `project.add_menu_kit`: the `main-menu` part no longer brings `shop` and `ageGate`. `{"parts":["main-menu"]}` writes a
+  main menu without the Shop button, the shop panel and the age gate line (and without their scripts); add `shop` and
+  `ageGate` to `parts` to have them (no `parts` still adds everything).
+- The options screen's Controls tab lists every input action of the game except the `ui_*` ones (it was a fixed list of
+  `move_left`, `move_right`, `jump`, `pause`), labelled with `options.action.<action>` or the action's name when the game
+  has no such string. The `actions` property of the prefab's Script (`"props": { "actions": [...] }`) picks and orders them.
+
 The time of day and the day boundary
 
 - `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the

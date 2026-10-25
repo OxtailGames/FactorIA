@@ -33,8 +33,12 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` adds `core`, `main-menu` adds `core`, `options`, `credits`, `shop` and
-`ageGate` (the title screen's scene holds their panels). The result lists them in `requiredBy`.
+A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` adds `core`, `main-menu` adds `core`, `options` and `credits`. The result
+lists them in `requiredBy`. The shop and the age gate are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
+panel and the line that opens the age gate; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop` or `age_gate` in the
+scene, no import of `age_gate.js` in `scripts/main_menu.js`), and `{"parts":["main-menu","shop"]}` or `["main-menu","ageGate"]` adds just that one.
+Adding a part to a game that already has the main menu changes `scenes/menu.scene.json` and `scripts/main_menu.js`: they are listed in `skipped`
+(the game's files are never touched) until you pass `overwrite: true` or add the button, panel and lines yourself, as in steps 7 and 8.
 
 - **Files.** A file the game does not have is `added`. One that is already the kit's file is `unchanged`, so running the
   command twice changes nothing. One the game has edited is left alone and listed in `skipped` with the reason, unless
@@ -62,18 +66,23 @@ What the command does, file by file; do it by hand when you want to see each fil
    `scripts/ui/menu_stack.js` opens panels over each other and goes back.
 3. **Main menu and credits.** `scenes/menu.scene.json`, `scripts/main_menu.js` and `scripts/ui/credits.js`. Put the
    game's name in the `title` Text and its first level in `MainMenu.firstScene`.
-4. **Options.** `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`. `Options.actions` lists the actions the
-   player may rebind (their labels are the strings `options.action.<action>`): use your game's actions.
+4. **Options.** `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`. The Controls tab lists every action the game has in
+   `input.actions` except the `ui_*` ones, labelled with the string `options.action.<action>` (the action's own name when the
+   game has no such string). To pick and order them, set the `actions` property of the prefab's Script:
+   `"Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig", "place"] } }`; an action the game does
+   not have gets no row.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
 7. **Shop (only when the game sells things).** `scripts/ui/shop.js` and the `shop` panel and `shop_button` of
    `scenes/menu.scene.json`, with the products declared in `factoria.json` `"platform"`
    ([PLATFORM.md](PLATFORM.md)). Without a store (the exported game before a store plugin is added) the button stays
-   hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
+   hidden; a game with nothing to sell leaves the `shop` part out (`parts` without it: the button, the panel and the script are not
+   written; by hand, delete them and the three `shop` lines of `main_menu.js`). One entity with
    `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
 8. **Age gate (only for ads that reach children and adults).** `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, the
-   `age_gate` panel of `scenes/menu.scene.json`, and the line in `main_menu.js` that opens it. See "Age gate" below.
+   `age_gate` panel of `scenes/menu.scene.json`, and the line in `main_menu.js` that opens it; all of them come with the `ageGate` part, and a
+   game whose ads do not reach children and adults leaves it out. See "Age gate" below.
 9. **On-screen keyboard (only for a game with a TextField).** `prefabs/ui/keyboard.prefab.json` and
    `scripts/ui/keyboard.js`, and one entity with that script in every scene that has a TextField (`keyboard_host` in
    `scenes/name.scene.json`). See "On-screen keyboard" below.
@@ -206,8 +215,8 @@ What the command does, file by file; do it by hand when you want to see each fil
   `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
 - **Age gate.** <a id="age-gate"></a>A game whose ads reach children and adults (`"platform": { "ads": { "audience": "mixed" } }`
   in factoria.json) must not request an ad, or show Google's consent form, before it knows whether the player is under the
-  age of consent ([PLATFORM.md](PLATFORM.md#children-and-consent)). The `ageGate` part is that question: `main_menu.js` opens
-  the `age_gate` panel over the title screen, the first time, when `platform.ads.audience` is `"mixed"` (any other audience
+  age of consent ([PLATFORM.md](PLATFORM.md#children-and-consent)). The `ageGate` part is that question: with it, `main_menu.js` (the
+  `main-menu` part without `ageGate` has no such line) opens the `age_gate` panel over the title screen, the first time, when `platform.ads.audience` is `"mixed"` (any other audience
   never sees it). The player picks a year of birth on a slider that starts at no particular year, or presses "I would rather
   not say"; the script computes `underAge` (born 16 or fewer years ago, or declined: the highest age of consent in Europe,
   and a year alone is off by one), calls `platform.ads.setUnderAge(underAge)`, and keeps **only that boolean** in
@@ -617,13 +626,13 @@ export class MenuStack {
 
 ```js scripts/main_menu.js
 // @ts-check
-// The title screen (scenes/menu.scene.json): Play, Options, Credits, Shop, Quit. Panels open over each other with
-// MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
+// The title screen (scenes/menu.scene.json): Play, Options, Credits, Quit, and Shop when the shop part is in the game.
+// Panels open over each other with MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
 import { Behaviour, ui, game, scene, session, platform } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
-import { openAgeGate } from "./ui/age_gate.js";
+import { openAgeGate } from "./ui/age_gate.js"; // @kit:ageGate
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -633,18 +642,18 @@ export default class MainMenu extends Behaviour {
     applyOnce();
     readMenusAloud();
     this.menus = new MenuStack("main_menu");
-    // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).
-    if (platform.has("purchases")) this.world.find("shop_button").active = true;
+    // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).  // @kit:shop
+    if (platform.has("purchases")) this.world.find("shop_button").active = true; // @kit:shop
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
-    // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).
-    if (platform.ads.audience === "mixed") openAgeGate(this.menus);
+    // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).  // @kit:ageGate
+    if (platform.ads.audience === "mixed") openAgeGate(this.menus); // @kit:ageGate
     ui.on("click", "play", () => {
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
     ui.on("click", "credits_button", () => this.menus.show("credits"));
-    ui.on("click", "shop_button", () => this.menus.show("shop"));
+    ui.on("click", "shop_button", () => this.menus.show("shop")); // @kit:shop
     ui.on("click", "quit", () => game.quit());
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());
@@ -946,7 +955,7 @@ export default class StoreEvents extends Behaviour {
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
 // colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
@@ -961,8 +970,12 @@ const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
-  /** Actions the Controls tab lets the player rebind; their labels are the strings "options.action.<action>". */
-  actions = ["move_left", "move_right", "jump", "pause"];
+  /**
+   * Actions the Controls tab lets the player rebind, in this order. null (the default) lists every action the game has
+   * except the ui_* ones. Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig"] } }.
+   * The labels are the strings "options.action.<action>"; an action without one is labelled with its name.
+   */
+  actions = null;
 
   onStart() {
     this.s = settings.load();
@@ -1080,7 +1093,9 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
-    this.actions = this.actions.filter((action) => input.actions().includes(action)); // an action the game does not have gets no row
+    const have = input.actions();
+    // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
+    this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
     for (const action of this.actions) {
       const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
@@ -1099,9 +1114,15 @@ export default class Options extends Behaviour {
     this.refreshControls();
   }
 
+  /** The translated name of an action; the action's own name when the game has no "options.action.<action>" string. */
+  actionLabel(action) {
+    const key = `options.action.${action}`;
+    return i18n.has(key) ? i18n.t(key) : action;
+  }
+
   refreshControls() {
     for (const action of this.actions) {
-      const label = i18n.t(`options.action.${action}`);
+      const label = this.actionLabel(action);
       world.find(`bind_${action}`).get("Button").text =
         this.waiting?.action === action
           ? i18n.t("options.pressKey", { action: label })
