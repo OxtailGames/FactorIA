@@ -10,7 +10,7 @@ import * as sound from "./sound.js";
 import * as players from "./players.js";
 import * as events from "./events.js";
 import { live } from "./mine_map.js";
-import { readInput } from "./miner_input.js";
+import { readInput, stopDig } from "./miner_input.js";
 import * as revive from "./revive.js";
 import { limitMove } from "./camera_views.js";
 import { K, TILE, kindInfo, spriteRegion, SPRITE } from "./tiles.js";
@@ -88,11 +88,13 @@ export default class Miner extends Behaviour {
     const playing = this.player.state === "active" || this.player.state === "lift";
     this.showDown(this.player.state === "down");
     if (this.player.state === "down" || !run.inShift) {
+      stopDig(this.playerId);
       this.setDigVisuals(null, 0); // out of play, or the shift is over: the miner stands still
       this.updateLamp(lamp);
       return;
     }
     const inp = readInput(this.player);
+    if (this.player.state !== "active") stopDig(this.playerId); // a toggled dig ends when the miner is down or on the lift
     if (this.player.invulnerable > 0) this.player.invulnerable = Math.max(0, this.player.invulnerable - dt);
     this.swingLeft = Math.max(0, this.swingLeft - dt);
 

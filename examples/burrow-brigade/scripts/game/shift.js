@@ -19,6 +19,7 @@ import { Hazards } from "./hazards.js";
 import { Lights } from "./lights.js";
 import { Fog } from "./fog.js";
 import * as music from "./music.js";
+import { resetToggles } from "./miner_input.js";
 import * as saveFile from "./save.js";
 import * as revive from "./revive.js";
 import * as daily from "./daily.js";
@@ -61,6 +62,7 @@ export default class Shift extends Behaviour {
     const stratum = stratumInfo(run.stratum);
     world.settings.ambientLight = stratum.ambient;
     music.play(run.stratum);
+    resetToggles(); // a dig toggled in the last shift does not carry over
     // assist: a slower game. time.scale scales every script and timer but not the audio, and outlives scene loads, so onDestroy puts it back.
     this.speed = gameSpeedOf();
     time.scale = this.speed;

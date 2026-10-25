@@ -23,7 +23,7 @@ export const SNAPSHOTS = {
 };
 
 /** Seconds a snapshot takes to settle. */
-export const EASE = 0.35;
+export const EASE = 0.2;
 
 const user = { master: 1, music: 1, sfx: 1, ui: 1 };
 const factor = { master: 1, music: 1, sfx: 1, ui: 1 };
@@ -76,10 +76,8 @@ export function tick(dt) {
 function write() {
   for (const b of BUSES) {
     const v = round(user[b] * factor[b] * (b === "music" ? duckFactor : 1));
-    if (written[b] !== v) {
-      written[b] = v;
-      audio.setVolume(b, v);
-    }
+    written[b] = v;
+    audio.setVolume(b, v); // every time: a scene load may have put the engine's own volumes back
   }
 }
 

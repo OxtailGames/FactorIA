@@ -975,7 +975,7 @@
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
@@ -984,7 +984,7 @@
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
@@ -993,7 +993,7 @@
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
