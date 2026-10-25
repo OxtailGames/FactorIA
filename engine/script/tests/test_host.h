@@ -124,6 +124,7 @@ struct TestHost : ScriptHost {
             platformServices.frame();
             scripts.dispatch_platform();
             scripts.dispatch_back();
+            scripts.dispatch_gamepads();
             scripts.fixed_update(dt);
             ph.step(w, dt);
             update_animators(w, dt);

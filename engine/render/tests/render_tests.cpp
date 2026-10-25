@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "fa/scene/tilemap.h"
+
 using namespace fa;
 using namespace fa::test;
 
@@ -259,6 +261,51 @@ TEST_CASE("tilemap: columns left unset is derived from the tileset width") {
     Color explicitGot = img.pixel(8, 80 + 8);
     CHECK(std::fabs(explicitGot.r - tileColor[5].r) < 0.03f);
     CHECK(std::fabs(explicitGot.g - tileColor[5].g) < 0.03f);
+}
+
+TEST_CASE("tilemap: a tileset with margin 1 and spacing 2 reads each tile from its own rectangle") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    make(w, "cam");
+    w.add<Camera>(w.find("cam"));
+    // 22x22 image: a 1 px margin, then 2x2 tiles of 8x8 px separated by 2 px gutters; the margin and gutters are magenta.
+    // Tile origins: 1 and 11 in both axes. A packed reading (no margin, no spacing) would hit magenta or the wrong tile.
+    const Color tileColor[4] = {Color::hex(0x3b7d3b), Color::hex(0x4a90d9), Color::hex(0xd9c24a), Color::hex(0xd94a4a)};
+    Image img;
+    img.width = 22;
+    img.height = 22;
+    img.rgba.resize(22 * 22 * 4);
+    for (int y = 0; y < 22; ++y)
+        for (int x = 0; x < 22; ++x) {
+            Color c = Color::hex(0xff00ff);
+            const int tx = (x - 1) / 10, ty = (y - 1) / 10;
+            if (x >= 1 && y >= 1 && (x - 1) % 10 < 8 && (y - 1) % 10 < 8 && tx < 2 && ty < 2) c = tileColor[ty * 2 + tx];
+            img.set_pixel(x, y, c);
+        }
+    REQUIRE(save_png(img, "assets/margin_tiles.png").ok());
+    Entity e = make(w, "map", {-160, 90, 0});
+    auto& tm = w.add<Tilemap>(e);
+    tm.tileset = "assets/margin_tiles.png";
+    tm.tileSize = {8, 8};
+    tm.margin = 1;
+    tm.spacing = 2;
+    tm.width = 4;
+    tm.height = 1;
+    tm.tiles = Json::array({0, 1, 2, 3});
+    CHECK(tileset_columns(tm, 22) == 2);
+    CHECK(tileset_tile_count(tm, 22, 22) == 4);
+    Image out = g.render(w);
+    for (int t = 0; t < 4; ++t) {
+        for (int dy : {0, 7})
+            for (int dx : {0, 7}) {
+                Color got = out.pixel(t * 8 + dx, dy);
+                INFO("tile " << t << " pixel (" << dx << ", " << dy << ") got rgb " << got.r << " " << got.g << " " << got.b);
+                CHECK(std::fabs(got.r - tileColor[t].r) < 0.03f);
+                CHECK(std::fabs(got.g - tileColor[t].g) < 0.03f);
+                CHECK(std::fabs(got.b - tileColor[t].b) < 0.03f);
+            }
+    }
 }
 
 TEST_CASE("text: sizes, alignment, wrapping, accents, pixel font, screen space") {

@@ -405,7 +405,7 @@ Request parse_request(const Engine::Impl& I, const Json& a) {
     for (const char* k : {"tiles", "width", "height"})
         if (q.tilemap.contains(k))
             bad_arg(std::string("'tilemap.") + k + "' cannot be set: the grid (tiles, width, height) comes from 'rows' and 'legend'",
-                    "Remove it from 'tilemap'; pass only tileset, tileSize, columns, solidTiles, color, layer there.");
+                    "Remove it from 'tilemap'; pass only tileset, tileSize, margin, spacing, columns, solidTiles, color, layer there.");
     if (a.contains("path")) q.path = scene_file_arg(a["path"], "path", true);
     if (a.contains("from")) q.from = scene_file_arg(a["from"], "from", false);
     q.dryRun = a.value("dryRun", false);
@@ -542,7 +542,7 @@ void check_tileset(Tilemap& tm, const Request& q, const std::vector<LegendEntry>
                 std::to_string(img->width) + "x" + std::to_string(img->height) + " px) holds only " + std::to_string(count) +
                 " tiles (indices 0.." + std::to_string(count - 1) + ") with tileSize [" + std::to_string(int(tm.tileSize.x)) +
                 ", " + std::to_string(int(tm.tileSize.y)) + "] and columns " + std::to_string(tileset_columns(tm, img->width)),
-            "Use an index in 0.." + std::to_string(count - 1) + ", or pass tilemap.tileSize / tilemap.columns that match the image.");
+            "Use an index in 0.." + std::to_string(count - 1) + ", or pass tilemap.tileSize / margin / spacing / columns that match the image.");
     }
 }
 
@@ -1215,8 +1215,8 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). "
          "`overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. "
          "The tilemap is the entity `entity` (default \"tilemap\"): created when missing, updated when it exists; `tilemap` sets "
-         "its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is "
-         "derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like "
+         "its Tilemap fields (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is "
+         "derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like "
          "Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor "
          "bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; "
          "ids are `id` from the legend (unique objects such as \"player\") or generated in row-major order as <prefab name>_<n> "
@@ -1262,7 +1262,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "legendFrom":{"type":"string",
                              "description":"Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted."},
                "tilemap":{"type":"object",
-                          "description":"Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend."},
+                          "description":"Tilemap field values (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend."},
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},
                "replace":{"type":"boolean","default":true,
                           "description":"Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them."},
@@ -1318,6 +1318,40 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "dryRun":{"type":"boolean","default":false,"description":"Write nothing; return the edited rows (and the import's dry run)."}}})json"),
          false, "scene"},
         [&I](const Json& a) { return ascii_edit(I, a); });
+
+    I.commands.add(
+        {"tilemap.set_tile",
+         "Change one tile of a Tilemap in the running scene, in place.",
+         "Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) at column `col`, row `row` of the "
+         "Tilemap on entity `id` (0-based, row 0 = TOP row). Only that element of `tiles` changes: the array is not "
+         "rewritten, the renderer reads it directly and 2D physics rebuilds only the colliders of the changed tiles on the "
+         "next step. This is the command form of `entity.tilemap.setTile(col, row, tile)` in scripts. It changes the RUNNING "
+         "world only (not the scene file; use scene.save to keep it, scene.import_ascii to rebuild a level file). A cell "
+         "outside the map or a value that is not a tile is refused and nothing changes. Returns {id, col, row, tile, "
+         "previous}. Example: tilemap.set_tile {\"id\":\"map\",\"col\":12,\"row\":7,\"tile\":-1}",
+         parse_schema(R"json({"type":"object","required":["id","col","row","tile"],"properties":{
+               "id":{"type":"string","description":"Id (or name) of the entity that has the Tilemap."},
+               "col":{"type":"integer","minimum":0,"description":"Tile column, 0 = leftmost."},
+               "row":{"type":"integer","minimum":0,"description":"Tile row, 0 = TOP row."},
+               "tile":{"type":"integer","minimum":-1,"description":"Tileset index (plus optional flip flags, see Tilemap.tiles), or -1 to empty the cell."}}})json"),
+         false, "scene"},
+        [&I](const Json& a) {
+            Entity e = need_entity(I.world, a);
+            Tilemap* tm = I.world.get<Tilemap>(e);
+            if (!tm)
+                throw CommandError("invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
+                                   "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap' by default).");
+            const int col = a["col"].get<int>(), row = a["row"].get<int>(), tile = a["tile"].get<int>();
+            const TilemapSize size = tilemap_size(*tm);
+            const int previous = tilemap_tile_at(*tm, size, col, row);
+            if (!set_tilemap_tile(*tm, col, row, tile))
+                throw CommandError("invalid_argument",
+                                   "Cell (" + std::to_string(col) + ", " + std::to_string(row) + ") or tile " + std::to_string(tile) +
+                                       " is not valid for the " + std::to_string(size.width) + " x " + std::to_string(size.height) + " map",
+                                   "col is 0.." + std::to_string(std::max(size.width - 1, 0)) + ", row is 0.." +
+                                       std::to_string(std::max(size.height - 1, 0)) + " (row 0 = top); tile is -1 or a tileset index.");
+            return Json::object({{"id", I.world.id_of(e)}, {"col", col}, {"row", row}, {"tile", tile}, {"previous", previous}});
+        });
 }
 
 }  // namespace fa

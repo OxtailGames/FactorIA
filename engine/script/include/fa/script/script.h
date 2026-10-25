@@ -125,6 +125,23 @@ public:
     virtual double preload_time_budget_ms() const { return 0.0; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
+    // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first
+    // start(). `props` becomes the props of the loaded scene; scene_props() answers the current scene's (an empty object when
+    // it has none). request_scene_reload restarts the current scene KEEPING its props. Hosts without props keep the
+    // defaults: the props are dropped and scene_props() is empty.
+    virtual void request_scene_change_with_props(std::string_view scenePath, const Json& props) {
+        (void)props;
+        request_scene_change(scenePath);
+    }
+    virtual void request_scene_reload(std::string_view scenePath) { request_scene_change(scenePath); }
+    virtual const Json& scene_props() const {
+        static const Json none = Json::object();
+        return none;
+    }
+    virtual std::string load_scene_now_with_props(std::string_view scenePath, const Json& props) {
+        (void)props;
+        return load_scene_now(scenePath);
+    }
     virtual void request_quit() = 0;
     // Test runner only: synchronously simulate n frames (input -> fixed -> update -> render).
     virtual void step_frames(int n) = 0;
@@ -136,6 +153,11 @@ public:
         (void)scene;
         (void)sourceName;
         return "not supported by this host (load_scene_json_now is not implemented)";
+    }
+    // The props of game.loadJson(scene, props); hosts without props ignore them.
+    virtual std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) {
+        (void)props;
+        return load_scene_json_now(scene, sourceName);
     }
     virtual bool screenshot(std::string_view path, std::string* error) = 0;
     // Same at `scale` times the design size (render scale: the same frame drawn sharper, 1.5 on 1280x720 = 1920x1080 PNG).
@@ -164,10 +186,12 @@ public:
         return {};
     }
     // The device the game runs on (`game.device`): {formFactor: "desktop"|"phone"|"tablet", gpuBackend, memoryGB, tier:
-    // "low"|"medium"|"high"}. The default is what headless runs and tests report (fixed, so output never depends on the
-    // machine): desktop, "headless", 8 GB, "high".
+    // "low"|"medium"|"high", steamDeck, handheld}. The default is what headless runs and tests report (fixed, so output never
+    // depends on the machine): desktop, "headless", 8 GB, "high", not a Steam Deck, not handheld. steamDeck: the game runs on a
+    // Steam Deck; handheld: a Steam Deck, a phone or a tablet.
     virtual Json device_info() const {
-        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"}});
+        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"},
+                                {"steamDeck", false}, {"handheld", false}});
     }
     // The renderer's stats of the picture now (RenderStats::to_json plus the target size), drawing a frame first when none
     // has been drawn since the last change (`game.renderStats()` in tests, the `game.render_stats` command). Null without
@@ -283,6 +307,11 @@ public:
     // and, when none consumes it (or there are none), asks the host to quit, which is what Back did before the event
     // existed. Once per frame, with dispatch_platform().
     void dispatch_back();
+    // The pads that were plugged in or out since the last frame (Input::take_gamepad_events): the game events
+    // "app.gamepadConnected" / "app.gamepadDisconnected" with {slot, id, name, type}, which game.on() listens to. Once per
+    // frame, with dispatch_platform(). Events that arrive before the scripts are initialised are dropped (a script reads the pads
+    // already there with input.gamepad(i).connected).
+    void dispatch_gamepads();
 
     // Developer tools.
     Result<Json> eval(std::string_view code);  // REPL in the game context; returns the value as JSON

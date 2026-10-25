@@ -494,6 +494,11 @@
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
       return new AnimatorApi(this.$h);
     }
+    get tilemap() {
+      if (!N.hasComp(this.$h, "Tilemap"))
+        throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.import_ascii`);
+      return new TilemapApi(this.$h);
+    }
     get video() {
       if (!N.hasComp(this.$h, "Video"))
         throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
@@ -541,6 +546,26 @@
     set loop(v) { this.component.loop = v; }
     get playing() { return this.component.playing; }
     set playing(v) { this.component.playing = v; }
+  }
+
+  // ======================================================================================================== tilemap
+  // entity.tilemap: reads and writes single tiles of a Tilemap component in place (the tiles array is not copied or
+  // replaced), so a script can dig, build or open doors every frame. 2D physics rebuilds only the colliders it changes.
+  class TilemapApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("Tilemap")); }
+    // The size drawing and collision use, read natively: `tiles` is not copied to the script.
+    get width() { return N.tileDims(this.$h)[0]; }
+    get height() { return N.tileDims(this.$h)[1]; }
+    getTile(x, y) {
+      if (typeof x !== "number" || typeof y !== "number") throw new Error(`tilemap.getTile(x, y) expects two cell numbers, got ${inspect(x)}, ${inspect(y)}`);
+      return N.tileGet(this.$h, x, y);
+    }
+    setTile(x, y, tile) {
+      if (typeof x !== "number" || typeof y !== "number" || typeof tile !== "number")
+        throw new Error(`tilemap.setTile(x, y, tile) expects three numbers (cell column, cell row, tile index or -1), got ${inspect(x)}, ${inspect(y)}, ${inspect(tile)}`);
+      N.tileSet(this.$h, x, y, tile);
+    }
   }
 
   // ========================================================================================================== video
@@ -926,6 +951,10 @@
         get connected() { return N.inPad(0, index, ""); },
         // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic": the family of a connected pad, from its vendor id and name.
         get type() { return N.inPadType(index); },
+        // The stable id of the pad in this slot (the same physical pad gives the same id every time; "" for a slot that never had a
+        // pad) and the name the OS gave it. Both are kept after the pad is unplugged, until another pad takes the slot.
+        get id() { return N.inPadInfo(index).id; },
+        get name() { return N.inPadInfo(index).name; },
         down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
         axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
       };
@@ -1308,12 +1337,13 @@
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
       return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
     },
-    load(path) { N.requestScene(path); },
+    // load(path, props?): props is a plain object the new scene's scripts read with game.sceneProps() from their first start().
+    load(path, props) { N.requestScene(path, props); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1323,6 +1353,9 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
+    // The props the running scene was started with (scene.load(path, props), `factoria run --props`, game.load(path, props)): a
+    // fresh plain object every call, {} when there are none. Valid from the first onStart.
+    sceneProps() { return N.sceneProps(); },
     // The calendar date: { year, month, day, weekday (0 = Sunday), hour, minute, second (the local time of day), utcOffsetMinutes,
     // iso: "YYYY-MM-DD", utc: { year, month, day, iso } (the date in UTC, the day stores use for their daily boards) }. The player's
     // real local date and time in a game with a window (read again about once a minute, see game.on("dayChanged")); a fixed date
@@ -1344,6 +1377,11 @@
     // "quit" (desktop windows only: the close button, Cmd+Q, Alt+F4) gets an event { cancel(), cancelled }: event.cancel() keeps
     // the window open, for a "Really quit?" menu or a last save; call game.quit() later to close it. A quit the game asked for
     // with game.quit() does not raise "quit".
+    // "gamepadConnected" and "gamepadDisconnected" (a pad was plugged in or out, or paired or lost over Bluetooth) get
+    // { slot, id, name, type }: the slot is the pad number input.gamepad(slot) answers for, the id stays the same for the same
+    // physical pad every time (use it to give a player their pad back), the name is what the OS calls it and the type is
+    // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic". A pad that comes back takes the slot it had when that is
+    // free. Pads that are already plugged in when the first scene starts are not announced: read input.gamepad(i).connected.
     on(event, fn) {
       if (!APP_EVENTS.includes(event)) {
         const sug = closest(String(event), APP_EVENTS);
@@ -1358,12 +1396,15 @@
           fn(ev);
         }, null);
       }
+      if (event === "gamepadConnected" || event === "gamepadDisconnected")
+        return addListener("app." + event, (data) => fn(Object.freeze({ slot: data.slot, id: data.id, name: data.name, type: data.type })), null);
       return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
     // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
-    // "low" | "medium" | "high" from the graphics backend and the memory }. Headless runs and tests always read
-    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } (tests change it with game.setDevice).
+    // "low" | "medium" | "high" from the graphics backend and the memory, steamDeck: true on a Steam Deck, handheld: true on a Steam Deck,
+    // a phone or a tablet }. Headless runs and tests always read
+    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } (tests change it with game.setDevice).
     get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
@@ -2215,8 +2256,8 @@
     resume() { N.testAppEvent(1); },
     focus() { N.testAppEvent(2); },
     blur() { N.testAppEvent(3); },
-    load(path) {
-      const err = N.testLoad(path);
+    load(path, props) {
+      const err = N.testLoad(path, props);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
     },
     setStorageText(text) { N.testStorageText(text === null || text === undefined ? null : String(text)); },
@@ -2248,7 +2289,23 @@
         release(button) { N.testPad(1, index, button, 0); },
         tap(button) { N.testPad(0, index, button, 0); stepN(1); N.testPad(1, index, button, 0); stepN(1); },
         axis(name, value) { N.testPad(2, index, name, value); },
-        connect() { N.testPad(3, index, "", 0); },
+        // connect(info?): info = { id?, name?, type?, vendor?, product? } says who the pad is (the "gamepadConnected" event and
+        // input.gamepad(i).id carry it); one left out keeps what the slot had. Without an id one is made from vendor, product and name.
+        connect(info) {
+          if (info !== undefined) {
+            const keys = ["id", "name", "type", "vendor", "product"];
+            if (!isObj(info)) throw new Error(`game.gamepad(${index}).connect(info) expects { id?, name?, type?, vendor?, product? }, but got ${inspect(info)}`);
+            for (const k of Object.keys(info)) {
+              if (keys.includes(k)) continue;
+              const sug = closest(k, keys);
+              throw new Error(`game.gamepad(${index}).connect: unknown field '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+            }
+            for (const k of ["id", "name", "type"]) if (info[k] !== undefined && typeof info[k] !== "string") throw new Error(`game.gamepad(${index}).connect: ${k} must be a string, but got ${inspect(info[k])}`);
+            for (const k of ["vendor", "product"]) if (info[k] !== undefined && !(Number.isInteger(info[k]) && info[k] >= 0 && info[k] <= 65535)) throw new Error(`game.gamepad(${index}).connect: ${k} must be an integer from 0 to 65535 (a USB id), but got ${inspect(info[k])}`);
+            if (info.type !== undefined) N.testPad(6, index, info.type, 0);  // validates the family
+          }
+          N.testPad(3, index, "", 0, info === undefined ? undefined : plain(info));
+        },
         disconnect() { N.testPad(4, index, "", 0); },
         // Plugs the pad in as this family, for input.buttonName("jump") and input.gamepad(i).type: "xbox", "playstation",
         // "nintendo", "steamdeck" or "generic". Tests start with "generic" pads.
@@ -2338,8 +2395,8 @@
     // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
     // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
     fileReads() { return N.testDiskReads(); },
-    loadJson(scene) {
-      const err = N.testLoadJson(plain(scene));
+    loadJson(scene, props) {
+      const err = N.testLoadJson(plain(scene), props === undefined ? undefined : plain(props));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
     },
     touchStart(p, id = 1) { const a = posArg(p, "game.touchStart"); N.testTouch(0, id, a[0], a[1]); },
@@ -2353,10 +2410,11 @@
     get world() { return world; },
     get time() { return time; },
     // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
-    // { formFactor, gpuBackend, memoryGB, tier }; one left out keeps the headless value. Reset before every test.
+    // { formFactor, gpuBackend, memoryGB, tier, steamDeck, handheld }; one left out keeps the headless value (handheld follows a
+    // phone, tablet or Steam Deck). Reset before every test.
     setDevice(overrides) {
-      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier"];
-      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
+      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier", "steamDeck", "handheld"];
+      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier?, steamDeck?, handheld? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
       for (const k of Object.keys(overrides)) {
         if (keys.includes(k)) continue;
         const sug = closest(k, keys);
@@ -2367,7 +2425,11 @@
       if (overrides.tier !== undefined && !tiers.includes(overrides.tier)) throw new Error(`game.setDevice: tier must be one of ${tiers.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.tier)}`);
       if (overrides.gpuBackend !== undefined && typeof overrides.gpuBackend !== "string") throw new Error(`game.setDevice: gpuBackend must be a string such as "metal", but got ${inspect(overrides.gpuBackend)}`);
       if (overrides.memoryGB !== undefined && (typeof overrides.memoryGB !== "number" || !(overrides.memoryGB >= 0))) throw new Error(`game.setDevice: memoryGB must be a number of gigabytes, but got ${inspect(overrides.memoryGB)}`);
-      N.testDevice(plain(overrides));
+      for (const k of ["steamDeck", "handheld"]) if (overrides[k] !== undefined && typeof overrides[k] !== "boolean") throw new Error(`game.setDevice: ${k} must be true or false, but got ${inspect(overrides[k])}`);
+      const o = plain(overrides);
+      // A Steam Deck is a handheld, and a phone or tablet is too, unless the test says otherwise.
+      if (o.handheld === undefined && (o.steamDeck === true || (o.formFactor !== undefined && o.formFactor !== "desktop"))) o.handheld = true;
+      N.testDevice(o);
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
     // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,

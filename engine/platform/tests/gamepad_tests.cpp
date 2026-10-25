@@ -959,3 +959,46 @@ TEST_CASE("Android: an unplugged pad frees its slot; the others keep theirs") {
     pads.feed(in);
     for (int i = 0; i < kMaxGamepads; ++i) CHECK_FALSE(in.gamepad_connected(i));
 }
+
+TEST_CASE("android: a pad waits for its identity, is announced with it and returns to its old slot") {
+    Input in;
+    AndroidGamepads pads;
+    pads.wait_for_info(true);
+    auto info = [](const char* id) {
+        GamepadInfo i;
+        i.id = id;
+        i.name = id;
+        return i;
+    };
+    pads.on_key(10, kAndroidKeyButtonA, true);  // device 10 takes slot 0
+    pads.on_key(20, kAndroidKeyButtonA, true);  // device 20 takes slot 1
+    pads.feed(in);
+    CHECK_FALSE(in.gamepad_connected(0));  // nobody asked who they are yet
+    CHECK(in.take_gamepad_events().empty());
+    pads.set_info(20, info("blue"));
+    pads.set_layout(20, AndroidLayout{});
+    pads.set_info(10, info("red"));
+    pads.set_layout(10, AndroidLayout{});
+    pads.feed(in);
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].info.id == "red");
+    CHECK(events[0].slot == 0);
+    CHECK(events[1].info.id == "blue");
+
+    // Red and blue leave; blue comes back as another device number and gets slot 1 again, not the first free one (0).
+    pads.release_device(10);
+    pads.release_device(20);
+    pads.feed(in);
+    in.take_gamepad_events();
+    pads.on_key(30, kAndroidKeyButtonA, true);  // takes slot 0 for now
+    pads.set_info(30, info("blue"));
+    pads.set_layout(30, AndroidLayout{});
+    pads.feed(in);
+    CHECK(in.gamepad_info(1).id == "blue");
+    CHECK(in.gamepad_connected(1));
+    CHECK_FALSE(in.gamepad_connected(0));
+    events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].slot == 1);
+}

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -129,7 +130,17 @@ void Engine::Impl::refresh_from_disk() {
     scripts.refresh_modules();
 }
 
-bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error) {
+// The props the scene being loaded starts with: the ones asked for, else the current ones on a reload, else none.
+void Engine::Impl::take_scene_props(bool keepProps) {
+    if (nextProps) {
+        sceneProps = std::move(*nextProps);
+        nextProps.reset();
+    } else if (!keepProps) {
+        sceneProps = Json::object();
+    }
+}
+
+bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps) {
     std::string path = pathIn;
     if (!fs::is_absolute(path)) {
         auto n = fs::normalize_checked(path);
@@ -144,6 +155,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     }
     refresh_from_disk();
     hasPendingScene = false;
+    take_scene_props(keepProps);
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
     audio.on_scene_load();
     physics.reset();
@@ -180,6 +192,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     hasPendingScene = false;
+    take_scene_props(false);
     audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
@@ -194,8 +207,9 @@ void Engine::Impl::apply_scene_change() {
     if (!hasPendingScene) return;
     std::string path = pendingScene;
     hasPendingScene = false;
+    const bool keep = std::exchange(pendingKeepProps, false);
     std::string err;
-    load_scene_impl(path, &err);
+    load_scene_impl(path, &err, keep);
 }
 
 namespace {
@@ -272,7 +286,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
             if (p == currentScene) {
                 FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
                 std::string err;
-                load_scene_impl(p, &err);
+                load_scene_impl(p, &err, true);  // the scene file changed: same scene, same props
             }
         } else if (renderAsset) {
             // A material, a snippet (the renderer rebuilds every material using it), a texture, font or model.
@@ -297,6 +311,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         platform.frame();
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
+        scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
     }
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
@@ -365,6 +380,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         end_of_frame(dt);
     }
     ++frame;
+    if (recorder.recording()) recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
     if (profiled) Profiler::get().end_frame();
 }
@@ -480,6 +496,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
     for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
+    I.pluginSteamDeck = installed.steamDeck;
     plugin_take_submitted_text();  // text meant for an earlier engine of this process
     if (!installed.textInputs.empty()) {
         // The platform's own keyboard: the first plugin that answers 1 takes the field and is told when it loses the focus.
@@ -540,9 +557,13 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
     I.initialized = true;
     set_log_frame(0);
+    I.recorder.set_frame_source(&I.frame);  // the input recorder hears every event of the game (start_input_recording)
+    I.input.set_observer(&I.recorder);
+    I.clipboard.set_recorder(&I.recorder);
 
     // Start scene (errors are kept for game.state / script.errors; they do not abort init).
     std::string scenePath = config.scene.empty() ? I.project.mainScene : config.scene;
+    if (config.sceneProps.is_object()) I.nextProps = config.sceneProps;
     if (!scenePath.empty()) {
         std::string serrText;
         if (!fs::exists(scenePath) && !fs::is_absolute(scenePath)) {
@@ -559,6 +580,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         }
         I.implicitStartScene = config.scene.empty();  // load_scene_impl cleared it; the default scene was not chosen by anyone
     }
+    I.nextProps.reset();  // a start scene that could not load takes none
     if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
     I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active
     return true;
@@ -607,6 +629,10 @@ void Engine::step(int frames) {
 }
 
 bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
+bool Engine::load_scene(std::string_view path, const Json& props, std::string* error) {
+    if (props.is_object()) impl_->nextProps = props;
+    return impl_->load_scene_impl(std::string(path), error);
+}
 
 bool Engine::load_scene_json(const Json& scene, std::string_view sourceName, std::string* error) {
     return impl_->load_scene_json_impl(scene, sourceName, error);
@@ -623,7 +649,7 @@ void Engine::reload_scene() {
     Impl& I = *impl_;
     if (I.currentScene.empty()) return;
     std::string err;
-    I.load_scene_impl(I.currentScene, &err);
+    I.load_scene_impl(I.currentScene, &err, true);
 }
 
 bool Engine::paused() const { return impl_->paused; }
@@ -823,6 +849,35 @@ Json Engine::project_settings() const {
 double Engine::fixed_dt() const { return impl_->fixedDt; }
 WindowControl* Engine::window() { return impl_->appWindow.get(); }
 Clipboard* Engine::clipboard() { return &impl_->clipboard; }
+void Engine::start_input_recording() {
+    Impl& I = *impl_;
+    const std::uint64_t f = I.frame;
+    I.recorder.start(f);
+    const CalendarDate today = I.scripts.today();
+    I.recorder.set_date(today.iso(), today.utcOffsetMinutes, today.iso_time());
+    // What is held now is part of the session: the replay starts from nothing.
+    const Input& in = I.input;
+    for (int k = 1; k < int(Key::Count); ++k)
+        if (in.key_down(Key(k))) I.recorder.key(f, Key(k), true);
+    I.recorder.mouse_position(f, in.mouse_position());
+    for (MouseButton b : {MouseButton::Left, MouseButton::Right, MouseButton::Middle})
+        if (in.mouse_down(b)) I.recorder.mouse_button(f, b, true);
+    for (int p = 0; p < kMaxGamepads; ++p) {
+        if (!in.gamepad_connected(p)) continue;
+        I.recorder.gamepad_connected(f, p, true);
+        for (int b = 0; b < int(GamepadButton::Count); ++b)
+            if (in.gamepad_down(p, GamepadButton(b))) I.recorder.gamepad_button(f, p, GamepadButton(b), true);
+        for (int a = 0; a < int(GamepadAxis::Count); ++a)
+            if (const float v = in.gamepad_raw_axis(p, GamepadAxis(a)); v != 0.0f) I.recorder.gamepad_axis(f, p, GamepadAxis(a), v);
+    }
+    for (const Touch& t : in.touches()) I.recorder.touch_begin(f, t.id, t.position);
+}
+Json Engine::stop_input_recording() {
+    impl_->recorder.stop();
+    return impl_->recorder.input();
+}
+bool Engine::input_recording() const { return impl_->recorder.recording(); }
+std::size_t Engine::input_recording_frames() const { return impl_->recorder.frame_count(); }
 void Engine::log_clipboard_reads(bool on) { impl_->clipboard.log_reads(on); }
 std::vector<std::string> Engine::take_clipboard_reads() { return impl_->clipboard.take_reads(); }
 
@@ -849,7 +904,15 @@ Json Engine::device_info() const {
     std::string tier = "medium";  // unknown memory (web) stays here
     if (backend == "dummy") tier = "low";
     else if (memoryGB > 0) tier = memoryGB < 3.5 ? "low" : (memoryGB < 7.5 || (form != "desktop" && memoryGB < 5.5)) ? "medium" : "high";
-    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier}});
+    // The Steam plugin knows for sure when Steam is up; without it the SteamDeck=1 environment variable that Steam sets for the
+    // games it starts on a Deck (and "SteamDeck=0" in a launch option turns off) is the answer.
+    bool steamDeck = I.pluginSteamDeck == 1;
+    if (I.pluginSteamDeck < 0) {
+        const char* env = std::getenv("SteamDeck");
+        steamDeck = env && std::string_view(env) == "1";
+    }
+    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier},
+                         {"steamDeck", steamDeck}, {"handheld", steamDeck || form != "desktop"}});
 }
 
 Json Engine::render_stats_now() {
@@ -874,7 +937,18 @@ double Engine::preload_time_budget_ms() const {
 void Engine::request_scene_change(std::string_view scenePath) {
     impl_->pendingScene = std::string(scenePath);
     impl_->hasPendingScene = true;
+    impl_->nextProps.reset();  // the last request wins, props included
+    impl_->pendingKeepProps = false;
 }
+void Engine::request_scene_change_with_props(std::string_view scenePath, const Json& props) {
+    request_scene_change(scenePath);
+    impl_->nextProps = props;
+}
+void Engine::request_scene_reload(std::string_view scenePath) {
+    request_scene_change(scenePath);
+    impl_->pendingKeepProps = true;
+}
+const Json& Engine::scene_props() const { return impl_->sceneProps; }
 void Engine::request_quit() { impl_->quit = true; }
 ProfMemory Engine::profile_memory() {
     Impl& I = *impl_;
@@ -903,6 +977,14 @@ void Engine::step_frames(int n) { step(n); }
 void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
     ScriptHost::set_text_scale(scale);
     if (impl_->renderer) impl_->renderer->set_text_scale(scale);
+}
+std::string Engine::load_scene_now_with_props(std::string_view scenePath, const Json& props) {
+    impl_->nextProps = props;
+    return load_scene_now(scenePath);
+}
+std::string Engine::load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) {
+    impl_->nextProps = props;
+    return load_scene_json_now(scene, sourceName);
 }
 std::string Engine::load_scene_now(std::string_view scenePath) {
     std::string err;
