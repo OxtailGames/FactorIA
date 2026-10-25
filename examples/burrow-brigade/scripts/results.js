@@ -2,13 +2,15 @@
 // The results screen after a shift: how it ended, the ore by kind and its value, the time and the moles rescued, and where the
 // run goes next. The button takes the run there: the next floor (a deeper stratum after the third floor), the same floor again
 // after a shift in the dark or with every miner down, or a new run after the Mole King. What comes next is decided by
-// game/progression.js, nowhere else. The numbers are run.lastShift (run_state.js).
+// game/progression.js, nowhere else. The results also show the seed code of the mine just played, with a button that copies it. The numbers are run.lastShift (run_state.js).
 import { Behaviour, ui, world, scene, i18n } from "factoria";
 import { run } from "./game/run_state.js";
 import { ORES } from "./game/tiles.js";
 import { clock } from "./game/hud.js";
 import { stratumInfo } from "./game/generator.js";
 import { plan, go } from "./game/progression.js";
+import * as codes from "./game/seed_code.js";
+import * as clipboard from "./game/clipboard.js";
 
 export default class Results extends Behaviour {
   onStart() {
@@ -41,7 +43,14 @@ export default class Results extends Behaviour {
     i18n.on("change", fillNext);
     const button = /** @type {any} */ (world.find("again"));
     button.set("Button", { key: next.kind === "victory" ? "results.newRun" : next.kind === "retry" ? "results.retryFloor" : "results.nextFloor" });
+    const code = codes.encode({ seed: s.seed ?? run.seed, stratum: s.stratum, floor: s.floor }); // the mine just played
+    set("results_seed", { code });
     const target = scene.current;
+    ui.on("click", "copy_code", () => {
+      if (scene.current !== target) return;
+      const done = clipboard.copy(code);
+      /** @type {any} */ (world.find("results_message")).set("Text", { key: done.system ? "results.copied" : "results.copiedSession", keyArgs: { code } });
+    });
     ui.on("click", "again", () => {
       if (scene.current !== target) return;
       go(next);

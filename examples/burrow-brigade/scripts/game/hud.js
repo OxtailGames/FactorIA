@@ -7,7 +7,7 @@
 import { Behaviour, world } from "factoria";
 import * as players from "./players.js";
 import * as events from "./events.js";
-import { run, lampOf, totalOre, oreValue } from "./run_state.js";
+import { run, lampOf, totalOre, oreValue, depthOf } from "./run_state.js";
 import { stratumInfo } from "./generator.js";
 import { SPRITE, spriteRegion } from "./tiles.js";
 
@@ -16,10 +16,7 @@ const BAR = 168;
 /** Seconds a news line stays on the banner. */
 const NEWS = 3;
 
-/** Metres below the surface shown for a floor: 30 per stratum plus 10 per floor. */
-export function depthOf(stratum, floor) {
-  return stratum * 30 + floor * 10;
-}
+export { depthOf }; // the depth of a floor lives in run_state.js (the saves need it too)
 
 /** "m:ss" of a number of seconds. */
 export function clock(seconds) {

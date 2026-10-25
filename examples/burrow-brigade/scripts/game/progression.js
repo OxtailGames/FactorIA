@@ -11,9 +11,14 @@
 import { scene, session } from "factoria";
 import { STRATA, isBossFloor, stratumInfo } from "./generator.js";
 import { run, startRun } from "./run_state.js";
+import * as saveFile from "./save.js";
 
 /** The scene of a shift. */
 export const SHIFT_SCENE = "scenes/shift.scene.json";
+/** The camp between two floors (scripts/camp.js). */
+export const CAMP_SCENE = "scenes/camp.scene.json";
+/** The title. */
+export const TITLE_SCENE = "scenes/menu.scene.json";
 /** The loading screen that reads `session.nextScene` ahead of time. */
 export const LOADING_SCENE = "scenes/loading.scene.json";
 
@@ -43,23 +48,34 @@ export function plan(summary) {
   return { kind: "next", ...next, newStratum: last, boss: isBossFloor(next.stratum, next.floor) };
 }
 
-/** The scene that follows the results of a plan (P4: the camp goes here). */
-export function nextScene(_plan) {
-  return SHIFT_SCENE;
+/**
+ * The scene that follows the results of a plan: the camp between two floors; after a victory a new run starts at once (or the
+ * title, for a daily dig, which is one try).
+ */
+export function nextScene(p) {
+  if (p.kind !== "victory") return CAMP_SCENE;
+  return run.mode === "daily" ? TITLE_SCENE : SHIFT_SCENE;
 }
 
 /**
- * Takes the run to the planned floor: sets `run.stratum` and `run.floor` (a victory starts a fresh run at the top) and loads the
- * next scene through the loading screen.
+ * Takes the run to the planned floor: sets `run.stratum` and `run.floor` and loads the next scene (the camp) through the
+ * loading screen. A victory starts a fresh run at the top that keeps the slot with its play time and best depth, and writes it
+ * to the slot (a daily dig is over: back to the title).
  * @param {Plan} p
  */
 export function go(p) {
+  const target = nextScene(p);
   if (p.kind === "victory") {
-    startRun();
+    if (target === TITLE_SCENE) {
+      scene.load(TITLE_SCENE);
+      return;
+    }
+    startRun({ slot: run.slot, playTime: run.playTime, bestDepth: run.bestDepth });
+    saveFile.save();
   } else {
     run.stratum = p.stratum;
     run.floor = p.floor;
   }
-  session.nextScene = nextScene(p);
+  session.nextScene = target;
   scene.load(LOADING_SCENE);
 }
