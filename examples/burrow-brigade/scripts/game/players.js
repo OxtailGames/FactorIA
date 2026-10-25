@@ -7,6 +7,11 @@ import * as events from "./events.js";
 
 export const MAX_PLAYERS = 4;
 
+/** Hearts a miner starts every shift with. */
+export const MAX_HP = 3;
+/** Seconds a miner cannot be hurt again after a hit. */
+export const HURT_GRACE = 1.2;
+
 /** Lamp and marker colour of player 0..3 (rgba 0..1). */
 export const PLAYER_COLORS = Object.freeze([
   [1.0, 0.82, 0.4, 1],
@@ -17,16 +22,16 @@ export const PLAYER_COLORS = Object.freeze([
 
 /** The key schemes a keyboard player can use. P1 uses the project's actions instead (`{ kind: "any" }`). */
 export const KEY_SCHEMES = Object.freeze({
-  wasd: { left: "A", right: "D", up: "W", down: "S", dig: "Space" },
-  arrows: { left: "Left", right: "Right", up: "Up", down: "Down", dig: "Enter" },
-  ijkl: { left: "J", right: "L", up: "I", down: "K", dig: "U" },
+  wasd: { left: "A", right: "D", up: "W", down: "S", dig: "Space", torch: "E" },
+  arrows: { left: "Left", right: "Right", up: "Up", down: "Down", dig: "Enter", torch: "RightShift" },
+  ijkl: { left: "J", right: "L", up: "I", down: "K", dig: "U", torch: "O" },
 });
 
 /**
  * Which input drives a player:
  *  - `{ kind: "any" }`: the project's actions (move_left ... dig in factoria.json): the keyboard and every gamepad. One player only.
  *  - `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" }`: that block of keys.
- *  - `{ kind: "pad", index: 0..3 }`: that gamepad (left stick or d-pad to move, A or X to dig).
+ *  - `{ kind: "pad", index: 0..3 }`: that gamepad (left stick or d-pad to move, A or X to dig, B or Y to place a torch).
  * @typedef {{kind: "any"} | {kind: "keys", scheme: keyof typeof KEY_SCHEMES} | {kind: "pad", index: number}} Device
  */
 
@@ -37,6 +42,8 @@ export const KEY_SCHEMES = Object.freeze({
  * @property {Device} device
  * @property {number[]} color       rgba of its lamp light and the ring under its feet.
  * @property {"active"|"lift"|"down"} state  active: playing; lift: standing on the exit lift; down: out of play (hazards and enemies, P2).
+ * @property {number} hp            Hearts left (MAX_HP at the start of a shift). `hurt` takes them; at 0 the miner goes down.
+ * @property {number} invulnerable  Seconds left in which `hurt` does nothing (the miner counts it down, miner.js).
  */
 
 /** @type {Player[]} */
@@ -55,7 +62,7 @@ export function add(opts = {}) {
   if (device.kind === "pad" && !(Number.isInteger(device.index) && device.index >= 0 && device.index < MAX_PLAYERS)) throw new Error(`gamepad index must be 0..${MAX_PLAYERS - 1}, got ${device.index}.`);
   let id = 0;
   while (list.some((p) => p.id === id)) id++;
-  const player = { id, name: opts.name ?? `P${id + 1}`, device, color: opts.color ?? [...PLAYER_COLORS[id]], state: /** @type {"active"} */ ("active") };
+  const player = { id, name: opts.name ?? `P${id + 1}`, device, color: opts.color ?? [...PLAYER_COLORS[id]], state: /** @type {"active"} */ ("active"), hp: MAX_HP, invulnerable: 0 };
   list.push(player);
   list.sort((a, b) => a.id - b.id);
   events.emit("playerAdded", { player });
@@ -94,8 +101,9 @@ export function alive() {
  * Changes a player's state and tells the bus (`playerState`, and `playerDown` for "down").
  * @param {number} id
  * @param {"active"|"lift"|"down"} state
+ * @param {string} [cause]  Why, for the `playerDown` event: "drowned", "burned", "caveIn", "beetle", "king"... (default "unknown").
  */
-export function setState(id, state) {
+export function setState(id, state, cause = "unknown") {
   const player = get(id);
   if (!player) throw new Error(`no player ${id}: the players are ${list.map((p) => p.id).join(", ") || "(none)"}.`);
   if (!["active", "lift", "down"].includes(state)) throw new Error(`unknown player state '${state}': use active, lift or down.`);
@@ -103,7 +111,24 @@ export function setState(id, state) {
   const from = player.state;
   player.state = state;
   events.emit("playerState", { player, from, to: state });
-  if (state === "down") events.emit("playerDown", { player });
+  if (state === "down") events.emit("playerDown", { player, cause });
+}
+
+/**
+ * Hurts a miner: takes `amount` hearts, tells the bus (`playerHurt`) and puts the miner down at 0 hearts. Does nothing to a
+ * miner who is down, on the lift, or still in the grace seconds after a hit. Returns true when the hit landed.
+ * @param {number} id
+ * @param {number} amount
+ * @param {string} cause  "beetle", "king"... (it becomes the `playerDown` cause when this was the last heart).
+ */
+export function hurt(id, amount, cause) {
+  const player = get(id);
+  if (!player || player.state !== "active" || player.invulnerable > 0) return false;
+  player.hp = Math.max(0, player.hp - amount);
+  player.invulnerable = HURT_GRACE;
+  events.emit("playerHurt", { player, hp: player.hp, cause });
+  if (player.hp <= 0) setState(id, "down", cause);
+  return true;
 }
 
 /** Makes sure there is at least one player (the title screen's Play does it for a one-player game). */

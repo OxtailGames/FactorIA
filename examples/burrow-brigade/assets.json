@@ -7,6 +7,19 @@
     }
   },
   "assets": {
+    "assets/audio/bite.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset growl, 0.35 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
     "assets/audio/blocked.wav": {
       "provenance": {
         "origin": "original",
@@ -17,6 +30,32 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "preset click, 0.04 s, seed 3",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/crash.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset explosion, 0.50 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/defeat.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 4,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset explosion, 0.40 s, seed 4",
         "date": "2026-10-25"
       }
     },
@@ -124,22 +163,176 @@
         "date": "2026-10-25"
       }
     },
+    "assets/audio/roar.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 5,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset growl, 0.90 s, seed 5",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/rumble.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset explosion, 1.20 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/sizzle.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset whoosh, 0.50 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/splash.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset splash, 0.50 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/steal.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset laser, 0.25 s, seed 3",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/swing.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset hit, 0.18 s, seed 1",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/audio/torch.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.synth_sound",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "preset click, 0.04 s, seed 2",
+        "date": "2026-10-25"
+      }
+    },
+    "assets/fog.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/music/music_crystal.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
+    "assets/music/music_magma.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
+    "assets/music/music_topsoil.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-25",
+        "kind": "music",
+        "provider": "assets/src/make_music.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "synthesised loop, python3 -I assets/src/make_music.py"
+      }
+    },
     "assets/sprites.png": {
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
         "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
         "license": "CC0",
-        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), mole and cracks drawn by the Burrow Brigade project"
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
     },
-    "assets/tiles.png": {
+    "assets/tiles_crystal.png": {
       "provenance": {
         "origin": "imported",
         "date": "2026-10-25",
-        "source": "https://kenney.nl/assets/roguelike-caves-dungeons + https://kenney.nl/assets/tiny-dungeon (assets/src/make_atlases.py)",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
         "license": "CC0",
-        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), re-packed and extended by the Burrow Brigade project"
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/tiles_magma.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "assets/tiles_topsoil.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-25",
+        "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py)",
+        "license": "CC0",
+        "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
       }
     }
   }
