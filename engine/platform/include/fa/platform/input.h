@@ -116,6 +116,11 @@ public:
     void on_touch_move(std::uint64_t id, Vec2 designPos);
     void on_touch_end(std::uint64_t id);
     void on_text(std::uint32_t codepoint);
+    // The player asked to paste (an edge until the next begin_frame()). A key press of V while Ctrl (or Cmd) is held asks by
+    // itself; a platform where the browser decides when a paste happens (the web) turns that off with
+    // set_paste_from_events(true) and calls on_paste() from its paste event instead.
+    void on_paste() { pasteEdge_ = true; }
+    void set_paste_from_events(bool fromEvents) { pasteFromEvents_ = fromEvents; }
     // The system Back button or gesture (Android). An edge: back_pressed() is true until the next begin_frame(). Scripts
     // get it as input.onBack; when none of their handlers consumes it, the runtime asks the game to quit (what Back did
     // before there was an event). Tests and replays call it too.
@@ -150,6 +155,9 @@ public:
     const std::vector<Touch>& touches() const { return touches_; }
     const std::u32string& text_input() const { return text_; }  // typed characters this frame
     std::string text_utf8() const;  // the same, as UTF-8
+    bool paste_pressed() const;  // Ctrl+V / Cmd+V (or a paste event) went down this frame
+    bool copy_pressed() const;   // Ctrl+C / Cmd+C went down this frame
+    bool command_chord_down() const;  // Ctrl or Cmd (either side) is held
     bool back_pressed() const { return backEdge_; }  // Back arrived since the last begin_frame()
 
     // -------- gamepad queries (index outside 0..kMaxGamepads-1: not connected, nothing down, axes 0)
@@ -335,6 +343,8 @@ private:
     InputDevice lastDevice_ = InputDevice::Keyboard;
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false, platformKeyboard_ = false;
     bool backEdge_ = false;
+    bool pasteEdge_ = false;
+    bool pasteFromEvents_ = false;  // paste comes from on_paste() only, not from the V key
     std::vector<float> vibrations_;
     Json projectActions_;  // what the last set_actions() was given (reset_bindings)
     std::unordered_map<std::string, std::vector<Binding>> actions_;

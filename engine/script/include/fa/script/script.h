@@ -44,6 +44,7 @@ class Audio;
 class Physics;
 class Renderer;
 class UiSystem;
+class Clipboard;
 class PlatformServices;
 class I18n;
 
@@ -92,6 +93,9 @@ public:
     }
     // The game window, or nullptr when this run has none (the default): `window.available` in scripts.
     virtual WindowControl* window() { return nullptr; }
+    // The clipboard `clipboard.*` reads and writes (the system's in a game window, an in-memory one in headless runs and tests).
+    // nullptr: none, and clipboard.supports is false.
+    virtual Clipboard* clipboard() { return nullptr; }
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
     // `platform` then reports the "none" backend.
     virtual PlatformServices* platform_services() { return nullptr; }
@@ -325,6 +329,10 @@ public:
     // events; tests through game.suspend() / resume() / blur() / focus().
     enum class AppLifecycle { Suspend, Resume, Focus, Blur };
     void app_event(AppLifecycle event);
+    // The player asked to close the window (the close button, Cmd+Q, Alt+F4): sends the game event "app.quit" to the scripts at
+    // once. A handler may call event.cancel(). Returns false when one did (the window stays open), true when the window
+    // may close. A quit the game asked for itself (game.quit()) must not come here: hosts check AppEvent::fromApp.
+    bool close_requested();
     bool app_focused() const;
     bool app_suspended() const;
     // A new test: focus, no suspend (the audio and time.scale are put back by the test reset), the date back to the start date.

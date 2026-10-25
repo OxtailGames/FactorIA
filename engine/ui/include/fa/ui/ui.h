@@ -20,6 +20,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/ui_rect.h"
@@ -61,6 +62,10 @@ public:
     // script, which is still changing the menu) skips the "fit panel larger than the screen" warning: the frame's own
     // layout logs it if the final menu is still too big.
     void layout(World& world, Vec2 designSize, const VisualMeasure& measure, bool warn = true);
+
+    // The clipboard a focused TextField pastes from (Ctrl+V / Cmd+V) and copies to (Ctrl+C / Cmd+C). The Engine sets it;
+    // without one the keys do nothing.
+    void set_clipboard(Clipboard* clipboard) { clipboard_ = clipboard; }
 
     // The platform keyboard (native plugins, plugin API 3). With a handler, a TextField that takes the focus while the last input
     // was a gamepad (or gets the pad's submit button again) is offered to it; when it answers true, input.platformKeyboard()
@@ -109,6 +114,7 @@ private:
 
     Entity focus_, hover_, press_;
     TextInputHandler textInput_;
+    Clipboard* clipboard_ = nullptr;
     Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)
     Entity askedField_;     // the TextField the handler was asked about since it got the focus
     void release_platform_keyboard(const World* world);

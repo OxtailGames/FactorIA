@@ -1042,20 +1042,44 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
-    // supports("frameCap" | "renderScale" | "fullscreen" | "resize"): whether this run can do it, so an options menu hides what a
+    // supports("frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
     // with a "did you mean".
     supports(feature) {
-      const names = ["frameCap", "renderScale", "fullscreen", "resize"];
+      const names = ["frameCap", "renderScale", "fullscreen", "resize", "clipboard"];
       if (!names.includes(feature)) {
         const sug = typeof feature === "string" ? closest(feature, names) : "";
         throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
       }
       if (feature === "renderScale") return true;
+      if (feature === "clipboard") return N.clipboardSupported();
       return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
     },
   };
+
+  // The clipboard. A game with a window reads and writes the system's (Windows, macOS, Linux, web); headless runs and tests have
+  // an in-memory one; phones and tablets have none (window.supports("clipboard") is false, read() rejects with code "unsupported").
+  const clipboardApi = {
+    // read(): a Promise of the text on the clipboard ("" when it holds none). On the web the browser lets a page read only inside a
+    // paste, so it resolves with the text of the last paste.
+    read() {
+      if (!N.clipboardSupported()) return clipboardUnsupported("clipboard.read()");
+      const text = N.clipboardGet();
+      return Promise.resolve().then(() => text);
+    },
+    // write(text): puts a string on the clipboard. Throws on a non-string; does nothing where there is no clipboard.
+    write(text) {
+      if (typeof text !== "string") throw new Error(`clipboard.write(text) expects a string, e.g. clipboard.write("ABC123"), but got ${inspect(text)}`);
+      N.clipboardSet(text);
+    },
+  };
+  function clipboardUnsupported(label) {
+    const e = new Error(`${label} failed: this platform has no clipboard for games (hint: check window.supports("clipboard") first)`);
+    e.code = "unsupported";
+    e.hint = 'check window.supports("clipboard") first';
+    return Promise.reject(e);
+  }
 
   const audio = {
     // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
@@ -1246,7 +1270,7 @@
     get current() { return N.scenePath(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "quit"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1269,12 +1293,23 @@
     // loses the keyboard focus). fn gets no arguments. Returns the function that stops listening; listeners end with the scene,
     // like world.on. With factoria.json "pauseOnSuspend" (default true) the engine freezes the game and the music after the
     // "suspend" handlers ran (unless a handler paused it already) and unfreezes it before the "resume" handlers.
+    // "quit" (desktop windows only: the close button, Cmd+Q, Alt+F4) gets an event { cancel(), cancelled }: event.cancel() keeps
+    // the window open, for a "Really quit?" menu or a last save; call game.quit() later to close it. A quit the game asked for
+    // with game.quit() does not raise "quit".
     on(event, fn) {
       if (!APP_EVENTS.includes(event)) {
         const sug = closest(String(event), APP_EVENTS);
         throw new Error(`game.on(event, fn): unknown event ${inspect(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${APP_EVENTS.map((n) => `"${n}"`).join(", ")}`);
       }
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
+      if (event === "quit") {
+        // The player's close button, Cmd+Q or Alt+F4 (desktop only). event.cancel() keeps the window open; game.quit() closes it
+        // for good (it does not come back to this handler).
+        return addListener("app.quit", () => {
+          const ev = { cancelled: false, cancel() { ev.cancelled = true; N.quitCancel(); } };
+          fn(ev);
+        }, null);
+      }
       return addListener("app." + event, () => fn(), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
@@ -1826,7 +1861,7 @@
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
-    window: windowApi, tween, ease, cancelTweens,
+    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
   };
 
   // ============================================================================================ eval serialization
@@ -2110,6 +2145,9 @@
     // suspend() / resume(): the app goes to the background and comes back, as on a phone: sends the "suspend" / "resume" event to
     // game.on listeners at once and, with pauseOnSuspend (default), freezes the game and the music in between. focus() / blur():
     // the window gains or loses the focus (game.focused). Every test starts focused and running.
+    // closeWindow(): the player clicks the window's close button (Cmd+Q, Alt+F4): sends the game.on("quit") event at once.
+    // Returns true when the window would close (game.quitRequested is then true), false when a handler cancelled it.
+    closeWindow() { return N.testCloseWindow(); },
     suspend() { N.testAppEvent(0); },
     resume() { N.testAppEvent(1); },
     focus() { N.testAppEvent(2); },
@@ -2341,6 +2379,7 @@
       N.captionClear();
       N.testAccessibility();
       N.testQuit(true);
+      N.clipboardSet("");
       N.testSystemLanguages();
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);

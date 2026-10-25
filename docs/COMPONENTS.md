@@ -3570,6 +3570,10 @@ declare module "factoria" {
      */
     on(event: "suspend" | "resume" | "focus" | "blur", fn: () => void): () => void;
     /**
+     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
+     */
+    on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;
+    /**
      * factoria.json contents.
      */
     readonly project: Readonly<Json>;
@@ -3649,9 +3653,23 @@ declare module "factoria" {
      */
     renderScale: number;
     /**
-     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
      */
-    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize"): boolean;
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): boolean;
+  }
+
+  /**
+   * The clipboard. A game with a window reads and writes the system clipboard on Windows, macOS, Linux and the web; headless runs and tests have an in-memory one (it starts empty in every test); phones and tablets have none yet: window.supports("clipboard") is false there and read() rejects with code "unsupported". A focused TextField already pastes with Ctrl+V (Cmd+V) and copies with Ctrl+C (Cmd+C), without any script.
+   */
+  export interface ClipboardAPI {
+    /**
+     * Resolves with the text on the clipboard ("" when it holds none or something that is not text). On the web the browser lets a page read the clipboard only inside a paste, so it resolves with the text of the last paste (the player pressed Ctrl+V or Cmd+V in the page). Rejects with code "unsupported" where there is no clipboard (phones, tablets). In a replay the text a read returned is recorded and given back, so a paste replays the same. Example: const text = await clipboard.read();
+     */
+    read(): Promise<string>;
+    /**
+     * Puts `text` on the clipboard. Throws when it is not a string. Does nothing where there is no clipboard. The web lets a page write only during a key press or click, so a write made in the middle of a frame may not reach the browser's clipboard. Example: clipboard.write("ABC123");
+     */
+    write(text: string): void;
   }
 
   /**
@@ -4397,6 +4415,11 @@ declare module "factoria" {
    * The game window: full screen, size, vsync, frame cap.
    */
   export const window: WindowAPI;
+
+  /**
+   * The clipboard: read and write text.
+   */
+  export const clipboard: ClipboardAPI;
 
   /**
    * Save data.
@@ -7816,6 +7839,10 @@ declare module "factoria:test" {
      * Sets the date game.today() answers, "YYYY-MM-DD", until the test ends (the next test starts from the run's date again). An impossible date such as "2026-02-29" or a wrong shape throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
      */
     setDate(iso: string): void;
+    /**
+     * The player clicks the window's close button (Cmd+Q, Alt+F4): the game.on("quit") handlers run at once. Returns false when one called event.cancel() (the game goes on), true otherwise: game.quitRequested is then true. Example: expect(game.closeWindow()).toBe(false).
+     */
+    closeWindow(): boolean;
     /**
      * The app goes to the background, as on a phone: the game.on("suspend") handlers run at once and, with pauseOnSuspend (the default), the game and the music freeze (game.paused is true) unless a handler paused it itself. Every test starts running.
      */

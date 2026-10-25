@@ -4,6 +4,7 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,35 @@ private:
     std::chrono::steady_clock::time_point last_{};
 };
 
+// The clipboard of an Engine (Engine::clipboard()): the system one for a game that owns a window, an in-memory one for every
+// other run, so tests and replays do not depend on what the machine has copied. Can log what reads returned, which is what an
+// editor play session records into its replay ("clipboard" per frame) so the run plays back the same.
+class EngineClipboard final : public Clipboard {
+public:
+    void use_system(bool on) { system_ = on; }
+    bool supported() const override { return system_ ? system_clipboard().supported() : true; }
+    std::string get() override {
+        std::string text = system_ ? system_clipboard().get() : memory_.get();
+        if (logging_) reads_.push_back(text);
+        return text;
+    }
+    void set(const std::string& text) override {
+        if (system_) system_clipboard().set(text);
+        else memory_.set(text);
+    }
+    void log_reads(bool on) {
+        logging_ = on;
+        reads_.clear();
+    }
+    std::vector<std::string> take_reads() { return std::exchange(reads_, {}); }
+
+private:
+    bool system_ = false;
+    bool logging_ = false;
+    MemoryClipboard memory_;
+    std::vector<std::string> reads_;
+};
+
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
@@ -61,6 +91,7 @@ struct Engine::Impl {
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
+    EngineClipboard clipboard;
 
     double heldScale = 1.0;         // Engine::hold_render_scale: the render scale between captures
     bool renderStale = false;       // OnDemand: simulated since the last draw

@@ -235,6 +235,14 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                 refresh_clock_date(*st);
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Resume);
                 break;
+            case AppEvent::Type::QuitRequested:
+                // The player's close button, Cmd+Q or Alt+F4: game.on("quit") handlers may cancel it. A quit the app asked for
+                // itself (game.quit(), --frames, a failed start) closes without asking, and a handler that called game.quit()
+                // closes too even if it also called cancel().
+                if (!e.fromApp && !st->engine.quit_requested() && !st->engine.scripts().close_requested() &&
+                    !st->engine.quit_requested())
+                    app_cancel_quit();
+                break;
             default: break;
         }
     };
@@ -264,11 +272,11 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch and back.");
+                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back and clipboard.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -277,6 +285,11 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
             if (!n.is_string()) { note("input names must be strings"); continue; }
             if (!I.inject_named(n.get<std::string>(), std::string(key) == "press", &err)) note(err);
         }
+    }
+    if (entry.contains("clipboard")) {
+        // What the player had copied: clipboard.read() and a TextField's Ctrl+V give it from this frame on.
+        if (entry["clipboard"].is_string()) I.clipboard.set(entry["clipboard"].get<std::string>());
+        else note("'clipboard' must be a string, the text on the clipboard");
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
     if (entry.contains("mouse") && !entry["mouse"].is_object()) note("'mouse' must be an object like {\"position\": [10, 20], \"left\": true}");
