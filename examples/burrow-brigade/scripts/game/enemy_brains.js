@@ -1,5 +1,5 @@
 // @ts-check
-// The brains of the three enemies, as behaviour trees (behavior_tree.js). Each `...Brain()` returns the root node; enemy.js
+// The brains of the three enemies, as behaviour trees (`bt` from "factoria"). Each `...Brain()` returns the root node; enemy.js
 // gives it to a `Tree` together with a BLACKBOARD, the enemy itself. A brain only reads and calls what the blackboard offers,
 // so a test can drive a brain with a plain fake object and no scene. The contract of the blackboard, per brain:
 //
@@ -18,11 +18,13 @@
 // King:    bb.awake, bb.wake() (true when a miner came within sight: starts the fight), bb.stunLeft, bb.phase2, bb.telegraph(kind|null),
 //          bb.slamStrike(), bb.chargeDir(), bb.chargeStep(dt) ("going" | "blocked" | "done").
 //
-// A sequence that is RUNNING resumes at its running child without asking its conditions again (behavior_tree.js), so an action
+// A sequence that is RUNNING resumes at its running child without asking its conditions again (the engine's `bt`), so an action
 // that follows a `condition(bb.target)` checks `bb.target` itself.
 //
 // Numbers (world units are 1/16 tile; speeds per second) live in STATS so a designer finds them in one place.
-import { SUCCESS, FAILURE, RUNNING, sequence, selector, condition, action, wait, cooldown } from "./behavior_tree.js";
+import { bt } from "factoria";
+
+const { SUCCESS, FAILURE, RUNNING, sequence, selector, condition, action, wait, cooldown } = bt;
 
 export const STATS = Object.freeze({
   beetle: {

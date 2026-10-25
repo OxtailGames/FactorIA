@@ -13,10 +13,13 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/types.h"
+#include "fa/scene/world.h"
 
 namespace fa {
 
@@ -80,5 +83,49 @@ struct NavLinkDraw {
     bool connected = true;  // both ends found walkable cells
     std::string entity;
 };
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Tile paths (`nav.find_tile_path`, `nav.findTilePath`): A* over the cells of a Tilemap or of a plain cost grid. Cells are
+// (col, row), row 0 = the TOP row, the same as Tilemap. Same determinism as the 3D search: the open list breaks ties by
+// (f, h, cell index), so one query gives one path on every run.
+
+struct NavTileGrid {
+    int width = 0, height = 0;
+    std::vector<float> cost;   // width * height, row-major: the cost of ENTERING the cell (>= 0); < 0 = blocked
+    Vec2 origin{0, 0};         // local position of the grid's top-left corner
+    Vec2 cellSize{1, 1};       // cell (col, row) is centred at origin + ((col + 0.5) * cellSize.x, -(row + 0.5) * cellSize.y)
+};
+
+struct NavTileOptions {
+    bool diagonals = false;          // 8 neighbours instead of 4; a diagonal step costs sqrt(2) times the cell entered, and
+                                     // never cuts a corner: both cells it passes between must be open
+    int maxNodes = 100000;           // cells the search may expand before it gives up (reason too_far)
+    bool closest = false;            // goal unreachable: return the path to the reachable cell nearest to it (complete = false)
+    bool allowBlockedGoal = false;   // a goal cell that is blocked can still be entered (at its cost, or 1 when blocked)
+};
+
+struct NavTilePath {
+    bool found = false;
+    bool complete = true;                      // false: only the path to the cell nearest the goal (options.closest)
+    std::vector<std::pair<int, int>> cells;    // (col, row) from the start to the end, both included
+    float cost = 0.0f;                         // summed entering costs along the path
+    float length = 0.0f;                       // distance along the cell centres (grid local units)
+    std::string reason;                        // when !found: start_off_map, goal_off_map, goal_blocked, blocked or too_far
+    std::string message, hint;
+};
+
+NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow, int toCol, int toRow,
+                               const NavTileOptions& options = {});
+
+// The whole `nav.find_tile_path` command and `nav.findTilePath` call: `args` = {tilemap: entity id | grid: {width, height,
+// cost, origin?, cellSize?}, from: [col,row], to: [col,row], costs?: {"<tile index>": cost | null}, diagonals?, maxNodes?,
+// closest?, allowBlockedGoal?}. The result is {found, complete, cells: [[col,row]...], points: [[x,y]...], cost, length,
+// reason?, message?, hint?}; points are WORLD positions for a tilemap (the entity's transform applied) and grid-local
+// ones for a grid. A bad argument is an Error; "no route" is found:false.
+Result<Json> nav_tile_query(World& world, const Json& args);
+
+// A Tilemap as a cost grid: tiles in `solidTiles` are blocked, every other cell (empty ones included) costs 1, and `costs`
+// ({"<tile index>": cost | null}, null or negative = blocked, key "-1" = empty cells) overrides either rule.
+NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs);
 
 }  // namespace fa
