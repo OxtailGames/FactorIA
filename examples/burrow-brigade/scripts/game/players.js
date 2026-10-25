@@ -25,12 +25,15 @@ export const KEY_SCHEMES = Object.freeze({
   wasd: { left: "A", right: "D", up: "W", down: "S", dig: "Space", torch: "E" },
   arrows: { left: "Left", right: "Right", up: "Up", down: "Down", dig: "Enter", torch: "RightShift" },
   ijkl: { left: "J", right: "L", up: "I", down: "K", dig: "U", torch: "O" },
+  // The whole keyboard for one player (the join screen's Enter): WASD or the arrows, Space or J to dig, T or E for a torch.
+  // controls.js adds the second key of each action; the names here are the first ones.
+  keyboard: { left: "A", right: "D", up: "W", down: "S", dig: "Space", torch: "T" },
 });
 
 /**
  * Which input drives a player:
  *  - `{ kind: "any" }`: the project's actions (move_left ... dig in factoria.json): the keyboard and every gamepad. One player only.
- *  - `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" }`: that block of keys.
+ *  - `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" | "keyboard" }`: that block of keys ("keyboard": the whole keyboard, what the join screen gives).
  *  - `{ kind: "pad", index: 0..3 }`: that gamepad (left stick or d-pad to move, A or X to dig, B or Y to place a torch).
  * @typedef {{kind: "any"} | {kind: "keys", scheme: keyof typeof KEY_SCHEMES} | {kind: "pad", index: number}} Device
  */
@@ -67,6 +70,22 @@ export function add(opts = {}) {
   list.sort((a, b) => a.id - b.id);
   events.emit("playerAdded", { player });
   return player;
+}
+
+/**
+ * Gives a player another device (a miner handed to a controller that is still plugged in). Emits `playerDevice`.
+ * @param {number} id
+ * @param {Device} device
+ */
+export function setDevice(id, device) {
+  const player = get(id);
+  if (!player) throw new Error(`no player ${id}: the players are ${list.map((p) => p.id).join(", ") || "(none)"}.`);
+  if (device.kind === "any") throw new Error("setDevice: give { kind: \"keys\", scheme } or { kind: \"pad\", index }; { kind: \"any\" } is only for the first player of a one-player game.");
+  if (device.kind === "keys" && !(device.scheme in KEY_SCHEMES)) throw new Error(`unknown key scheme '${device.scheme}': use ${Object.keys(KEY_SCHEMES).join(", ")}.`);
+  if (device.kind === "pad" && !(Number.isInteger(device.index) && device.index >= 0 && device.index < MAX_PLAYERS)) throw new Error(`gamepad index must be 0..${MAX_PLAYERS - 1}, got ${device.index}.`);
+  const from = player.device;
+  player.device = device;
+  events.emit("playerDevice", { player, from, to: device });
 }
 
 /** Removes a player (no-op when absent). */
@@ -112,6 +131,26 @@ export function setState(id, state, cause = "unknown") {
   player.state = state;
   events.emit("playerState", { player, from, to: state });
   if (state === "down") events.emit("playerDown", { player, cause });
+}
+
+/** Hearts a revived miner gets back, and the seconds it cannot be hurt afterwards. */
+export const REVIVE_HP = 1;
+export const REVIVE_GRACE = 2;
+
+/**
+ * Gets a downed miner up again with `REVIVE_HP` heart and a short grace. Does nothing for a miner who is not down. Emits
+ * `playerState` (down -> active) and `playerRevived`. Returns true when the miner got up.
+ * @param {number} id
+ * @param {number} [by]  The player id of the friend who did it (-1: nobody in particular).
+ */
+export function revive(id, by = -1) {
+  const player = get(id);
+  if (!player || player.state !== "down") return false;
+  player.hp = REVIVE_HP;
+  player.invulnerable = REVIVE_GRACE;
+  setState(id, "active", "revived");
+  events.emit("playerRevived", { player, by, hp: player.hp });
+  return true;
 }
 
 /**

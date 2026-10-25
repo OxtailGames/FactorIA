@@ -8,8 +8,8 @@ import { readMenusAloud } from "./ui/read_aloud.js";
 import { startRun } from "./game/run_state.js";
 
 export default class MainMenu extends Behaviour {
-  /** Scene the Play button starts, through the loading screen. */
-  firstScene = "scenes/shift.scene.json";
+  /** Scene the Play button opens, through the loading screen: the join screen, which leads on to the shift (scripts/join.js). */
+  firstScene = "scenes/join.scene.json";
 
   onStart() {
     applyOnce();

@@ -1,12 +1,14 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
 // colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// Audio (one slider per bus), Controls (rebinding, one page per player) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
+import * as controls from "../game/controls.js";
+import * as players from "../game/players.js";
 
 const TABS = ["video", "audio", "controls", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
@@ -16,9 +18,6 @@ const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
-  /** Actions the Controls tab lets the player rebind; their labels are the strings "options.action.<action>". */
-  actions = ["move_left", "move_right", "move_up", "move_down", "dig", "pause"];
-
   onStart() {
     this.s = settings.load();
     this.waiting = null; // the action waiting for "press a key or button"
@@ -133,11 +132,19 @@ export default class Options extends Behaviour {
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
+  // One page per player (Player 1 to 4): each rebinds its own keyboard and gamepad (scripts/game/controls.js), saved by seat. The
+  // button at the top cycles the player; a row waits for a key or button and rebinds the list of the device that was pressed.
   setupControls() {
     const list = world.find("bindings");
-    this.actions = this.actions.filter((action) => input.actions().includes(action)); // an action the game does not have gets no row
-    for (const action of this.actions) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+    this.seat = 0;
+    world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [640, 34], fontSize: 20, layer: 302 } } }, { parent: list });
+    ui.on("click", "controls_player", () => {
+      if (this.waiting) return;
+      this.seat = (this.seat + 1) % players.MAX_PLAYERS;
+      this.refreshControls();
+    });
+    for (const action of controls.ACTIONS) {
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [640, 34], fontSize: 20, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };
@@ -146,21 +153,20 @@ export default class Options extends Behaviour {
       });
     }
     ui.on("click", "reset_controls", () => {
-      input.resetBindings();
-      this.s.bindings = {};
-      settings.save(this.s);
+      controls.reset(this.seat);
       this.refreshControls();
     });
     this.refreshControls();
   }
 
   refreshControls() {
-    for (const action of this.actions) {
+    world.find("controls_player").get("Button").text = i18n.t("options.player", { n: this.seat + 1 });
+    for (const action of controls.ACTIONS) {
       const label = i18n.t(`options.action.${action}`);
       world.find(`bind_${action}`).get("Button").text =
         this.waiting?.action === action
-          ? i18n.t("options.pressKey", { action: label })
-          : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+          ? i18n.t("options.playerPress", { action: label })
+          : i18n.t("options.playerBinding", { action: label, keys: controls.label(this.seat, "keys", action), pad: controls.label(this.seat, "pad", action) });
     }
   }
 
@@ -209,15 +215,10 @@ export default class Options extends Behaviour {
     const { action, button } = this.waiting;
     this.waiting = null;
     this.release = true;
-    if (pressed !== "Escape") {
-      // Replace the bindings of the device that was pressed and keep the other device's: rebinding the keyboard
-      // does not take the gamepad's buttons away.
-      const pad = (b) => b.startsWith("Gamepad");
-      const keep = input.bindings(action).filter((b) => pad(b) !== pad(pressed));
-      const list = [pressed, ...keep];
-      input.rebind(action, list);
-      this.s.bindings[action] = list;
-      settings.save(this.s);
+    // Escape cancels; a mouse or touch press is not a binding. A key replaces the keyboard list of the action for this player,
+    // a gamepad button or stick direction replaces its gamepad list: rebinding one does not take the other away.
+    if (pressed !== "Escape" && !/^(Mouse|Touch)/.test(pressed)) {
+      controls.rebind(this.seat, pressed.startsWith("Gamepad") ? "pad" : "keys", action, [pressed]);
     }
     this.refreshControls();
     ui.focus(button); // the key that was pressed may also have moved the focus

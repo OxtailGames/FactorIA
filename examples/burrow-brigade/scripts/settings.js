@@ -23,6 +23,7 @@ function defaults() {
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
+    playerBindings: {}, // seat ("0".."3") -> { keys: {action: names}, pad: {action: names} }, only what each player rebound (scripts/game/controls.js)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
@@ -35,7 +36,7 @@ function defaults() {
 export function load() {
   const saved = storage.get("settings", {});
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
 }
 
 export function save(s) {

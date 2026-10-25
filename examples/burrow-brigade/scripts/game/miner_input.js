@@ -1,10 +1,10 @@
 // @ts-check
-// Reads the input of one player for this frame: where to walk and whether the dig button is down. The device of the player
+// Reads the input of one player for this frame (the player's own bindings: controls.js): where to walk and whether the dig button is down. The device of the player
 // (players.js) decides which input counts, so up to four miners can share one keyboard and several pads without reading each
 // other's keys. P1 has one player on `{ kind: "any" }`: the project's actions, which the keyboard (WASD or arrows, Space or J)
 // and every gamepad (left stick or d-pad, A or X) feed.
-import { input } from "factoria";
-import { KEY_SCHEMES } from "./players.js";
+import { input, world } from "factoria";
+import { bindingsOf, valueOf } from "./controls.js";
 
 /**
  * @typedef {object} MinerInput
@@ -20,23 +20,28 @@ function clamp(x, y) {
   return len > 1 ? { x: x / len, y: y / len } : { x, y };
 }
 
+/** The torch button as a press, from a value that may come from a stick: last frame's state by player, so a press counts once. */
+const torchHeld = new Map();
+
 /**
  * @param {import("./players.js").Player} player
  * @returns {MinerInput}
  */
 export function readInput(player) {
   const d = player.device;
-  if (d.kind === "keys") {
-    const k = KEY_SCHEMES[d.scheme];
-    const v = clamp((input.keyDown(k.right) ? 1 : 0) - (input.keyDown(k.left) ? 1 : 0), (input.keyDown(k.up) ? 1 : 0) - (input.keyDown(k.down) ? 1 : 0));
-    return { ...v, dig: input.keyDown(k.dig), torch: input.keyPressed(k.torch) };
+  if (d.kind === "any") {
+    const v = clamp(input.axis("move_left", "move_right"), input.axis("move_down", "move_up"));
+    return { ...v, dig: input.down("dig"), torch: input.pressed("torch") };
   }
-  if (d.kind === "pad") {
-    const pad = input.gamepad(d.index);
-    const x = pad.axis("LeftX") + (pad.down("DpadRight") ? 1 : 0) - (pad.down("DpadLeft") ? 1 : 0);
-    const y = pad.axis("LeftY") + (pad.down("DpadUp") ? 1 : 0) - (pad.down("DpadDown") ? 1 : 0);
-    return { ...clamp(x, y), dig: pad.down("A") || pad.down("X"), torch: pad.pressed("B") || pad.pressed("Y") };
-  }
-  const v = clamp(input.axis("move_left", "move_right"), input.axis("move_down", "move_up"));
-  return { ...v, dig: input.down("dig"), torch: input.pressed("torch") };
+  // keys and pads: the player's own bindings (controls.js: the defaults, or what the player rebound in Options > Controls)
+  const b = bindingsOf(player);
+  const v = clamp(valueOf(b.right, d) - valueOf(b.left, d), valueOf(b.up, d) - valueOf(b.down, d));
+  const torch = valueOf(b.torch, d) >= 0.5;
+  const was = torchHeld.get(player.id);
+  const stamp = world.frame;
+  let pressed;
+  if (was && was.frame === stamp) pressed = was.pressed; // read twice in one frame: the same answer
+  else pressed = torch && !(was && was.held);
+  torchHeld.set(player.id, { frame: stamp, held: torch, pressed });
+  return { ...v, dig: valueOf(b.dig, d) >= 0.5, torch: pressed };
 }
