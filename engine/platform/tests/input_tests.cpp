@@ -738,3 +738,96 @@ TEST_CASE("cursor and on-screen keyboard state is kept for the window to apply")
     in.release_all();  // losing focus does not forget what the game asked for
     CHECK(in.mouse_locked());
 }
+
+TEST_CASE("pads announce connect, disconnect and reconnect and keep a stable id") {
+    Input in;
+    GamepadInfo a;
+    a.name = "Wireless Controller";
+    a.vendor = 0x054c;
+    a.product = 0x09cc;
+    a.type = GamepadType::PlayStation;
+    a.id = make_gamepad_id(a.vendor, a.product, a.name, "aa:bb");
+    CHECK(a.id == "054c:09cc:Wireless Controller#aa:bb");
+    CHECK(make_gamepad_id(1, 2, "X", "") == "0001:0002:X");
+
+    in.set_gamepad_info(2, a);
+    in.on_gamepad_connected(2, true);
+    in.on_gamepad_connected(2, true);  // a backend repeats it every poll: one event
+    in.on_gamepad_button(2, GamepadButton::A, true);
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].connected);
+    CHECK(events[0].slot == 2);
+    CHECK(events[0].info.id == a.id);
+    CHECK(events[0].info.name == "Wireless Controller");
+    CHECK(events[0].info.type == GamepadType::PlayStation);
+    CHECK(in.take_gamepad_events().empty());
+
+    in.on_gamepad_connected(2, false);
+    in.on_gamepad_connected(2, false);  // a free slot is reported every poll too: one event
+    events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK_FALSE(events[0].connected);
+    CHECK(events[0].info.id == a.id);  // the id outlives the pad
+    CHECK(in.gamepad_info(2).id == a.id);
+
+    // Back again: announced again, with the same id.
+    in.set_gamepad_info(2, a);
+    in.on_gamepad_connected(2, true);
+    events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].connected);
+    CHECK(events[0].info.id == a.id);
+}
+
+TEST_CASE("losing the focus does not announce a pad that is still plugged in") {
+    Input in;
+    in.on_gamepad_connected(0, true);
+    in.take_gamepad_events();
+    in.release_all();  // focus lost: disconnects quietly
+    CHECK_FALSE(in.gamepad_connected(0));
+    in.on_gamepad_connected(0, true);  // the next poll finds it again
+    CHECK(in.gamepad_connected(0));
+    CHECK(in.take_gamepad_events().empty());
+    in.release_all();
+    in.on_gamepad_connected(0, false);  // unplugged while the window was unfocused
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK_FALSE(events[0].connected);
+}
+
+TEST_CASE("a pad that comes back gets its old slot when it is free") {
+    Input in;
+    GamepadInfo red, blue;
+    red.id = "red";
+    blue.id = "blue";
+    in.set_gamepad_info(0, red);
+    in.on_gamepad_connected(0, true);
+    in.set_gamepad_info(1, blue);
+    in.on_gamepad_connected(1, true);
+    in.on_gamepad_connected(0, false);  // red leaves; blue stays in slot 1
+    in.on_gamepad_connected(1, false);
+    bool occupied[kMaxGamepads] = {};
+    CHECK(in.choose_gamepad_slot("blue", occupied) == 1);
+    CHECK(in.choose_gamepad_slot("red", occupied) == 0);
+    CHECK(in.choose_gamepad_slot("green", occupied) == 0);  // a stranger takes the first free one
+    occupied[1] = true;                                      // someone sits in blue's old slot
+    CHECK(in.choose_gamepad_slot("blue", occupied) == 0);
+    occupied[0] = occupied[2] = occupied[3] = true;
+    CHECK(in.choose_gamepad_slot("blue", occupied) == -1);  // full
+    CHECK(in.choose_gamepad_slot("blue", std::span<const bool>()) == 1);  // nothing occupied
+    in.reset_options();  // a new test forgets the pads
+    CHECK(in.choose_gamepad_slot("blue", std::span<const bool>()) == 0);
+}
+
+TEST_CASE("a pad nobody described gets an id from its slot; reset_options starts clean") {
+    Input in;
+    in.on_gamepad_button(3, GamepadButton::B, true);  // a button connects the pad
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].info.id.find("slot 3") != std::string::npos);
+    CHECK(events[0].info.name == "Gamepad");
+    in.reset_options();
+    in.on_gamepad_button(3, GamepadButton::B, true);  // still plugged in the test's eyes, but a new test: announced again
+    CHECK(in.take_gamepad_events().size() == 1);
+}

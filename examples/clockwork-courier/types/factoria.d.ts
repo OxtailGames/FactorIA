@@ -565,6 +565,14 @@ declare module "factoria" {
      */
     readonly type: GamepadType;
     /**
+     * The stable id of the pad in this slot: the same physical pad gives the same id every time it is plugged in (see game.on("gamepadConnected") for what goes into it on each platform). "" for a slot that never had a pad; kept after the pad is unplugged until another pad takes the slot.
+     */
+    readonly id: string;
+    /**
+     * What the OS calls the pad ("Wireless Controller", "Xbox controller (XInput)"); "" for a slot that never had a pad; kept after the pad is unplugged.
+     */
+    readonly name: string;
+    /**
      * Button held. Unknown names throw with a suggestion.
      */
     down(button: GamepadButton): boolean;
@@ -1034,6 +1042,10 @@ declare module "factoria" {
      */
     on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
     /**
+     * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
+     */
+    on(event: "gamepadConnected" | "gamepadDisconnected", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void;
+    /**
      * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
      */
     on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;
@@ -1051,9 +1063,9 @@ declare module "factoria" {
      */
     readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
     /**
-     * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
+     * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium), steamDeck (true on a Steam Deck: the Steam plugin says so when Steam is running, which is certain; without it the SteamDeck=1 environment variable that Steam sets for games it starts on a Deck decides, and a SteamDeck=0 launch option turns it off; a Deck reports formFactor "desktop") and handheld (true on a Steam Deck, a phone or a tablet: a screen held in the hands, so a game picks bigger text and touch or pad prompts). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
      */
-    readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high" }>;
+    readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high"; steamDeck: boolean; handheld: boolean }>;
     /**
      * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
      */
@@ -5203,9 +5215,9 @@ declare module "factoria:test" {
      */
     axis(axis: GamepadAxis, value: number): void;
     /**
-     * Plugs the pad in (input.gamepad(i).connected becomes true).
+     * Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on("gamepadConnected") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: "pad-red", name: "Red pad", type: "playstation" }).
      */
-    connect(): void;
+    connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number }): void;
     /**
      * Unplugs the pad; what it held is released.
      */
@@ -5368,9 +5380,9 @@ declare module "factoria:test" {
      */
     setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | "none" | "phone-portrait" | "phone-landscape"): void;
     /**
-     * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" }. An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
+     * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false }, except handheld, which is true when you set steamDeck: true or a phone or tablet formFactor (and nothing else says it is not). For a Steam Deck: game.setDevice({ steamDeck: true }). An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
      */
-    setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high" }): void;
+    setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
      * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 16: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      */

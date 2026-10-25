@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Gamepads that come and go, and the Steam Deck
+
+- `game.on("gamepadConnected" | "gamepadDisconnected", fn)` gives `{ slot, id, name, type }`. `input.gamepad(i).id` and
+  `.name` read the same. The id is stable per physical pad on Windows (XInput slot), Linux, macOS, iOS, Android and the web,
+  and a pad that returns gets its old slot when it is free. Tests: `game.gamepad(i).connect({ id, name, type })`.
+- `game.device.steamDeck` and `game.device.handheld`. The Steam plugin says whether this is a Deck (plugin API version 4,
+  `set_device_fact`); without it the `SteamDeck=1` environment variable decides. `game.setDevice` accepts both.
+
 The time of day and the day boundary
 
 - `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the

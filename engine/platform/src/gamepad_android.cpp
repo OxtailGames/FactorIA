@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <string>
 
 #include "android_jni.h"
 #include "fa/platform/android_gamepads.h"
@@ -49,6 +50,7 @@ static_assert(kAndroidKeyButton1 == AKEYCODE_BUTTON_1 && kAndroidKeyButton16 == 
 
 std::mutex g_mutex;  // the input callback and the frame callback share a thread today; this keeps it true to the letter
 AndroidGamepads g_pads;
+[[maybe_unused]] const bool g_waiting = (g_pads.wait_for_info(true), true);  // a pad is announced once its identity has been asked
 
 bool has_source(int32_t source, int32_t flags) { return (source & flags) == flags; }
 
@@ -59,6 +61,8 @@ struct InputDeviceJni {
     jclass cls = nullptr;               // global reference
     jmethodID getDevice = nullptr;      // static InputDevice getDevice(int id): null when the device is gone
     jmethodID getMotionRange = nullptr; // InputDevice.MotionRange getMotionRange(int axis): null when it has no such axis
+    jmethodID getName = nullptr, getDescriptor = nullptr;  // String getName(), String getDescriptor(): the device's name and its stable id
+    jmethodID getVendorId = nullptr, getProductId = nullptr;  // int, 0 = unknown
     bool ready = false, failed = false;
 };
 InputDeviceJni g_jni;
@@ -79,6 +83,12 @@ bool init_jni(JNIEnv* env) {
         g_jni.failed = true;
         return false;
     }
+    // The identity getters are optional: without them a pad gets an id from its device number and keeps working.
+    g_jni.getName = env->GetMethodID(g_jni.cls, "getName", "()Ljava/lang/String;");
+    g_jni.getDescriptor = env->GetMethodID(g_jni.cls, "getDescriptor", "()Ljava/lang/String;");
+    g_jni.getVendorId = env->GetMethodID(g_jni.cls, "getVendorId", "()I");
+    g_jni.getProductId = env->GetMethodID(g_jni.cls, "getProductId", "()I");
+    android_clear_exception(env);
     g_jni.ready = true;
     return true;
 }
@@ -87,7 +97,35 @@ enum class DeviceState { Unknown, Gone, Present };
 
 // Is the device still there, and when `caps` is given, which axes does it report? The AXIS_* numbers of
 // InputDevice/MotionEvent are the AMOTION_EVENT_AXIS_* of the NDK.
-DeviceState query_device(JNIEnv* env, int deviceId, AndroidAxisCaps* caps) {
+std::string jni_string(JNIEnv* env, jobject device, jmethodID method) {
+    if (!method) return {};
+    auto str = static_cast<jstring>(env->CallObjectMethod(device, method));
+    if (android_clear_exception(env) || !str) return {};
+    std::string out;
+    if (const char* chars = env->GetStringUTFChars(str, nullptr)) {
+        out = chars;
+        env->ReleaseStringUTFChars(str, chars);
+    }
+    env->DeleteLocalRef(str);
+    return out;
+}
+
+// The pad's identity: its name, vendor and product, and the descriptor (a hash of the device's serial number or, without one,
+// of its vendor, product and location: stable across replugging, which the numeric device id is not).
+GamepadInfo query_info(JNIEnv* env, jobject device, int deviceId) {
+    GamepadInfo info;
+    info.name = jni_string(env, device, g_jni.getName);
+    if (g_jni.getVendorId) info.vendor = std::uint16_t(env->CallIntMethod(device, g_jni.getVendorId));
+    if (g_jni.getProductId) info.product = std::uint16_t(env->CallIntMethod(device, g_jni.getProductId));
+    android_clear_exception(env);
+    const std::string descriptor = jni_string(env, device, g_jni.getDescriptor);
+    if (info.name.empty()) info.name = "Gamepad";
+    info.type = gamepad_type_from_ids(info.vendor, info.name);
+    info.id = make_gamepad_id(info.vendor, info.product, info.name, descriptor.empty() ? "device " + std::to_string(deviceId) : descriptor);
+    return info;
+}
+
+DeviceState query_device(JNIEnv* env, int deviceId, AndroidAxisCaps* caps, GamepadInfo* info) {
     jobject device = env->CallStaticObjectMethod(g_jni.cls, g_jni.getDevice, jint(deviceId));
     if (android_clear_exception(env)) return DeviceState::Unknown;
     if (!device) return DeviceState::Gone;
@@ -108,6 +146,7 @@ DeviceState query_device(JNIEnv* env, int deviceId, AndroidAxisCaps* caps) {
         caps->brake = has(AMOTION_EVENT_AXIS_BRAKE);
         caps->gas = has(AMOTION_EVENT_AXIS_GAS);
     }
+    if (info) *info = query_info(env, device, deviceId);
     env->DeleteLocalRef(device);
     return DeviceState::Present;
 }
@@ -129,9 +168,10 @@ void check_devices() {
 
     DeviceState states[kMaxGamepads] = {};
     AndroidAxisCaps caps[kMaxGamepads] = {};
+    GamepadInfo infos[kMaxGamepads];
     if (JNIEnv* env = android_thread_env(); env && init_jni(env) && env->PushLocalFrame(32) == JNI_OK) {
         for (int i = 0; i < kMaxGamepads; ++i)
-            if (ids[i] >= 0) states[i] = query_device(env, ids[i], wantsLayout[i] ? &caps[i] : nullptr);
+            if (ids[i] >= 0) states[i] = query_device(env, ids[i], wantsLayout[i] ? &caps[i] : nullptr, wantsLayout[i] ? &infos[i] : nullptr);
         env->PopLocalFrame(nullptr);
     }
 
@@ -139,8 +179,12 @@ void check_devices() {
     for (int i = 0; i < kMaxGamepads; ++i) {
         if (ids[i] < 0) continue;
         if (states[i] == DeviceState::Gone) g_pads.release_device(ids[i]);
-        else if (wantsLayout[i])  // Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour
+        else if (wantsLayout[i]) {  // Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour
+            if (states[i] == DeviceState::Present) g_pads.set_info(ids[i], infos[i]);
+            else  // no name, no ids: the pad is "a gamepad, Android device N"
+                g_pads.set_info(ids[i], GamepadInfo{make_gamepad_id(0, 0, "Gamepad", "device " + std::to_string(ids[i])), "Gamepad", 0, 0, GamepadType::Generic});
             g_pads.set_layout(ids[i], states[i] == DeviceState::Present ? android_layout_for(caps[i]) : AndroidLayout{});
+        }
     }
 }
 
