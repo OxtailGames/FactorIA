@@ -63,6 +63,14 @@ public:
     // twin an export makes of a WAV) that is the clip.
     bool load(std::string_view clipPath);
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
+    // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
+    // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
+    // file) with `source` as the entity id. The voice stays open, silent when its queue is dry, until stop(). Returns 0 when
+    // the mixer is not running. At most two seconds of samples wait in the queue (the oldest are dropped).
+    VoiceId open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path, std::string_view source);
+    void push_pcm(VoiceId voice, const float* stereo, std::size_t frames);
+    void clear_pcm(VoiceId voice);  // drops the samples that wait (after a seek)
+    void set_voice_bus(VoiceId voice, std::string_view bus);
     void stop(VoiceId voice);
     void stop_all();
     bool is_playing(VoiceId voice) const;
@@ -85,7 +93,7 @@ public:
     void clear_play_log();
     std::uint64_t play_log_dropped() const;
 
-    // Drives AudioSource/AudioListener components and scene music.
+    // Drives AudioSource/AudioListener components, the sound of Video components and scene music.
     void update(World& world, float dt);
 
     // Headless: mix `seconds` of audio (called by the engine per frame with dt).

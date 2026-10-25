@@ -6,6 +6,7 @@
 //                        the engine reads as they are
 //   assets_aseprite.cpp  Aseprite -> sprite sheet PNG with clips          assets_obj.cpp  OBJ (+ MTL) -> glTF
 //   assets_sheet.cpp     the command assets.slice_sheet                   assets_fbx.cpp  FBX -> glb through a converter
+//   assets_video.cpp     mp4/mov/webm... -> MPEG-1 .mpg through ffmpeg
 #pragma once
 
 #include <array>
@@ -51,6 +52,7 @@ struct ImportRequest {
 Result<ImportOutput> import_aseprite(const ImportRequest& request);
 Result<ImportOutput> import_obj(const ImportRequest& request);
 Result<ImportOutput> import_fbx(const ImportRequest& request);
+Result<ImportOutput> import_video(const ImportRequest& request);
 
 // ---- sprite sheets ---------------------------------------------------------------------------------------
 

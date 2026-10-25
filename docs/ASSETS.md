@@ -408,9 +408,11 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.psd` | A PNG of the merged image. |
 | `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
 | `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
+| `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
+| `.mp4` `.m4v` `.mov` `.webm` `.mkv` `.avi` | An `.mpg` in `assets/video/`, converted by ffmpeg (see "Video" below). |
 
 Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.svg` `.psb`
-(convert to PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), video, and SDF/MSDF font atlases.
+(convert to PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
 
 ### Aseprite
 
@@ -463,6 +465,28 @@ FBX is a closed format, so FactorIA converts it with a program that reads it. Ne
 When neither is found the error says so and links both. The converted `.glb` has meshes and materials; skins and
 animations are not used by the engine yet. Check scale and orientation with `game.screenshot`.
 
+### Video
+
+The engine plays one video format on every platform: MPEG-1 video with MP2 sound in an `.mpg` file (decoded on the CPU by
+pl_mpeg; the `Video` component, [COMPONENTS.md](COMPONENTS.md)). `assets.import` of an `.mp4`, `.m4v`, `.mov`, `.webm`,
+`.mkv` or `.avi` converts it with **ffmpeg**, which does not ship with FactorIA: `factoria setup ffmpeg` installs one, and
+the importer also finds `FACTORIA_FFMPEG`, the `publish.ffmpeg` entry of `export.json`, or an `ffmpeg` in `PATH`. Without
+one the error says so and names the command.
+
+The conversion keeps the first video track and the first audio track (if any), scales a picture wider than 1280 pixels
+down to 1280 (the decoder runs on the CPU), and encodes at a fixed quality (`-q:v 4`, a keyframe every 30 frames); a frame rate MPEG-1 does not allow (such as 15) is retried at 30. The result lands in `assets/video/<name>.mpg`
+(or the `path` you give) with a provenance record like any import. `details` holds `width`, `height`, `fps`, `duration`,
+`hasAudio` and `converter`; the warnings say when the file has no sound (it plays silently) or is over 20 MB (it ships in
+the game: shorten it or lower its size). An `.mpg` you made yourself is only checked and copied, so
+`ffmpeg -i in.mp4 -c:v mpeg1video -c:a mp2 -f mpeg out.mpg` also works by hand.
+
+```json
+{"Video": {"path": "assets/video/logo.mpg", "size": [1280, 720], "anchor": [0.5, 0.5], "pivot": [0.5, 0.5], "fit": "contain"}}
+```
+
+A `Video` plays by itself (`autoplay`), follows the game clock and sends the game event `video.ended` when a video that
+does not loop reaches its end; a studio intro that any button skips is in [MENUS.md](MENUS.md).
+
 ### Sprite sheets: assets.slice_sheet
 
 SpriteAnimator plays a uniform grid of frames. `assets.slice_sheet` makes an image fit that, in two ways:
@@ -509,6 +533,8 @@ with warnings still runs and exports):
   never writes `assets.json` (run `assets.analyze_audio` to store the measurements, which makes validating fast).
   A sound that cannot be decoded is reported too.
 - **Model files.** An error (not a warning) when a `.gltf` or `.glb` under `assets/` names a texture or a `.bin` buffer by a relative `uri` and the file is not there: the model would draw untextured or fail to load. `assets.import` copies those files.
+- **Videos.** An error when a `Video` names a file under `assets/` that is not there, or when an `.mpg` the project uses cannot be
+  played (not an MPEG file, or a different codec such as H.264 inside): the hint has the ffmpeg command that converts it.
 - **Atlas groups.** A texture in an `atlas` group used by a component that cannot draw from an atlas (a `Tilemap`
   tileset, a `MeshRenderer` texture): the exported game would show the whole atlas image there. Remove the texture from
   the group, or use a copy of it.

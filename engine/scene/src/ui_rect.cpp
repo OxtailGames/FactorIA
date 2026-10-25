@@ -17,6 +17,7 @@ const char* ui_kind_name(UiKind k) {
         case UiKind::TouchStick: return "TouchStick";
         case UiKind::TouchButton: return "TouchButton";
         case UiKind::Captions: return "Captions";
+        case UiKind::Video: return "Video";
         case UiKind::None: break;
     }
     return "";
@@ -32,6 +33,7 @@ UiKind ui_kind(const World& w, Entity e) {
     if (w.has<TouchStick>(e)) return UiKind::TouchStick;
     if (w.has<TouchButton>(e)) return UiKind::TouchButton;
     if (w.has<Captions>(e)) return UiKind::Captions;
+    if (w.has<Video>(e)) return UiKind::Video;
     return UiKind::None;
 }
 
@@ -46,6 +48,7 @@ const UiBox* ui_box(const World& w, Entity e) {
         case UiKind::TouchStick: return w.get<TouchStick>(e);
         case UiKind::TouchButton: return w.get<TouchButton>(e);
         case UiKind::Captions: return w.get<Captions>(e);
+        case UiKind::Video: return w.get<Video>(e);
         case UiKind::None: break;
     }
     return nullptr;

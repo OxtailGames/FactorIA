@@ -1139,13 +1139,13 @@ void Renderer::Impl::render(World& world, float dt) {
         }
         for (const QuadBatch& qb : batches) {
             apply_clip(qb.clip);
-            sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend));
+            sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
             apply_uniforms(UB_quad_vs_params, u);
             if (qb.lit) {
                 litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
                 if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
                 apply_uniforms(UB_quad_quad_fs_params, litUniforms);
-            } else {
+            } else if (!qb.plain) {  // quad_plain declares no fragment uniforms
                 apply_uniforms(UB_quad_quad_fs_params, unlit);
             }
             std::uint32_t done = 0;

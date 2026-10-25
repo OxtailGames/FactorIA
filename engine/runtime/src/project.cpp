@@ -28,6 +28,7 @@ std::string asset_type_of(std::string_view path) {
     const std::string ext = p.substr(dot);
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") return "texture";
     if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa") return "audio";
+    if (ext == ".mpg" || ext == ".mpeg") return "video";
     if (ext == ".ttf" || ext == ".otf") return "font";
     if (ext == ".obj" || ext == ".gltf" || ext == ".glb") return "mesh";
     if (ext == ".js") return "script";
