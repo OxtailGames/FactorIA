@@ -220,6 +220,41 @@ void draw_captions(const Ctx& c, const World& world, const Captions& cap, const 
     }
 }
 
+// A Video: its background, then its picture inside its rectangle `r`: `contain` shows all of it with bars, `cover` fills the
+// rectangle and crops what overflows (by uv, so nothing is drawn outside), `stretch` ignores the aspect ratio. The
+// background is left out when the picture hides all of it (opaque, over every pixel the background fills): a full-screen
+// video would otherwise fill the screen twice. An opaque picture is drawn without blending. Only the background is drawn
+// while the file is not open (a missing or unplayable file).
+void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
+    if (!v.rt.decoder || r.w <= 0 || r.h <= 0) return background(c, b, r, b.color);
+    TextureAsset* tex = c.f.assets->video_texture(v.rt.decoder);
+    const float pw = float(std::max(1, tex->width)), ph = float(std::max(1, tex->height));
+    Rect dst = r;
+    float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+    if (v.fit == VideoFit::Contain) {
+        const float s = std::min(r.w / pw, r.h / ph);
+        dst = Rect{r.x + (r.w - pw * s) * 0.5f, r.y + (r.h - ph * s) * 0.5f, pw * s, ph * s};
+    } else if (v.fit == VideoFit::Cover) {
+        const float s = std::max(r.w / pw, r.h / ph);
+        const float visibleU = r.w / (pw * s), visibleV = r.h / (ph * s);  // fractions of the picture that fit
+        u0 = (1 - visibleU) * 0.5f;
+        u1 = u0 + visibleU;
+        v0 = (1 - visibleV) * 0.5f;
+        v1 = v0 + visibleV;
+    }
+    // The decoded picture is opaque, so only the tint can let the background through. background() rounds its edges to
+    // whole pixels: the picture must reach those.
+    constexpr float kEps = 1e-3f;
+    const bool opaque = v.tint.a * c.fade >= 1.0f;
+    const bool hidden = opaque && dst.x <= std::round(r.x) + kEps && dst.y <= std::round(r.y) + kEps &&
+                        dst.x + dst.w >= std::round(r.x + r.w) - kEps && dst.y + dst.h >= std::round(r.y + r.h) - kEps;
+    if (!hidden) background(c, b, r, b.color);
+    c.list().begin_item(v.layer + 1, 0, tex, SamplerKind::LinearClamp, BlendMode::Alpha, c.clip);
+    if (opaque) c.list().set_opaque();  // the same pixels without blending: less work for software rasterizers
+    quad(c, dst.x, dst.y, dst.x + dst.w, dst.y + dst.h, u0, v0, u1, v1, pack(v.tint, c.fade));
+    c.list().end_item();
+}
+
 void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBox& b) {
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
@@ -227,6 +262,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     if (kind == UiKind::TouchButton) c.capScale = world.get<TouchButton>(e)->maxTextScale;
     if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
     if (kind == UiKind::Captions) return draw_captions(c, world, *world.get<Captions>(e), b, r);
+    if (kind == UiKind::Video) return draw_video(c, *world.get<Video>(e), b, r);
     const UiControl* ctl = ui_control(world, e);
     if (ctl) c.capScale = ctl->maxTextScale;
     Color tint = b.color;
@@ -302,10 +338,11 @@ void gather_ui(World& world, Frame& f) {
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
                               &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
-                              &World::type_of<TouchButton>(), &World::type_of<Captions>()})
+                              &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>()})
         any = any || !world.entities_with(t).empty();
-    if (!any) return;
-    for (Entity root : world.roots()) visit(f, world, root);
+    if (any)
+        for (Entity root : world.roots()) visit(f, world, root);
+    f.assets->end_video_frame();  // the textures of videos that were not drawn this frame are freed
 }
 
 }  // namespace fa::render

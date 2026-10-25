@@ -122,4 +122,23 @@ void main() {
 }
 @end
 
+// The plain variant, for batches whose quads are all mode 0 (not lit, not multiply): the output of mode 0 above, without
+// the branches. Software rasterizers (llvmpipe, WARP) run every branch of `fs` for every pixel, all its texture fetches
+// and light loops included, so a screen-sized sprite, panel or video costs several times more there with `fs`.
+@fs fs_plain
+layout(binding=0) uniform texture2D tex;
+layout(binding=0) uniform sampler smp;
+
+in vec2 uv;
+in vec4 color;
+in vec2 params;
+in vec2 world_xy;
+out vec4 frag_color;
+
+void main() {
+    frag_color = texture(sampler2D(tex, smp), uv) * color;
+}
+@end
+
 @program quad vs fs
+@program quad_plain vs fs_plain

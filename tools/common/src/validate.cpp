@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 
@@ -11,6 +15,7 @@
 #include "fa/core/image.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
+#include "fa/core/video.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
 #include "fa/runtime/plugins.h"
@@ -46,6 +51,7 @@ struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
+    std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
     std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
@@ -89,6 +95,19 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
             if (!m.empty()) hint = "Did you mean '" + (stdfs::path(path).parent_path() / m).generic_string() + "'?";
         }
         c.error(file, pointer, "Asset '" + path + "' (" + f.assetType + ") does not exist.", hint);
+        return;
+    }
+    if (f.assetType == "video") {  // it exists: can the engine play it? (a renamed .mp4 is the usual mistake)
+        auto seen = c.videoProblems.find(path);
+        if (seen == c.videoProblems.end()) {
+            std::ifstream in(stdfs::path(c.dir) / path, std::ios::binary);
+            auto bytes = std::make_shared<const std::vector<std::uint8_t>>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            auto decoder = VideoDecoder::open(bytes, path);
+            seen = c.videoProblems.emplace(path, decoder.ok() ? Error{} : decoder.error()).first;
+        }
+        if (!seen->second.message.empty())
+            c.error(file, pointer, "The video cannot be played: " + seen->second.message,
+                    seen->second.hint.empty() ? "Import it again with assets.import." : seen->second.hint);
     }
 }
 

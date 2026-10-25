@@ -92,6 +92,7 @@ if(FA_BUILD_TESTS)
 #define FA_AI_FIXTURES FA_REPO_ROOT "/tools/ai/tests/fixtures"
 #define FA_RENDER_GOLDEN_DIR FA_REPO_ROOT "/engine/render/tests/golden"
 #define FA_RENDER_DATA_DIR FA_REPO_ROOT "/engine/render/tests/data"
+#define FA_VIDEO_FIXTURE FA_REPO_ROOT "/engine/core/tests/data/colors.mpg"
 ]] @ONLY)
 endif()
 

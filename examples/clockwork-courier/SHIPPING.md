@@ -144,12 +144,25 @@ factoria run --headless --scene store/trailer/scenes/shot_1.scene.json \
 
 ## Studio intro
 
-`scenes/intro.scene.json` and `scripts/intro.js` are the `mainScene`: about 4.8 s, shown once (`introSeen` in storage),
-skippable (tap, click, key, pad button, Skip, Android Back). `tests/intro.test.js` covers it. To bring it back in a test
-or on a device, clear the `introSeen` key (or the app data).
+`scenes/intro.scene.json` and `scripts/intro.js` are the `mainScene`: a `Video` plays `assets/video/studio_intro.mpg`
+(MPEG-1 + MP2, 640x360, 60 fps, 4.8 s, 495 KB with sound), shown once (`introSeen` in storage), skippable (tap, click, key,
+pad button, Skip, Android Back). `tests/intro.test.js` covers it. To bring it back in a test or on a device, clear the
+`introSeen` key (or the app data). The recipe for any game is in `docs/MENUS.md` ("A studio intro").
 
-The intro is an animated scene, not a video file: the engine cannot play a video in a game yet (only record one), so a studio
-logo film or an in-game cutscene as a video file is not possible. The trailer is the only video, and it is recorded, not played.
+The film is recorded from an animated scene, `store/intro/intro_anim.scene.json` (+ `intro_anim.js`; `store/` is not
+exported), and imported. Rerun after changing it:
+
+```
+cd examples/clockwork-courier
+factoria run --headless --scene store/intro/intro_anim.scene.json --frames 288 --render-scale 0.5 \
+  --record-video .factoria/tmp/intro.avi
+factoria call assets.import '{"source":".factoria/tmp/intro.avi","path":"assets/video/studio_intro.mpg","overwrite":true,
+  "license":"Original work of the project","author":"Oxtail Games"}'
+```
+
+288 frames are 4.8 s at the 60 Hz fixed step (`LENGTH` in `scripts/intro.js` must match); `--render-scale 0.5` records
+640x360 (the Video is drawn at the full screen size, so it is scaled up). The import needs ffmpeg (`factoria setup
+ffmpeg`). The `source` in `assets.json` names the scene the film came from; set it again if the import replaced the entry.
 
 ## Budget
 

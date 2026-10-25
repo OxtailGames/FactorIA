@@ -3,7 +3,7 @@
 //   assets.import      brings a file made elsewhere into assets/ and records where it came from in assets.json:
 //                      png/jpg/tga/bmp, wav/ogg/mp3, ttf/otf and glTF are copied; Aseprite and PSD become a PNG (an
 //                      Aseprite file a sprite sheet with its clips); OBJ becomes a glTF; FBX is converted to glb by
-//                      FBX2glTF or Blender.
+//                      FBX2glTF or Blender; a video (mp4, mov, webm...) is converted to an MPEG-1 .mpg by ffmpeg.
 //   assets.draw_icon   draws the game icon and the Android adaptive-icon foreground from shapes and text.
 //   assets.slice_sheet makes an image playable by SpriteAnimator: checks a uniform grid, or finds the frames of a
 //                      sheet with transparent gutters and repacks them into a uniform grid.
@@ -29,5 +29,10 @@ struct FbxConverters {
 FbxConverters find_fbx_converters();
 // Replaces what assets.import uses for FBX files until the next call; nullptr goes back to find_fbx_converters().
 void set_fbx_converters(const FbxConverters* converters);
+
+// The ffmpeg that converts a video (.mp4 .mov .webm .mkv .avi .m4v) to the .mpg the Video component plays. Only tests change it:
+// by default assets.import uses find_ffmpeg() ($FACTORIA_FFMPEG, "publish" in export.json, PATH, then the copy `factoria setup
+// ffmpeg` installs). A path replaces it until the next call, "" means "not installed", nullptr goes back to find_ffmpeg().
+void set_video_ffmpeg(const std::string* path);
 
 }  // namespace fa
