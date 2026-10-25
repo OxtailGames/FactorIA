@@ -10,7 +10,7 @@
  * that later packages emit, so a listener written today does not need changing then.
  */
 export const EVENTS = Object.freeze({
-  shiftStarted: "(P1) { seed, stratum, floor, hash, players }: the mine was built and the miners stand next to the start lift.",
+  shiftStarted: "(P1) { seed, stratum, floor, hash, players, speed }: the mine was built and the miners stand next to the start lift; `speed` (P6) is the game speed of the shift, 1, 0.8 or 0.6.",
   dug: "(P1) { tx, ty, from, by }: a tile was dug (`from` is the kind it had, `by` the player id or null).",
   digBlocked: "(P1) { tx, ty, kind, reason, by }: the pick cannot dig it; reason is \"tier\" or \"bedrock\".",
   orePicked: "(P1) { ore, value, by, total }: ore went into a miner's pocket (`total` is the pieces carried).",

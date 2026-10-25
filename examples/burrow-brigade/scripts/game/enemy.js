@@ -3,7 +3,8 @@
 // enemy_brains.js; this script is its body and its blackboard: it senses the miners, walks along the tile paths of
 // pathfinding.js (which follow every tunnel the miners dig), takes hits from the miners' picks (`hit`), and dies.
 // Spawned by shift.js from `mine.enemies` with prefabs/enemy.prefab.json. Enemies are drawn only on tiles the fog shows.
-import { Behaviour, world, audio, rng } from "factoria";
+import { Behaviour, world, rng } from "factoria";
+import * as sound from "./sound.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 import { live } from "./mine_map.js";
@@ -177,7 +178,7 @@ export default class Enemy extends Behaviour {
     const lamp = lampOf(t.player.id);
     lamp.oil = Math.max(0, lamp.oil - this.stats.biteOil);
     this.shove(t, 12);
-    audio.play("assets/audio/bite.wav", { volume: 0.8, bus: "sfx" });
+    sound.play("assets/audio/bite.wav", { volume: 0.8 }, { key: "caption.bite", x: this.entity.position.x, y: this.entity.position.y });
   }
 
   /** Pushes a miner away from this enemy. */
@@ -192,11 +193,12 @@ export default class Enemy extends Behaviour {
 
   /** Shows (or ends) the wind-up of an attack. For a beetle `on` is a boolean; for the King "slam", "charge" or null. */
   telegraph(on) {
+    if (on === true && !this.telegraphing) sound.play("assets/audio/beetle_alert.wav", { volume: 0.6 }, { key: "caption.beetle", x: this.entity.position.x, y: this.entity.position.y });
     this.telegraphing = on || null;
     if (this.kind === "king") {
       if (on === "slam" && !this.ring) {
         this.ring = world.spawn({ components: { Transform: { position: [0, 0, 0] }, Shape2D: { shape: "circle", size: [4, 4], color: [1, 0.25, 0.2, 0.55], filled: false, thickness: 2, layer: 14 } } });
-        audio.play("assets/audio/roar.wav", { volume: 0.7, bus: "sfx" });
+        sound.play("assets/audio/roar.wav", { volume: 0.7 }, { key: "caption.roar", x: this.entity.position.x, y: this.entity.position.y });
       }
       if (on !== "slam" && this.ring) {
         this.ring.destroy();
@@ -237,7 +239,7 @@ export default class Enemy extends Behaviour {
     const most = ORES.reduce((a, b) => (took[b] > took[a] ? b : a), ORES[0]);
     const t = this.tile;
     events.emit("oreStolen", { ore: most, count, tx: t.tx, ty: t.ty });
-    audio.play("assets/audio/steal.wav", { volume: 0.8, bus: "sfx" });
+    sound.play("assets/audio/steal.wav", { volume: 0.8 }, { key: "caption.steal", x: this.entity.position.x, y: this.entity.position.y });
     this.lastSeen = null;
   }
 
@@ -283,7 +285,7 @@ export default class Enemy extends Behaviour {
     this.awake = true;
     const t = this.tile;
     events.emit("bossStarted", { tx: t.tx, ty: t.ty, hp: this.hp });
-    audio.play("assets/audio/roar.wav", { volume: 0.9, bus: "sfx" });
+    sound.play("assets/audio/roar.wav", { volume: 0.9 }, { key: "caption.roar", x: this.entity.position.x, y: this.entity.position.y, duck: 1.5, depth: 0.4 });
     this.showBar();
     return true;
   }
@@ -302,7 +304,7 @@ export default class Enemy extends Behaviour {
       if (m.player.state !== "active") continue;
       if (Math.hypot(m.x - p.x, m.y - p.y) <= this.stats.slamRadius) players.setState(m.player.id, "down", "king");
     }
-    audio.play("assets/audio/crash.wav", { volume: 0.9, bus: "sfx" });
+    sound.play("assets/audio/crash.wav", { volume: 0.9 }, { key: "caption.crash", x: p.x, y: p.y });
     burst(p.x, p.y, [0.7, 0.55, 0.4, 1], { count: 12, speed: 70 });
   }
 
@@ -329,7 +331,7 @@ export default class Enemy extends Behaviour {
     }
     if ((r.hitX && Math.abs(this.chargeVec.x) > 0.3) || (r2.hitY && Math.abs(this.chargeVec.y) > 0.3)) {
       burst(p.x, p.y, [0.7, 0.7, 0.75, 1], { count: 8, speed: 60 });
-      audio.play("assets/audio/crash.wav", { volume: 0.7, bus: "sfx" });
+      sound.play("assets/audio/crash.wav", { volume: 0.7 });
       return "blocked";
     }
     return this.chargeLeft <= 0 ? "done" : "going";
@@ -371,7 +373,7 @@ export default class Enemy extends Behaviour {
     }
     events.emit("enemyDefeated", { kind: this.kind, tx: t.tx, ty: t.ty, by });
     burst(p.x, p.y, [0.9, 0.85, 0.5, 1], { count: this.kind === "king" ? 16 : 8, speed: this.kind === "king" ? 80 : 50 });
-    audio.play(this.kind === "king" ? "assets/audio/defeat.wav" : "assets/audio/crash.wav", { volume: 0.9, bus: "sfx" });
+    sound.play(this.kind === "king" ? "assets/audio/defeat.wav" : "assets/audio/crash.wav", { volume: 0.9 }, this.kind === "king" ? { key: "caption.defeat", x: p.x, y: p.y } : undefined);
     if (this.kind === "king") {
       run.exitLocked = false;
       events.emit("bossDefeated", { by });

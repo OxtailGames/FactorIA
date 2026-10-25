@@ -13,7 +13,8 @@
 //   lights.sources                    // every source: {kind: "torch"|"crystal"|"magma", tx, ty, ...}
 //   lights.lit                        // how many pool lights are on right now
 //   lights.dispose();
-import { world, audio } from "factoria";
+import { world } from "factoria";
+import * as sound from "./sound.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 import { K, TILE, SPRITE, spriteRegion, isDangerKind } from "./tiles.js";
@@ -109,7 +110,7 @@ export class Lights {
     run.torches -= 1;
     this.sinceRank = 99;
     events.emit("torchPlaced", { tx: m.tx, ty: m.ty, by: playerId, left: run.torches });
-    audio.play("assets/audio/torch.wav", { volume: 0.7, bus: "sfx" });
+    sound.play("assets/audio/torch.wav", { volume: 0.7 });
     return true;
   }
 

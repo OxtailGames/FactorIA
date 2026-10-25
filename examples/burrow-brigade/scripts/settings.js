@@ -1,10 +1,20 @@
 // @ts-check
 // The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
+import { storage, window, input, session, i18n, world, ui, game } from "factoria";
+import * as mix from "./game/mix.js";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
+
+/** Window modes of the Video tab. The engine has fullscreen and windowed only, so "borderless" also goes through setFullscreen (FB-0027). */
+export const DISPLAY_MODES = ["windowed", "borderless", "fullscreen"];
+
+/** Game speeds of the assist option (1 = normal). A slower game does not post to the boards (scripts/game/boards.js). */
+export const GAME_SPEEDS = [1, 0.8, 0.6];
+
+/** How a held action is read: "hold" (keep the button down) or "toggle" (press once to start, again to stop). */
+export const HOLD_MODES = ["hold", "toggle"];
 
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
@@ -17,7 +27,8 @@ function defaults() {
   const system = game.accessibility;
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-    fullscreen: null, // null: keep factoria.json display.fullscreen
+    fullscreen: null, // null: keep factoria.json display.fullscreen (kept in step with displayMode)
+    displayMode: null, // null, "windowed", "borderless" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
@@ -27,8 +38,11 @@ function defaults() {
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
-    reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    reducedEffects: system.reduceMotion, // reduced flashing: magma and torch light stay steady, no screen flash, the cave-in warning does not blink (lights.js, hazards.js, flash.js)
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
+    soundCaptions: false, // short captions for important sounds in a shift (the "sound_captions" entity; scripts/game/sound.js)
+    holdMode: {}, // seat ("0".."3") -> "hold" | "toggle": how the dig button is read (scripts/game/miner_input.js)
+    gameSpeed: 1, // 1, 0.8 or 0.6: the speed of a shift (GAME_SPEEDS)
   };
 }
 
@@ -36,11 +50,48 @@ function defaults() {
 export function load() {
   const saved = storage.get("settings", {});
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings }, holdMode: { ...saved.holdMode } };
+}
+
+let version = 0;
+let cache = null;
+let cacheVersion = -1;
+
+/** The settings as the last save() left them, read from storage once (the game code that asks every frame uses this; never change the object). */
+export function current() {
+  if (!cache || cacheVersion !== version) {
+    cache = load();
+    cacheVersion = version;
+  }
+  return cache;
+}
+
+/** Forgets the cached settings (a test that wrote the storage by hand). */
+export function refresh() {
+  cache = null;
 }
 
 export function save(s) {
   storage.set("settings", s);
+  version++;
+}
+
+/** How the dig button of a seat is read: "hold" or "toggle". */
+export function holdModeOf(seat, s = current()) {
+  return s.holdMode[String(seat)] === "toggle" ? "toggle" : "hold";
+}
+
+/** The window mode in force: the saved one, else what `fullscreen` says, else null (the factoria.json choice). */
+export function displayModeOf(s = current()) {
+  if (DISPLAY_MODES.includes(s.displayMode)) return s.displayMode;
+  if (s.fullscreen === true) return "fullscreen";
+  if (s.fullscreen === false) return "windowed";
+  return null;
+}
+
+/** The game speed in force (a saved value that is not one of GAME_SPEEDS counts as 1). */
+export function gameSpeedOf(s = current()) {
+  return GAME_SPEEDS.includes(s.gameSpeed) ? s.gameSpeed : 1;
 }
 
 /** Camera.colorFilter of the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
@@ -49,10 +100,12 @@ export function applyColorFilter(s = load()) {
   if (camera) camera.get("Camera").colorFilter = s.colorFilter;
 }
 
-/** Captions follow the "Subtitles" option by switching the scene's "captions" entity on or off. The game keeps calling audio.play({ caption }) and ui.caption(): they are tracked while hidden. */
+/** Captions follow the "Subtitles" option by switching the scene's "captions" entity on or off, and the sound captions of a shift ("sound_captions") follow their own option. The game keeps calling audio.play({ caption }) and ui.caption(): they are tracked while hidden. */
 export function applySubtitles(s = load()) {
   const captions = world.find("captions");
   if (captions) captions.active = s.subtitles;
+  const sound = world.find("sound_captions");
+  if (sound) sound.active = s.soundCaptions;
 }
 
 /** What belongs to the scene's own entities (camera, captions): every scene has new ones, so each scene sets them again. */
@@ -63,7 +116,7 @@ export function applyScene(s = load()) {
 
 /** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
-  for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
+  for (const bus of BUSES) mix.setUser(bus, s.volume[bus]); // the mix puts the snapshot and the duck of the moment on top (scripts/game/mix.js)
   applyScene(s);
   ui.textScale = s.textScale;
   if (s.language && s.language !== i18n.language) {
@@ -88,7 +141,8 @@ export function apply(s = load()) {
       console.warn(`settings: ${what} was not applied: ${e.message}`);
     }
   };
-  if (s.fullscreen !== null) tryApply("full screen", () => window.setFullscreen(s.fullscreen));
+  const mode = displayModeOf(s);
+  if (mode !== null) tryApply("window mode", () => window.setFullscreen(mode !== "windowed"));
   if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
   if (s.frameCap) tryApply("frame cap", () => (window.frameCap = s.frameCap));

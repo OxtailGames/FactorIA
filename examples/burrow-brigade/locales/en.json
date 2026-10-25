@@ -29,7 +29,8 @@
       "video": "Video",
       "audio": "Audio",
       "controls": "Controls",
-      "language": "Language"
+      "language": "Language",
+      "access": "Access"
     },
     "fullscreen": "Full screen",
     "vsync": "VSync",
@@ -79,7 +80,23 @@
     "player": "Player {n}",
     "playerBinding": "{action}: {keys}  |  {pad}",
     "playerPress": "{action}: press a key or a button (Esc cancels)",
-    "analytics": "Send anonymous play statistics"
+    "analytics": "Send anonymous play statistics",
+    "displayMode": "Window: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {name}",
+    "monitorUnknown": "Monitor: the game picks it",
+    "soundCaptions": "Sound captions",
+    "holdMode": "{action}: {mode}",
+    "holdModeHold": "hold",
+    "holdModeToggle": "press to toggle",
+    "gameSpeed": "Game speed: {percent} percent",
+    "gameSpeedNote": "A slower shift does not post to the boards.",
+    "reducedFlashing": "Reduced flashing",
+    "accessNote": "Ore and hazards also carry a shape, so they read without colour."
   },
   "pause": {
     "title": "Paused",
@@ -312,5 +329,29 @@
     "keyboard": "Type the code, then press Enter.",
     "pad": "Press {button} to type the code.",
     "deck": "Press {button}: Steam's keyboard opens."
+  },
+  "caption": {
+    "where": "{text} ({dir})",
+    "dir": {
+      "left": "left",
+      "right": "right",
+      "up": "above",
+      "down": "below",
+      "here": "close"
+    },
+    "bite": "Beetle bite!",
+    "beetle": "A beetle hisses",
+    "roar": "Something roars",
+    "steal": "Thief grabs ore!",
+    "crash": "Rocks crash down",
+    "rumble": "The roof rumbles",
+    "splash": "Water floods in",
+    "sizzle": "Magma sizzles",
+    "lampLow": "Lamp running low",
+    "lampOut": "Lamp out",
+    "mole": "A mole calls for help",
+    "rescue": "Mole freed",
+    "lift": "Lift hums",
+    "defeat": "The Mole King falls"
   }
 }

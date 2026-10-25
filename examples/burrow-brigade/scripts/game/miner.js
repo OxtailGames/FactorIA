@@ -5,7 +5,8 @@
 // still, faded, with its lamp off) and walks slower in water. It reads its player record (players.js) and the live map (mine_map.js),
 // so four of these run side by side in co-op without knowing about each other.
 // The prefab prefabs/miner.prefab.json carries the Sprite; the lamp, the target cursor and the crack are created here.
-import { Behaviour, world, audio } from "factoria";
+import { Behaviour, world } from "factoria";
+import * as sound from "./sound.js";
 import * as players from "./players.js";
 import * as events from "./events.js";
 import { live } from "./mine_map.js";
@@ -142,7 +143,7 @@ export default class Miner extends Behaviour {
       this.stepClock -= dt;
       if (this.stepClock <= 0) {
         this.stepClock = 0.26;
-        audio.play(this.digSoundFlip ? "assets/audio/dig.wav" : "assets/audio/dig2.wav", { volume: 0.5, bus: "sfx" });
+        sound.play(this.digSoundFlip ? "assets/audio/dig.wav" : "assets/audio/dig2.wav", { volume: 0.5 });
         this.digSoundFlip = !this.digSoundFlip;
       }
       if (this.digProgress >= 1) this.finishDig(t.tx, t.ty);
@@ -151,7 +152,7 @@ export default class Miner extends Behaviour {
       if (inp.dig && solid && !can.ok && this.blockedKey !== key && this.player.state === "active") {
         this.blockedKey = key;
         map.dig(t.tx, t.ty, { tier: run.upgrades.pickTier, by: this.playerId }); // refuses, and tells the bus why
-        audio.play("assets/audio/blocked.wav", { volume: 0.6, bus: "sfx" });
+        sound.play("assets/audio/blocked.wav", { volume: 0.6 });
       }
     }
     if (!inp.dig) this.blockedKey = "";
@@ -165,12 +166,12 @@ export default class Miner extends Behaviour {
       if (!this.jammed) {
         this.jammed = true;
         events.emit("exitJammed", { player: this.playerId });
-        audio.play("assets/audio/blocked.wav", { volume: 0.6, bus: "sfx" });
+        sound.play("assets/audio/blocked.wav", { volume: 0.6 });
       }
     } else if (this.player.state === "active" && underfoot === K.LIFT_EXIT) {
       players.setState(this.playerId, "lift");
       events.emit("liftReached", { player: this.playerId });
-      audio.play("assets/audio/lift.wav", { volume: 0.7, bus: "sfx" });
+      sound.play("assets/audio/lift.wav", { volume: 0.7 }, { key: "caption.lift", x: this.entity.position.x, y: this.entity.position.y });
     } else if (this.player.state === "lift" && underfoot !== K.LIFT_EXIT) {
       players.setState(this.playerId, "active"); // walked off the lift again
     }
@@ -205,7 +206,7 @@ export default class Miner extends Behaviour {
     if (!best) return false;
     if (this.swingLeft > 0) return true; // the enemy is in reach: wait for the pick, do not dig the wall behind it
     this.swingLeft = SWING_COOLDOWN;
-    audio.play("assets/audio/swing.wav", { volume: 0.6, bus: "sfx" });
+    sound.play("assets/audio/swing.wav", { volume: 0.6 });
     best.hit(swingDamage(run.upgrades.pickTier), { x: p.x, y: p.y }, this.playerId);
     return true;
   }
@@ -229,9 +230,9 @@ export default class Miner extends Behaviour {
     if (res.ore) {
       addOre(res.ore, 1);
       events.emit("orePicked", { ore: res.ore, value: res.value, by: this.playerId, total: totalOre() });
-      audio.play("assets/audio/ore.wav", { volume: 0.7, bus: "sfx" });
+      sound.play("assets/audio/ore.wav", { volume: 0.7 });
     } else {
-      audio.play("assets/audio/dug.wav", { volume: 0.6, bus: "sfx" });
+      sound.play("assets/audio/dug.wav", { volume: 0.6 });
     }
   }
 
@@ -242,7 +243,7 @@ export default class Miner extends Behaviour {
     if (lamp.oil > lamp.max * 0.25) lamp.low = false;
     map.setKind(tx, ty, K.FLOOR, "pickup");
     events.emit("oilPicked", { tx, ty, by: this.playerId, oil: lamp.oil });
-    audio.play("assets/audio/oil.wav", { volume: 0.7, bus: "sfx" });
+    sound.play("assets/audio/oil.wav", { volume: 0.7 });
   }
 
   /** Burns oil; the lamp warns at a quarter and goes out at zero. */
@@ -252,11 +253,12 @@ export default class Miner extends Behaviour {
     if (!lamp.low && lamp.oil <= lamp.max * 0.25 && lamp.oil > 0) {
       lamp.low = true;
       events.emit("lampLow", { player: this.playerId, oil: lamp.oil });
+      sound.play("assets/audio/lamp_low.wav", { volume: 0.7 }, { key: "caption.lampLow", duck: 0.8, depth: 0.3 });
     }
     if (lamp.oil <= 0) {
       lamp.out = true;
       events.emit("lampOut", { player: this.playerId });
-      audio.play("assets/audio/lamp_out.wav", { volume: 0.8, bus: "sfx" });
+      sound.play("assets/audio/lamp_out.wav", { volume: 0.8 }, { key: "caption.lampOut", duck: 1, depth: 0.4 });
     }
   }
 
