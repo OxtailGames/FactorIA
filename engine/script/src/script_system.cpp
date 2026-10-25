@@ -1048,13 +1048,22 @@ CalendarDate ScriptSystem::today() const { return impl_->date; }
 
 void ScriptSystem::set_start_date(const CalendarDate& date) { impl_->startDate = impl_->date = date; }
 
-std::string ScriptSystem::set_date(std::string_view iso) {
+std::string ScriptSystem::set_date(std::string_view iso, std::optional<int> utcOffsetMinutes) {
     auto parsed = parse_calendar_date(iso, "game.setDate:");
     if (!parsed.ok()) return parsed.error().message + ". " + parsed.error().hint;
     CalendarDate d = parsed.value();
-    d.utcOffsetMinutes = impl_->date.utcOffsetMinutes;
-    impl_->date = d;
+    d.utcOffsetMinutes = utcOffsetMinutes ? *utcOffsetMinutes : impl_->date.utcOffsetMinutes;
+    set_clock_date(d);
     return {};
+}
+
+void ScriptSystem::set_clock_date(const CalendarDate& now) {
+    Impl& I = *impl_;
+    const bool newDay = now.year != I.date.year || now.month != I.date.month || now.day != I.date.day;  // not a change of offset or time
+    I.date = now;
+    if (!newDay || !I.initialized) return;
+    I.host->world().events().game.push_back(GameEvent{"app.dayChanged", Json::object(), kNullEntity});
+    dispatch_events();
 }
 
 bool ScriptSystem::app_focused() const { return impl_->appFocused; }
