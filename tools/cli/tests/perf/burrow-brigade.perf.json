@@ -1,0 +1,11 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "scene": "scenes/busiest.scene.json",
+  "budgets": {
+    "maxDrawCalls": 24,
+    "maxLights": 16,
+    "maxTextureMB": 4,
+    "maxEntities": 200
+  }
+}

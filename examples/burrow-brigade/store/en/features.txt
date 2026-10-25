@@ -1,0 +1,10 @@
+- One to four players on one screen, with a keyboard and gamepads, or Steam Remote Play Together
+- A lamp that burns oil: the light shrinks as it runs low, and the dark is a real threat
+- Nine generated floors in three strata, each with its own tiles, light and music
+- Beetles, goblin thieves and a Mole King boss that scales with the team
+- Free trapped moles, revive downed friends, place torches, ride the lift out together
+- A camp between shifts with a shop of pick, lamp, boots and torch upgrades
+- Daily dig with a Steam leaderboard, and shareable seed codes
+- Steam achievements, stats and leaderboards
+- Per-player rebinding, sound captions, reduced flashing, press-to-dig, game speed
+- English, Russian and Thai

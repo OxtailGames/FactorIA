@@ -1,0 +1,13 @@
+Burrow Brigade is a couch co-op mining game for one to four players on a single screen.
+
+Your lamp is your life. Every miner carries a lamp that burns oil while you work, and the light shrinks as the oil runs low. Dig through dirt and rock with your pick, take the copper, silver, gold and gems, free the moles trapped in sealed pockets, and get every living miner onto the exit lift before the last lamp goes out. Ore you carry out becomes cash. Ore you leave in the dark is lost.
+
+Dig deeper. The mine is a descent of nine floors in three strata: Topsoil, Crystal Caves and Magma Deep. Every floor is a new, generated mine with its own look, light and music, and every floor is bigger and richer than the last. Beetles patrol and bite. Goblin thieves steal a share of your ore and run. At the bottom the Mole King wakes up, and the lift stays jammed until it falls.
+
+Dig together. Four miners, one screen, one keyboard and up to three gamepads (or four gamepads). Torches light the tunnels for everyone, a downed friend can be revived, and the team decides who goes for the gems and who guards the lift. Steam Remote Play Together brings friends who are not in the room.
+
+Come back to camp. Between shifts the team sits at the fire and spends its cash: a better pick, a faster pick, more oil, a wider lamp, quicker boots, more torches. Three save slots keep your runs, and Continue picks up at the camp.
+
+A new dig every day. The daily dig gives everyone on the same day the same mine, with a score on the Steam leaderboard. Any floor can be shared as a short seed code and played again.
+
+Made to be played by everyone. Rebind every key and button per player, turn on sound captions that name the sound and the direction it came from, reduce flashing, press to dig instead of holding, slow the game down, and scale the text. The game is playable in English, Russian and Thai.
