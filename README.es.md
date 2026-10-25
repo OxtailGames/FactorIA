@@ -30,13 +30,16 @@ Se compila para Windows, macOS, Linux, iOS y Android desde un único código fue
 ## Estado
 
 Versión 0.1, primer hito completado. Funcionan todos los módulos del motor, la CLI
-`factoria`, el servidor MCP, la conexión con IAs y el editor. Además, seis juegos
+`factoria`, el servidor MCP, la conexión con IAs y el editor. Además, siete juegos
 de ejemplo hechos por agentes de IA solo con la interfaz pública forman parte de
-los tests. Dos de ellos son juegos completos. Lantern Keep, un plataformas 2D de escritorio: menús, ranuras de partida,
+los tests. Tres de ellos son juegos completos. Lantern Keep, un plataformas 2D de escritorio: menús, ranuras de partida,
 servicios de tienda, opciones de accesibilidad, cuatro idiomas y ajustes listos para las tiendas. Clockwork Courier, un
 juego 3D pensado primero para móviles: controles táctiles, modelos y sonidos CC0 importados, logros, compras y un anuncio
 con recompensa, opciones de comodidad y accesibilidad, inglés, español y japonés, y exportaciones probadas en el
-simulador de iOS, un emulador de Android, un navegador y macOS.
+simulador de iOS, un emulador de Android, un navegador y macOS. Burrow Brigade, un juego 2D cooperativo para hasta cuatro
+jugadores en una pantalla, para escritorio y Steam: minas generadas a partir de una semilla, enemigos que persiguen por
+los túneles excavados, ranuras de partida con versión, clasificaciones y funciones online en servicios de prueba, inglés,
+ruso y tailandés, y exportaciones a Windows, Linux y macOS.
 
 La CI compila y prueba cada pull request y cada push a `main` en Linux, Windows
 (MSVC) y macOS, y compila la app de iOS para el simulador y la librería y el APK de

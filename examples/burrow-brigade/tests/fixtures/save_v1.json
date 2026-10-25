@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "seed": 123456,
+  "stratum": 1,
+  "floor": 2,
+  "shiftNumber": 4,
+  "cash": 85,
+  "upgrades": { "pickTier": 1, "pickSpeed": 1.25, "lampOil": 150, "lampRadius": 1, "walkSpeed": 1, "torches": 6 }
+}

@@ -1,0 +1,26 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "scene": "scenes/busiest.scene.json",
+  "runners": {
+    "macos-clang-metal": {
+      "frames": 300,
+      "cpuMsAvg": 1.418,
+      "cpuMsP95": 2.335,
+      "cpuMsMax": 45.605,
+      "peakMemoryMB": 47.3,
+      "drawCalls": 10,
+      "entities": 134,
+      "graphics": "Metal / Apple M5",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 0.08
+    }
+  },
+  "budgets": {
+    "maxDrawCalls": 24,
+    "maxLights": 16,
+    "maxTextureMB": 4,
+    "maxEntities": 200
+  }
+}

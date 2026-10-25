@@ -1,0 +1,12 @@
+.factoria/
+build/
+node_modules/
+.DS_Store
+store/screenshots/
+store/capsules/
+store/trailer/scenes/
+store/trailer.mp4
+*.avi
+*.mp4
+# The Steam plugin (platform.add_backend steam) is made on the machine that exports: SHIPPING.md, "Steam"
+plugins/steam/

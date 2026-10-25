@@ -1,0 +1,361 @@
+{
+  "$name": "ไทย",
+  "credits": {
+    "madeWith": "สร้างด้วย FactorIA",
+    "software": "เกมนี้ใช้ ซอฟต์แวร์ต่อไปนี้:",
+    "licenses": "ข้อความสัญญาอนุญาต ฉบับเต็มอยู่ในไฟล์ FACTORIA_NOTICES.txt ที่มาพร้อมกับเกม",
+    "art": "ภาพ: Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), CC0 ส่วนตัวตุ่น ด้วง หัวขโมย ราชาตุ่น คบเพลิง หมอก ลูกศรลิฟต์ รอยแตก และสีของชั้นดินทั้งสาม วาดขึ้นเพื่อเกมนี้",
+    "sounds": "เสียงและเพลง: สร้างขึ้นเพื่อเกมนี้ด้วย เครื่องสังเคราะห์ เสียงของ FactorIA และสคริปต์เล็ก ๆ CC0"
+  },
+  "loading": {
+    "progress": "กำลังโหลด... {percent}%"
+  },
+  "menu": {
+    "title": "ทีมขุดโพรง",
+    "play": "เล่น",
+    "options": "ตั้งค่า",
+    "credits": "เครดิต",
+    "quit": "ออก",
+    "back": "กลับ",
+    "continue": "เล่นต่อ",
+    "daily": "ขุดประจำวัน",
+    "code": "รหัสเหมือง",
+    "dailyInfo": {
+      "other": "ขุดประจำวัน {key}: {tries} ครั้ง ลึกที่สุด {depth} ม."
+    },
+    "boards": "กระดานคะแนน"
+  },
+  "options": {
+    "title": "ตั้งค่า",
+    "tab": {
+      "video": "ภาพ",
+      "audio": "เสียง",
+      "controls": "ปุ่มควบคุม",
+      "language": "ภาษา",
+      "access": "การเข้าถึง"
+    },
+    "vsync": "ซิงค์แนวตั้ง (VSync)",
+    "windowSize": "ขนาดหน้าต่าง: {width} x {height}",
+    "windowSizeFullscreen": "ขนาดหน้าต่าง: เต็มจอ",
+    "frameCap": "จำกัดเฟรม: {fps} fps",
+    "frameCapOff": "จำกัดเฟรม: ปิด",
+    "colorFilter": "ฟิลเตอร์สี: {filter}",
+    "filter": {
+      "none": "ปิด",
+      "greyscale": "ขาวดำ",
+      "highContrast": "คอนทราสต์สูง",
+      "protanopia": "ตาบอดสีแดง",
+      "deuteranopia": "ตาบอดสีเขียว",
+      "tritanopia": "ตาบอดสีน้ำเงิน"
+    },
+    "videoNote": "การตั้งค่าภาพมีผลเมื่อ เกมทำงานในหน้าต่าง ของตัวเอง",
+    "volume": {
+      "master": "เสียงรวม",
+      "music": "เพลง",
+      "effects": "เสียงเอฟเฟกต์",
+      "interface": "เสียงเมนู"
+    },
+    "action": {
+      "move_left": "เดินซ้าย",
+      "move_right": "เดินขวา",
+      "move_up": "เดินขึ้น",
+      "move_down": "เดินลง",
+      "dig": "ขุด",
+      "pause": "หยุดชั่วคราว",
+      "torch": "วางคบเพลิง",
+      "left": "ซ้าย",
+      "right": "ขวา",
+      "up": "ขึ้น",
+      "down": "ลง"
+    },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: กดปุ่มบนแป้นพิมพ์หรือ จอยสติ๊ก (กด Esc เพื่อยกเลิก)",
+    "resetControls": "คืนค่าเริ่มต้น",
+    "language": "ภาษา: {language}",
+    "readAloud": "อ่านเมนูออกเสียง",
+    "subtitles": "คำบรรยาย",
+    "privacyOptions": "การตั้งค่า ความเป็นส่วนตัวของ โฆษณา",
+    "on": "เปิด",
+    "off": "ปิด",
+    "percent": {
+      "other": "{value} เปอร์เซ็นต์"
+    },
+    "player": "ผู้เล่น {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "playerPress": "{action}: กดปุ่มบนแป้นพิมพ์หรือ จอยสติ๊ก (กด Esc เพื่อยกเลิก)",
+    "analytics": "ส่งสถิติการเล่น แบบไม่ระบุตัวตน",
+    "displayMode": "โหมดหน้าต่าง: {mode}",
+    "mode": {
+      "windowed": "หน้าต่าง",
+      "fullscreen": "เต็มจอ"
+    },
+    "monitor": "จอภาพ: {width} x {height}",
+    "soundCaptions": "คำบรรยายเสียง",
+    "holdMode": "การขุด: {mode}",
+    "holdModeHold": "กดค้างไว้",
+    "holdModeToggle": "กดครั้งแรกเพื่อเริ่ม กดอีกครั้งเพื่อหยุด",
+    "gameSpeed": "ความเร็วเกม: {percent} เปอร์เซ็นต์",
+    "gameSpeedNote": "กะที่ช้าลงจะไม่ถูกส่ง ขึ้นกระดานคะแนน",
+    "reducedFlashing": "ลดแสงวาบ",
+    "accessNote": "แร่และอันตรายมี รูปร่างเฉพาะด้วย จึงมองเห็นได้โดย ไม่ต้องใช้สี",
+    "readToggle": "{label}, {state}",
+    "readSlider": "{label}, {value}"
+  },
+  "pause": {
+    "title": "หยุดชั่วคราว",
+    "resume": "เล่นต่อ",
+    "mainMenu": "เมนูหลัก"
+  },
+  "hud": {
+    "ore": "แร่: {count}  (มูลค่า {value})",
+    "moles": "ตัวตุ่น: {rescued} / {total}",
+    "depth": "ชั้น {floor} - ลึก {depth} ม.",
+    "time": "กะ {time}",
+    "lampLow": "ตะเกียงใกล้หมด! หาน้ำมันหรือขึ้นลิฟต์ไป",
+    "lampOut": "ตะเกียงดับ! ทุกอย่างมืดสนิท",
+    "moleRescued": "ตัวตุ่นเป็นอิสระแล้ว!",
+    "liftWait": "อยู่บนลิฟต์ รอคนอื่นอยู่...",
+    "shiftLift": "กลับขึ้นลิฟต์แล้ว กะนี้ทำได้ดี!",
+    "shiftDark": "หลงอยู่ในความมืด...",
+    "torches": "คบเพลิง: {count}",
+    "playerDown": "นักขุดคนหนึ่งล้มลง!",
+    "flood": "น้ำกำลังทะลักเข้า อุโมงค์!",
+    "magma": "แมกมากำลัง พุ่งทะลุขึ้นมา!",
+    "caveIn": "เพดานสั่น! วิ่งเร็ว!",
+    "oreStolen": "หัวขโมยฉกแร่ไป! ตามจับมัน!",
+    "thiefEscaped": "หัวขโมยหนีไป พร้อมกับแร่",
+    "oreRecovered": "ได้แร่คืนมาแล้ว",
+    "bossStarted": "ราชาตุ่นตื่นแล้ว!",
+    "bossDefeated": "ราชาตุ่นพ่ายแพ้! ลิฟต์เป็นอิสระแล้ว",
+    "exitJammed": "ราชาตุ่นทำลิฟต์ติด!",
+    "shiftAllDown": "นักขุดทุกคนล้มลง...",
+    "playerRevived": "นักขุดลุกขึ้นยืนได้ อีกครั้ง!",
+    "reviving": "กดปุ่มขุดค้างไว้ ข้างเพื่อนที่ล้ม เพื่อพยุงเขาขึ้น"
+  },
+  "strata": {
+    "topsoil": "ชั้นดินบน",
+    "crystalCaves": "ถ้ำคริสตัล",
+    "magmaDeep": "ใต้พิภพแมกมา"
+  },
+  "results": {
+    "titleLift": "กะที่ {shift} เสร็จสิ้น",
+    "titleDark": "หลงในความมืด",
+    "noteLift": "ลิฟต์พาทุกคน และแร่กลับขึ้นมาแล้ว",
+    "noteDark": "ตะเกียงดับ แร่ถูกทิ้งไว้ข้างหลัง",
+    "copper": "ทองแดง: {count}",
+    "silver": "เงิน: {count}",
+    "gold": "ทอง: {count}",
+    "gem": "อัญมณี: {count}",
+    "value": "มูลค่าแร่: {value}  (ฝากไว้: {banked})",
+    "time": "เวลา: {time}",
+    "moles": "ช่วยตัวตุ่นได้: {rescued} / {total}",
+    "cash": "เงินสด: {cash}",
+    "toTitle": "กลับหน้าหลัก",
+    "titleAllDown": "ทุกคนล้มลง",
+    "titleVictory": "ปราบราชาตุ่นได้แล้ว!",
+    "noteAllDown": "ไม่มีนักขุดคนไหน ยืนอยู่ได้ แร่ถูกทิ้งไว้ข้างหลัง",
+    "noteVictory": "ลิฟต์พาทีมกลับบ้าน เหมืองเป็นของคุณแล้ว",
+    "next": "ต่อไป: {stratum} ชั้น {floor}",
+    "nextBoss": "ต่อไป: {stratum} ชั้น {floor} - ราชาตุ่นรออยู่",
+    "retry": "อีกครั้ง: {stratum} ชั้น {floor}",
+    "victoryEnd": "กลับขึ้นสู่ผิวดิน",
+    "nextFloor": "ไปที่แคมป์",
+    "retryFloor": "ไปที่แคมป์ แล้วลองอีกครั้ง",
+    "newRun": "เริ่มรอบใหม่",
+    "seed": "รหัสเหมือง: {code}",
+    "copy": "คัดลอกรหัส",
+    "copied": "คัดลอกรหัส {code} ไปยังคลิปบอร์ดแล้ว",
+    "copiedSession": "เก็บรหัส {code} ไว้เฉพาะรอบเล่นนี้ เท่านั้น เพราะเวอร์ชันนี้ไม่มี คลิปบอร์ดของระบบ โปรดจดไว้"
+  },
+  "join": {
+    "title": "ใครจะขุดบ้าง?",
+    "noPlayers": "ยังไม่มีใครเข้าร่วม",
+    "slotEmpty": "{player}: กด A (จอยสติ๊ก) หรือ Enter (แป้นพิมพ์) เพื่อเข้าร่วม",
+    "slotPad": "{player} - จอยสติ๊ก {pad}",
+    "slotPadHost": "{player} - จอยสติ๊ก {pad} - กด Start เพื่อเริ่มกะ",
+    "slotKeyboard": "{player} - แป้นพิมพ์",
+    "slotKeyboardHost": "{player} - แป้นพิมพ์ - กด Enter เพื่อเริ่มกะ",
+    "hint": "A / Enter: เข้าร่วม   B / Esc: ออก (หรือกลับไปหน้าหลัก)   ผู้เล่นคนแรกกด Start / Enter เพื่อเริ่ม เล่นได้สูงสุด 4 คน: แป้นพิมพ์หนึ่งชุดกับ จอยสติ๊กสามตัว หรือจอยสติ๊กสี่ตัว"
+  },
+  "pads": {
+    "lost": "เชื่อมต่อ คอนโทรลเลอร์ของ {player} อีกครั้ง",
+    "handOver": "กด A บนคอนโทรลเลอร์ อีกตัว (หรือ Enter บนแป้นพิมพ์) เพื่อส่งนักขุดของ {player} ให้ตัวนั้น",
+    "drop": "หรือให้ผู้เล่นอีกคนกด Y (Backspace บนแป้นพิมพ์) เพื่อเอา {player} ออกจากกะ"
+  },
+  "camp": {
+    "title": "แคมป์",
+    "cash": "เงินสด: {cash}",
+    "hint": "ใช้เงินสดซื้อของ อัปเกรด แล้วลงเหมืองได้เลย",
+    "next": "ต่อไป: {stratum} ชั้น {floor}",
+    "seed": "รหัสเหมือง: {code}",
+    "copy": "คัดลอกรหัส",
+    "descend": "ลงไปในเหมือง",
+    "toTitle": "กลับหน้าหลัก",
+    "buy": "{name}: {now}  >  {next}  (ราคา {cost})",
+    "buyMax": "{name}: {now}  (สูงสุด)",
+    "bought": "ซื้อ {name} แล้ว: {now}",
+    "refused": "{message}. {hint}.",
+    "name": {
+      "pickTier": "ความแข็งของจอบ",
+      "pickSpeed": "ความเร็วจอบ",
+      "lampOil": "น้ำมันตะเกียง",
+      "lampRadius": "แสงตะเกียง",
+      "walkSpeed": "รองเท้าบู๊ต",
+      "torches": "คบเพลิง"
+    },
+    "unit": {
+      "tier": "ระดับ {value}",
+      "times": "x{value}",
+      "seconds": "{value} วิ",
+      "count": "{value}"
+    },
+    "copied": "คัดลอกรหัส {code} ไปยังคลิปบอร์ดแล้ว",
+    "copiedSession": "เก็บรหัส {code} ไว้เฉพาะรอบเล่นนี้ เท่านั้น เพราะเวอร์ชันนี้ไม่มี คลิปบอร์ดของระบบ โปรดจดไว้"
+  },
+  "slots": {
+    "title": "เลือกช่องเซฟ",
+    "empty": "ช่อง {slot}: ว่าง - เริ่มรอบใหม่",
+    "filled": {
+      "other": "ช่อง {slot}: {stratum} ชั้น {floor} - เงินสด {cash} - {time} - ลึกสุด {best} ม."
+    },
+    "broken": "ช่อง {slot}: อ่านไม่ได้",
+    "delete": "ลบ",
+    "sync": "ซิงค์กับคลาวด์",
+    "syncing": "กำลังซิงค์กับคลาวด์...",
+    "confirm": "ลบช่อง {slot} หรือไม่? ย้อนกลับไม่ได้",
+    "yes": "ใช่ ลบเลย",
+    "no": "ไม่ เก็บไว้",
+    "deleted": "ลบช่อง {slot} แล้ว",
+    "synced": {
+      "unavailable": "เวอร์ชันนี้ไม่มีเซฟ บนคลาวด์",
+      "none": "ไม่มีอะไรให้ซิงค์",
+      "inSync": "ช่องเซฟกับคลาวด์ ตรงกันแล้ว",
+      "uploaded": "ส่งช่อง {slot} ขึ้นคลาวด์แล้ว",
+      "downloaded": "ดาวน์โหลดช่อง {slot} จากคลาวด์แล้ว",
+      "conflict": "ช่อง {slot} ถูกแก้ไขสองที่ ฉบับที่เล่นนานกว่าชนะ ({winner}) อีกฉบับเก็บไว้เป็น ข้อมูลสำรอง",
+      "waiting": "ช่อง {slot} กำลังรอ",
+      "blocked": "{message}. {hint}.",
+      "error": "{message}. {hint}."
+    },
+    "storageDamaged": "โฟลเดอร์เซฟเสียหาย เกมเก็บสำเนาไว้และ เริ่มใหม่แบบว่างเปล่า การซิงค์กับคลาวด์อาจ นำช่องเซฟของคุณ กลับมาได้",
+    "imported": "เซฟเก่า ของคุณกลายเป็น ช่อง {slot} แล้ว",
+    "legacy": "นำเข้าเซฟเก่าไม่ได้: {message}. {hint}.",
+    "problem": "{message}. {hint}."
+  },
+  "code": {
+    "title": "รหัสเหมือง",
+    "prompt": "พิมพ์หรือวาง รหัสเหมือง เช่น {example}",
+    "paste": "วาง",
+    "play": "เล่นเหมืองนี้",
+    "placeholder": "XXXX-XXXX",
+    "pasteEmpty": "ยังไม่มีอะไรให้วาง: คัดลอกรหัสก่อน หรือพิมพ์เอง",
+    "invalid": "{message}. {hint}.",
+    "ok": "ยอมรับรหัสแล้ว: {stratum} ชั้น {floor}"
+  },
+  "achievements": {
+    "first_ore": {
+      "name": "ฟาดแรก",
+      "description": "ขุดแร่ชิ้นแรก ของคุณให้ได้"
+    },
+    "mole_rescuer": {
+      "name": "ผู้ช่วยตัวตุ่น",
+      "description": "ช่วยตัวตุ่นที่ติดอยู่ 10 ตัว"
+    },
+    "mole_king": {
+      "name": "ทีมจงเจริญ",
+      "description": "ปราบราชาตุ่นให้ได้"
+    },
+    "bright_stratum": {
+      "name": "ตะเกียงสว่างไสว",
+      "description": "ผ่านชั้นสุดท้ายของ ชั้นดินโดยไม่ให้ ตะเกียงดับสักดวง"
+    },
+    "full_house": {
+      "name": "ครบทีม",
+      "description": "จบกะบนลิฟต์พร้อม นักขุด 4 คน"
+    },
+    "bug_squasher": {
+      "name": "นักบี้แมลง",
+      "description": "ปราบศัตรู 25 ตัว"
+    }
+  },
+  "stats": {
+    "oreDug": "แร่ที่ขุดได้",
+    "molesRescued": "ตัวตุ่นที่ช่วยได้",
+    "floorsCleared": "ชั้นที่ผ่านแล้ว",
+    "enemiesDefeated": "ศัตรูที่ปราบได้"
+  },
+  "boards": {
+    "title": "กระดานคะแนน",
+    "tabAllTime": "ตลอดกาล",
+    "tabDaily": "ขุดประจำวัน",
+    "tabTrophies": "ถ้วยรางวัล",
+    "name": {
+      "best_run_cash": "เงินสดรอบที่ดีที่สุด",
+      "daily_run_cash": "เงินสดขุดประจำวัน"
+    },
+    "loading": "กำลังโหลด...",
+    "empty": "ยังไม่มีคะแนน ฝากแร่ไว้บนลิฟต์สิ!",
+    "unavailable": "กระดานคะแนน ใช้ไม่ได้ที่นี่",
+    "row": "{rank}. {name}   {score}",
+    "rowYou": "{rank}. {name} (คุณ)   {score}",
+    "dailyNote": "กระดานของวันที่ {date} เริ่มขุดประจำวันจาก แคมป์เพื่อลงคะแนนที่นี่",
+    "trophyUnlocked": "{name}\n{description}",
+    "trophyLocked": "{name}   (ล็อก)\n{description}",
+    "trophyProgress": "{name}   (ล็อก)\n{description}   {value} / {goal}",
+    "stat": "{label}: {value}",
+    "numbers": "ตัวเลขของคุณ",
+    "posted": "ส่งคะแนน {score} แล้ว",
+    "dailySkipped": "ขุดประจำวันข้าม เที่ยงคืนไปแล้ว คะแนนจึงไม่ถูกส่งขึ้น กระดานของวันนี้"
+  },
+  "presence": {
+    "menu": "อยู่ที่เมนูหลัก",
+    "boards": "กำลังดูกระดานคะแนน",
+    "shift": {
+      "other": "กำลังขุดใน{stratum} ชั้น {floor} ({count} คน)"
+    },
+    "boss": {
+      "other": "กำลังสู้กับราชาตุ่น ({count} คน)"
+    },
+    "resultsLift": "กลับขึ้นลิฟต์หลังกะที่ {shift}",
+    "resultsDown": "พลาดกะที่ {shift} ในเหมือง"
+  },
+  "online": {
+    "consentTitle": "สถิติการเล่น แบบไม่ระบุตัวตน",
+    "consentBody": "ช่วยปรับปรุงเกมด้วย การส่งข้อมูลว่ากะจบ เมื่อไร คุณไปถึงชั้นไหน และออกจากเกม เมื่อไร ไม่มีชื่อ ไม่มีข้อมูลเครื่อง ไม่มีสิ่งที่คุณพิมพ์ เปลี่ยนได้ในตั้งค่า",
+    "consentYes": "ได้ ส่งเลย",
+    "consentNo": "ไม่ล่ะ ขอบคุณ",
+    "hintSelect": "เลือก",
+    "hintBack": "กลับ",
+    "newsLine": "ข่าว: {line}",
+    "hintLine": "{button}: {action}"
+  },
+  "textEntry": {
+    "keyboard": "พิมพ์รหัส แล้วกด Enter",
+    "pad": "กด {button} เพื่อพิมพ์รหัส",
+    "deck": "กด {button} เพื่อเปิดแป้นพิมพ์ของ Steam"
+  },
+  "caption": {
+    "where": "{text} ({dir})",
+    "dir": {
+      "left": "ซ้าย",
+      "right": "ขวา",
+      "up": "ด้านบน",
+      "down": "ด้านล่าง",
+      "here": "ใกล้ ๆ"
+    },
+    "bite": "ด้วงกัด!",
+    "beetle": "ด้วงขู่ฟ่อ",
+    "roar": "มีบางอย่างคำราม",
+    "steal": "หัวขโมยฉกแร่!",
+    "crash": "หินถล่มลงมา",
+    "rumble": "เพดานสั่นสะเทือน",
+    "splash": "น้ำทะลักเข้ามา",
+    "sizzle": "แมกมาฟู่",
+    "lampLow": "ตะเกียงใกล้หมด",
+    "lampOut": "ตะเกียงดับ",
+    "mole": "ตัวตุ่นร้องขอ ความช่วยเหลือ",
+    "rescue": "ช่วยตัวตุ่นได้แล้ว",
+    "lift": "ลิฟต์ส่งเสียงหึ่ง",
+    "defeat": "ราชาตุ่นพ่ายแพ้"
+  }
+}

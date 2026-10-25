@@ -29,12 +29,15 @@ It builds for Windows, macOS, Linux, iOS and Android from a single codebase.
 ## Status
 
 Version 0.1, first milestone complete. All engine modules, the `factoria` CLI, the
-MCP server, the AI hub and the editor work, and six example games built by AI
-agents through the public interface are part of the test suite. Two of them are complete games. Lantern Keep, a 2D
+MCP server, the AI hub and the editor work, and seven example games built by AI
+agents through the public interface are part of the test suite. Three of them are complete games. Lantern Keep, a 2D
 desktop platformer: menus, save slots, store services, accessibility options, four languages and store-ready settings.
 Clockwork Courier, a 3D game made for phones first: touch controls, imported CC0 models and sounds, achievements,
 purchases and a rewarded ad, comfort and accessibility options, English, Spanish and Japanese, and exports run on the
-iOS Simulator, an Android emulator, a browser and macOS.
+iOS Simulator, an Android emulator, a browser and macOS. Burrow Brigade, a 2D couch co-op game for up to four players
+on the desktop and Steam: mines generated from a seed, enemies that chase through the dug tunnels, versioned save
+slots, leaderboards and online features on test services, English, Russian and Thai, and Windows, Linux and macOS
+exports.
 
 CI builds and tests every pull request and every push to `main` on Linux, Windows
 (MSVC) and macOS, builds the iOS Simulator app and the Android library and APK, and runs them on the iOS Simulator and
