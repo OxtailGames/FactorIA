@@ -826,4 +826,5 @@ FA_PLUGIN_INIT(example) {
 - **Device facts (version 4).** `set_device_fact(api, "steamDeck", 0 or 1)` tells the engine something about the machine that
   only the plugin can know. The only name today is `steamDeck`: `game.device.steamDeck` (and `handheld`) follow it, and when
   no plugin says anything the `SteamDeck=1` environment variable is used. The Steam plugin calls it once Steam is running, with
-  `IsSteamRunningOnSteamDeck`. A plugin built for version 4 checks `api->version >= 4` first; older plugins are not affected.
+  `IsSteamRunningOnSteamDeck`. Call it from the entry point: the engine reads it when the entry point returns. A plugin
+  built for version 4 checks `api->version >= 4` first; older plugins are not affected.

@@ -180,9 +180,9 @@ struct FaPluginApi {
 
     /* Version 4: facts about the device. Check api->version >= 4 before using this. */
 
-    /* Tell the engine a fact about the device the game runs on, once the plugin knows it (inside the entry point or later,
-     * on the game thread). name "steamDeck": value 1 when the platform says this is a Steam Deck, 0 when it says it is not
-     * (game.device.steamDeck, and game.device.handheld with it). An unknown name is ignored with a warning in the log. A
+    /* Tell the engine a fact about the device the game runs on, from inside the entry point (the engine reads it when
+     * the entry point returns; a later call changes nothing). name "steamDeck": value 1 when the platform says this is a
+     * Steam Deck, 0 when it says it is not (game.device.steamDeck, and game.device.handheld with it). An unknown name is ignored with a warning in the log. A
      * plugin that does not know (its SDK did not start) must not call it: the engine then falls back to the SteamDeck=1
      * environment variable. */
     void (*set_device_fact)(const FaPluginApi* api, const char* name, int value);
