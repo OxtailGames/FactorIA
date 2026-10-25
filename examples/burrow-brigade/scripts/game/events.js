@@ -6,8 +6,8 @@
 // still run. Names are checked, so a typo fails with a "did you mean".
 
 /**
- * Every event, with the fields of its data. P1 emits the ones marked (P1); the rest are reserved names that later
- * packages emit, so a listener written today does not need changing then.
+ * Every event, with the fields of its data. The ones marked (P1) and (P2) are emitted today; the "reserved" ones are names
+ * that later packages emit, so a listener written today does not need changing then.
  */
 export const EVENTS = Object.freeze({
   shiftStarted: "(P1) { seed, stratum, floor, hash, players }: the mine was built and the miners stand next to the start lift.",
@@ -19,15 +19,25 @@ export const EVENTS = Object.freeze({
   lampOut: "(P1) { player }: a lamp ran dry.",
   liftReached: "(P1) { player }: a miner stepped on the exit lift.",
   moleRescued: "(P1) { tx, ty, by, rescued, total }: a trapped mole was reached and freed.",
-  shiftEnded: "(P1) { outcome, ore, oreCount, value, banked, time, molesRescued, molesTotal, shiftNumber } (the ShiftSummary of run_state.js): outcome is \"lift\" or \"dark\".",
+  shiftEnded: "(P1) { outcome, ore, oreCount, value, banked, time, molesRescued, molesTotal, shiftNumber } (the ShiftSummary of run_state.js): outcome is \"lift\", \"dark\" or \"allDown\" (every miner is down).",
   playerAdded: "(P1) { player }: a player joined the registry.",
   playerRemoved: "(P1) { player }: a player left the registry.",
   playerState: "(P1) { player, from, to }: a player's state changed.",
-  playerDown: "(P1, emitted by setState) { player }: a player went down; later packages (hazards) set it.",
+  playerDown: "(P1, emitted by setState) { player, cause }: a player went down; `cause` is \"drowned\", \"burned\", \"caveIn\", \"beetle\", \"king\" or \"unknown\".",
   tileChanged: "(P1) { tx, ty, from, to, cause }: any tile changed; the same notice `MineMap.onChange` gives.",
   upgradeBought: "(reserved, P4) { upgrade, level, cost }",
   cashChanged: "(reserved, P4) { cash, delta }",
-  hazardTriggered: "(reserved, P2) { kind, tx, ty }",
+  hazardTriggered: "(P2) { kind, tx, ty, phase, player?, tiles? }: a hazard did something. kind is \"flood\", \"magma\" or \"caveIn\"; phase is \"start\" (a pocket was opened and began to spread, or a miner stepped on a cracked tile and the roof began to rumble), \"spread\" (water or magma took `tiles` more floor tiles), \"impact\" (the rocks of a cave-in fell on the 3 x 3 tiles around tx, ty) or \"hit\" (it put miner `player` down).",
+  playerHurt: "(P2) { player, hp, cause }: a beetle bite or a charge took a heart (`hp` is what is left; at 0 `playerDown` follows).",
+  thiefEscaped: "(P2) { ore, count }: a goblin thief got away with the ore it stole; that ore is gone from the shift.",
+  torchPlaced: "(P2) { tx, ty, by, left }: a miner put a torch down (`left` is the team's torches still unused).",
+  enemyHit: "(P2) { kind, tx, ty, by, hp }: a pick swing hurt an enemy (`hp` is what it has left).",
+  enemyDefeated: "(P2) { kind, tx, ty, by }: an enemy was killed.",
+  oreStolen: "(P2) { ore, count, tx, ty }: a goblin thief took ore from the team's pockets (`ore` is the kind most taken).",
+  oreRecovered: "(P2) { ore, count, by }: ore came back (a thief was killed, or a miner picked up what it dropped).",
+  bossStarted: "(P2) { tx, ty, hp }: a miner came within sight of the Mole King and the fight began.",
+  bossDefeated: "(P2) { by }: the Mole King fell; the exit lift is free.",
+  exitJammed: "(P2) { player }: a miner stepped on the exit lift while the Mole King still lives.",
 });
 
 /** @type {Map<string, Array<(data: any) => void>>} */

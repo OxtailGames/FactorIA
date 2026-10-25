@@ -153,6 +153,21 @@
           }
         },
         {
+          "id": "results_next",
+          "components": {
+            "Text": {
+              "text": "results.next",
+              "key": "results.next",
+              "fontSize": 28,
+              "space": "screen",
+              "keyArgs": {
+                "stratum": "",
+                "floor": 1
+              }
+            }
+          }
+        },
+        {
           "id": "results_cash",
           "components": {
             "Text": {
@@ -171,8 +186,8 @@
           "components": {
             "Button": {
               "autoSize": true,
-              "text": "Another shift",
-              "key": "results.again",
+              "text": "Next floor",
+              "key": "results.nextFloor",
               "autoFocus": true
             }
           }
