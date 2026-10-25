@@ -4,7 +4,7 @@
     "name": "Options",
     "components": {
       "Panel": {
-        "size": [760, 620],
+        "size": [760, 680],
         "anchor": [0.5, 0.5],
         "layer": 300,
         "layout": "column",
@@ -335,6 +335,20 @@
             }
           }
         ]
+      },
+      {
+        "id": "privacy_options",
+        "active": false,
+        "components": {
+          "Button": {
+            "autoSize": true,
+            "text": "Ad privacy settings",
+            "key": "options.privacyOptions",
+            "size": [560, 44],
+            "layer": 302,
+            "fontSize": 22
+          }
+        }
       },
       {
         "id": "options_back",

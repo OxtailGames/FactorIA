@@ -660,6 +660,27 @@ jobs:
               json.dump(scene, f, indent=2)
           PY
 
+      # The AdMob ads backend (platforms/plugins/admob, docs/PLATFORM.md section 8) next to the Google Play one: the game has a store
+      # backend and an ads backend at once. platform.add_backend builds its C bridge for both ABIs; the export copies its Gradle module,
+      # so Gradle adds the Mobile Ads SDK and Google's consent library and compiles the Java against them, and the manifest gets the
+      # app id of a development export (Google's sample id). The probe (tools/cli/tests/admob_probe.js) checks what answers the ads and
+      # that a call goes through the C bridge to the Java code. It loads no ad: that needs Google's network and Google Play.
+      - name: Add the AdMob backend (platform.add_backend), built for both ABIs
+        run: |
+          factoria=build/tools/tools/cli/factoria
+          $factoria call platform.add_backend '{"backend":"admob"}' --project /tmp/ci-game
+          ls -l /tmp/ci-game/plugins/admob/android/src/main/jniLibs/*/
+          cp tools/cli/tests/admob_probe.js /tmp/ci-game/scripts/admob_probe.js
+          python3 - <<'PY'
+          import json
+          path = "/tmp/ci-game/scenes/main.scene.json"
+          with open(path) as f:
+              scene = json.load(f)
+          scene["entities"].append({"id": "admobProbe", "name": "AdMob probe", "components": {"Script": {"path": "scripts/admob_probe.js"}}})
+          with open(path, "w") as f:
+              json.dump(scene, f, indent=2)
+          PY
+
       # What a phone adds to the scripts (tools/cli/tests/mobile_probe.js): the game logs its safe area, buzzes once through the
       # Vibrator and consumes the Back button with input.onBack; scripts/android-smoke.sh sends KEYCODE_BACK and waits for that log
       # line (FA_SMOKE_BACK below), and the game must stay alive.
@@ -719,6 +740,20 @@ jobs:
           if grep -q 'PlayGamesInitProvider' /tmp/apk-manifest.txt; then echo "the Play Games auto-start provider is still in the manifest"; exit 1; fi
           "$aapt2" dump resources "$apk" | grep -A1 'game_services_project_id' | grep -q '123456789012'
 
+      # The AdMob backend: its C bridge for both ABIs, its Java class and the Mobile Ads SDK and UMP in the dex, and the manifest merged
+      # with Google's sample app id, the test flag and the audience that the export wrote.
+      - name: Check the APK carries the AdMob backend
+        run: |
+          grep -q 'lib/arm64-v8a/libadmob.so' /tmp/apk-contents.txt
+          grep -q 'lib/x86_64/libadmob.so' /tmp/apk-contents.txt
+          grep -aq 'Lfactoria/plugin/admob/Backend;' /tmp/apk-classes.dex
+          grep -aq 'Lcom/google/android/gms/ads/MobileAds;' /tmp/apk-classes.dex
+          grep -aq 'Lcom/google/android/ump/UserMessagingPlatform;' /tmp/apk-classes.dex
+          grep -q 'com.google.android.gms.ads.APPLICATION_ID' /tmp/apk-manifest.txt
+          grep -q 'ca-app-pub-3940256099942544~3347511713' /tmp/apk-manifest.txt
+          grep -q 'factoria.ads.test' /tmp/apk-manifest.txt
+          grep -q 'factoria.ads.audience' /tmp/apk-manifest.txt
+
       - name: Upload the debug APK for the emulator job
         uses: actions/upload-artifact@v4
         with:
@@ -756,7 +791,8 @@ jobs:
       # FA_SMOKE_EXPECT: what the game's script logs when it calls its native plugin (tools/cli/tests/plugin_probe.js):
       # the sum computed by the plugin's Java class through JNI, and the plugin's command; and what the Google Play backend
       # answers (tools/cli/tests/googleplay_probe.js). This image has no Google Play services, so Play Games sign-in
-      # and Play Integrity are refused with `unavailable` by the Java code, and the status says so.
+      # and Play Integrity are refused with `unavailable` by the Java code, and the status says so; and what the AdMob backend
+      # answers (tools/cli/tests/admob_probe.js): it runs as the ads backend next to Google Play, with the manifest's test app id.
       # FA_SMOKE_BACK: the line tools/cli/tests/mobile_probe.js logs when its input.onBack handler consumes the Back button; the
       # smoke test sends `adb shell input keyevent KEYCODE_BACK` and needs that line once more, with the game still running.
       - name: Run the APK in the emulator (smoke test)
@@ -775,6 +811,10 @@ jobs:
             probe playservices=false
             probe signin=unavailable
             probe integrity=unavailable
+            AdMob backend ready
+            probe adsbackend=admob store=googleplay
+            probe admob test=true audience=general appId=ca-app-pub-3940256099942544~3347511713
+            probe underage=ok
         with:
           api-level: 34
           arch: x86_64

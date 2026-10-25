@@ -1593,6 +1593,8 @@
   const platform = {
     // "fake" (development, tests), "none" (no store), or the backend plugin's name ("steam", "apple").
     get backend() { return N.platformInfo().backend; },
+    // The backend that answers platform.ads: an ads plugin ("admob"), the store backend when it offers ads ("fake"), or "none".
+    get adsBackend() { return N.platformInfo().adsBackend; },
     // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
     get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
@@ -1672,8 +1674,18 @@
       // Shows a rewarded ad. Resolves { rewarded, reason? }: rewarded true when the player watched it to the end (give the
       // reward only then); otherwise reason is "closedEarly", "noFill" or "consentRefused". It rejects when the network fails.
       showRewarded(placement) { return platformCall("ads.showRewarded", platformLabel("ads.showRewarded", [placement]), { placement }); },
-      // What the consent sheets answered: { gdpr, tracking, canShowAds }.
+      // What the consent sheets answered: { gdpr, tracking, canShowAds, privacyOptions }.
       consent() { return platformCall("ads.consent", "platform.ads.consent()", {}); },
+      // Tells the ad network whether the player is under the age of consent, after the game asked their age (the menu kit's
+      // ageGate part does). The engine keeps the answer for the session and sends it to the consent sheet and the network.
+      setUnderAge(underAge) { return platformCall("ads.setUnderAge", platformLabel("ads.setUnderAge", [underAge]), { underAge }, noResult); },
+      // Opens the consent form where the player changes their ad choices. Only when consent().privacyOptions is "required";
+      // resolves { shown } when the form closes (shown false: there was nothing to open).
+      privacyOptions() { return platformCall("ads.privacyOptions", "platform.ads.privacyOptions()", {}); },
+      // Who plays, from factoria.json platform.ads.audience: "general", "children" or "mixed".
+      get audience() { return N.platformInfo().audience; },
+      // The answer of setUnderAge: true or false, true for a children's game, null while the game has not asked.
+      get underAge() { return N.platformInfo().underAge; },
     },
     integrity: {
       // challenge: a nonce the game's server made (16 to 500 characters of URL-safe Base64). Resolves { token }: a signed

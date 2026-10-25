@@ -481,6 +481,13 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // A shipped game (the player sets platformFallback "none") is a release; development runs, tests and the MCP server are not.
     I.platform.set_release(config.platformFallback == "none" && config.platformBackend != "fake" && choice.backend->name() != "fake");
     I.platform.set_backend(std::move(choice.backend), choice.why);
+    if (choice.adsBackend) {
+        FA_INFO("platform", "ads backend '{}': {}", choice.adsBackend->name(), choice.adsWhy);
+        I.platform.set_ads_backend(std::move(choice.adsBackend), choice.adsWhy);
+    } else if (!choice.adsWhy.empty()) {
+        FA_DEBUG("platform", "{}", choice.adsWhy);
+        I.platform.set_ads_backend(nullptr, choice.adsWhy);  // platform.state's adsWhy says why no ads plugin is in use
+    }
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     if (!I.scripts.init(*this, &serr)) {

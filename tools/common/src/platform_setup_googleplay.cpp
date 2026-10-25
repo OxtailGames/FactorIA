@@ -26,14 +26,6 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-constexpr const char* kNdkVersion = "27.2.12479018";  // the NDK of the engine's own Android build (docs/EXPORTING.md)
-constexpr const char* kAbis[] = {"arm64-v8a", "x86_64"};
-#if defined(_WIN32)
-constexpr const char* kExe = ".exe";
-#else
-constexpr const char* kExe = "";
-#endif
-
 const char* const kIdsFile = "android/src/main/res/values/games-ids.xml";
 const char* const kIdName = "game_services_project_id";
 
@@ -95,76 +87,6 @@ void write_project_id(const stdfs::path& file, const std::string& id) {
 
 // ---- the Android SDK's NDK, CMake and Ninja ---------------------------------------------------------------------------------
 
-std::vector<int> version_parts(const std::string& v) {
-    std::vector<int> parts;
-    for (const std::string& p : split(v, '.')) parts.push_back(std::atoi(p.c_str()));
-    return parts;
-}
-
-// The folder under `parent` to use: `pinned` when it is valid, else the newest valid one; "" when none is.
-std::string pick_version(const stdfs::path& parent, const std::string& pinned, const std::function<bool(const stdfs::path&)>& valid) {
-    std::vector<std::string> versions;
-    std::error_code ec;
-    if (is_dir(parent))
-        for (const auto& e : stdfs::directory_iterator(parent, ec))
-            if (e.is_directory(ec) && valid(e.path())) versions.push_back(e.path().filename().string());
-    if (versions.empty()) return {};
-    if (std::find(versions.begin(), versions.end(), pinned) != versions.end()) return pinned;
-    return *std::max_element(versions.begin(), versions.end(), [](const std::string& a, const std::string& b) {
-        return version_parts(a) < version_parts(b);
-    });
-}
-
-struct Toolchain {
-    std::string sdk, ndk, toolchainFile, cmake, ninja;
-    std::vector<std::string> notes;  // "used NDK 28.0 because 27.2 is not installed"
-};
-
-const std::string kInstallHelp =
-    "Install them once: `sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\"` (the sdkmanager is in cmdline-tools/<revision>/bin of the SDK; "
-    "Android Studio: Settings > Languages & Frameworks > Android SDK > SDK Tools > NDK (Side by side) and CMake). If there is no Android SDK at all, "
-    "`factoria setup android` installs one. Or pass \"googleplayBuild\": false to only write the plugin and declare it, and build it where the NDK is "
-    "(for each ABI: cmake -S plugins/googleplay -B plugins/googleplay/build-<abi> -G Ninja -DCMAKE_BUILD_TYPE=Release "
-    "-DCMAKE_TOOLCHAIN_FILE=<sdk>/ndk/27.2.12479018/build/cmake/android.toolchain.cmake -DANDROID_ABI=<abi> -DANDROID_PLATFORM=android-26 "
-    "&& cmake --build plugins/googleplay/build-<abi>), or let the CI of the game do it.";
-
-Toolchain find_toolchain(const AndroidToolchainSearch& search) {
-    const ExportEnvLookup env = search.env ? search.env : system_export_env();
-    MachineExportConfig config;
-    if (auto machine = load_machine_export_config(machine_export_config_path(env)); machine.ok()) config = std::move(machine.value());
-    const AndroidToolchain found = find_android_toolchain(config, search);
-    const stdfs::path sdk(found.sdk);
-    // find_android_toolchain also reports JDK problems, which a native build does not care about: judge the SDK folder itself.
-    if (found.sdk.empty() || !(is_dir(sdk / "platform-tools") || is_dir(sdk / "platforms") || is_dir(sdk / "licenses")))
-        throw CommandError("unavailable", "cannot build the Google Play plugin: no Android SDK was found on this computer (it needs the SDK's NDK, CMake and Ninja)",
-                           kInstallHelp);
-
-    Toolchain t;
-    t.sdk = sdk.generic_string();
-    const std::string ndk = pick_version(sdk / "ndk", kNdkVersion, [](const stdfs::path& p) {
-        return is_file(p / "build" / "cmake" / "android.toolchain.cmake");
-    });
-    if (ndk.empty())
-        throw CommandError("unavailable", "cannot build the Google Play plugin: the Android SDK at '" + t.sdk + "' has no NDK (no ndk/<version>/build/cmake/android.toolchain.cmake)",
-                           kInstallHelp);
-    t.ndk = (sdk / "ndk" / ndk).generic_string();
-    t.toolchainFile = t.ndk + "/build/cmake/android.toolchain.cmake";
-    if (ndk != kNdkVersion)
-        t.notes.push_back(std::string("used NDK ") + ndk + " because the pinned " + kNdkVersion + " is not installed (sdkmanager \"ndk;" + kNdkVersion + "\")");
-
-    const std::string cmake = pick_version(sdk / "cmake", kSetupCmakeVersion, [](const stdfs::path& p) {
-        return is_file(p / "bin" / (std::string("cmake") + kExe)) && is_file(p / "bin" / (std::string("ninja") + kExe));
-    });
-    if (cmake.empty())
-        throw CommandError("unavailable", "cannot build the Google Play plugin: the Android SDK at '" + t.sdk + "' has no CMake with Ninja (no cmake/<version>/bin/cmake and ninja)",
-                           kInstallHelp);
-    t.cmake = (sdk / "cmake" / cmake / "bin" / (std::string("cmake") + kExe)).generic_string();
-    t.ninja = (sdk / "cmake" / cmake / "bin" / (std::string("ninja") + kExe)).generic_string();
-    if (cmake != kSetupCmakeVersion)
-        t.notes.push_back("used CMake " + cmake + " because the pinned " + kSetupCmakeVersion + " is not installed (sdkmanager \"cmake;" + kSetupCmakeVersion + "\")");
-    return t;
-}
-
 // Google's product-id rules: lowercase letters, digits, underscores and periods, starting with a letter or digit, up to 40 characters.
 bool valid_product_id(const std::string& id) {
     if (id.empty() || id.size() > 40) return false;
@@ -197,8 +119,8 @@ Backend googleplay_backend() {
         if (ctx.args.contains("playGamesId") && !ctx.args["playGamesId"].is_null()) wantedId = parse_project_id(ctx.args["playGamesId"]);
 
         // Find the toolchain before writing anything, so a computer without it changes nothing (and the error says what to do).
-        Toolchain tc;
-        if (build) tc = find_toolchain(ctx.androidSearch ? *ctx.androidSearch : default_android_toolchain_search());
+        NdkToolchain tc;
+        if (build) tc = find_ndk_toolchain(ctx.androidSearch ? *ctx.androidSearch : default_android_toolchain_search(), "googleplay", "the Google Play plugin");
 
         const std::string folder = ctx.ensure_plugin({"android"});
 
@@ -223,32 +145,8 @@ Backend googleplay_backend() {
         ctx.extra["playGamesId"] = gamesId;
 
         // The C bridge for each ABI.
-        if (build && ctx.dryRun) {
-            ctx.done.push_back("would build the C bridge for arm64-v8a and x86_64 with the NDK in " + tc.ndk);
-        } else if (build) {
-            int minSdk = 26;
-            if (auto settings = load_export_settings(ctx.projectDir); settings.ok()) minSdk = settings->android.minSdk;
-            ctx.cmakeExe = tc.cmake;
-            Json libraries = Json::array();
-            for (const char* abi : kAbis) {
-                const std::string dir = folder + "/build-" + abi;
-                ctx.run_cmake({"-S", folder, "-B", dir, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + tc.ninja, "-DCMAKE_BUILD_TYPE=Release",
-                               "-DCMAKE_TOOLCHAIN_FILE=" + tc.toolchainFile, std::string("-DANDROID_ABI=") + abi,
-                               "-DANDROID_PLATFORM=android-" + std::to_string(minSdk)},
-                              std::string("configure the googleplay plugin for ") + abi);
-                ctx.run_cmake({"--build", dir}, std::string("build the googleplay plugin for ") + abi);
-                const std::string rel = std::string("android/src/main/jniLibs/") + abi + "/lib" + ctx.backend + ".so";
-                if (!is_file(stdfs::path(folder) / rel))
-                    throw CommandError("failed", "the build of the googleplay plugin left no " + folder + "/" + rel,
-                                       "Look at the plugin's CMake output above; `cmake --build " + dir + "` repeats the build.");
-                libraries.push_back(rel);
-            }
-            ctx.extra["libraries"] = libraries;
-            ctx.done.push_back("built the C bridge for arm64-v8a and x86_64 with the NDK in " + tc.ndk + ": " + libraries.dump());
-            for (const std::string& note : tc.notes) ctx.done.push_back(note);
-        } else {
-            ctx.done.push_back("did not build (googleplayBuild is false): see the plugin's README.md in " + folder + " for the NDK commands");
-        }
+        if (build) build_android_abis(ctx, tc, folder);
+        else ctx.done.push_back("did not build (googleplayBuild is false): see the plugin's README.md in " + folder + " for the NDK commands");
 
         // What the developer does by hand, with the ids of the game's own catalog.
         std::string packageName = "com.example.game";

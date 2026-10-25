@@ -1,0 +1,44 @@
+// The Android side of the {{NAME}} plugin (the AdMob backend): a Gradle library module. `factoria export --platform android`
+// copies it to plugins/{{NAME}} of the exported project and adds it to the app (docs/MOBILE.md, "Native plugins on Android").
+//   src/main/jniLibs/<abi>/lib{{NAME}}.so    the C bridge, built by ../CMakeLists.txt (not by Gradle)
+//   src/main/java/factoria/plugin/{{NAME}}/  the Java the bridge calls: Google's consent library (UMP) and the Mobile Ads SDK
+//   src/main/AndroidManifest.xml             the AdMob app id and the ads settings, filled in by the export (manifest placeholders)
+plugins {
+    id 'com.android.library'
+}
+
+// The SDK levels of the game: the export writes them to gradle.properties of the project (the fallbacks are for a
+// module opened on its own).
+def compileSdkLevel = (findProperty('factoria.compileSdk') ?: 36) as int
+def minSdkLevel     = (findProperty('factoria.minSdk') ?: 26) as int
+
+android {
+    namespace 'factoria.plugin.{{NAME}}'
+    compileSdk compileSdkLevel
+
+    defaultConfig {
+        minSdk minSdkLevel
+        // Keeps the classes the C code finds by name when the app is minified.
+        consumerProguardFiles 'consumer-rules.pro'
+        // The values the export gives the app (platforms/android/app/build.gradle): Google's test app id and test ads until it does.
+        manifestPlaceholders = [
+            factoriaAdsAppId   : 'ca-app-pub-3940256099942544~3347511713',
+            factoriaAdsTest    : 'true',
+            factoriaAdsAudience: 'general',
+        ]
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Versions: the newest stable releases at the time the plugin was written (Google's Maven, dl.google.com/android/maven2).
+dependencies {
+    implementation 'com.google.android.gms:play-services-ads:25.5.0'        // Mobile Ads SDK (AdMob): rewarded ads
+    implementation 'com.google.android.ump:user-messaging-platform:4.0.0'   // Google's consent library (UMP): GDPR form, privacy options
+    // The Google libraries pull kotlin-stdlib of different versions and, through older ones, kotlin-stdlib-jdk7/jdk8 1.6, which
+    // hold the same classes (duplicate-class error). The BOM lifts jdk7/jdk8 to 1.8, where they are empty.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}

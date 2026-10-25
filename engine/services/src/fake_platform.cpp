@@ -59,7 +59,8 @@ void FakeBackend::reset() {
     adOutcome_ = "watched";
     gdpr_ = "granted";
     tracking_ = "authorized";
-    adsShown_ = adsRewarded_ = 0;
+    privacyOptions_ = "notRequired";
+    adsShown_ = adsRewarded_ = adsPrivacyShown_ = 0;
     cloud_.clear();
     owned_.clear();
     unfinished_.clear();
@@ -106,10 +107,12 @@ Result<void> FakeBackend::respond(const std::string& method, const Json& answer,
     return {};
 }
 
-Result<void> FakeBackend::set_ad(const std::string& outcome, const std::string& gdpr, const std::string& tracking) {
+Result<void> FakeBackend::set_ad(const std::string& outcome, const std::string& gdpr, const std::string& tracking,
+                                 const std::string& privacyOptions) {
     static const std::vector<std::string> outcomes = {"watched", "closedEarly", "consentRefused", "noFill"};
     static const std::vector<std::string> gdprs = {"granted", "denied", "notRequired", "unknown"};
     static const std::vector<std::string> trackings = {"authorized", "denied", "notDetermined", "restricted", "notRequired"};
+    static const std::vector<std::string> privacy = {"required", "notRequired", "unknown"};
     auto check = [](const std::string& value, const std::vector<std::string>& allowed, const char* what) -> Result<void> {
         if (value.empty() || std::count(allowed.begin(), allowed.end(), value)) return {};
         return make_error("platform.set_ad: " + in_quotes(value) + " is not " + what, did_you_mean(value, allowed) + " Use one of " +
@@ -118,10 +121,12 @@ Result<void> FakeBackend::set_ad(const std::string& outcome, const std::string& 
     if (auto r = check(outcome, outcomes, "an ad outcome"); !r.ok()) return r;
     if (auto r = check(gdpr, gdprs, "a GDPR consent state"); !r.ok()) return r;
     if (auto r = check(tracking, trackings, "a tracking permission state"); !r.ok()) return r;
+    if (auto r = check(privacyOptions, privacy, "a privacy options state"); !r.ok()) return r;
     if (!outcome.empty()) adOutcome_ = outcome;
     if (outcome == "consentRefused") gdpr_ = tracking_ = "denied";
     if (!gdpr.empty()) gdpr_ = gdpr;
     if (!tracking.empty()) tracking_ = tracking;
+    if (!privacyOptions.empty()) privacyOptions_ = privacyOptions;
     return {};
 }
 
@@ -392,7 +397,15 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
             if (final.is_object() && final.value("rewarded", false)) ++adsRewarded_;
         };
     } else if (method == "ads.consent") {
-        o.result = Json::object({{"gdpr", gdpr_}, {"tracking", tracking_}, {"canShowAds", gdpr_ != "denied"}});
+        o.result = Json::object({{"gdpr", gdpr_}, {"tracking", tracking_}, {"canShowAds", gdpr_ != "denied"}, {"privacyOptions", privacyOptions_}});
+    } else if (method == "ads.setUnderAge") {
+        o.result = Json::object();
+    } else if (method == "ads.privacyOptions") {
+        const bool shown = privacyOptions_ == "required";  // the fake has no form: opening it counts as shown
+        o.result = Json::object({{"shown", shown}});
+        o.commit = [this](const Json& final) {
+            if (final.is_object() && final.value("shown", false)) ++adsPrivacyShown_;
+        };
     } else if (method == "overlay.open") {
         o.result = Json::object();
     } else if (method == "presence.set") {
@@ -444,7 +457,7 @@ Json FakeBackend::state() const {
                          {"owned", owned},
                          {"unfinished", unfinished},
                          {"presence", presence_},
-                         {"ads", Json::object({{"outcome", adOutcome_}, {"gdpr", gdpr_}, {"tracking", tracking_}, {"shown", adsShown_},
+                         {"ads", Json::object({{"outcome", adOutcome_}, {"gdpr", gdpr_}, {"tracking", tracking_}, {"privacyOptions", privacyOptions_}, {"privacyShown", adsPrivacyShown_}, {"shown", adsShown_},
                                                {"rewarded", adsRewarded_}})},
                          {"scripted", scripted},
                          {"held", held_.size()},
