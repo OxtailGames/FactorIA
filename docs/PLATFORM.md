@@ -432,7 +432,7 @@ library), and takes over Steam's callbacks (manual dispatch: it calls Steam once
 `SteamAPI_RunCallbacks`). `SteamAPI_Shutdown` runs when the process ends (not on Windows, where the DLL's exit handlers run
 after Steam's own DLL is gone; Steam notices the process ending, and stats are stored every frame anyway). When Steam
 cannot start (it is not running, there is no app id, the library is missing or from another SDK) the plugin **logs why, with
-what to do**, and the game falls back: the fake backend in a development run, **none** in an exported game.
+what to do** (a warning, not an error: `project.new_plugin` and `platform.add_backend` declare the plugin `optional`), and the game falls back: the fake backend in a development run, **none** in an exported game.
 `factoria call platform.state` shows the backend and `why`; `factoria call steam.status` shows what the plugin found (app id and
 where it came from, player, library and interface versions, overlay, Cloud).
 
@@ -1085,8 +1085,8 @@ goes on: the player may take minutes to read it, and the flow ends by itself wit
 | `"children"` | The game is made for children. Every player counts as under age: UMP and every ad request are tagged for child-directed treatment and the under age of consent, with the maximum content rating G. `setUnderAge(false)` is ignored. Check Google's families policies before you ship ads in a children's game. |
 | `"mixed"` | Children and adults play. **Until the game calls `platform.ads.setUnderAge(bool)`, nothing is requested**: no consent form, no SDK start, no ad (`available` is false, `showRewarded` is `consentRefused`, `consent().gdpr` is `"unknown"`), so a child is never shown the form untagged. The answer tags UMP and every ad request the way `"children"` does for a child (`true`), or as not child-directed (`false`). |
 
-For `"mixed"`, add the menu kit's age gate: `factoria call project.add_menu_kit '{"parts": ["ageGate"]}'`
-([MENUS.md](MENUS.md#age-gate)). It asks the year of birth, keeps only whether the player is under age (never the year; a player
+For `"mixed"`, add the menu kit's age gate: `factoria call project.add_menu_kit '{"parts": ["main-menu", "ageGate"]}'`
+(the main menu opens it; the `ageGate` part alone adds the panel and `openAgeGate()` for your own first scene; [MENUS.md](MENUS.md#age-gate)). It asks the year of birth, keeps only whether the player is under age (never the year; a player
 who prefers not to say counts as a child), and calls `platform.ads.setUnderAge`; later runs read the stored answer and call it
 again. The engine keeps the answer for the run and sends it to the backend with every ads request. `platform.reset()` (tests)
 forgets it.

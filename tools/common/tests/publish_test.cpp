@@ -324,6 +324,13 @@ TEST_CASE("publish.steam: the app id is the one in steam_appid.txt, and mistakes
     Error e = f.fails(o);
     CHECK(has(e.message, "480, Valve's test app"));
     CHECK(has(e.hint, "steam_appid.txt"));
+    {  // a dry run only plans: it goes on with 480 and says why a real upload will not
+        const PublishReport dry = f.ok(o);
+        CHECK(has(dry.files[0], "app_build_480.vdf"));
+        const std::string warnings = dry.to_json()["warnings"].dump();
+        CHECK(has(warnings, "Spacewar"));
+        CHECK(has(warnings, "real upload needs your own app id"));
+    }
     o.appId = "999";  // the argument wins
     CHECK(has(f.ok(o).files[0], "app_build_999.vdf"));
     o.appId.clear();

@@ -355,9 +355,12 @@ overflows its box (the test of `ui.overflowed`, so `autoSize`, `autoShrink` and 
 text or widget, or leaves the screen. Each problem comes once, with the scene, the entity id and path, the `key`, the
 rectangle and every language and scale where it happens, so the fix goes to the widget: `autoSize`, `autoShrink` with
 `minFontSize`, `maxWidth`, a bigger box or a shorter string. Narrow it with `scenes`, `languages` and `textScales`
-(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`). It checks what is active when the scene has settled: a
-panel a script opens later (options, shop) is not seen until the scene shows it, and a text a script writes without a
-`key` is only checked at each text scale. It reloads scenes and restores the language and text size afterwards, so run
+(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`). A widget in a `ScrollList` is checked on the part the list shows (a row half scrolled out is judged by its visible half; a row
+fully outside is skipped). It checks what is active when the scene has settled: a panel a script opens later (options, shop)
+is not seen unless you open it with `steps`, a list per scene run before the checks
+(`{"steps":{"scenes/menu.scene.json":[{"click":"options_button"},{"frames":10}]}}`; a step is `click` a widget by name or id,
+`key`, `action` or `frames`; the state the steps reach stays for every language and scale of that scene), and a text a script
+writes without a `key` is only checked at each text scale (in the state the steps reach). It reloads scenes and restores the language and text size afterwards, so run
 it on a fresh game, not in the middle of a play session.
 
 ## 9. Commands

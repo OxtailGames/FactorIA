@@ -85,6 +85,13 @@ std::string logs_since(std::uint64_t seq) {
     return out;
 }
 
+// The messages logged at ERROR level since `seq`: a game that runs without Steam must not log any.
+std::string errors_since(std::uint64_t seq) {
+    std::string out;
+    for (const LogEntry& e : recent_logs(2000, LogLevel::Error, seq)) out += e.category + ": " + e.message + "\n";
+    return out;
+}
+
 void clear_environment(const char* name) {
 #if defined(_WIN32)
     SetEnvironmentVariableA(name, nullptr);
@@ -963,6 +970,8 @@ TEST_CASE("steam without library: the missing redistributable is explained, the 
         CHECK(has(logs, "partner.steamgames.com"));
         CHECK(has(logs, "platform.add_backend"));
         CHECK(has(logs, "fake platform backend in development"));
+        // The plugin is meant to be optional: Valve's library missing is a warning, not an ERROR.
+        CHECK_MESSAGE(errors_since(s.seq).empty(), errors_since(s.seq));
         CHECK(run(s.engine, "platform.backend") == "fake");
         CHECK(run(s.engine, "platform.has('achievements')") == true);
     }
@@ -989,6 +998,7 @@ TEST_CASE("steam not running: Steam is not started, the message says what to do,
         CHECK(has(logs, "steam_appid.txt holding 480"));
         CHECK(has(logs, "the fake platform backend in development, none in an exported game"));
         CHECK(has(logs, "The app id came from steam_appid.txt in "));
+        CHECK_MESSAGE(errors_since(s.seq).empty(), errors_since(s.seq));  // Steam not running is no error either
         CHECK(run(s.engine, "platform.backend") == "fake");
         CHECK(game.mock->state()["inits"] == 0);
     }

@@ -619,6 +619,10 @@ export default class Jumper extends Behaviour {
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
 
+A scene load stops every sound and the music, and then starts the new scene's `settings.music` (the same track again when both scenes name it). Music that should play across scenes (a menu theme into the first level) is started by a script with `audio.music(path, { persist: true })`: it survives scene loads, and a scene whose `settings.music` is the same track does not restart it.
+
+Change a sound while it plays with `audio.setVoiceVolume(id, volume, fadeSeconds)` (`id` from `audio.play`; wind that swells, an engine hum). For music in layers (drums that come in when the fight starts) use `audio.musicLayers({ base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, { levels: { drums: 0 } })` and then `audio.setLayer("drums", 1, 2)`: the layers start on the same sample and stay in step while they loop, as long as the clips have the same length.
+
 Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
