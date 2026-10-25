@@ -1498,6 +1498,7 @@ Inside `script.eval`, the globals are the `"factoria"` names: `world`, `input`, 
 - `keys`: raw keys, `{"Space": true}` for down, `false` for up.
 - `mouse`: `{"position": [x, y], "left": true, "right": false, "middle": false}` in design pixels.
 - `gamepad`: `{"index": 0, "buttons": {"A": true, "DpadLeft": false}, "axes": {"LeftX": -1, "RightTrigger": 0.5}}`, or an array of those for several pads. `index` is 0 to 3 (default 0), `"connected": false` unplugs the pad. Buttons are `A B X Y Start Back Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes are `LeftX LeftY RightX RightY` (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). The state stays until a later frame sets it again, so set an axis back to 0 to release the stick.
+- `clipboard`: a string put on the (in-memory) clipboard before the frame; a focused TextField reads it when `keys` presses Ctrl+V.
 - `touch`: `{"id": 1, "position": [x, y], "down": true}`, or an array for several fingers. `down` defaults to true: a new `id` begins a finger, a known `id` moves it; `"down": false` lifts it (`position` is not needed then). The first finger also drives the mouse, as on a device.
 
 ```json

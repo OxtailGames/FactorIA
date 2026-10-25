@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Clipboard and window close
+
+- `clipboard.read()` (a Promise) and `clipboard.write(text)` work on Windows, macOS, Linux and the web
+  (`window.supports("clipboard")`); phones answer `unsupported`. Headless runs and tests use an in-memory clipboard, and a
+  replay's `"clipboard"` entry sets it. A focused `TextField` pastes with Ctrl+V (Cmd+V) and copies with Ctrl/Cmd+C.
+- `game.on("quit", fn)` runs when the player closes the window (close button, Cmd+Q, Alt+F4); `event.cancel()` keeps the
+  game running. `game.quit()` closes without asking again. Desktop only. Test helper `game.closeWindow()`.
+
 Video player
 
 - A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every

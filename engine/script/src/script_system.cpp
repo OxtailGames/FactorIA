@@ -1107,6 +1107,17 @@ void ScriptSystem::app_event(AppLifecycle event) {
     }
 }
 
+bool ScriptSystem::close_requested() {
+    Impl& I = *impl_;
+    if (!I.initialized) return true;
+    I.quitCancelled = false;
+    I.host->world().events().game.push_back(GameEvent{"app.quit", Json::object(), kNullEntity});
+    dispatch_events();
+    const bool cancelled = I.quitCancelled;
+    I.quitCancelled = false;
+    return !cancelled;
+}
+
 void ScriptSystem::reset_app_state() {
     Impl& I = *impl_;
     I.appFocused = true;

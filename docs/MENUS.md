@@ -248,6 +248,10 @@ What the command does, file by file; do it by hand when you want to see each fil
   says so once. In `factoria:test`, `game.captions()` returns `[{ text, speaker, key, source }]` (fixture
   `tests/captions.test.js`: a sound and a line, in English, Spanish and Arabic, and the toggle). The speaker name is plain
   text written when the line starts (use `i18n.t`).
+- **Paste and copy.** A focused `TextField` pastes the clipboard with Ctrl+V (Cmd+V on macOS) and copies its whole text
+  with Ctrl/Cmd+C. A paste is appended at the end, drops newlines and control characters, stops at `maxLength` and sends
+  `ui.change` once; the letter of the chord is not typed. Phones have no clipboard for games
+  (`window.supports("clipboard")`; docs/SCRIPTING.md "Clipboard").
 - **On-screen keyboard (gamepad players).** A `TextField` takes typed text from a keyboard, and a phone raises its own
   keyboard when one gets the focus (the engine does that, not the game: docs/MOBILE.md). A player with only a pad has
   neither, so `scripts/ui/keyboard.js` (a behaviour: put it on one entity of the scene) opens
