@@ -42,8 +42,8 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         "Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts "
         "for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), "
         "CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "
-        "\"plugins\": {\"<name>\": {\"path\", \"platforms\"}} to factoria.json "
-        "(`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and "
+        "\"plugins\": {\"<name>\": {\"path\", \"platforms\", \"optional\"}} to factoria.json "
+        "(`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build).The plugin adds the script function plugins.<name>.add(a, b) and "
         "the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "
         "\"basic\") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the "
         "engine; docs/PLATFORM.md, \"Writing a backend\"). The name: lower-case "
@@ -60,6 +60,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         "path":{"type":"string","description":"Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts."},
         "platforms":{"type":"array","items":{"type":"string","enum":["windows","macos","linux","ios","android"]},
                      "description":"The platforms it will be built for (default: this computer's)."},
+        "optional":{"type":"boolean","default":true,"description":"Written as \"optional\" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it."},
         "dryRun":{"type":"boolean","default":false,"description":"true = write nothing: list the files and the factoria.json keys it would write."}
       }})");
     registry.add(info, [projectDir](const Json& a) {
@@ -86,6 +87,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         // the layout stay as they are). Nothing is written yet: load_project checks the name and the platforms on a copy.
         Json entry = Json::object({{"path", a.value("path", "plugins/" + name)}});
         entry["platforms"] = a.contains("platforms") ? a["platforms"] : Json::array({runtime_platform()});
+        if (a.value("optional", true)) entry["optional"] = true;
         auto patched = patch_json_text(*original, {{{"plugins", name}, entry}}, kProjectFileName);
         if (!patched.ok()) throw CommandError("invalid_argument", patched.error().message, patched.error().hint);
         const std::string scratch = fs::make_temp_dir("fa_new_plugin").generic_string();

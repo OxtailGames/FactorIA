@@ -78,7 +78,9 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
 
     std::string error;
     if (!load_library(b.steam, error) || !start_steam(b.steam, error)) {
-        api->log(api, 3, error.c_str());
+        // Not an error: the plugin is meant to be declared "optional", and a game runs without Steam (a build for a store
+        // other than Steam, a computer without Valve's library). The engine logs the plugin as skipped, too.
+        api->log(api, 2, error.c_str());
         return 1;
     }
     b.started = true;

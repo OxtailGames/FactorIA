@@ -127,3 +127,124 @@ TEST_CASE("store asset table: every store has assets and sizes in one store neve
     }
     CHECK(find_store_assets("nope") == nullptr);
 }
+
+namespace {
+
+struct Box {
+    int x0 = 1 << 30, y0 = 1 << 30, x1 = -1, y1 = -1;  // x1, y1 inclusive
+};
+
+// The rectangle of the white pixels (the logo; the key art has none).
+Box white_box(const Image& img) {
+    Box b;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x)
+            if (get(img, x, y) == Rgba{255, 255, 255, 255}) {
+                b.x0 = std::min(b.x0, x);
+                b.y0 = std::min(b.y0, y);
+                b.x1 = std::max(b.x1, x);
+                b.y1 = std::max(b.y1, y);
+            }
+    return b;
+}
+
+}  // namespace
+
+TEST_CASE("assets.draw_capsules: logoAnchor and safeArea keep the logo inside its safe area") {
+    AssetsProject p;
+    write_png(p.file("store/keyart.png"), key_art());
+    write_png(p.file("assets/logo.png"), make_image(200, 80, {255, 255, 255, 255}));
+    const std::string rel = "store/capsules/itch/demo_630x500.png";  // itch cover: the logo fits 80% x 40%, centred by default
+
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"stores":["itch"],"name":"demo"})"));
+    Box b = white_box(read_png(p.file(rel)));
+    CHECK(std::abs((b.x0 + b.x1) / 2 - 315) <= 2);  // the default: centred
+    CHECK(std::abs((b.y0 + b.y1) / 2 - 250) <= 2);
+
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"logoAnchor":"topRight",
+        "stores":["itch"],"name":"demo"})"));
+    b = white_box(read_png(p.file(rel)));
+    CHECK(b.x1 >= int(630 * 0.95) - 2);  // against the default 5% safe area, at the top right
+    CHECK(b.x1 <= int(630 * 0.95));
+    CHECK(b.y0 >= int(500 * 0.05) - 1);
+    CHECK(b.y0 <= int(500 * 0.05) + 2);
+
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"logoAnchor":"bottomLeft",
+        "safeArea":{"left":0.2,"bottom":0.25},"stores":["itch"],"name":"demo"})"));
+    b = white_box(read_png(p.file(rel)));
+    CHECK(b.x0 >= int(630 * 0.2) - 1);
+    CHECK(b.x0 <= int(630 * 0.2) + 2);
+    CHECK(b.y1 <= int(500 * 0.75));
+    CHECK(b.y1 >= int(500 * 0.75) - 3);
+
+    // A point of the safe area, and a safe area per store.
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"logoAnchor":[1,1],
+        "safeArea":{"itch":0.3},"stores":["itch","gog"],"name":"demo"})"));
+    b = white_box(read_png(p.file(rel)));
+    CHECK(b.x1 <= int(630 * 0.7));
+    CHECK(b.x1 >= int(630 * 0.7) - 3);
+    CHECK(b.y1 <= int(500 * 0.7));
+    const Box gog = white_box(read_png(p.file("store/capsules/gog/demo_342x482.png")));  // no entry: the default 5%
+    CHECK(gog.x1 <= int(342 * 0.95));
+    CHECK(gog.x1 >= int(342 * 0.95) - 3);
+
+    // Microsoft's poster keeps the bottom third free by default, even with the logo anchored at the bottom.
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"logoAnchor":"bottom",
+        "stores":["microsoft"],"name":"demo"})"));
+    const Box poster = white_box(read_png(p.file("store/capsules/microsoft/demo_720x1080.png")));
+    CHECK(poster.y1 <= int(1080 * (1 - 1.0 / 3.0)));
+
+    // A logo bigger than the safe area is cut to fit it.
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"safeArea":0.4,
+        "stores":["itch"],"name":"demo"})"));
+    b = white_box(read_png(p.file(rel)));
+    CHECK(b.x0 >= int(630 * 0.4) - 1);
+    CHECK(b.x1 <= int(630 * 0.6) + 1);
+}
+
+TEST_CASE("assets.draw_capsules: focus moves the logo when the art already has the capsule's proportions") {
+    AssetsProject p;
+    write_png(p.file("store/keyart.png"), make_image(1260, 1000, {20, 20, 120, 255}));  // the itch cover's 630:500
+    write_png(p.file("assets/logo.png"), make_image(80, 80, {255, 255, 255, 255}));
+    const std::string rel = "store/capsules/itch/demo_630x500.png";
+    const auto centre = [&](const char* focus) {
+        p.ok("assets.draw_capsules", Json::parse(std::string(R"({"keyArt":"store/keyart.png","logo":{"image":"assets/logo.png"},"stores":["itch"],"name":"demo")") +
+                                                 (*focus ? std::string(R"(,"focus":)") + focus : std::string()) + "}"));
+        const Box b = white_box(read_png(p.file(rel)));
+        return std::pair((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+    };
+    const auto none = centre("");
+    CHECK(std::abs(none.first - 315) <= 2);
+    CHECK(std::abs(centre("[0.5,0.5]").first - 315) <= 2);  // the middle leaves it
+    const auto left = centre("[0.3,0.5]");
+    CHECK(left.first < none.first - 100);  // 0.2 of 630 = 126 px to the left, kept inside the safe area
+    CHECK(std::abs(left.second - none.second) <= 2);
+    const auto low = centre("[0.5,0.9]");
+    CHECK(low.second > none.second + 100);
+    CHECK(low.second + 100 <= int(500 * 0.95));  // the logo's lower edge stays in the safe area
+    // The art of another shape: focus keeps deciding only the crop, the logo stays where the rule puts it.
+    write_png(p.file("store/wide.png"), key_art());
+    p.ok("assets.draw_capsules", Json::parse(R"({"keyArt":"store/wide.png","logo":{"image":"assets/logo.png"},"focus":[0.2,0.5],"stores":["itch"],"name":"demo"})"));
+    const Box wide = white_box(read_png(p.file(rel)));
+    CHECK(std::abs((wide.x0 + wide.x1) / 2 - 315) <= 2);
+}
+
+TEST_CASE("assets.draw_capsules: logoAnchor and safeArea mistakes teach") {
+    AssetsProject p;
+    write_png(p.file("store/keyart.png"), key_art());
+    CommandResult bad = p.call("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logoAnhor":"top"})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("logoAnchor") != std::string::npos);  // did you mean
+    bad = p.call("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logoAnchor":"topRigth"})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("topRight") != std::string::npos);
+    bad = p.call("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","logoAnchor":[2,0]})"));
+    CHECK_FALSE(bad.ok);
+    bad = p.call("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","safeArea":0.7})"));
+    CHECK_FALSE(bad.ok);
+    bad = p.call("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","safeArea":{"left":0.45,"right":0.45}})"));
+    CHECK_FALSE(bad.ok);
+    bad = p.call("assets.draw_capsules", Json::parse(R"({"keyArt":"store/keyart.png","safeArea":{"stam":0.1}})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("steam") != std::string::npos);
+}

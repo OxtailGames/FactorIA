@@ -79,10 +79,16 @@ Result<void> check_player_build(const ExportOptions& o, const stdfs::path& playe
         warnings.push_back(message + " (exported anyway because allowPlayerMismatch / --allow-player-mismatch is on)");
         return {};
     }
+    const std::string passAnyway = "To bundle this player anyway: factoria export --allow-player-mismatch (export command: "
+                                   "\"allowPlayerMismatch\": true).";
+    if (theirs.empty())  // a player of a release before the fingerprint (v0.2.0): reinstalling it changes nothing
+        return err(message,
+                   "This player predates build fingerprints, so it cannot be compared with this factoria, and `factoria setup players` installs "
+                   "the same release again. Install a player from a newer release (once one is published), build both from one checkout "
+                   "(`cmake --build <build dir> --target factoria factoria_player`), or pass the player with --player <path>. " + passAnyway);
     return err(message,
                "Build both from the same checkout (`cmake --build <build dir> --target factoria factoria_player`), or for another OS run "
-               "`factoria setup players` (the player of this FactorIA version), or pass the matching player with --player <path>. To bundle this "
-               "player anyway: factoria export --allow-player-mismatch (export command: \"allowPlayerMismatch\": true).");
+               "`factoria setup players` (the player of this FactorIA version), or pass the matching player with --player <path>. " + passAnyway);
 }
 
 namespace {
