@@ -6,6 +6,8 @@ import { Behaviour, ui, input, game, scene, world } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
+import * as services from "./game/services.js";
+import * as deck from "./game/deck.js";
 
 export default class PauseMenu extends Behaviour {
   runWhilePaused = true;
@@ -20,6 +22,10 @@ export default class PauseMenu extends Behaviour {
       panel.id = id; // MenuStack shows panels by id
       panel.active = false;
     }
+    // P5: the online services follow the events from the first level on; a Steam Deck going to sleep opens this menu, so waking
+    // up does not drop the player into a running shift (the engine freezes the game on suspend and keeps a pause a handler made).
+    services.start();
+    deck.watchLife({ pause: () => !game.paused && this.pause() });
     ui.on("click", "resume", () => this.resume());
     ui.on("click", "pause_options", () => this.menus.show("options"));
     ui.on("click", "to_main_menu", () => {

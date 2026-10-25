@@ -169,6 +169,7 @@ describe("seed codes at the title and on the results", () => {
   test("typing with the keyboard works: the field has the focus when the panel opens, and Enter plays", () => {
     openCodePanel();
     expect(ui.focused.id).toBe("code_field");
+    expect(text("code_message")).toBe("Type the code, then press Enter."); // text_entry.hint (P5): how to type on this device
     game.typeText(codes.encode({ seed: 11, stratum: 0, floor: 1 }));
     game.step(2);
     game.keyDown("Enter");

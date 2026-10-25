@@ -3,8 +3,8 @@
 A top-down 2D mining game for up to four players on one screen (couch co-op), for desktop first and Steam. Dig dirt and
 rock with a pick, take the ore, keep your lamp alight with oil cans, free the moles trapped in the rock, and ride the lift
 up before the dark gets you. It is the third reference game of the FactorIA engine (milestone M28), built in eight
-packages (P1 to P8). P1 (the miner, digging and the mine), P2 (the world and its enemies), P3 (couch co-op) and P4 (camp,
-progress and saves) are in; the later packages build on the contracts below.
+packages (P1 to P8). P1 (the miner, digging and the mine), P2 (the world and its enemies), P3 (couch co-op), P4 (camp,
+progress and saves) and P5 (Steam and online) are in; the later packages build on the contracts below.
 
 ## Run
 
@@ -129,9 +129,12 @@ scripts/                   menu kit (main_menu, pause_menu, loading, settings, u
 scripts/join.js            the join screen
 scripts/ui/title_flow.js   the title's Continue, slots, delete confirmation, cloud sync, daily and code panel
 tools/mine_preview.js      project.mine_preview: a mine as text
-tests/                     the test files of the table below; helpers/ (mine, world, bot, camp) and fixtures/ (save_v1, save_v2)
-assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py), music/*.wav (+ src/make_music.py), audio/*.wav
+tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: a fake game server) and
+                           fixtures/ (save_v1, save_v2, news, balance)
+assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py), music/*.wav (+ src/make_music.py), audio/*.wav,
+                           achievements/*.png and glyphs/<family>/*.png (+ src/make_online_art.py)
 locales/en.json            every string of the UI
+scripts/title_online.js    the title's online parts; scripts/ui/boards.js the boards screen
 ```
 
 ## Contracts (for P4 to P8)
@@ -313,6 +316,137 @@ is the local date: `game.today()` has no time of day, so UTC cannot be derived (
 characters (O/0, I/1) are accepted. `clipboard.js`: `copy`, `paste`, `system`, `useSystem({ write, read })`, `reset`. It is a session
 buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
 
+### Achievements and stats: `scripts/game/trophies.js`
+
+Driven only by the events bus; the catalog (ids, `nameKey`, `descriptionKey`, the Steam ids `ACH_*` and `Num*`) is `factoria.json`
+`"platform"` with app id 480 for tests and the Steam backend. `start()` (idempotent; `services.start()` calls it) subscribes with
+`events.keep`, `stop()`, `idle()` (a Promise: every store call made so far is answered), `list()` for a screen and `statValues()`.
+Stats are counted for ever by the store: `oreDug` (`orePicked`, one per piece), `molesRescued` (`moleRescued`), `floorsCleared`
+(`shiftEnded` with outcome `lift`), `enemiesDefeated` (`enemyDefeated`). Achievements, with a 64 px CC0 icon each:
+
+| Id | Unlocks when |
+|---|---|
+| `first_ore` | `oreDug` reaches 1 |
+| `mole_rescuer` | `molesRescued` reaches 10 (over all runs) |
+| `mole_king` | `bossDefeated` |
+| `bright_stratum` | the last floor of a stratum ends on the lift and no `lampOut` happened in that stratum (a retry of a floor after a bad shift does not reset the count) |
+| `full_house` | a shift with 4 players ends on the lift |
+| `bug_squasher` | `enemiesDefeated` reaches 25 |
+
+A store that is missing, signed out or failing never reaches the player: the calls are best effort (a warning in the log).
+
+### Leaderboards: `scripts/game/boards.js`
+
+Two boards in the catalog: `best_run_cash` (all time, descending) and `daily_run_cash` (daily, descending). The score is the cash
+banked over the run so far: each shift that ends on the lift adds its banked cash and posts the sum (`dark` and `allDown` post
+nothing). **Contract with P4**: a daily-dig run sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the local date the
+try began on); every other run `run.mode = "normal"` and `run.dailyKey = null` (a missing `run.mode` counts as normal). The daily
+board takes the score only when `run.dailyKey` is within one day of `game.today().iso`: the engine posts to the board of the
+local date at the moment of the post and cannot be told another (FB-0021), so a try that crosses midnight still posts (to the new
+day's board) and an older key is skipped, with `status().lastPost.daily` saying `{ skipped: "otherDay" }`. Functions: `start`, `stop`, `idle`, `top(board, count = 10)`
+(rows `{ rank, name, score, isPlayer }`; `[]` when the store has no boards), `status()`, `BOARDS`, `modeOf`, `dailyKeyOf`,
+`dailyOpen`. `boardPosted { board, score, period }` is emitted after a post and `achievementUnlocked { id, name }` after an unlock.
+The boards screen (`scripts/ui/boards.js`, the Boards button of the title) has the tabs All time, Daily dig and Trophies and works
+with a pad (ui_up and ui_down scroll, ui_cancel goes back); an answer that arrives after it closed or after the scene changed is dropped.
+
+### Services, presence and Steam Deck: `services.js`, `presence.js`, `deck.js`, `glyphs.js`, `text_entry.js`
+
+`services.start()` (idempotent; the title and the pause menu call it) starts trophies, boards, presence, balance and analytics;
+`stop()`, `isStarted()`, `idle()`. `events.keep(name, fn)` subscribes like `on` but survives `startRun` (which clears the bus);
+the services use it.
+
+- **Rich presence** (`presence.js`): the text comes from the locale keys `presence.*` (plural by miners), the data carries
+  `steam_display` (`#Menu`, `#Boards`, `#Digging`, `#Boss`, `#Results`) plus `stratum`, `floor`, `miners`. `describe(state)` is pure,
+  `set(state)` sends only when the text changed, `forget()` makes the next one go, `current()`, `idle()`. P8's languages only
+  need to add the `presence.*` strings.
+- **Glyphs** (`glyphs.js`): `glyph(binding, pad)` returns `{ family, label, icon }` for `xbox`, `playstation`, `nintendo` or
+  `steamdeck` (a generic pad counts as Xbox) with a 64 px picture under `assets/glyphs/<family>/`; `prompt(action, pad, device)`
+  picks the pad glyph, the key or the mouse button by `input.lastDevice`; `promptText(action)` is the label alone. The title's
+  `hints` row uses it.
+- **Steam Deck** (`deck.js`): `isDeck()` is true while a connected pad is of type `steamdeck` (the engine has no other way to
+  tell), `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
+  is where the 1280x720 design lands in a window (1280x800: scale 1 and bars of 40 above and below; the UI is anchored, so
+  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause, flush analytics) and resume (send the presence
+  again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
+- **Text entry for P4's seed-code field** (`text_entry.js`): `bind(fieldId, { maxLength, alphabet, onChange, onSubmit })` cleans
+  what is typed in a `TextField` to `CODE_ALPHABET` (capitals and digits without 0, O, 1, I) and returns the unsubscribe function;
+  `focus(fieldId)`; `normalize(text, opts)`; `hint(action)` is the localized line that tells how to type on this device
+  (`textEntry.keyboard` / `pad` / `deck`). On a Deck or a pad, focusing the field and pressing the button opens Steam's or the
+  system's on-screen keyboard through the engine's `input.platformKeyboard`.
+
+### Online: `online.js`, `news.js`, `balance.js`, `analytics.js`
+
+The engine has no HTTP API, so everything that talks to a server goes through one seam: `online.request(method, path, body)`
+(never throws; resolves `{ ok: true, data }` or `{ ok: false, code, message }`). The default transport is **offline** (always
+fails), `setTransport(t)` (returns the old one) plugs in a real one: `{ name, request(method, path, body) -> Promise }`;
+tests use `fakeServer` of `tests/helpers/online.js`. Paths (`PATHS`): `/v1/news.json`, `/v1/balance.json`, `/v1/events`. No test
+and no default build touches a network.
+
+- **News** (`news.js`): `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
+  are a string or `{ "en": "...", "ru": "..." }` (the language of the game, else `en`). `parse` drops items with no id or title, strips control characters, cuts the
+  title at 48 characters and the body at 160, sorts newest first and keeps three. `refresh()` resolves
+  `{ source: "server" | "cache" | "none", items }` and remembers the last good answer in storage (`burrow.news`); the title shows
+  the newest item at once from that memory and again when the server answers (if the title is still there).
+- **Remote balance** (`balance.js`): `{ "version": 1, "values": { "beetle.hp": 4 } }`. Each value is checked against `RANGES`
+  (range, whole number or not); a bad value is rejected with a reason and a hint (unknown keys get a "did you mean") and the
+  rest still apply; `king.chargeMinDist` above `king.chargeMaxDist` rejects both. Values change `STATS` of `enemy_brains.js` and `TUNING`
+  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). Nothing is cached: offline
+  or with a bad file the shipped numbers stay (`refresh()` says `source: "offline"` or `"invalid"`). `apply(values)`, `reset()`,
+  `defaults()`, `current()`, `flush()`. The keys:
+
+| Key | Default | Range | What |
+|---|---|---|---|
+| `beetle.hp` | 3 | 1 to 30 (whole) | hearts of a beetle |
+| `beetle.sight` | 112 | 16 to 600 | how far a beetle sees a miner (units) |
+| `beetle.patrolSpeed` | 26 | 1 to 400 | walking speed while patrolling |
+| `beetle.chaseSpeed` | 52 | 1 to 400 | speed while chasing |
+| `beetle.biteRange` | 15 | 4 to 64 | distance at which it starts to bite |
+| `beetle.biteWindup` | 0.45 | 0.1 to 5 | seconds between starting to bite and the bite |
+| `beetle.biteCooldown` | 1.4 | 0.2 to 20 | seconds before it can bite again |
+| `beetle.biteOil` | 10 | 0 to 100 | oil a bite takes from the lamp |
+| `thief.hp` | 2 | 1 to 30 (whole) | hearts of a goblin thief |
+| `thief.sight` | 128 | 16 to 600 | how far it sees |
+| `thief.wanderSpeed` | 30 | 1 to 400 | speed while wandering |
+| `thief.approachSpeed` | 58 | 1 to 400 | speed while going for the ore |
+| `thief.fleeSpeed` | 62 | 1 to 400 | speed while running away |
+| `thief.stealRange` | 14 | 4 to 64 | distance at which it steals |
+| `thief.stealShare` | 0.25 | 0 to 1 | share of the carried ore it takes (0 to 1) |
+| `thief.escapeAfter` | 3 | 0.5 to 30 | seconds after the steal before it leaves the mine |
+| `thief.escapeDistance` | 176 | 32 to 600 | distance from the nearest miner at which a thief that has stolen counts as far enough to escape |
+| `king.hp` | 10 | 1 to 200 (whole) | hearts of the Mole King with one miner |
+| `king.hpPerExtraPlayer` | 4 | 0 to 50 (whole) | hearts added per extra miner |
+| `king.sight` | 144 | 16 to 600 | how far it sees |
+| `king.wakeRange` | 144 | 16 to 600 | distance at which a miner wakes it |
+| `king.chaseSpeed` | 30 | 1 to 400 | walking speed |
+| `king.slamTrigger` | 56 | 8 to 200 | distance at which it starts a slam |
+| `king.slamRadius` | 42 | 8 to 200 | radius of the slam circle |
+| `king.slamWindup` | 0.9 | 0.1 to 5 | seconds of warning before the slam |
+| `king.slamStun` | 2.2 | 0.1 to 10 | seconds it is stunned after a slam |
+| `king.slamCooldown` | 3.5 | 0.5 to 30 | seconds between slams |
+| `king.chargeMinDist` | 64 | 8 to 600 | nearest distance for a charge (must not exceed chargeMaxDist) |
+| `king.chargeMaxDist` | 176 | 8 to 600 | farthest distance for a charge |
+| `king.chargeWindup` | 0.6 | 0.1 to 5 | seconds of warning before a charge |
+| `king.chargeSpeed` | 170 | 20 to 400 | speed of the charge |
+| `king.chargeLength` | 150 | 16 to 600 | how far a charge runs |
+| `king.chargeStun` | 1.2 | 0.1 to 10 | seconds it is stunned after a charge |
+| `king.chargeCooldown` | 6 | 0.5 to 30 | seconds between charges |
+| `king.chargeHit` | 14 | 4 to 64 | reach of the charge's hit |
+| `hazards.waterWave` | 1.2 | 0.2 to 10 | seconds between steps of a spreading flood |
+| `hazards.magmaWave` | 2.2 | 0.2 to 10 | seconds between steps of spreading magma |
+| `hazards.waveTiles` | 3 | 1 to 12 (whole) | tiles the flood or magma front gains each step |
+| `hazards.drownTime` | 3.5 | 0.5 to 30 | seconds in water before a miner drowns |
+| `hazards.burnTime` | 0.5 | 0.1 to 10 | seconds on magma before it burns |
+| `hazards.waterSlow` | 0.5 | 0.1 to 1 | speed factor in water (0.5 = half) |
+| `hazards.caveWarning` | 1.4 | 0.5 to 10 | seconds between stepping on cracked floor and the roof falling |
+
+- **Analytics** (`analytics.js`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
+  statistics": Yes, send / No, thanks) at every launch until one is pressed; it does not take the focus or hide the menu, and
+  ignoring it is a no (a modal prompt hid the menu from the pad-only tests). Options has the same switch (`analytics` toggle).
+  Only after a yes: `floor_reached { stratum, floor, players }` at each shift start, `shift_ended { outcome, stratum, floor,
+  players, banked, seconds }` at each end (then the queue is sent), and `quit { shifts }` from the Quit button of the title (the
+  engine has no window-close event). No id, name, device or seed is sent. A failed send keeps up to 50 events for the next one; saying no
+  throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `record` (private), `queued()`, `flush()`, `quit()`.
+
 ## Tests
 
 `factoria test` runs `tests/*.test.js` headless:
@@ -337,6 +471,15 @@ buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
 | `strata.test.js` | the look and music of each stratum, the descent through the results over nine floors, victory then a new run, retry after `dark` and `allDown`, leaving before the results |
 | `coop.test.js` | the join screen with four pads, a keyboard and three pads, keyboard only and gamepad only, a Remote Play guest pad plugged in mid-lobby, a whole shift played by the bot through the join, reviving (bar, decay, no bleed-out, `allDown`), per-player rebinding (API and the Options page), the camera zoom, the leash and the split planner, a pad unplugged (pause, reconnect, hand-over, drop) |
 | `bot.test.js` | a bot that presses keys and pushes sticks clears one floor of every stratum and the boss floor, alone and with four players on four devices, deterministically |
+| `trophies.test.js` | each achievement unlocking from events, the four stats, no double unlock, a stratum cleared with and without a lamp going out, a store that is not there |
+| `boards.test.js` | cumulative run cash on the all-time board, `dark` and `allDown` posting nothing, a daily dig on both boards, a new day, a key a day or two before today, a missing `run.mode`, an empty store |
+| `presence.test.js` | the text with one and many miners, boss, results, menu and boards, the `steam_display` tokens, no repeated text |
+| `glyphs.test.js` | `setType` for each family, the Deck's L1/R1, the keyboard fallback, every picture exists |
+| `news.test.js` | the fixture parsed, the cap and the order, dropped items, the language object, the cache offline |
+| `balance.test.js` | values applied, out-of-range, wrong type and unknown keys rejected with hints, held during a shift, the offline fallback, `reset` |
+| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, quit, a failed send, revoking |
+| `deck.test.js` | Deck detection, the 1280x800 fit, suspend and resume, the text-entry helper |
+| `online_ui.test.js` | the title's news, the consent card, the hints row, leaving the title mid-request, the boards screen with the mouse and a pad, the Options switch |
 
 ## Assets and credits
 
@@ -344,9 +487,10 @@ buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
 |---|---|---|
 | `assets/tiles_topsoil.png`, `assets/tiles_crystal.png`, `assets/tiles_magma.png`, `assets/sprites.png`, `assets/fog.png` | Kenney, [Tiny Dungeon](https://kenney.nl/assets/tiny-dungeon) and [Roguelike Caves & Dungeons](https://kenney.nl/assets/roguelike-caves-dungeons), cut and re-packed by `assets/src/make_atlases.py`; the mole, the arrows, the cracks, the beetle, the thief, the King and the fog are drawn or recoloured by that script (a stratum's tileset is the same tiles in other colours) | CC0 |
 | `assets/music/*.wav` | one looping track per stratum, synthesised by `assets/src/make_music.py` (no sample taken from anywhere) | CC0 |
+| `assets/achievements/*.png`, `assets/glyphs/<xbox, playstation, nintendo, steamdeck>/*.png` | six trophy icons and the button pictures of four pad families, drawn by `assets/src/make_online_art.py` (64 px, deterministic, no outside image) | CC0 |
 | `assets/audio/*.wav` | made with `assets.synth_sound` (presets footstep, hit, coin, pickup, error, powerup, whoosh, click, growl, explosion, splash, laser) | CC0 |
 
-`assets.json` records the provenance of each file. The engine gaps found while building P1 to P4 are in `ENGINE_FEEDBACK.json`.
+`assets.json` records the provenance of each file. The engine gaps found while building P1 to P5 are in `ENGINE_FEEDBACK.json`.
 
 ## Status
 
@@ -356,7 +500,7 @@ buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
 | P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split view is planned and tested, not drawn: one camera in the engine) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
-| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | to do |
+| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | to do |
 | P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | to do |
 | P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | to do |

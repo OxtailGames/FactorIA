@@ -7,6 +7,7 @@ import * as saveFile from "../game/save.js";
 import * as cloud from "../game/cloud.js";
 import * as daily from "../game/daily.js";
 import * as codes from "../game/seed_code.js";
+import * as typing from "../game/text_entry.js";
 import * as clipboard from "../game/clipboard.js";
 import { startRun } from "../game/run_state.js";
 import { stratumInfo } from "../game/generator.js";
@@ -195,7 +196,8 @@ export class TitleFlow {
   openCode() {
     if (!this.live()) return;
     this.menus.show("code_panel");
-    this.text("code_message", "");
+    const how = typing.hint(); // how to start typing on this device: the keyboard, a pad (its glyph) or a Steam Deck
+    this.text("code_message", how.key, how.args);
   }
 
   pasteCode() {
