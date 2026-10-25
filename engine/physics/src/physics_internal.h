@@ -187,6 +187,7 @@ public:
     Result<std::vector<NavBakeStats>> nav_bake(World& world, const std::string& mesh);
     Result<NavPath> nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options);
     std::vector<NavCell> nav_cells(World& world, std::size_t maxCells);
+    std::vector<NavLinkDraw> nav_links(World& world);
     Json nav_info(World& world);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
@@ -225,6 +226,7 @@ private:
         float chainDrag = 0.0f;       // extra velocity damping (1/s) of a joint chain's body
         int iterations = 8;           // solver iterations per sub-step for the constraints of this body
         bool navObstacle = false;     // Collider3D.navObstacle: blocks NavMesh3D cells instead of being baked into them
+        bool navWalkable = false;     // Collider3D.navWalkable: its top surface is walkable on the NavMesh3D wherever it is now
         bool character = false;       // CharacterController3D: kinematic capsule moved by move_character
         float stepOffset = 0.3f, slopeLimit = 45.0f, skin = 0.02f;  // character controller
         bool carriedByPlatforms = true, applyWeight = true;         // character controller: see CharacterController3D
@@ -435,7 +437,18 @@ private:
         std::string error;           // why the last bake failed ("" = none)
         NavGrid grid;
         NavBakeStats stats;
-        std::map<std::uint64_t, std::uint64_t> obstacleSig;  // obstacle entity bits -> pose signature applied
+        std::map<std::uint64_t, std::uint64_t> obstacleSig;  // obstacle / walkable body entity bits -> pose signature applied
+        struct Link {
+            Entity e;
+            std::string id;
+            Vec3 from, to;
+            bool bidirectional = true;
+            float cost = 0.0f;
+            bool connected = false;
+        };
+        std::vector<Link> links;     // NavLink3D of the scene, ordered by entity id
+        std::uint64_t linkSig = 0;   // what `links` was resolved from
+        bool linksResolved = false;
     };
     std::map<std::uint64_t, NavState> navs_;  // by the NavMesh3D entity's bits
     std::vector<std::uint64_t> navOrder_;     // the same keys in the order the world listed the components
@@ -443,12 +456,13 @@ private:
     std::uint64_t nav_signature(const NavState& n) const;
     bool nav_bake_one(World& world, NavState& n, std::string& error);
     void nav_apply_obstacles(NavState& n);
+    void nav_apply_links(World& world, NavState& n);
     static std::uint64_t nav_obstacle_signature(const Body& b);
     void nav_raster(const Body& b, const NavParams& p, std::vector<NavEntry>& out) const;
     static bool nav_column(const Body& b, float x, float z, float yLo, float yHi, float cellHeight, std::vector<NavSolid>& out);
     static bool nav_static_solid(const Body& b) {
         return b.enabled && b.hasShape && !b.trigger && !b.character && !b.navObstacle && b.problem.empty() &&
-               b.type == BodyType::Static;
+               b.type == BodyType::Static && !b.navWalkable;
     }
     float lastDt_ = 1.0f / 60.0f;       // the last step's dt (character pushes turn a move into a speed)
     CharacterMoveResult move_character_body(World& world, Body& b, Vec3 delta);
