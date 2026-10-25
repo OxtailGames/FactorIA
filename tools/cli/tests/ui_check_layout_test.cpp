@@ -91,3 +91,91 @@ TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German,
     CHECK(command(*session, R"({"command":"ui.check_layout","args":{"scenes":["scenes/nope.scene.json"]}})")["ok"] == false);
     fa::fs::set_project_root(oldRoot);
 }
+
+namespace {
+
+// A project with no localization: one scene with a ScrollList whose rows stick out of it at both ends and a button right below it
+// (the row at the bottom reaches into that button by its whole rectangle, not by the part the list shows), and one scene whose
+// popup (inactive, opened by a click on "open") holds a label that does not fit.
+stdfs::path make_check_project(const char* name) {
+    const stdfs::path dir = fa::fs::make_temp_dir(name) / "proj";
+    write(dir / "factoria.json", fa::Json::parse(R"({"format":"factoria.project/1","name":"Check","id":"com.factoria.tests.check","version":"0.1.0",
+        "mainScene":"scenes/list.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
+        "physics":{"fixedHz":60,"pixelsPerMeter":100},"input":{"actions":{"confirm":["Enter"]}}})"));
+    write(dir / "scenes" / "list.scene.json", fa::Json::parse(R"({"format":"factoria.scene/1","entities":[
+        {"id":"camera","components":{"Transform":{"position":[640,360,0]},"Camera":{}}},
+        {"id":"list","components":{"ScrollList":{"size":[300,100],"anchor":[0.5,0.5],"spacing":0,"padding":[0,0,0,0],"scroll":30}},
+         "children":[
+           {"id":"row0","components":{"Button":{"text":"zero","size":[200,60]}}},
+           {"id":"row1","components":{"Button":{"text":"one","size":[200,60]}}},
+           {"id":"row2","components":{"Button":{"text":"two","size":[200,60]}}}]},
+        {"id":"below","components":{"Button":{"text":"below","size":[200,40],"anchor":[0.5,0.6111]}}}]})"));
+    write(dir / "scenes" / "popup.scene.json", fa::Json::parse(R"({"format":"factoria.scene/1","entities":[
+        {"id":"camera","components":{"Transform":{"position":[640,360,0]},"Camera":{}}},
+        {"id":"opener","components":{"Script":{"path":"scripts/opener.js"}}},
+        {"id":"open","components":{"Button":{"text":"Open","size":[200,50],"anchor":[0.5,0.2]}}},
+        {"id":"popup","active":false,"components":{"Panel":{"size":[300,200],"anchor":[0.5,0.6]}},
+         "children":[{"id":"popup_label","components":{"Button":{"text":"A label that is far too long","size":[60,40],"anchor":[0.5,0.6]}}}]}]})"));
+    REQUIRE(fa::fs::write_text((dir / "scripts" / "opener.js").generic_string(),
+                               "import { Behaviour, ui, world } from \"factoria\";\n"
+                               "export default class Opener extends Behaviour {\n"
+                               "  onStart() { ui.on(\"click\", \"open\", () => { world.find(\"popup\").active = true; }); }\n"
+                               "}\n").ok());
+    return dir;
+}
+
+fa::Json check_layout(fa::cli::Session& session, const std::string& args) {
+    return command(session, R"({"command":"ui.check_layout","args":)" + args + "}");
+}
+
+}  // namespace
+
+TEST_CASE("ui.check_layout judges a ScrollList row by the part the list shows") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path dir = make_check_project("fa_cli_check_clip");
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::Auto;
+    so.width = 1280;
+    so.height = 720;
+    auto session = fa::cli::Session::open(dir.string(), so);
+    session->engine().step(5);
+    const fa::Json r = check_layout(*session, R"({"scenes":["scenes/list.scene.json"],"pseudo":false,"textScales":[1]})");
+    REQUIRE(r["ok"] == true);
+    CAPTURE(r["result"].dump(2));
+    // row0 and row2 are half outside the list and row2's whole rectangle reaches the button below: no issue for the clipped part.
+    CHECK(r["result"]["issueCount"] == 0);
+    fa::fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("ui.check_layout steps open a panel that the scene does not show at the start") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path dir = make_check_project("fa_cli_check_steps");
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::Auto;
+    so.width = 1280;
+    so.height = 720;
+    auto session = fa::cli::Session::open(dir.string(), so);
+    session->engine().step(5);
+
+    const fa::Json without = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"pseudo":false,"textScales":[1]})");
+    REQUIRE(without["ok"] == true);
+    CHECK(without["result"]["issueCount"] == 0);  // the popup is closed: nothing to find
+
+    const fa::Json with = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"pseudo":false,"textScales":[1],
+        "steps":{"scenes/popup.scene.json":[{"click":"open"},{"frames":2}]}})");
+    REQUIRE(with["ok"] == true);
+    CAPTURE(with["result"].dump(2));
+    REQUIRE(with["result"]["issueCount"] == 1);
+    CHECK(with["result"]["issues"][0]["kind"] == "overflow");
+    CHECK(with["result"]["issues"][0]["entity"] == "popup_label");
+
+    // A step that cannot be done is an error naming it, and the game is put back.
+    const fa::Json bad = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"steps":{"scenes/popup.scene.json":[{"click":"popup_label"}]}})");
+    CHECK(bad["ok"] == false);
+    CHECK(bad.dump().find("popup_label") != std::string::npos);
+    CHECK(bad.dump().find("not a visible widget") != std::string::npos);
+    const fa::Json typo = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"steps":{"scenes/popup.scene.json":[{"click":"opne"}]}})");
+    CHECK(typo["ok"] == false);
+    CHECK(typo.dump().find("open") != std::string::npos);
+    fa::fs::set_project_root(oldRoot);
+}

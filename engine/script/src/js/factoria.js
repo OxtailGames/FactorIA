@@ -2096,9 +2096,14 @@
   const stepN = (n) => N.testStep(n);
   // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
   // game.step after game.setSafeArea).
+  // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
   const posArg = (p, what) => {
     if (typeof p === "string" || p instanceof Entity) {
-      const r = N.screenRect(entityHandle(p, what));
+      const h = entityHandle(p, what);
+      N.uiLayout();
+      const why = what === "game.mouseMove" ? null : N.uiUnclickable(h);
+      if (why) throw new Error(`${what}: ${inspect(p)} cannot be clicked: ${why}`);
+      const r = N.screenRect(h);
       if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
       return [r[0] + r[2] / 2, r[1] + r[3] / 2];
     }
@@ -2138,6 +2143,9 @@
     press(action) { N.inSetAction(action, true); },
     release(action) { N.inSetAction(action, false); },
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
+    // Presses a key and releases it over one frame, like tap does for an action (keyDown / keyUp hold it): game.tapKey("Enter")
+    // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A".
+    tapKey(key) { N.inKeyEvent(key, true); stepN(1); N.inKeyEvent(key, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
     // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change

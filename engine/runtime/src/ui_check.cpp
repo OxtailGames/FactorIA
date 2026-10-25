@@ -75,8 +75,12 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
          "{ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, "
          "rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every "
          "case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter "
-         "string). Only texts with a localization `key` follow the language and the pseudo pass; a text a script writes is checked "
-         "at each text scale only. It RELOADS scenes: afterwards the running scene is loaded again and the language, text size "
+         "string). A widget inside a ScrollList is checked on the part the list shows (its rectangle intersected with the list's), so "
+         "a row half scrolled out is not reported for the half that is clipped, and a row fully outside is skipped. `steps` runs "
+         "actions per scene (clicks on widgets by name or id, keys, actions, frames) before the checks, with a layout pass between "
+         "them, so a panel a click opens is checked too; the state they reach stays for every case of that scene. Only texts with a "
+         "localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only "
+         "(and in the state the steps reach). It RELOADS scenes: afterwards the running scene is loaded again and the language, text size "
          "and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame "
          "runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {\"textScales\":[1,2],\"pseudo\":true}",
          parse_schema(R"({"type":"object","properties":{
@@ -84,6 +88,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
              "languages":{"type":"array","items":{"type":"string"},"description":"Languages to check, as in factoria.json localization.languages. Default: all of them (the current one when the game has no localization)."},
              "textScales":{"type":"array","items":{"type":"number","minimum":0.5,"maximum":3},"description":"Text size options (ui.set_text_scale) to check. Default: [1, 2]."},
              "pseudo":{"type":"boolean","description":"Also run the pseudo-localized pass (default language, every text scale). Default: true."},
+             "steps":{"type":"object","description":"Per scene (project-relative path, as in `scenes`), a list run once after the scene loads and settles, before the checks, to reach a panel or state that is not there at the start: {\"click\":\"widget name or id\"} (the centre of its laid-out rectangle; an error when it is hidden, clipped or has no area), {\"key\":\"Enter\"} (press and release), {\"action\":\"jump\"} (press and release an input action), {\"frames\":n} (step n frames). The UI is laid out between steps. Example: {\"scenes/menu.scene.json\":[{\"click\":\"options_button\"},{\"frames\":10}]}.","additionalProperties":{"type":"array","items":{"type":"object","properties":{"click":{"type":"string"},"key":{"type":"string"},"action":{"type":"string"},"frames":{"type":"integer","minimum":0,"maximum":1000}}}}},
              "settleFrames":{"type":"integer","minimum":1,"maximum":120,"description":"Frames stepped after each change so scripts and layout settle. Default: 4."}}})"),
          false, "ui"},
         [&engine, &I](const Json& a) {
@@ -105,6 +110,19 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             } else {
                 for (const std::string& f : all)
                     if (f.size() > 11 && f.compare(f.size() - 11, 11, ".scene.json") == 0) scenes.push_back(f);
+            }
+
+            Json stepLists = Json::object();
+            if (a.contains("steps")) {
+                if (!a["steps"].is_object())
+                    throw CommandError("invalid_argument", "steps must be an object of scene path -> list of steps.", "Example: {\"steps\":{\"scenes/menu.scene.json\":[{\"click\":\"options_button\"}]}}");
+                for (const auto& [k, v] : a["steps"].items()) {
+                    const std::string path = fs::normalize(k);
+                    if (std::find(all.begin(), all.end(), path) == all.end())
+                        throw CommandError("not_found", "steps: scene '" + path + "' not found. " + did_you_mean(path, all), "Use project.info to list scenes.");
+                    if (!v.is_array()) throw CommandError("invalid_argument", "steps['" + k + "'] must be a list of steps.", "Each step is {\"click\": name}, {\"key\": name}, {\"action\": name} or {\"frames\": n}.");
+                    stepLists[path] = v;
+                }
             }
 
             // Languages and text scales.
@@ -169,11 +187,78 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 found->cases.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"pseudo", c.pseudo}}));
             };
 
+            // One press and release over a frame each, like game.tapKey in tests.
+            auto tap_named = [&](const std::string& name, const std::string& where) {
+                std::string e;
+                if (!I.inject_named(name, true, &e))
+                    throw CommandError("invalid_argument", where + ": " + e, "Use a key name (Enter, Space, A...) or an input action of factoria.json.");
+                engine.step(1);
+                I.inject_named(name, false, &e);
+                engine.step(1);
+            };
+            auto run_steps = [&](const std::string& scene) {
+                if (!stepLists.contains(scene)) return;
+                std::size_t index = 0;
+                for (const Json& st : stepLists[scene]) {
+                    const std::string where = "steps['" + scene + "'][" + std::to_string(index) + "]";
+                    I.ui.layout(I.world, screen, I.measure(), false);
+                    if (st.contains("click") && st["click"].is_string()) {
+                        const std::string name = st["click"].get<std::string>();
+                        const Entity e = I.world.find(name);
+                        if (e == kNullEntity) {
+                            std::vector<std::string> names;
+                            for (Entity w : I.world.entities())
+                                if (ui_kind(I.world, w) != UiKind::None) names.push_back(path_of(I.world, w));
+                            throw CommandError("not_found", where + ": click: no entity '" + name + "' in " + scene + ". " + did_you_mean(name, names), "Name a widget (an entity id or name) that exists after the earlier steps.");
+                        }
+                        const std::optional<Rect> r = ui_rect(I.world, e, screen);
+                        const std::optional<Rect> clip = ui_clip_rect(I.world, e, screen);
+                        if (ui_kind(I.world, e) == UiKind::None || !I.world.active_in_hierarchy(e) || !r || !(r->w > 0) || !(r->h > 0) ||
+                            (clip && (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r))))
+                            throw CommandError("invalid_state", where + ": click: '" + name + "' (" + path_of(I.world, e) + ") is not a visible widget at this point (no widget, inactive, no area or scrolled out of its ScrollList).", "Click the button that opens it first, or add {\"frames\": n} so a script has time to show it.");
+                        const Rect box = clip ? ui_intersect(*r, *clip) : *r;
+                        I.input.on_mouse_move({box.x + box.w / 2, box.y + box.h / 2});
+                        I.input.on_mouse_button(MouseButton::Left, true);
+                        engine.step(1);
+                        I.input.on_mouse_button(MouseButton::Left, false);
+                        engine.step(1);
+                    } else if (st.contains("key") && st["key"].is_string()) {
+                        tap_named(st["key"].get<std::string>(), where);
+                    } else if (st.contains("action") && st["action"].is_string()) {
+                        tap_named(st["action"].get<std::string>(), where);
+                    } else if (st.contains("frames") && st["frames"].is_number_integer()) {
+                        engine.step(st["frames"].get<int>());
+                    } else {
+                        throw CommandError("invalid_argument", where + ": a step is {\"click\": name}, {\"key\": name}, {\"action\": name} or {\"frames\": n}, got " + st.dump() + ".", "Example: {\"click\":\"options_button\"}");
+                    }
+                    ++index;
+                }
+                I.ui.layout(I.world, screen, I.measure(), false);
+            };
+
+            // A thrown step still has to put the game back, so the cleanup is one lambda.
+            auto restore = [&] {
+                I.i18n.set_pseudo(false);
+                if (!startLanguage.empty()) I.switch_language(startLanguage);
+                if (!startScene.empty()) {
+                    std::string e;
+                    I.load_scene_impl(startScene, &e);
+                }
+                I.apply_localization();
+                engine.set_text_scale(startScale);
+            };
+
             for (const std::string& scene : scenes) {
                 std::string err;
                 I.load_scene_impl(scene, &err);
                 if (!err.empty()) loadProblems.push_back(scene + ": " + err);
                 engine.step(settle);
+                try {
+                    run_steps(scene);
+                } catch (...) {
+                    restore();
+                    throw;
+                }
                 int uiItems = 0;
                 Json caseList = Json::array();
                 for (const Case& c : cases) {
@@ -194,6 +279,9 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                         it.overflowed = w.value("overflowed", false);
                         const Json& r = w["rect"];
                         it.rect = Rect{r[0].get<float>(), r[1].get<float>(), r[2].get<float>(), r[3].get<float>()};
+                        // A widget in a ScrollList counts for the part the list shows; a row fully outside was skipped above.
+                        if (const Entity own = I.world.find_by_id(it.id); own != kNullEntity)
+                            if (const std::optional<Rect> clip = ui_clip_rect(I.world, own, screen)) it.rect = ui_intersect(it.rect, *clip);
                         ++uiItems;
                         now[it.id] = it;
                         const bool labelled = it.kind == "Text" || it.kind == "Button" || it.kind == "Toggle" || it.kind == "Slider" || it.kind == "TouchButton";
@@ -225,14 +313,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             }
 
             // Back to how the game was.
-            I.i18n.set_pseudo(false);
-            if (!startLanguage.empty()) I.switch_language(startLanguage);
-            if (!startScene.empty()) {
-                std::string err;
-                I.load_scene_impl(startScene, &err);
-            }
-            I.apply_localization();
-            engine.set_text_scale(startScale);
+            restore();
 
             Json out = Json::array();
             for (const Issue& i : issues) {

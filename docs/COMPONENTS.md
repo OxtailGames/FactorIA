@@ -2458,7 +2458,7 @@ Since 0.2.0.
 
 Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen.
 
-For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text scale, plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened ("[" + vowels doubled + "]", at least 40 % longer) to show where an unknown, longer language would break. Returns {ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter string). Only texts with a localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only. It RELOADS scenes: afterwards the running scene is loaded again and the language, text size and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {"textScales":[1,2],"pseudo":true}
+For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text scale, plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened ("[" + vowels doubled + "]", at least 40 % longer) to show where an unknown, longer language would break. Returns {ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter string). A widget inside a ScrollList is checked on the part the list shows (its rectangle intersected with the list's), so a row half scrolled out is not reported for the half that is clipped, and a row fully outside is skipped. `steps` runs actions per scene (clicks on widgets by name or id, keys, actions, frames) before the checks, with a layout pass between them, so a panel a click opens is checked too; the state they reach stays for every case of that scene. Only texts with a localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only (and in the state the steps reach). It RELOADS scenes: afterwards the running scene is loaded again and the language, text size and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {"textScales":[1,2],"pseudo":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2466,6 +2466,7 @@ For every scene (default: each scene with UI) and every case it loads the scene,
 | `languages` | array | no | Languages to check, as in factoria.json localization.languages. Default: all of them (the current one when the game has no localization). |
 | `textScales` | array | no | Text size options (ui.set_text_scale) to check. Default: [1, 2]. |
 | `pseudo` | boolean | no | Also run the pseudo-localized pass (default language, every text scale). Default: true. |
+| `steps` | object | no | Per scene (project-relative path, as in `scenes`), a list run once after the scene loads and settles, before the checks, to reach a panel or state that is not there at the start: {"click":"widget name or id"} (the centre of its laid-out rectangle; an error when it is hidden, clipped or has no area), {"key":"Enter"} (press and release), {"action":"jump"} (press and release an input action), {"frames":n} (step n frames). The UI is laid out between steps. Example: {"scenes/menu.scene.json":[{"click":"options_button"},{"frames":10}]}. |
 | `settleFrames` | integer | no | Frames stepped after each change so scripts and layout settle. Default: 4. |
 
 ### `ui.clear_captions` (modifies state)
@@ -7853,6 +7854,10 @@ declare module "factoria:test" {
      * Press for one frame, then release.
      */
     tap(action: string): void;
+    /**
+     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     */
+    tapKey(key: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
     /**
@@ -7921,7 +7926,7 @@ declare module "factoria:test" {
     resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
-     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**

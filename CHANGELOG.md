@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Test runner and `ui.check_layout`
+
+- `game.click(widget)` (and `mouseMove`, `touch`, `touchStart`, `touchMove` with a widget) lays the UI out first, so a
+  panel opened in the same frame can be clicked with no `step` or `ui.layout()`. It throws, naming the widget and why,
+  for a widget that is inactive, has no area or is scrolled out of its `ScrollList`, instead of clicking nowhere.
+- `game.tapKey(key)` presses and releases a key over one frame; SCRIPTING.md shows `game.tapKey("Enter")` submitting a
+  `TextField`, and `fa.call("fs.write", ...)` saving a file from a test.
+- `ui.check_layout` judges a widget in a `ScrollList` by the part the list shows (a row half inside is no longer
+  reported for its clipped half) and takes `steps` per scene (click, key, action, frames) to open a panel before the checks.
+
 The time of day and the day boundary
 
 - `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the
