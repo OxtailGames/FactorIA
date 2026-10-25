@@ -154,7 +154,7 @@ TEST_CASE("project.add_menu_kit: one part brings what it needs, and nothing else
     CHECK(read_json(stdfs::path(dir2) / "locales" / "en.json").size() == 2);  // $name and loading
 }
 
-TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and the main menu brings it") {
+TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and the main menu does not bring it") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const std::string dir = new_game("agegate");
     const fa::Json r = add(dir, {"ageGate"});
@@ -185,8 +185,161 @@ TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and
     session.reset();
     fa::fs::set_project_root(oldRoot);
 
+    // The main menu does not need it: the age gate is only there when asked for.
     const std::string dir2 = new_game("mainmenu");
-    CHECK(has(add(dir2, {"main-menu"})["parts"], "ageGate"));
+    CHECK_FALSE(has(add(dir2, {"main-menu"})["parts"], "ageGate"));
+}
+
+namespace {
+
+// Opens the game as `factoria validate` and `factoria test` do: no validation error, every test passes.
+void validate_and_test(const std::string& dir, int minPassed) {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::None;
+    auto session = fa::cli::Session::open(dir, so);
+    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    REQUIRE(v["ok"] == true);
+    CAPTURE(v["result"].dump(2));
+    CHECK(v["result"]["ok"] == true);
+    CHECK(v["result"]["errors"].empty());
+    fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+    CHECK_MESSAGE(rep.ok(), rep.summary());
+    CHECK(rep.passed >= minPassed);
+    CHECK(rep.failed == 0);
+    session.reset();
+    fa::fs::set_project_root(oldRoot);
+}
+
+bool has_entity(const fa::Json& node, const std::string& id) {
+    if (node.is_object() && node.contains("id") && node["id"] == id) return true;
+    for (const char* key : {"entities", "children"})
+        if (node.is_object() && node.contains(key))
+            for (const fa::Json& e : node[key])
+                if (has_entity(e, id)) return true;
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("project.add_menu_kit: a main menu without the shop and the age gate validates and runs") {
+    const std::string dir = new_game("noshop");
+    const fa::Json r = add(dir, {"main-menu"});
+    CAPTURE(r.dump(2));
+    CHECK(r["parts"] == fa::Json::parse(R"(["core","options","credits","main-menu"])"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "scripts" / "ui" / "shop.js"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "scripts" / "ui" / "age_gate.js"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "prefabs" / "ui" / "age_gate.prefab.json"));
+    const fa::Json scene = read_json(stdfs::path(dir) / "scenes" / "menu.scene.json");
+    CHECK(has_entity(scene, "play"));
+    CHECK(has_entity(scene, "options"));
+    CHECK(has_entity(scene, "credits"));
+    CHECK_FALSE(has_entity(scene, "shop"));
+    CHECK_FALSE(has_entity(scene, "shop_button"));
+    CHECK_FALSE(has_entity(scene, "age_gate"));
+    const std::string script = read_text(stdfs::path(dir) / "scripts" / "main_menu.js");
+    CHECK(script.find("age_gate") == std::string::npos);
+    CHECK(script.find("openAgeGate") == std::string::npos);
+    CHECK(script.find("shop_button") == std::string::npos);
+    CHECK(script.find("@kit") == std::string::npos);
+    CHECK(script.find("ui.on(\"click\", \"quit\"") != std::string::npos);
+    // The shop is not in the game's strings either, and running the command again changes nothing.
+    CHECK_FALSE(read_json(stdfs::path(dir) / "locales" / "en.json").contains("shop"));
+    const fa::Json again = add(dir, {"main-menu"});
+    CHECK(again["added"].empty());
+    CHECK(again["skipped"].empty());
+    validate_and_test(dir, 1);
+
+    // Asked for, the shop comes with its button, panel and script; the age gate still stays out.
+    const std::string dir2 = new_game("withshop");
+    const fa::Json s = add(dir2, {"main-menu", "shop"});
+    CHECK(has(s["parts"], "shop"));
+    CHECK_FALSE(has(s["parts"], "ageGate"));
+    const fa::Json scene2 = read_json(stdfs::path(dir2) / "scenes" / "menu.scene.json");
+    CHECK(has_entity(scene2, "shop_button"));
+    CHECK(has_entity(scene2, "shop"));
+    CHECK_FALSE(has_entity(scene2, "age_gate"));
+    const std::string script2 = read_text(stdfs::path(dir2) / "scripts" / "main_menu.js");
+    CHECK(script2.find("shop_button") != std::string::npos);
+    CHECK(script2.find("openAgeGate") == std::string::npos);
+    CHECK(script2.find("@kit") == std::string::npos);
+    validate_and_test(dir2, 1);
+
+    // Every part (the default) keeps both, with the markers gone.
+    const std::string dir3 = new_game("all");
+    add(dir3);
+    const std::string full = read_text(stdfs::path(dir3) / "scripts" / "main_menu.js");
+    CHECK(full.find("import { openAgeGate } from \"./ui/age_gate.js\";\n") != std::string::npos);
+    CHECK(full.find("@kit") == std::string::npos);
+}
+
+TEST_CASE("project.add_menu_kit: the Controls tab lists the game's own actions and rebinds them") {
+    const std::string dir = new_game("controls");
+    fa::Json project = read_json(stdfs::path(dir) / "factoria.json");
+    project["input"]["actions"]["dig"] = fa::Json::parse(R"(["Z", "GamepadX"])");
+    project["input"]["actions"]["jump"] = fa::Json::parse(R"(["Space"])");
+    project["input"]["actions"]["place"] = fa::Json::parse(R"(["X", "GamepadY"])");
+    write_text(stdfs::path(dir) / "factoria.json", project.dump(2));
+    add(dir, {"main-menu"});
+    write_text(stdfs::path(dir) / "tests" / "controls.test.js", R"(import { test, expect, game } from "factoria:test";
+import { ui, input, storage, scene } from "factoria";
+const pad = game.gamepad(0);
+test("the Controls tab lists the game's actions, not the ui_* ones, and rebinds them", () => {
+  scene.load("scenes/menu.scene.json");
+  game.step(2);
+  pad.tap("DpadDown");
+  pad.tap("A"); // Options
+  pad.tap("DpadRight");
+  pad.tap("DpadRight");
+  pad.tap("A"); // the Controls tab
+  expect(game.find("bind_dig")).toBeTruthy();
+  expect(game.find("bind_place")).toBeTruthy();
+  expect(game.find("bind_ui_up")).toBeFalsy();
+  expect(game.find("bind_dig").get("Button").text).toContain("dig"); // no options.action.dig string: the action's name
+  expect(game.find("bind_dig").get("Button").text).not.toContain("options.action");
+  expect(game.find("bind_jump").get("Button").text).toContain("Jump"); // the kit's own string
+  ui.focus(game.find("bind_dig"));
+  pad.tap("A");
+  pad.tap("B"); // captured as the new binding
+  expect(input.bindings("dig")[0]).toBe("GamepadB");
+  expect(input.bindings("dig")).toContain("Z"); // the keyboard's binding stays
+  expect(storage.get("settings").bindings.dig[0]).toBe("GamepadB");
+  expect(input.bindings("place")).toEqual(["X", "GamepadY"]);
+});
+)");
+    validate_and_test(dir, 2);
+
+    // Options.actions picks and orders the rows: the prefab's Script props.
+    const std::string dir2 = new_game("controlsprops");
+    fa::Json project2 = read_json(stdfs::path(dir2) / "factoria.json");
+    project2["input"]["actions"]["dig"] = fa::Json::parse(R"(["Z"])");
+    project2["input"]["actions"]["jump"] = fa::Json::parse(R"(["Space"])");
+    project2["input"]["actions"]["place"] = fa::Json::parse(R"(["X"])");
+    write_text(stdfs::path(dir2) / "factoria.json", project2.dump(2));
+    add(dir2, {"main-menu"});
+    const stdfs::path prefab = stdfs::path(dir2) / "prefabs" / "ui" / "options.prefab.json";
+    fa::Json options = read_json(prefab);
+    options["entity"]["components"]["Script"]["props"] = fa::Json::parse(R"({"actions": ["place", "nothing", "jump"]})");
+    write_text(prefab, options.dump(2));
+    write_text(stdfs::path(dir2) / "tests" / "controls.test.js", R"(import { test, expect, game } from "factoria:test";
+import { scene } from "factoria";
+const pad = game.gamepad(0);
+test("Options.actions picks and orders the rows", () => {
+  scene.load("scenes/menu.scene.json");
+  game.step(2);
+  pad.tap("DpadDown");
+  pad.tap("A");
+  pad.tap("DpadRight");
+  pad.tap("DpadRight");
+  pad.tap("A");
+  expect(game.find("bind_place")).toBeTruthy();
+  expect(game.find("bind_jump")).toBeTruthy();
+  expect(game.find("bind_dig")).toBeFalsy();
+  expect(game.find("bind_nothing")).toBeFalsy();
+  expect(game.find("bindings").children.map((e) => e.id)).toEqual(["bind_place", "bind_jump"]);
+});
+)");
+    validate_and_test(dir2, 2);
 }
 
 TEST_CASE("project.add_menu_kit: a file the game edited stays unless overwrite is true; keys the game has are never replaced") {

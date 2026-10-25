@@ -10,7 +10,7 @@
     },
     {
       "name": "options",
-      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).",
+      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).",
       "requires": ["core"],
       "files": ["prefabs/ui/options.prefab.json", "scripts/ui/options.js"],
       "localeKeys": ["options"]
@@ -31,15 +31,16 @@
     },
     {
       "name": "ageGate",
-      "description": "The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience \"mixed\"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu opens it once, before any ad; its tests/age_gate.test.js checks it.",
+      "description": "The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience \"mixed\"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.",
       "requires": ["core"],
       "files": ["prefabs/ui/age_gate.prefab.json", "scripts/ui/age_gate.js", "tests/age_gate.test.js"],
       "localeKeys": ["ageGate"]
     },
     {
       "name": "main-menu",
-      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Shop, Quit, with the options, credits, shop and age gate panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options, credits, shop and ageGate: the scene uses their scripts and prefab.",
-      "requires": ["core", "options", "credits", "shop", "ageGate"],
+      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, and the line that opens the age gate, are written only when the shop and ageGate parts are added too (all parts by default).",
+      "requires": ["core", "options", "credits"],
+      "prunes": {"shop": ["shop_button", "shop"], "ageGate": ["age_gate"]},
       "files": ["scenes/menu.scene.json", "scripts/main_menu.js", "tests/recipe.test.js"],
       "localeKeys": []
     },

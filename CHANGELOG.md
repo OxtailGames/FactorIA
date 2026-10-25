@@ -24,6 +24,33 @@ Test runner and `ui.check_layout`
 - `ui.check_layout` judges a widget in a `ScrollList` by the part the list shows (a row half inside is no longer
   reported for its clipped half) and takes `steps` per scene (click, key, action, frames) to open a panel before the checks.
 
+Menu kit: optional shop and age gate, a Controls tab from the actions
+
+- `project.add_menu_kit`: the `main-menu` part no longer brings `shop` and `ageGate`. `{"parts":["main-menu"]}` writes a
+  main menu without the Shop button, the shop panel and the age gate line (and without their scripts); add `shop` and
+  `ageGate` to `parts` to have them (no `parts` still adds everything).
+- The options screen's Controls tab lists every input action of the game except the `ui_*` ones (it was a fixed list of
+  `move_left`, `move_right`, `jump`, `pause`), labelled with `options.action.<action>` or the action's name when the game
+  has no such string. The `actions` property of the prefab's Script (`"props": { "actions": [...] }`) picks and orders them.
+
+Gamepads that come and go, and the Steam Deck
+
+- `game.on("gamepadConnected" | "gamepadDisconnected", fn)` gives `{ slot, id, name, type }`. `input.gamepad(i).id` and
+  `.name` read the same. The id is stable per physical pad on Windows (XInput slot), Linux, macOS, iOS, Android and the web,
+  and a pad that returns gets its old slot when it is free. Tests: `game.gamepad(i).connect({ id, name, type })`.
+- `game.device.steamDeck` and `game.device.handheld`. The Steam plugin says whether this is a Deck (plugin API version 4,
+  `set_device_fact`); without it the `SteamDeck=1` environment variable decides. `game.setDevice` accepts both.
+
+Tilemap: tileset margin and spacing, `setTile` without rewriting the array
+
+- `Tilemap.margin` and `Tilemap.spacing` (pixels, default 0) describe a tileset image with a border and gutters between
+  tiles. The 2D renderer (also the normal map), the tile count, `factoria validate` and the level commands read them.
+  `assets.slice_sheet` is for animation grids and does not take them.
+- `entity.tilemap.setTile(col, row, id)` and `getTile(col, row)` change one tile in place, and the new command
+  `tilemap.set_tile` does the same from the CLI and MCP. The renderer reads the grid in place (no copy per frame), and 2D
+  physics rebuilds only the colliders of the tiles you changed; a write of the whole `tiles` array still works and is
+  caught by a hash.
+
 The time of day and the day boundary
 
 - `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the

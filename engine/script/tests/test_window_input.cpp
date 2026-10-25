@@ -331,12 +331,25 @@ test("supports names the feature or throws with a suggestion", () => {
   expect(() => window.supports("hdr")).toThrow('use one of "frameCap", "renderScale"');
 });
 test("game.device is fixed headless and game.setDevice pretends", () => {
-  expect(g.device).toEqual({ formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" });
+  expect(g.device).toEqual({ formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false });
   game.setDevice({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low" });
-  expect(g.device).toEqual({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low" });
+  expect(g.device).toEqual({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low", steamDeck: false, handheld: true });
   expect(window.supports("frameCap")).toBe(false);  // still no window
   expect(() => game.setDevice({ formFactor: "tv" })).toThrow("formFactor must be one of");
   expect(() => game.setDevice({ memoryGb: 2 })).toThrow("did you mean 'memoryGB'");
+});
+test("a test device can be a Steam Deck", () => {
+  game.setDevice({ steamDeck: true });
+  expect(g.device.steamDeck).toBe(true);
+  expect(g.device.handheld).toBe(true);        // a Deck is a handheld
+  expect(g.device.formFactor).toBe("desktop");  // and reports a desktop form factor
+  game.setDevice({ steamDeck: true, handheld: false });
+  expect(g.device.handheld).toBe(false);
+  game.setDevice({ handheld: true });
+  expect(g.device.steamDeck).toBe(false);
+  expect(g.device.handheld).toBe(true);
+  expect(() => game.setDevice({ steamDeck: "yes" })).toThrow("steamDeck must be true or false");
+  expect(() => game.setDevice({ steamdeck: true })).toThrow("did you mean 'steamDeck'");
 });
 test("game.renderStats needs graphics", () => {
   expect(() => game.renderStats()).toThrow("no renderer");
