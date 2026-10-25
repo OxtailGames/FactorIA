@@ -76,6 +76,11 @@ Result<std::string> steam_app_id(Context& c) {
     if (n < 1 || n > 4294967295LL)
         return err("steam: the app id from " + from + " is not a Steam app id (it says '" + text.substr(0, 40) + "')",
                    "Use the number of your game from the Steamworks partner site, e.g. 1234560.");
+    if (n == kSteamTestApp && c.options.dryRun) {  // a dry run only plans: the real upload below still refuses it
+        c.warnings.push_back("steam: the app id from " + from + " is 480, Spacewar, Valve's test app: this dry run goes on, but a real upload needs "
+                             "your own app id (steam_appid.txt, or the appId argument)");
+        return std::to_string(n);
+    }
     if (n == kSteamTestApp)
         return err("steam: the app id from " + from + " is 480, Valve's test app (Spacewar): a build cannot be uploaded to it",
                    "Put your own app id in steam_appid.txt (platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>}) or pass \"appId\".");

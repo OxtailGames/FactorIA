@@ -46,7 +46,15 @@ struct AudioEvent {
     bool music = false;   // started through play_music()
     std::string source;   // entity id when an AudioSource component started it, "" otherwise
     bool ok = true;       // false when the clip could not be loaded (the error is logged once)
+    std::string layer;    // the layer name when audio.musicLayers started it, "" otherwise
     Json to_json() const;
+};
+
+// One stem of layered music (Audio::play_music_layers).
+struct MusicLayer {
+    std::string name;
+    std::string path;
+    float level = 1.0f;  // 0..1 starting level; the voice plays at the music volume times it
 };
 
 class Audio {
@@ -72,9 +80,14 @@ public:
     void clear_pcm(VoiceId voice);  // drops the samples that wait (after a seek)
     void set_voice_bus(VoiceId voice, std::string_view bus);
     void stop(VoiceId voice);
-    void stop_all();
+    void stop_all();  // every voice, music included (a persisted track too)
+    // What a scene load does: stops every voice except music started with persist, and forgets the scene music the last
+    // scene had, so update() starts the new scene's SceneSettings.music even when it is the same track.
+    void on_scene_load();
     bool is_playing(VoiceId voice) const;
-    void set_voice_volume(VoiceId voice, float volume);
+    // Sets the voice's own volume (the bus and master volumes still apply); with fadeSeconds > 0 it moves there in a
+    // straight line over that time of audio.
+    void set_voice_volume(VoiceId voice, float volume, float fadeSeconds = 0.0f);
     void set_bus_volume(std::string_view bus, float volume);
     float bus_volume(std::string_view bus) const;  // "master", "sfx", "music" or "ui"; -1 for an unknown bus
     void set_master_volume(float volume);
@@ -83,8 +96,16 @@ public:
     // keeps using buses and volumes.
     void set_paused(bool paused);
     bool paused() const;
-    void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f);
-    void stop_music(float fadeSeconds = 0.5f);
+    // Looping music on the "music" bus. The same track again only retunes it. persist = the track survives scene loads.
+    void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f, bool persist = false);
+    // Layered music: every layer starts on the same mixed sample (one lock), loops, and is faded with set_layer. Replaces
+    // the current music. All or nothing: false (and nothing plays) when a clip fails to load. `volume` scales every layer.
+    bool play_music_layers(const std::vector<MusicLayer>& layers, float volume = 0.6f, float fadeSeconds = 0.5f,
+                           bool persist = false);
+    // Moves a layer of the current layered music to `level` (0..1) over fadeSeconds; false for an unknown layer.
+    bool set_layer(std::string_view name, float level, float fadeSeconds = 0.0f);
+    std::vector<std::string> layer_names() const;  // names of the current layers, in start order
+    void stop_music(float fadeSeconds = 0.5f);  // the track and every layer
 
     // Play log (game thread). Entries are stamped with the frame/time of `world` (the engine passes its World; null =
     // the world of the last update()). The log keeps the newest 4096 entries; play_log_dropped() counts the rest.

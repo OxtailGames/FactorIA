@@ -823,7 +823,7 @@ TEST_CASE("game.loadJson, touch input and default host without scene JSON suppor
     TestHost h("loadjson");
     h.file("tests/t.test.js", R"(
 import { test, expect, game } from "factoria:test";
-import { input } from "factoria";
+import { input, game as app } from "factoria";
 test("loadJson", () => {
   game.loadJson({ format: "factoria.scene/1", entities: [{ id: "solo", components: { Transform: { position: [4, 5] } } }] });
   expect(game.find("solo").position.x).toBe(4);
@@ -1040,6 +1040,50 @@ test("a wrong receiver explains the usage", () => {
     CHECK(msg.find("assets/sfx/coin.wav [sfx] x1") != std::string::npos);
     CHECK_FALSE(rep.cases[3].passed);
     CHECK(rep.cases[3].message.find("game.audioLog()") != std::string::npos);
+}
+
+TEST_CASE("audio script API: persist, setVoiceVolume, musicLayers and setLayer") {
+    TestHost h("audiomusic");
+    h.file("assets/m/base.wav", tiny_wav());
+    h.file("assets/m/drums.wav", tiny_wav());
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+test("setVoiceVolume answers false for a voice that is not playing", () => {
+  const id = audio.play("assets/sfx/coin.wav", { loop: true });
+  expect(audio.setVoiceVolume(id, 0.2, 1)).toBe(true);
+  audio.stop(id);
+  expect(audio.setVoiceVolume(id, 1)).toBe(false);
+});
+test("layers: one log entry per layer, setLayer teaches", () => {
+  expect(audio.musicLayers({ base: "assets/m/base.wav", drums: "assets/m/drums.wav" }, { levels: { drums: 0 } })).toBe(true);
+  const log = game.audioLog().filter((e) => e.music);
+  expect(log.map((e) => e.layer)).toEqual(["base", "drums"]);
+  audio.setLayer("drums", 1, 0.5);
+  let message = "";
+  try { audio.setLayer("nope", 1); } catch (e) { message = String(e.message); }
+  expect(message).toContain("base, drums");
+  expect(audio.musicLayers({ a: "assets/m/missing.wav" })).toBe(false);
+  audio.stopMusic(0);
+  let none = "";
+  try { audio.setLayer("base", 1); } catch (e) { none = String(e.message); }
+  expect(none).toContain("No layered music");
+});
+test("a layer set that is not an object throws", () => {
+  expect(() => audio.musicLayers(["assets/m/base.wav"])).toThrow();
+  expect(() => audio.musicLayers({ base: "assets/m/base.wav" }, { levels: { bass: 1 } })).toThrow();
+});
+test("persist is accepted", () => {
+  audio.music("assets/m/base.wav", { persist: true });
+  expect(game.audioLog().filter((e) => e.music).length).toBeGreaterThan(0);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    for (const auto& c : rep.cases) CHECK_MESSAGE(c.passed, c.message);
 }
 
 // ======================================================================================================================
@@ -1381,6 +1425,53 @@ TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
     }
 }
 
+TEST_CASE("gamepad: game.on(gamepadConnected / gamepadDisconnected) reports slot, id, name and type") {
+    TestHost h("gamepad_events");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input, game as app } from "factoria";
+test("connect, disconnect and reconnect raise events and keep the id", () => {
+  const seen = [];
+  app.on("gamepadConnected", (p) => seen.push(["+", p.slot, p.id, p.name, p.type]));
+  app.on("gamepadDisconnected", (p) => seen.push(["-", p.slot, p.id, p.name, p.type]));
+  game.gamepad(1).connect({ id: "red", name: "Red pad", type: "playstation" });
+  expect(seen.length).toBe(0);            // announced at the next frame
+  game.step(1);
+  expect(seen).toEqual([["+", 1, "red", "Red pad", "playstation"]]);
+  expect(input.gamepad(1).id).toBe("red");
+  expect(input.gamepad(1).name).toBe("Red pad");
+  game.step(2);
+  expect(seen.length).toBe(1);            // once per plug, not per frame
+  game.gamepad(1).press("A");             // already connected: nothing new
+  game.step(1);
+  expect(seen.length).toBe(1);
+  game.gamepad(1).disconnect();
+  game.step(1);
+  expect(seen[1]).toEqual(["-", 1, "red", "Red pad", "playstation"]);
+  expect(input.gamepad(1).id).toBe("red");  // kept after unplugging
+  game.gamepad(1).connect();               // the same pad again
+  game.step(1);
+  expect(seen[2]).toEqual(["+", 1, "red", "Red pad", "playstation"]);
+  game.gamepad(0).setType("xbox");
+  game.step(1);
+  expect(seen[3][0]).toBe("+");
+  expect(seen[3][1]).toBe(0);
+  expect(seen[3][4]).toBe("xbox");
+  expect(seen[3][2]).toContain("Gamepad");  // no identity given: made from the slot
+});
+test("mistakes in connect(info) teach", () => {
+  expect(() => game.gamepad(0).connect({ nme: "x" })).toThrow("did you mean 'name'");
+  expect(() => game.gamepad(0).connect({ type: "xboks" })).toThrow("Did you mean 'xbox'");
+  expect(() => game.gamepad(0).connect({ vendor: 70000 })).toThrow("0 to 65535");
+  expect(() => app.on("gamepadConnect", () => {})).toThrow('did you mean "gamepadConnected"');
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
 TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads, errors teach") {
     Json settings = Json::object({{"input", Json::object({{"actions", Json::parse(R"({
         "jump": ["Space", "GamepadA"],
@@ -1391,7 +1482,7 @@ TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads,
     TestHost h("gamepad", settings);
     h.file("tests/t.test.js", R"(
 import { test, expect, game } from "factoria:test";
-import { input } from "factoria";
+import { input, game as app } from "factoria";
 test("a button drives an action; press/release mirror keyDown/keyUp, tap steps", () => {
   const pad = game.gamepad(0);
   expect(input.gamepad(0).connected).toBe(false);   // asking for the handle does not plug the pad in

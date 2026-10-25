@@ -1,7 +1,7 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
 // colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
@@ -16,8 +16,12 @@ const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
-  /** Actions the Controls tab lets the player rebind; their labels are the strings "options.action.<action>". */
-  actions = ["move_left", "move_right", "jump", "pause"];
+  /**
+   * Actions the Controls tab lets the player rebind, in this order. null (the default) lists every action the game has
+   * except the ui_* ones. Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig"] } }.
+   * The labels are the strings "options.action.<action>"; an action without one is labelled with its name.
+   */
+  actions = null;
 
   onStart() {
     this.s = settings.load();
@@ -135,7 +139,9 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
-    this.actions = this.actions.filter((action) => input.actions().includes(action)); // an action the game does not have gets no row
+    const have = input.actions();
+    // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
+    this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
     for (const action of this.actions) {
       const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
@@ -154,9 +160,15 @@ export default class Options extends Behaviour {
     this.refreshControls();
   }
 
+  /** The translated name of an action; the action's own name when the game has no "options.action.<action>" string. */
+  actionLabel(action) {
+    const key = `options.action.${action}`;
+    return i18n.has(key) ? i18n.t(key) : action;
+  }
+
   refreshControls() {
     for (const action of this.actions) {
-      const label = i18n.t(`options.action.${action}`);
+      const label = this.actionLabel(action);
       world.find(`bind_${action}`).get("Button").text =
         this.waiting?.action === action
           ? i18n.t("options.pressKey", { action: label })

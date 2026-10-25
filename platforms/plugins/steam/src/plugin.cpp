@@ -78,7 +78,9 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
 
     std::string error;
     if (!load_library(b.steam, error) || !start_steam(b.steam, error)) {
-        api->log(api, 3, error.c_str());
+        // Not an error: the plugin is meant to be declared "optional", and a game runs without Steam (a build for a store
+        // other than Steam, a computer without Valve's library). The engine logs the plugin as skipped, too.
+        api->log(api, 2, error.c_str());
         return 1;
     }
     b.started = true;
@@ -107,6 +109,9 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
         b.started = false;
         return 1;
     }
+    // Plugin API 4: tell the engine whether this is a Steam Deck (game.device.steamDeck); an older engine has no such hook.
+    if (api->version >= 4 && api->set_device_fact && s.SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck)
+        api->set_device_fact(api, "steamDeck", s.SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(s.utils) ? 1 : 0);
     std::atexit(on_exit);
     const std::string newer = newer_interfaces_warning(s);
     if (!newer.empty()) api->log(api, 2, newer.c_str());

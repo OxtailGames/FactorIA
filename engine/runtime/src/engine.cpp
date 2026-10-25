@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -145,7 +146,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     refresh_from_disk();
     hasPendingScene = false;
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
@@ -180,7 +181,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     hasPendingScene = false;
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
     LoadReport report = fa::load_scene(world, scene, sourceName);
@@ -297,6 +298,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         platform.frame();
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
+        scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
     }
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
@@ -480,6 +482,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
     for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
+    I.pluginSteamDeck = installed.steamDeck;
     plugin_take_submitted_text();  // text meant for an earlier engine of this process
     if (!installed.textInputs.empty()) {
         // The platform's own keyboard: the first plugin that answers 1 takes the field and is told when it loses the focus.
@@ -849,7 +852,15 @@ Json Engine::device_info() const {
     std::string tier = "medium";  // unknown memory (web) stays here
     if (backend == "dummy") tier = "low";
     else if (memoryGB > 0) tier = memoryGB < 3.5 ? "low" : (memoryGB < 7.5 || (form != "desktop" && memoryGB < 5.5)) ? "medium" : "high";
-    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier}});
+    // The Steam plugin knows for sure when Steam is up; without it the SteamDeck=1 environment variable that Steam sets for the
+    // games it starts on a Deck (and "SteamDeck=0" in a launch option turns off) is the answer.
+    bool steamDeck = I.pluginSteamDeck == 1;
+    if (I.pluginSteamDeck < 0) {
+        const char* env = std::getenv("SteamDeck");
+        steamDeck = env && std::string_view(env) == "1";
+    }
+    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier},
+                         {"steamDeck", steamDeck}, {"handheld", steamDeck || form != "desktop"}});
 }
 
 Json Engine::render_stats_now() {

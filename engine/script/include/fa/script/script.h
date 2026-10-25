@@ -153,10 +153,12 @@ public:
         return {};
     }
     // The device the game runs on (`game.device`): {formFactor: "desktop"|"phone"|"tablet", gpuBackend, memoryGB, tier:
-    // "low"|"medium"|"high"}. The default is what headless runs and tests report (fixed, so output never depends on the
-    // machine): desktop, "headless", 8 GB, "high".
+    // "low"|"medium"|"high", steamDeck, handheld}. The default is what headless runs and tests report (fixed, so output never
+    // depends on the machine): desktop, "headless", 8 GB, "high", not a Steam Deck, not handheld. steamDeck: the game runs on a
+    // Steam Deck; handheld: a Steam Deck, a phone or a tablet.
     virtual Json device_info() const {
-        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"}});
+        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"},
+                                {"steamDeck", false}, {"handheld", false}});
     }
     // The renderer's stats of the picture now (RenderStats::to_json plus the target size), drawing a frame first when none
     // has been drawn since the last change (`game.renderStats()` in tests, the `game.render_stats` command). Null without
@@ -272,6 +274,11 @@ public:
     // and, when none consumes it (or there are none), asks the host to quit, which is what Back did before the event
     // existed. Once per frame, with dispatch_platform().
     void dispatch_back();
+    // The pads that were plugged in or out since the last frame (Input::take_gamepad_events): the game events
+    // "app.gamepadConnected" / "app.gamepadDisconnected" with {slot, id, name, type}, which game.on() listens to. Once per
+    // frame, with dispatch_platform(). Events that arrive before the scripts are initialised are dropped (a script reads the pads
+    // already there with input.gamepad(i).connected).
+    void dispatch_gamepads();
 
     // Developer tools.
     Result<Json> eval(std::string_view code);  // REPL in the game context; returns the value as JSON

@@ -242,6 +242,52 @@ TEST_CASE("export: a native plugin's build ships next to the executable, its fol
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("factoria.json#/plugins/example: the macos build is missing: macos/libexample.dylib") != std::string::npos);
     CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-macos")));
+    CHECK(r.error().hint.find("--allow-missing-plugins") != std::string::npos);
+    CHECK(r.error().hint.find("not \"optional\"") != std::string::npos);  // this one is not declared optional
+
+    // allowMissingPlugins: the export goes on without that plugin and says what it left out.
+    o.allowMissingPlugins = true;
+    auto left = export_project(o);
+    REQUIRE_MESSAGE(left.ok(), (left.ok() ? "" : left.error().to_string()));
+    REQUIRE(left->pluginsLeftOut.size() == 1);
+    CHECK(left->pluginsLeftOut[0] == "example");
+    CHECK(left->to_json()["pluginsLeftOut"][0] == "example");
+    bool said = false;
+    for (const std::string& w : left->warnings)
+        said = said || (w.find("plugin 'example' is left out") != std::string::npos && w.find("NOT declared \"optional\"") != std::string::npos);
+    CHECK(said);
+    CHECK(stdfs::exists(tmp.sub("out/space-dodge-macos")));
+
+    // The plugin declared optional: the same, and the error without the flag says the game runs without it.
+    project["plugins"]["example"]["optional"] = true;
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+    o.allowMissingPlugins = false;
+    auto refused = export_project(o);
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().hint.find("not \"optional\"") == std::string::npos);
+    o.allowMissingPlugins = true;
+    auto optional = export_project(o);
+    REQUIRE_MESSAGE(optional.ok(), (optional.ok() ? "" : optional.error().to_string()));
+    said = false;
+    for (const std::string& w : optional->warnings) said = said || w.find("it is declared optional") != std::string::npos;
+    CHECK(said);
+
+    // A plugin whose build exists is shipped, flag or not; the export command and its dry run take the argument too.
+    CHECK(optional->pluginsLeftOut == std::vector<std::string>{"example"});
+    o.platform = "linux";
+    auto built = export_project(o);
+    REQUIRE_MESSAGE(built.ok(), (built.ok() ? "" : built.error().to_string()));
+    CHECK(built->pluginsLeftOut.empty());
+    CHECK(stdfs::exists(tmp.sub("out/space-dodge-linux/libexample.so")));
+
+    CommandRegistry reg;
+    register_export_commands(reg, proj);
+    const std::string player = make_fake_player(tmp);
+    auto viaCommand = reg.call("project.export", {{"platform", "macos"}, {"out", "dist"}, {"player", player}});
+    CHECK_FALSE(viaCommand.ok);
+    auto allowed = reg.call("project.export", {{"platform", "macos"}, {"out", "dist"}, {"player", player}, {"allowMissingPlugins", true}});
+    REQUIRE_MESSAGE(allowed.ok, allowed.error.dump());
+    CHECK(allowed.result["pluginsLeftOut"][0] == "example");
 }
 
 // A macOS app nests four folders, so on Windows its files easily pass MAX_PATH (260 characters): the export reaches them
@@ -1481,6 +1527,12 @@ TEST_CASE("export desktop: a player from another build stops the export unless a
         auto r = export_project(o);
         REQUIRE_FALSE(r.ok());
         CHECK(r.error().message.find("has no build fingerprint") != std::string::npos);
+        // Installing the player again gives the same release, so the hint must not send the user there.
+        CHECK(r.error().hint.find("predates build fingerprints") != std::string::npos);
+        CHECK(r.error().hint.find("installs the same release again") != std::string::npos);
+        CHECK(r.error().hint.find("newer release") != std::string::npos);
+        CHECK(r.error().hint.find("--allow-player-mismatch") != std::string::npos);
+        CHECK(r.error().hint.find("Build both from the same checkout") == std::string::npos);
     }
     SUBCASE("allowPlayerMismatch exports anyway and says so in the warnings") {
         o.playerBinary = fingerprinted_player(tmp, "0123456789ab");

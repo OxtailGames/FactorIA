@@ -372,13 +372,28 @@ editor's game view), so check `window.available` first or offer the option only 
   keep the player's choice with `storage.set`.
 
 ### game.device: pick a quality preset
-`game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high" }`.
+`game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high", steamDeck, handheld }`.
 `gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, `"gles3"`, `"wgpu"` or `"vulkan"`; `memoryGB` is the machine's physical
 memory; `tier` comes from the backend and the memory (under 3.5 GB is `"low"`, under 7.5 GB `"medium"`, 5.5 on a phone
 or tablet; unknown memory, as on the web, is `"medium"`). A phone and a tablet differ by the short side of the screen
 (600 logical pixels). **Headless runs, tests and the editor always read** `{ formFactor: "desktop", gpuBackend:
-"headless", memoryGB: 8, tier: "high" }`, so a preset picked from it never depends on the machine; tests pretend with
-`game.setDevice({ formFactor: "phone", tier: "low" })` (reset before each test).
+"headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false }`, so a preset picked from it never depends on the
+machine; tests pretend with `game.setDevice({ formFactor: "phone", tier: "low" })` or `game.setDevice({ steamDeck: true })`
+(reset before each test). `steamDeck` is true on a Steam Deck: the Steam plugin says so when Steam is running; without the
+plugin the `SteamDeck=1` environment variable decides (Steam sets it for games it starts on a Deck, as community reports
+say rather than Valve's docs; a `SteamDeck=0` launch option turns it off). A Deck reports `formFactor: "desktop"`.
+`handheld` is true on a Steam Deck, a phone or a tablet: use it for bigger text and pad or touch prompts.
+
+### Pads plugged in and out: `game.on("gamepadConnected" | "gamepadDisconnected", fn)`
+`fn` gets `{ slot, id, name, type }`. `slot` is what `input.gamepad(slot)` answers for; `id` is the same for the same physical
+pad each time (vendor and product ids, the name and, where the platform has one, a serial or device path), so a game can give a
+player their pad back; `name` is the OS name; `type` is the pad family. A pad that returns takes its old slot when it is free
+(on Linux the slot is the kernel's joystick number). What goes into the id: Windows XInput has no ids, so the id says "an Xbox
+pad in XInput slot N" (it ends with `#xinputN`); Linux adds the kernel serial when the pad has one; macOS, iOS and the web give
+the name (the web also the vendor and product, but no serial); Android adds the InputDevice descriptor. Two pads of one model
+without a serial share an id. Losing the window focus does not disconnect a pad. Pads already plugged in when the first scene
+starts are not announced: read `input.gamepad(i).connected` and `.id` in the first frame. Tests: `game.gamepad(1).connect({
+id: "pad-red", name: "Red pad", type: "playstation" })`, then `game.step(1)` raises the event.
 ```js
 import { game, window, storage } from "factoria";
 const preset = storage.get("quality", game.device.tier);        // the player's choice wins, else the device's tier
@@ -398,7 +413,15 @@ if (window.available) {
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
-- `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
+- `music(path, { volume, fade, persist })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
+- A scene load (`scene.load`, reload) stops every sound and the music, then starts the new scene's `SceneSettings.music` (the same
+  track again too). `audio.music(path, { persist: true })` is the exception: that track keeps playing through scene loads, and a
+  scene whose `settings.music` is the same track does not restart it (another track replaces it). `stopAll()` stops a persisted track too.
+- `setVoiceVolume(id, volume, fade?)` moves the volume of a sound that plays (an id from `play`) in a straight line over `fade`
+  seconds, bus and master volumes still apply; false once the voice ended.
+- `musicLayers({ drums: path, bass: path }, { volume, fade, persist, levels })` starts stems of one piece on the same audio
+  sample (all in one step, so they never start in different blocks); `setLayer(name, level, fade?)` fades a stem in or out
+  (0 silent, 1 full). Stems of equal length stay aligned across loops; `stopMusic` stops every layer.
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
   `game.audioLog()`, agents with the `audio.log` command.
 
@@ -659,7 +682,7 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
   unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
   logs nothing when the store rejects.
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
-- `game.today()` (see "The date") · `game.focused` · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
+- `game.today()` (see "The date") · `game.focused` · `game.on("gamepadConnected" | "gamepadDisconnected", fn)` (see "Pads plugged in and out") · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
   see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
   app is in the background) · `game.on("quit", fn)`: see "Window close" below
 - `clipboard.read()` (a Promise of the text) · `clipboard.write(text)`: see "Clipboard" below
@@ -918,14 +941,14 @@ test("player jumps", () => {
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`; like a finger on a device,
   the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
   `click` needed), `press(action)`, `release(action)`, `tap(action)`,
-  `keyDown(key)`, `keyUp(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
+  `keyDown(key)`, `keyUp(key)`, `tapKey(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
   `focus()`, `blur()` (what the OS does to the app, so lifecycle code can be tested),
   `renderStats()` (what the renderer drew in the picture now, drawing a frame first when none was drawn: `{ drawCalls,
   triangles, lights, shadowCasters, meshes, textureMB, width, height, renderScale, ... }`; throws without graphics),
-  `setDevice({ formFactor?, gpuBackend?, memoryGB?, tier? })` (see `game.device`),
+  `setDevice({ formFactor?, gpuBackend?, memoryGB?, tier?, steamDeck?, handheld? })` (see `game.device`),
   `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
 
 More `game` calls for tests: `mouseDown(button = "left")` and `mouseUp(button)` hold and release a mouse button (`input.mouse.down(button)`
@@ -938,6 +961,38 @@ not picked again, a test starts in the default language; empty again before each
 `resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
 unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
 one file share storage and the fake store unless you call `resetState`.
+
+**Clicking a widget.** `game.click(widget)` (also `mouseMove`, `touch`, `touchStart`, `touchMove`) given an `Entity` or an
+id/name lays the UI out first, so a panel opened in the same frame (`panel.active = true`, then `game.click("close")`) is
+already in place with no `game.step` or `ui.layout()` between. It throws, naming the widget and why, when the widget cannot
+be clicked: it or a parent is inactive, it has no area (size 0), or it is scrolled out of its `ScrollList`. Pass a position
+`{x, y}` to click a spot whatever is there.
+
+**Keys.** `game.tapKey(key)` presses and releases a key over one frame (press, step, release, step), as `tap` does for an
+action; `keyDown` / `keyUp` hold it. A `TextField` reads the Enter key itself, not an action, so this submits it:
+
+```js
+test("Enter submits the name", () => {
+  game.load("scenes/menu.scene.json");
+  const submitted = [];
+  ui.on("submit", "name_field", (e) => submitted.push(e.value));
+  game.click("name_field");                              // focuses the TextField
+  game.find("name_field").set("TextField", { text: "Mara" });
+  game.tapKey("Enter");                                  // the field sends ui.submit { id, value: "Mara" }
+  expect(submitted).toEqual(["Mara"]);
+});
+```
+
+**Saving a file from a test.** A test can call any command with `fa.call`, and `fs.write` writes a project file (text up to
+8 MiB; `.factoria/` is refused except `.factoria/tmp/`): keep a recording or a layout dump to look at afterwards.
+
+```js
+test("dump the menu layout", () => {
+  game.load("scenes/menu.scene.json");
+  game.step(5);
+  fa.call("fs.write", { path: "build/menu_layout.json", content: JSON.stringify(ui.state(), null, 2) });
+});
+```
 
 **`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
 of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next
