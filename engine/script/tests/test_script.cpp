@@ -1314,6 +1314,32 @@ TEST_CASE("entity.bounds: Tilemap size x tileSize from its top-left corner, rows
     CHECK(ev_ok(h, "Array.isArray(physics.overlapBox(world.find('level').bounds()))") == true);
 }
 
+TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place") {
+    TestHost h("tilemap_settile");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id: 'flat', components: {Tilemap: {tileSize: [16, 16], width: 3, height: 2, tiles: [0, 1, 2, 3, -1, 5]}}})");
+    ev_ok(h, "world.spawn({id: 'rows', components: {Tilemap: {tileSize: [16, 16], tiles: [[0, 1], [2, 3]]}}})");
+    CHECK(ev_ok(h, "world.find('flat').tilemap.width") == 3);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.height") == 2);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(2, 1)") == 5);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == -1);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(9, 9)") == -1);  // outside the map reads as empty
+    ev_ok(h, "world.find('flat').tilemap.setTile(1, 1, 7); world.find('rows').tilemap.setTile(0, 1, -1)");
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == 7);
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,7,5");
+    CHECK(ev_ok(h, "JSON.stringify(world.find('rows').get('Tilemap').tiles)") == "[[0,1],[-1,3]]");
+    const Tilemap* tm = h.w.get<Tilemap>(h.w.find("flat"));
+    REQUIRE(tm);
+    CHECK(tm->edits.size() == 1);  // recorded for 2D physics
+    // Errors teach: the map size, the 0-based cells.
+    std::string m = ev_err(h, "world.find('flat').tilemap.setTile(3, 0, 1)");
+    CHECK(m.find("3 x 2 map") != std::string::npos);
+    m = ev_err(h, "world.find('flat').tilemap.setTile(0, 0, 'a')");
+    CHECK(m.find("expects three numbers") != std::string::npos);
+    m = ev_err(h, "world.spawn({id: 'plain'}).tilemap");
+    CHECK(m.find("has no Tilemap component") != std::string::npos);
+}
+
 TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and flip") {
     TestHost h("bounds_sprite");
     Image img;

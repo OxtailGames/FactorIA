@@ -175,6 +175,8 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `tileset` | asset (texture) | `""` | Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom). |
 | `tileSize` | vec2 | `[16.0,16.0]` | Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units). |
 | `columns` | int | `0` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout. Range 0.0..4096.0. |
+| `margin` | int | `0` | Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map. Range 0.0..4096.0. (not released yet, on main after 0.2.0) |
+| `spacing` | int | `0` | Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)). Range 0.0..4096.0. (not released yet, on main after 0.2.0) |
 | `width` | int | `0` | Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it). Range 0.0..65536.0. |
 | `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
 | `tiles` | json | `[]` | Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. |
@@ -1626,6 +1628,21 @@ Show the languages of the game: which is current, which strings each lacks compa
 
 Returns {enabled, default, current, languages: [{code, name, file, loaded, keys, missing, missingKeys}], systemLanguages}. `enabled` is false when factoria.json has no "localization" section (then there is nothing else). Each language has one string table, file locales/<code>.json; `loaded` is false when the file is missing or broken (its strings come from the fallback languages: see the log). `keys` counts the strings of the table, `missing` the keys of the default language's table that this one lacks (missingKeys lists up to 20 of them), `name` is the table's "$name" or the code. systemLanguages is the player's system languages in a game with its own window and empty in headless runs. Example: i18n.state {}
 
+## game
+
+### `input.record` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Record the input the game receives as an input replay (start / stop).
+
+`start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, game.input or a replay), the dt and fixed steps of each frame, the clipboard reads and the calendar date; what is held at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that `factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop between frames. Starting while recording begins again. Example: input.record {"action":"start"} ... input.record {"action":"stop","path":"replays/run1.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
+| `path` | string | no | stop only: also write the replay to this project-relative file (e.g. replays/run1.json). |
+
 ## material
 
 ### `material.info`
@@ -2198,14 +2215,14 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
 | `legend` | object | no | Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0\|90\|180\|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
 | `legendFrom` | string | no | Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted. |
-| `tilemap` | object | no | Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
 | `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
@@ -2233,11 +2250,12 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. Example: scene.load {"path":"scenes/level2.scene.json"}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Project-relative scene path. |
+| `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 
 ### `scene.reload` (modifies state)
 
@@ -2469,6 +2487,23 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 | `testCertificate` | boolean | no | Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC. Default false. |
 | `timestampUrl` | string | no | RFC 3161 time-stamp server. Default: http://timestamp.digicert.com. |
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign nothing. Works on any computer. Default false. |
+
+## scene
+
+### `tilemap.set_tile` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Change one tile of a Tilemap in the running scene, in place.
+
+Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) at column `col`, row `row` of the Tilemap on entity `id` (0-based, row 0 = TOP row). Only that element of `tiles` changes: the array is not rewritten, the renderer reads it directly and 2D physics rebuilds only the colliders of the changed tiles on the next step. This is the command form of `entity.tilemap.setTile(col, row, tile)` in scripts. It changes the RUNNING world only (not the scene file; use scene.save to keep it, scene.import_ascii to rebuild a level file). A cell outside the map or a value that is not a tile is refused and nothing changes. Returns {id, col, row, tile, previous}. Example: tilemap.set_tile {"id":"map","col":12,"row":7,"tile":-1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `col` | integer | yes | Tile column, 0 = leftmost. |
+| `row` | integer | yes | Tile row, 0 = TOP row. |
+| `tile` | integer | yes | Tileset index (plus optional flip flags, see Tilemap.tiles), or -1 to empty the cell. |
 
 ## ui
 
@@ -2969,6 +3004,10 @@ declare module "factoria" {
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      */
     readonly animator: AnimatorAPI;
+    /**
+     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     */
+    readonly tilemap: TilemapAPI;
     /**
      * Playback of this entity's Video component (play, pause, stop, seek, time, duration, the "ended" event). Throws if the entity has no Video; entity.get("Video") answers null instead.
      */
@@ -3624,9 +3663,9 @@ declare module "factoria" {
      */
     preload(path: string): PreloadHandle;
     /**
-     * Deferred to the end of the frame.
+     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load("scenes/level.scene.json", { level: 3 }).
      */
-    load(path: string): void;
+    load(path: string, props?: Json): void;
     reload(): void;
     readonly current: string;
   }
@@ -3665,6 +3704,10 @@ declare module "factoria" {
      * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused.
      */
     paused: boolean;
+    /**
+     * The props the current scene was started with: scene.load(path, props), factoria run --props, or the scene.load command's props. A plain object, {} when none were given; available from the first onStart. A reload keeps them, a load without props drops them. A fresh copy each call. Example: const level = game.sceneProps().level ?? 1.
+     */
+    sceneProps(): Json;
     /**
      * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso ("YYYY-MM-DD") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on("dayChanged") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate("2026-10-23T23:59:30"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
      */
@@ -3709,6 +3752,37 @@ declare module "factoria" {
   }
 
   /**
+   * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.
+   */
+  export type WindowMode = "windowed" | "borderless" | "fullscreen";
+
+  /**
+   * One monitor, from window.monitors().
+   */
+  export interface MonitorInfo {
+    /**
+     * Its place in window.monitors(), the number window.setMonitor() takes. The primary monitor is 0.
+     */
+    index: number;
+    /**
+     * What the OS calls it ("DELL U2723QE", "Built-in Retina Display", "HDMI-1"; Windows gives the graphics driver's text, often "Generic PnP Monitor"). Two identical monitors have the same name: show the index too.
+     */
+    name: string;
+    /**
+     * Its size in logical pixels.
+     */
+    size: Vec2;
+    /**
+     * The OS's main monitor (the one with the taskbar or menu bar).
+     */
+    primary: boolean;
+    /**
+     * The game window is on it now.
+     */
+    current: boolean;
+  }
+
+  /**
    * A window size in logical pixels, from window.resolutions().
    */
   export interface Resolution {
@@ -3729,9 +3803,29 @@ declare module "factoria" {
      */
     readonly fullscreen: boolean;
     /**
-     * Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     * Enters or leaves full screen: `setMode("fullscreen")` for true, `setMode("windowed")` for false. `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
      */
     setFullscreen(on: boolean): void;
+    /**
+     * "windowed", "borderless" or "fullscreen" ("fullscreen" when the project's display.fullscreen is on and there is no window, and always on phones and tablets). `window.fullscreen` is true for both borderless and fullscreen.
+     */
+    readonly mode: WindowMode;
+    /**
+     * Chooses how the window is shown. "windowed" has a frame and the size window.setSize() gave. "borderless" has no frame and covers the monitor the window is on. "fullscreen" covers it too, and where the OS has a native full screen it uses it: on macOS that is the OS's own full screen Space (the menu bar slides in, Mission Control shows it as a Space; borderless instead hides the menu bar and the Dock but stays on the desktop's Space); on Windows and Linux the engine has no exclusive mode, so fullscreen and borderless are the same frameless window over the monitor and the two names only keep what the player picked. On macOS going from fullscreen straight to borderless throws (the Space takes a moment to leave): go through "windowed" and wait a second. Use window.supports("borderless") before offering borderless. Throws without a window, on an unknown name, and on phones and tablets for anything but "fullscreen".
+     */
+    setMode(mode: WindowMode): void;
+    /**
+     * The monitors, primary first. A run without a window, phones, tablets and the web answer with one entry, the display the game runs on (a run without a window: the project's display size). Linux lists the connected XRandR outputs (one entry for the whole screen when libXrandr is missing).
+     */
+    monitors(): MonitorInfo[];
+    /**
+     * The index in window.monitors() of the monitor the window is on (0 when there is only one).
+     */
+    readonly monitor: number;
+    /**
+     * Moves the window to monitor `index` of window.monitors(): a windowed window is centred on it, a fullscreen or borderless one covers it. Works on Windows, macOS and Linux; throws on other platforms, without a window, for an index that does not exist, and on macOS while the window is in its native full screen Space (leave it with setMode("windowed") first). `window.displaySize` and `window.resolutions()` describe the new monitor afterwards (on Linux a moment later, when the window manager has moved the window). Check window.supports("monitors") first.
+     */
+    setMonitor(index: number): void;
     /**
      * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
      */
@@ -3765,9 +3859,9 @@ declare module "factoria" {
      */
     renderScale: number;
     /**
-     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". borderless needs a desktop window (Windows, macOS, Linux; not the web), monitors needs a desktop window that can list and move between monitors (Windows, macOS, Linux; true with one monitor too: offer the choice when window.monitors().length > 1). Read window.supports("frameCap") before offering window.frameCap.
      */
-    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize" | "clipboard"): boolean;
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): boolean;
   }
 
   /**
@@ -4655,6 +4749,32 @@ declare module "factoria" {
   }
 
   /**
+   * Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   */
+  export class TilemapAPI {
+    /**
+     * The tile value at column x, row y (0-based, row 0 = TOP row): the tile index plus flip/rotate flag bits, -1 when empty or outside the map. Mask with `& 0xFFFFFFF` for the plain index.
+     */
+    getTile(x: number, y: number): number;
+    /**
+     * Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step.
+     */
+    setTile(x: number, y: number, tile: number): void;
+    /**
+     * Map width in tiles.
+     */
+    readonly width: number;
+    /**
+     * Map height in tiles (rows).
+     */
+    readonly height: number;
+    /**
+     * The Tilemap component view.
+     */
+    readonly component: Components["Tilemap"];
+  }
+
+  /**
    * Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on("ended", () => scene.load("scenes/menu.scene.json"))`; `intro.video.seek(10)`.
    */
   export class VideoAPI {
@@ -5366,6 +5486,16 @@ declare module "factoria" {
      * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
+    /**
+     * Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map.
+     * @since unreleased
+     */
+    margin: number;
+    /**
+     * Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)).
+     * @since unreleased
+     */
+    spacing: number;
     /**
      * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
@@ -7651,7 +7781,7 @@ declare module "factoria" {
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
@@ -7976,9 +8106,9 @@ declare module "factoria:test" {
      */
     blur(): void;
     /**
-     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
+     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
-    load(path: string): void;
+    load(path: string, props?: Json): void;
     /**
      * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
      */
@@ -8072,9 +8202,9 @@ declare module "factoria:test" {
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**
-     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file.
+     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file. `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
-    loadJson(scene: Json): void;
+    loadJson(scene: Json, props?: Json): void;
     /**
      * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */

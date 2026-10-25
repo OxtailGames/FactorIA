@@ -191,9 +191,14 @@ What the command does, file by file; do it by hand when you want to see each fil
   exported game in `FACTORIA_NOTICES.txt`. Add your own lines (people, music, fonts) to `Credits.lines`.
 - **Audio.** One `Slider` per bus (`master`, `music`, `sfx`, `ui`); the defaults are `DEFAULTS.volume` in `settings.js`.
   `audio.getVolume(bus)` reads a volume back.
-- **Video.** `window.setFullscreen`, `setSize` (one of `window.resolutions()`), `setVsync` and `frameCap`. They throw
-  when there is no window (headless runs, tests): with `window.available` false the rows are greyed out and a note says
-  why.
+- **Video.** `window.setMode` (a button that cycles windowed, borderless and full screen; a platform without
+  borderless skips it), `window.setMonitor` (a button that cycles the monitors; the row is hidden unless
+  `window.supports("monitors")` and the computer has more than one), `setSize` (one of `window.resolutions()`),
+  `setVsync` and `frameCap`. They throw when there is no window (headless runs, tests): with `window.available` false
+  the rows are greyed out and a note says why. The mode and the monitor are saved in `settings.js` (`windowMode`, and
+  `monitor` as `{ index, name }`: the name finds the monitor again when the numbers change) and restored at start, the
+  monitor first so a full screen window covers the right one. A save from an older kit (`fullscreen: true`) is read as
+  `windowMode`.
 - **Controls.** A click on an action's button waits for the next press (`input.lastPressed()`, skipping the frame of the
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
   `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
@@ -435,7 +440,8 @@ function defaults() {
   const system = game.accessibility;
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-    fullscreen: null, // null: keep factoria.json display.fullscreen
+    windowMode: null, // "windowed" | "borderless" | "fullscreen", or null: keep factoria.json display.fullscreen
+    monitor: null, // { index, name } of the monitor the player chose (see monitorChoice), or null: where the OS opens the window
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
@@ -452,12 +458,24 @@ function defaults() {
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
+  if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
   return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
 }
 
 export function save(s) {
   storage.set("settings", s);
+}
+
+/** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
+export function monitorChoice(index) {
+  return { index, name: window.monitors()[index]?.name ?? "" };
+}
+
+/** The index in window.monitors() of the monitor the player chose: the same name (the same place when several share it), or -1 when it is not connected now. */
+function savedMonitorIndex(choice) {
+  const same = window.monitors().filter((m) => m.name === choice.name);
+  return same.length ? (same.find((m) => m.index === choice.index) ?? same[0]).index : -1;
 }
 
 /** Camera.colorFilter of the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
@@ -505,7 +523,15 @@ export function apply(s = load()) {
       console.warn(`settings: ${what} was not applied: ${e.message}`);
     }
   };
-  if (s.fullscreen !== null) tryApply("full screen", () => window.setFullscreen(s.fullscreen));
+  // The monitor first: a full screen or borderless window covers the monitor it is on when it switches.
+  if (s.monitor && window.supports("monitors")) {
+    const index = savedMonitorIndex(s.monitor);
+    if (index >= 0 && index !== window.monitor) tryApply("monitor", () => window.setMonitor(index));
+  }
+  if (s.windowMode !== null) {
+    const mode = s.windowMode === "borderless" && !window.supports("borderless") ? "fullscreen" : s.windowMode;
+    tryApply("window mode", () => window.setMode(mode));
+  }
   if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
   if (s.frameCap) tryApply("frame cap", () => (window.frameCap = s.frameCap));
@@ -914,9 +940,10 @@ export default class StoreEvents extends Behaviour {
           { "id": "tab_language", "components": { "Button": { "autoSize": true, "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
         ] },
       { "id": "video_section",
-        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 12 } },
+        "components": { "Panel": { "size": [712, 400], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 12 } },
         "children": [
-          { "id": "fullscreen", "components": { "Toggle": { "autoSize": true, "label": "Full screen", "key": "options.fullscreen", "size": [560, 44], "layer": 302 } } },
+          { "id": "window_mode", "components": { "Button": { "autoSize": true, "text": "Window mode", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "monitor", "components": { "Button": { "autoSize": true, "text": "Monitor", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "resolution", "components": { "Button": { "autoSize": true, "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "vsync", "components": { "Toggle": { "autoSize": true, "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
           { "id": "frame_cap", "components": { "Button": { "autoSize": true, "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
@@ -956,8 +983,8 @@ export default class StoreEvents extends Behaviour {
 
 ```js scripts/ui/options.js
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
-// colour filter, an accessibility option that works without a window),
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
+// monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
 // Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
@@ -1011,14 +1038,24 @@ export default class Options extends Behaviour {
     const s = this.s;
     const has = window.available; // false in headless runs and tests: the rows stay visible, greyed out
     world.find("video_note").active = !has;
-    const fullscreen = world.find("fullscreen").get("Toggle");
     const vsync = world.find("vsync").get("Toggle");
-    fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
-    fullscreen.interactable = vsync.interactable = world.find("frame_cap").get("Button").interactable = has;
+    vsync.interactable = world.find("frame_cap").get("Button").interactable = world.find("window_mode").get("Button").interactable = has;
+    // The monitor row only exists where the game can move between monitors and this computer has more than one.
+    world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
     this.refreshVideo();
 
-    ui.on("change", "fullscreen", (e) => this.video("full screen", () => { window.setFullscreen(e.value); s.fullscreen = e.value; }));
+    ui.on("click", "window_mode", () => {
+      // windowed -> borderless -> fullscreen -> windowed (macOS cannot go from fullscreen straight to borderless); a platform without borderless skips it.
+      const modes = window.supports("borderless") ? ["windowed", "borderless", "fullscreen"] : ["windowed", "fullscreen"];
+      const next = modes[(modes.indexOf(window.mode) + 1) % modes.length];
+      this.video("window mode", () => { window.setMode(next); s.windowMode = next; });
+    });
+    ui.on("click", "monitor", () => {
+      const count = window.monitors().length;
+      const next = (window.monitor + 1) % count;
+      this.video("monitor", () => { window.setMonitor(next); s.monitor = settings.monitorChoice(next); });
+    });
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
       const sizes = window.resolutions();
@@ -1053,6 +1090,9 @@ export default class Options extends Behaviour {
 
   refreshVideo() {
     const size = window.size;
+    world.find("window_mode").get("Button").text = i18n.t("options.windowMode", { mode: i18n.t(`options.mode.${window.mode}`) });
+    const monitors = window.monitors();
+    world.find("monitor").get("Button").text = i18n.t("options.monitor", { n: window.monitor + 1, name: monitors[window.monitor]?.name ?? "" });
     const resolution = world.find("resolution").get("Button");
     resolution.text = window.fullscreen
       ? i18n.t("options.windowSizeFullscreen")
@@ -2020,7 +2060,13 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
   "options": {
     "title": "Options",
     "tab": { "video": "Video", "audio": "Audio", "controls": "Controls", "language": "Language" },
-    "fullscreen": "Full screen",
+    "windowMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Window size: {width} x {height}",
     "windowSizeFullscreen": "Window size: full screen",
@@ -2098,7 +2144,13 @@ third language by editing the values only (keep the keys and the `{placeholders}
   "options": {
     "title": "Opciones",
     "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
-    "fullscreen": "Pantalla completa",
+    "windowMode": "Modo de ventana: {mode}",
+    "mode": {
+      "windowed": "ventana",
+      "borderless": "sin bordes",
+      "fullscreen": "pantalla completa"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Tamaño de ventana: {width} x {height}",
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",

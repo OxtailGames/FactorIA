@@ -29,6 +29,7 @@ struct AppState {
     bool active = false;
     bool focused = true;  // pads are not polled while the window is in the background
     bool vsync = true;  // as asked for: AppDesc::vsync, then app_set_vsync
+    bool borderlessWanted = false;  // full screen was asked for as "borderless" (Windows, Linux: the same window as "fullscreen")
     bool touchLogged = false;  // the first touch is logged once (the mobile smoke tests wait for it)
     int fbW = 0, fbH = 0;
     EdgeInsets insets;  // app_safe_insets(): asked of the platform at start, on resize and every few frames
@@ -376,6 +377,78 @@ bool app_is_fullscreen() { return app_is_mobile() || sapp_is_fullscreen(); }
 void app_set_fullscreen(bool on) {
     if (!app_is_mobile() && sapp_is_fullscreen() != on) sapp_toggle_fullscreen();
 }
+
+namespace {
+// macOS is the one desktop OS where "full screen" (a native Space) and "borderless" (a window over the monitor) differ.
+constexpr bool kNativeFullscreenSpace =
+#if defined(__APPLE__)
+    true;
+#else
+    false;
+#endif
+}  // namespace
+
+bool app_has_window_modes() {
+#if defined(__EMSCRIPTEN__)
+    return false;
+#else
+    return !app_is_mobile();
+#endif
+}
+
+WindowMode app_window_mode() {
+    if (app_is_mobile()) return WindowMode::Fullscreen;
+    if (kNativeFullscreenSpace && fa_sapp_is_borderless()) return WindowMode::Borderless;
+    if (!sapp_is_fullscreen()) {
+        g.borderlessWanted = false;
+        return WindowMode::Windowed;
+    }
+    return g.borderlessWanted && !kNativeFullscreenSpace ? WindowMode::Borderless : WindowMode::Fullscreen;
+}
+
+std::string app_set_window_mode(WindowMode mode) {
+    if (app_is_mobile()) return mode == WindowMode::Fullscreen ? std::string() : "phones and tablets always run full screen";
+    const WindowMode now = app_window_mode();
+    if (now == mode) return {};
+    if (kNativeFullscreenSpace) {
+        if (mode == WindowMode::Borderless && now == WindowMode::Fullscreen)
+            return "macOS full screen is a Space of its own that takes a moment to leave: call window.setMode(\"windowed\"), "
+                   "wait a second, then window.setMode(\"borderless\")";
+        if (now == WindowMode::Borderless) fa_sapp_set_borderless(false);
+        if (mode == WindowMode::Borderless) {
+            if (!fa_sapp_set_borderless(true)) return "this window cannot go borderless right now";
+        } else if (sapp_is_fullscreen() != (mode == WindowMode::Fullscreen)) {
+            sapp_toggle_fullscreen();
+        }
+        return {};
+    }
+    // Windows, Linux (and the web's canvas): one full screen window that covers its monitor, so borderless and full screen
+    // are the same window; the mode only remembers which one was asked for.
+    g.borderlessWanted = mode == WindowMode::Borderless;
+    if (sapp_is_fullscreen() != (mode != WindowMode::Windowed)) sapp_toggle_fullscreen();
+    return {};
+}
+
+std::vector<MonitorInfo> app_monitors() {
+    std::vector<MonitorInfo> list;
+    if (app_is_mobile()) return list;
+    fa_sapp_monitor raw[16];
+    const int n = fa_sapp_monitors(raw, 16);
+    for (int i = 0; i < n; ++i) {
+        MonitorInfo m;
+        m.name = raw[i].name;
+        m.x = raw[i].x;
+        m.y = raw[i].y;
+        m.width = raw[i].w;
+        m.height = raw[i].h;
+        m.primary = raw[i].primary;
+        m.current = raw[i].current;
+        list.push_back(std::move(m));
+    }
+    return list;
+}
+
+bool app_move_to_monitor(int index) { return !app_is_mobile() && fa_sapp_move_to_monitor(index); }
 
 void app_window_size(int& width, int& height) { fa_sapp_window_size(&width, &height); }
 bool app_display_size(int& width, int& height) { return fa_sapp_display_size(&width, &height); }

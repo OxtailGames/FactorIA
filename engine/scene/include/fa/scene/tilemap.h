@@ -64,6 +64,16 @@ struct TilemapSize {
 // Just the size of the effective grid (cheap: no tile list is built). 0 x 0 when `tiles` is empty or not an array.
 TilemapSize tilemap_size(const Tilemap& tm);
 
+// The tile value at (col, row) read in place from `tiles` (no list is built, unlike tilemap_grid()); -1 when empty or
+// outside `size` (from tilemap_size()). The renderer draws through this every frame.
+int tilemap_tile_at(const Tilemap& tm, const TilemapSize& size, int col, int row);
+
+// Writes one tile in place: `tiles` keeps its array, only that element changes (a flat map grows to reach the cell when
+// the array is shorter than width*height; a row is padded with -1). `value` is the tile index plus flag bits, or -1 to
+// empty the cell. Records a TileEdit for 2D physics. Returns false (nothing written) when (col, row) is outside the
+// map's size (tilemap_size) or `value` is not -1 or in 0..kTileFlagMask|kTileIndexMask.
+bool set_tilemap_tile(Tilemap& tm, int col, int row, int value);
+
 // The size plus the flat tile list.
 struct TilemapGrid {
     int width = 0;               // tiles per row
@@ -80,7 +90,7 @@ struct TilemapGrid {
 TilemapGrid tilemap_grid(const Tilemap& tm);
 
 // Number of tile columns of the tileset image for this tilemap: `columns` when it is set (> 0), otherwise derived from
-// the image: whole tiles that fit in imageWidth (imageWidth / tileSize.x, at least 1). 0 when it cannot be known
+// the image: whole tiles that fit in imageWidth after `margin` and `spacing` (at least 1). 0 when it cannot be known
 // (columns not set and no usable image width or tileSize).
 int tileset_columns(const Tilemap& tm, int imageWidth);
 

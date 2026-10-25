@@ -220,6 +220,30 @@ function that never runs gives `hits: []` and `framesRun` equal to `frames`, whi
 reached (check the `scene` and the `input`). A point on a line without a statement is an error that lists the nearest
 breakable lines; a file that is not a project module is an error with the closest script names.
 
+## Recording and replaying input
+
+The command `input.record` records the input a running game receives, as the replay that `factoria run --input` plays.
+Start it, play (or let a script or an AI drive the game), stop it:
+
+```
+factoria call --project games/x input.record '{"action":"start"}'
+... play ...
+factoria call --project games/x input.record '{"action":"stop","path":"replays/bug.json"}'
+```
+
+`stop` returns `{ recording: false, frames, replay }`; `path` (relative to the project) also writes the file. Stopping with
+no recording running is an error that says to start one. Starting again restarts the recording. The editor records every
+Play .. Stop with the same recorder (docs/EDITOR.md, "Play sessions").
+
+- It records keys, mouse position and buttons, gamepads (connections, buttons, axes), touches, the Back press, the
+  clipboard text the game read, the frame times (`timing`) and the calendar date, so the replay plays to the same state.
+  What was held when the recording started (a key, a pad button) is part of frame 0.
+- Frame numbers count from the start of the recording; an entry applies before its frame runs.
+- Not recorded: the mouse wheel, the locked-mouse movement and typed text (`TextField`s); a key pressed and released inside
+  one frame becomes a single entry. A game that depends on those does not replay exactly.
+- Replay it with `factoria run --headless --input replays/bug.json --frames N` (plus `--props` when the scene needs them: props
+  are not part of the replay).
+
 ## Under the hood
 
 `factoria dap` is a Debug Adapter Protocol server on stdio, which is what VS Code starts. It runs the game on the main

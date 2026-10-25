@@ -112,6 +112,25 @@ struct Touch {
     bool pressedThisFrame = false;
 };
 
+// Told about every event the feed below receives, BEFORE it changes the state: what the input recorder (fa/runtime/input_recorder.h)
+// writes a replay from. Only the events a caller feeds are reported: the mouse a touch drives and the pad disconnects of
+// release_all() are consequences, not events, and are not (the replay reproduces them from the touch / release_all).
+class InputObserver {
+public:
+    virtual ~InputObserver() = default;
+    virtual void observe_key(Key, bool) {}
+    virtual void observe_mouse_move(Vec2) {}
+    virtual void observe_mouse_button(MouseButton, bool) {}
+    virtual void observe_touch_begin(std::uint64_t /*id*/, Vec2) {}
+    virtual void observe_touch_move(std::uint64_t /*id*/, Vec2) {}
+    virtual void observe_touch_end(std::uint64_t /*id*/) {}
+    virtual void observe_gamepad_connected(int, bool) {}
+    virtual void observe_gamepad_button(int, GamepadButton, bool) {}
+    virtual void observe_gamepad_axis(int, GamepadAxis, float) {}
+    virtual void observe_back() {}
+    virtual void observe_release_all() {}
+};
+
 class Input {
 public:
     // Frame lifecycle: pressed/released edges and per-frame deltas (mouse delta,
@@ -145,7 +164,10 @@ public:
     // The system Back button or gesture (Android). An edge: back_pressed() is true until the next begin_frame(). Scripts
     // get it as input.onBack; when none of their handlers consumes it, the runtime asks the game to quit (what Back did
     // before there was an event). Tests and replays call it too.
-    void on_back() { backEdge_ = true; }
+    void on_back() {
+        if (InputObserver* o = tap()) o->observe_back();
+        backEdge_ = true;
+    }
     // Gamepads (index 0..kMaxGamepads-1; out-of-range indices are ignored). A button or axis event also marks the pad
     // connected. Disconnecting releases its buttons (with release edges) and zeroes its axes. Axis values are clamped
     // (sticks -1..1 with +Y up, triggers 0..1). The platform's poll_gamepads() feeds these; tests and replays call them.
@@ -327,7 +349,18 @@ public:
     // Debug snapshot: keys down, mouse, touches, actions down.
     Json snapshot() const;
 
+    // One observer at a time (nullptr = none): the runtime's recorder. Not owned.
+    void set_observer(InputObserver* observer) { observer_ = observer; }
+
 private:
+    InputObserver* tap() const { return observerDepth_ == 0 ? observer_ : nullptr; }
+    struct ObserverMute {  // events fed by another event (a touch's mouse) are not reported on their own
+        explicit ObserverMute(Input& in) : in_(in) { ++in_.observerDepth_; }
+        ~ObserverMute() { --in_.observerDepth_; }
+        Input& in_;
+    };
+    InputObserver* observer_ = nullptr;
+    int observerDepth_ = 0;
     struct Binding {
         enum class Kind : std::uint8_t { Key, Mouse, Touch, PadButton, PadAxis } kind = Kind::Key;
         Key key = Key::Unknown;
