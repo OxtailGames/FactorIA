@@ -1,14 +1,16 @@
 // @ts-check
-// Tile pathfinding on the live mine. FactorIA has no 2D or tile pathfinding (its `nav` is a 3D NavMesh), so the game keeps its
-// own: an A* over the tiles of a MineMap that follows digging. A `NavGrid` listens to `map.onChange`, so its `version` goes up
-// every time a tile changes and every cached path knows it is stale; a tunnel dug a second ago is walkable in the next search.
+// Tile pathfinding on the live mine. The search itself is the engine's `nav.findTilePath` over a `{width, height, cost}` grid
+// built from MineMap.kinds (the real map is not the drawn Tilemap); what stays here is the game's cost rules (dig cost, danger
+// kinds) and the follow-the-digging part. A `NavGrid` listens to `map.onChange`, so its `version` goes up every time a tile
+// changes and every cached path knows it is stale; a tunnel dug a second ago is walkable in the next search. The cost grid of a
+// set of options is built once per version.
 //
 //   const nav = navFor(map);                          // one shared NavGrid per map
 //   const r = nav.findPath({tx, ty}, {tx, ty}, opts); // {ok, path: [{tx,ty}...], cost, digs: [{tx,ty}...]}
 //   const follower = new PathFollower(nav);           // walks a path: follower.goTo(...), follower.direction(pos)
 //
 // Contract of `findPath(from, to, opts)`:
-//   - 4 neighbours, every step costs 1. The path includes the start and the goal tile.
+//   - 4 neighbours, every step costs 1 (plus the extras below). The path includes the start and the goal tile.
 //   - A solid tile blocks, unless `opts.dig = { tier, cost }` is given: then a tile the pick can dig (MineMap.canDig) is
 //     walkable at cost `digTime * cost` (default cost 4) and is listed in `digs`, in path order. Bedrock never is.
 //   - The danger kinds (water, magma, cracked floor: `isDangerKind` in tiles.js) cost `opts.dangerCost` extra. Default
@@ -16,51 +18,8 @@
 //   - The goal tile is always allowed (so a path can end on the thing being chased, whatever it stands on).
 //   - `opts.maxNodes` (default 20000) bounds the search; a search that runs out of nodes returns {ok: false, reason: "far"}.
 //   - No path: {ok: false, path: [], reason: "blocked" | "far" | "off-map"}.
+import { nav as tileNav } from "factoria";
 import { kindInfo, isDangerKind } from "./tiles.js";
-
-/** A tiny binary min-heap of [priority, node] pairs. */
-class Heap {
-  constructor() {
-    /** @type {number[]} */ this.p = [];
-    /** @type {number[]} */ this.v = [];
-  }
-  get size() {
-    return this.v.length;
-  }
-  push(priority, value) {
-    let i = this.v.length;
-    this.p.push(priority);
-    this.v.push(value);
-    while (i > 0) {
-      const parent = (i - 1) >> 1;
-      if (this.p[parent] <= this.p[i]) break;
-      [this.p[parent], this.p[i]] = [this.p[i], this.p[parent]];
-      [this.v[parent], this.v[i]] = [this.v[i], this.v[parent]];
-      i = parent;
-    }
-  }
-  pop() {
-    const top = this.v[0];
-    const lastP = /** @type {number} */ (this.p.pop()), lastV = /** @type {number} */ (this.v.pop());
-    const n = this.v.length;
-    if (n > 0) {
-      this.p[0] = lastP;
-      this.v[0] = lastV;
-      let i = 0;
-      for (;;) {
-        const l = 2 * i + 1, r = l + 1;
-        let m = i;
-        if (l < n && this.p[l] < this.p[m]) m = l;
-        if (r < n && this.p[r] < this.p[m]) m = r;
-        if (m === i) break;
-        [this.p[m], this.p[i]] = [this.p[i], this.p[m]];
-        [this.v[m], this.v[i]] = [this.v[i], this.v[m]];
-        i = m;
-      }
-    }
-    return top;
-  }
-}
 
 const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -70,6 +29,9 @@ export class NavGrid {
     this.map = map;
     /** Goes up by one every time a tile of the map changes (dig, collapse, flood...). */
     this.version = 0;
+    /** @type {Map<string, {width: number, height: number, cost: number[]}>} */
+    this.grids = new Map();
+    this.gridVersion = 0;
     this.off = map.onChange(() => {
       this.version++;
     });
@@ -89,58 +51,48 @@ export class NavGrid {
    */
   findPath(from, to, opts = {}) {
     const map = this.map;
-    const W = map.width, H = map.height;
     if (!map.inBounds(from.tx, from.ty) || !map.inBounds(to.tx, to.ty)) return { ok: false, path: [], reason: "off-map" };
+    const r = tileNav.findTilePath(this.costGrid(opts), [from.tx, from.ty], [to.tx, to.ty], {
+      maxNodes: opts.maxNodes ?? 20000,
+      allowBlockedGoal: true, // the goal tile is always allowed (a path can end on the thing being chased, whatever it stands on)
+    });
+    if (!r.found) return { ok: false, path: [], reason: r.reason === "too_far" ? "far" : "blocked" };
+    const path = r.cells.map((c) => ({ tx: c.col, ty: c.row }));
+    const digs = path.filter((p) => map.isSolid(p.tx, p.ty));
+    return { ok: true, path, cost: r.cost, digs };
+  }
+
+  /**
+   * The cost grid the engine searches for these options: 1 + the extra cost of entering each tile, Infinity where it cannot be
+   * entered. Kept until the map changes.
+   * @param {{dig?: {tier: number, cost?: number}, dangerCost?: number}} opts
+   */
+  costGrid(opts) {
+    const map = this.map;
+    if (this.gridVersion !== this.version) {
+      this.grids.clear();
+      this.gridVersion = this.version;
+    }
     const dangerCost = opts.dangerCost ?? Infinity;
     const digCost = opts.dig ? (opts.dig.cost ?? 4) : 0;
-    const maxNodes = opts.maxNodes ?? 20000;
-    const goal = to.ty * W + to.tx, start = from.ty * W + from.tx;
-    /** Extra cost of entering a tile, or Infinity when it cannot be entered. */
-    const enter = (tx, ty) => {
-      const kind = map.kindAt(tx, ty);
-      const info = kindInfo(kind);
-      if (info.solid) {
-        if (!opts.dig || !map.canDig(tx, ty, opts.dig.tier).ok) return Infinity;
-        return info.digTime * digCost;
-      }
-      return isDangerKind(kind) ? dangerCost : 0;
-    };
-    const g = new Float32Array(W * H).fill(Infinity);
-    const parent = new Int32Array(W * H).fill(-1);
-    const done = new Uint8Array(W * H);
-    const heap = new Heap();
-    g[start] = 0;
-    heap.push(Math.abs(from.tx - to.tx) + Math.abs(from.ty - to.ty), start);
-    let expanded = 0;
-    while (heap.size > 0) {
-      const cur = heap.pop();
-      if (done[cur]) continue;
-      done[cur] = 1;
-      if (cur === goal) break;
-      if (++expanded > maxNodes) return { ok: false, path: [], reason: "far" };
-      const cx = cur % W, cy = (cur - cx) / W;
-      for (const [dx, dy] of STEPS) {
-        const nx = cx + dx, ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const n = ny * W + nx;
-        if (done[n]) continue;
-        const extra = n === goal ? 0 : enter(nx, ny);
-        if (extra === Infinity) continue;
-        const cost = g[cur] + 1 + extra;
-        if (cost < g[n]) {
-          g[n] = cost;
-          parent[n] = cur;
-          heap.push(cost + Math.abs(nx - to.tx) + Math.abs(ny - to.ty), n);
+    const key = `${opts.dig ? opts.dig.tier : "x"}|${digCost}|${dangerCost}`;
+    let grid = this.grids.get(key);
+    if (!grid) {
+      const W = map.width, H = map.height;
+      const cost = new Array(W * H);
+      for (let ty = 0; ty < H; ty++)
+        for (let tx = 0; tx < W; tx++) {
+          const kind = map.kindAt(tx, ty);
+          const info = kindInfo(kind);
+          let extra;
+          if (info.solid) extra = opts.dig && map.canDig(tx, ty, opts.dig.tier).ok ? info.digTime * digCost : Infinity;
+          else extra = isDangerKind(kind) ? dangerCost : 0;
+          cost[ty * W + tx] = 1 + extra;
         }
-      }
+      grid = { width: W, height: H, cost };
+      this.grids.set(key, grid);
     }
-    if (!done[goal]) return { ok: false, path: [], reason: "blocked" };
-    /** @type {{tx:number,ty:number}[]} */
-    const path = [];
-    for (let i = goal; i !== -1; i = parent[i]) path.push({ tx: i % W, ty: Math.floor(i / W) });
-    path.reverse();
-    const digs = path.filter((p) => map.isSolid(p.tx, p.ty));
-    return { ok: true, path, cost: g[goal], digs };
+    return grid;
   }
 
   /**

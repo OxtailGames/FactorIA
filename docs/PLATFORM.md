@@ -1,7 +1,7 @@
 # Store and platform services: achievements, stats, leaderboards, cloud saves, purchases
 
 One script API, `platform`, for what a store gives a game: **achievements**, **stats**, **leaderboards**, **cloud
-saves**, **in-app purchases**, the store **overlay** and **rich presence**. A game is written once against it; a backend
+saves**, **in-app purchases**, the store **overlay**, **rich presence** and the guests of **Remote Play Together**. A game is written once against it; a backend
 decides what answers: the **fake** store (development and every test), **none** (an exported game that has no store
 plugin), or a store SDK that a native plugin wraps (Steam: [below](#steam-steamworks); Apple: [section
 6](#6-apple-storekit-2-game-center-and-icloud); Google Play: [section 7](#7-google-play-billing-play-games-services-and-play-integrity)).
@@ -116,7 +116,7 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | Call | Resolves with |
 |---|---|
 | `platform.backend` | The name of the backend that runs: `"fake"`, `"none"`, `"steam"`... (the plugin's name). |
-| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`, `"ads"`, and `"http"` (`http.fetch`, [NETWORKING.md](NETWORKING.md): the system's HTTP client, or the fake in tests). Check it before using a service that a store may not have. |
+| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`, `"ads"`, `"remotePlay"`, and `"http"` (`http.fetch`, [NETWORKING.md](NETWORKING.md): the system's HTTP client, or the fake in tests). Check it before using a service that a store may not have. |
 | `platform.release` | `true` in a shipped game, `false` in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development (a test-ad stub, a cheat button). |
 | `platform.player` | The last known `{ id, name, signedIn }` (empty and signed out until the store tells). |
 | `platform.signIn()` | `{ id, name, signedIn }`. Always allowed. |
@@ -133,6 +133,8 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.cloud.save(key, value)` | `{ key, bytes }`. `value` is anything JSON can hold. Keys: `A-Z a-z 0-9 _ . -`, up to 64 characters. |
 | `platform.cloud.load(key)` | The value, or `undefined` when there is no such key. |
 | `platform.cloud.list()` / `.remove(key)` | `["key", ...]` / nothing. |
+| `platform.cloud.stat(key)` | `{ exists: false }` for a key that is not there (that is an answer, not an error), else `{ exists: true, size, modified }`: `size` in bytes of the saved JSON text, `modified` in Unix seconds, or `null` when the store keeps no time. It does not give the text back. See "Which save is newer". |
+| `platform.remotePlay.sessions()` | `[{ id, guestName, guestId, deviceName, formFactor, resolution }]`: the guests that are connected through Remote Play Together now (`[]` when nobody is). See "Remote Play guests". |
 | `platform.purchases.products(ids?)` | `[{ id, title, description, price, priceValue, currency, type }]` as the store shows them. `price` is text for the player's country (`"$0.99"`). A product the store does not know is left out. |
 | `platform.purchases.buy(id)` | `{ status, productId, transactionId, receipt }`. `status` is `"purchased"`, `"pending"` (Ask to Buy: it arrives later as a `purchase` event) or `"cancelled"`. `transactionId` and `receipt` only when purchased. |
 | `platform.purchases.finish(transactionId)` | Nothing. Tells the store the game granted the purchase. A `transactionId` the game was not told about (or already finished, or refunded) **rejects** with `unknownId`, like every other store failure: `await platform.purchases.finish(id).catch(...)` catches it. |
@@ -262,6 +264,44 @@ are cleared when a scene loads (register them in `onStart`).
 | `"purchase"` | `{ status, productId, transactionId, receipt }` | A transaction that did not come from a `buy()` call: Ask to Buy approved, an unfinished purchase from an earlier run, a purchase made in the store itself, or `status: "revoked"`: the store took a purchase back (a refund), so take the goods away. Only the fake store sends `"revoked"` so far: the Apple and Google Play backends drop a refunded purchase from `restore()` instead, so also compare the save with `restore()` when the game starts. One that arrives before any listener exists is kept and delivered to the first `platform.on("purchase", ...)`: a paid purchase is never lost. |
 | `"overlay"` | `{ open }` | The store's overlay opened or closed. Games pause while it is open (`scripts/store_events.js` in [MENUS.md](MENUS.md)). |
 | `"player"` | `{ id, name, signedIn }` | The sign-in state changed. `platform.player` follows it. |
+| `"remotePlay"` | `{ status: "connected" \| "disconnected", session }` | A guest joined or left Remote Play Together. `session` is what `remotePlay.sessions()` lists for a guest. |
+
+### Which save is newer
+
+`cloud.stat` lets a game look at a save without downloading it, for a "continue" button that shows when the slot was
+saved, or to pick between two slots. `modified` is the store's time for the key: Steam's own time for the file, Play
+Games' last-modified time of the snapshot, the fake store's counter, and `null` on Apple (iCloud's key-value store keeps
+no time). It is not a good way to decide **which save is newer**. A store's time comes from the clock of the device that
+saved (a phone with the wrong date saves "in the future" for good) and Apple gives
+none. A **revision counter** is more robust: keep `{ revision: n, ... }` inside the saved value, add one on every save,
+read it from `cloud.load` and take the higher one. Use `modified` to show the player a date, not to choose.
+
+### Remote Play guests
+
+`platform.has("remotePlay")` is true on a backend that tells who is playing through **Remote Play Together** (Steam
+only today). `remotePlay.sessions()` lists the guests now and the `"remotePlay"` event announces each one that comes or
+goes, so a game can say "Ana joined" or change to a split-screen layout:
+
+```js
+platform.on("remotePlay", ({ status, session }) => {
+  console.log(session.guestName, status, "on a", session.formFactor); // "Ana connected on a phone"
+});
+const guests = platform.has("remotePlay") ? await platform.remotePlay.sessions() : [];
+```
+
+A session is `{ id, guestName, guestId, deviceName, formFactor, resolution }`: `id` is the number of the session while it
+lasts (it is not the guest's account), `guestName` the guest's
+account name, `guestId` the store's id for the guest (Steam: the SteamID as text), `deviceName` the name of the device
+streaming, `formFactor` one of `"phone"`, `"tablet"`, `"computer"`, `"tv"`, `"vr"` or `"unknown"`, and `resolution`
+`{ width, height }` of the guest's screen, or `null` when the store does not say. The `"disconnected"` event carries the
+session as it was while connected; for a session the plugin never saw it carries only `{ id }`.
+
+**A guest's controls are one more gamepad.** The store feeds the guest's controller (or touch controls) to the game as an
+ordinary gamepad, so `input.gamepad(i)` and `game.on("gamepadConnected")` show it like a pad that was plugged in. The
+engine does **not** tell which pad is which guest: a session has an `id` and a pad has a slot, and nothing links the two.
+A game that must know whose pad it is (to give each guest a colour, say) has to ask, for example with a "press A to
+join" step that binds the first pad that presses it to the next guest in `sessions()`. Do not assume that the order of
+the sessions is the order of the pads.
 
 ### Mistakes throw, store failures reject
 
@@ -288,13 +328,15 @@ player what happened (`e.hint`) and grant nothing.
 ## 3. The fake store, and testing with it
 
 The fake backend runs in development and in **every** headless run: `factoria test`, `factoria call`, `factoria
-session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all nine
-services and `http.fetch` ([NETWORKING.md](NETWORKING.md), "Testing with the fake"), and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
+session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers every
+service and `http.fetch` ([NETWORKING.md](NETWORKING.md), "Testing with the fake"), and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
 `{ id: "fake-player", name: "Player", signedIn: true }`; `buy` answers `purchased` with the transaction `fake-1`,
 `fake-2`... and the receipt `fake-receipt-1`...; the purchase stays unfinished until `finish`; consumables are never
 "owned"; `products()` takes title and price from the catalog (`$0.99`, or `2.99 EUR`); a leaderboard shows the player's
 own best; `integrity.token` answers `{ token: "fake-integrity-1" }`, then `fake-integrity-2`... (no store
-can verify these: a development server has to accept them on purpose). `await` works in tests, and an answer is ready at
+can verify these: a development server has to accept them on purpose); `cloud.stat` answers a `modified` that starts at
+`1767225600` (2026-01-01T00:00:00Z) and goes up one second with each `cloud.save` (no wall clock); `remotePlay.sessions`
+lists the guests the test connected. `await` works in tests, and an answer is ready at
 once, without `game.step()`.
 
 `import { game } from "factoria:test"` gives `game.platform`, the store's controls:
@@ -302,13 +344,15 @@ once, without `game.step()`.
 | Call | Does |
 |---|---|
 | `game.platform.respond(method, answer, times = 1)` | Queues the answer of the next `times` calls of `method` (`"purchases.buy"`; first come, first served). `answer` is `{ error: "network", message?, hint? }` to fail, `{ result: value }` to answer exactly that, or fields merged into the default result: `{ status: "cancelled" }`. A cancelled buy owns nothing. |
-| `game.platform.emit(event, data)` | Sends `"purchase"`, `"overlay"` or `"player"` to the `platform.on` listeners at the next `game.step()`. An emitted purchased `purchase` is also an unfinished transaction. |
+| `game.platform.emit(event, data)` | Sends `"purchase"`, `"overlay"` or `"player"` to the `platform.on` listeners at the next `game.step()`. An emitted purchased `purchase` is also an unfinished transaction. (`"remotePlay"` is refused here: use `remotePlayConnect`, which keeps the session that `remotePlay.sessions()` lists.) |
+| `game.platform.remotePlayConnect({ guestName, guestId, deviceName, formFactor, resolution })` | A guest joins Remote Play Together. Every field is optional and made up when left out (`"Guest 1"`, `"fake-guest-1"`, `"Fake device"`, `"computer"`, 1920 by 1080); the guests are numbered from 1. It returns the session, `remotePlay.sessions()` lists it, and `platform.on("remotePlay")` listeners get `{ status: "connected", session }` at the next `game.step()`. A field it does not know, or a `formFactor` that is not one of the names above, throws with a "did you mean". Command: `platform.remote_play_connect`. |
+| `game.platform.remotePlayDisconnect(id)` | The guest of that session id leaves: listeners get `{ status: "disconnected", session }` at the next `game.step()`. An id that is not connected throws, listing the ones that are. Command: `platform.remote_play_disconnect`. |
 | `game.platform.revoke(productId)` | Takes a purchase back, as a refund does: `restore()` no longer lists it, its unfinished transaction is dropped, and `platform.on("purchase")` listeners get `{ status: "revoked", productId, transactionId, receipt }` at the next `game.step()` (take the goods away). A product the player does not own throws, listing the owned ones. Command: `platform.revoke`. |
 | `game.platform.ad(outcome, { gdpr, tracking, privacyOptions })` | How the fake's test ad ends from now on: `"watched"` (default, rewarded), `"closedEarly"`, `"noFill"` (no ad: `ads.available()` is false) or `"consentRefused"` (also answers denied in `ads.consent()`). `gdpr`, `tracking` and `privacyOptions` (`"required"`, `"notRequired"`, `"unknown"`) set what `ads.consent()` answers; a denied `gdpr` stops every ad, and with `privacyOptions: "required"` `platform.ads.privacyOptions()` "shows" the form and `state().fake.ads.privacyShown` counts it. `reset()` restores the defaults (and forgets the answer of `setUnderAge`); `state().fake.ads` counts `shown` and `rewarded`. Command: `platform.set_ad`. |
-| `game.platform.set({ signedIn, delayFrames, backend })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
+| `game.platform.set({ signedIn, delayFrames, backend, cloudClock })` | `cloudClock: n` sets the time the next `cloud.save` stamps (Unix seconds, not negative), which `cloud.stat` then answers; the one after is a second later. `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
-| `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no scripted answers, an empty log; transactions and integrity tokens are numbered from 1 again. |
+| `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no guests, no scripted answers, an empty log, the cloud clock at its start; transactions, integrity tokens and guest sessions are numbered from 1 again. |
 
 ```js
 import { test, expect, game } from "factoria:test";
@@ -338,7 +382,7 @@ test("the store overlay pauses the game", () => {
 
 The same controls are commands, for MCP clients and `factoria call` (they work on the fake only, and say which backend
 runs when it is another): `platform.state`, `platform.reset`, `platform.respond {method, answer, times}`,
-`platform.emit {event, data}`, `platform.set_ad {outcome, gdpr, tracking, privacyOptions}`, `platform.set_fake {signedIn, delayFrames, backend}` (an unknown option is refused with a "did you mean").
+`platform.emit {event, data}`, `platform.remote_play_connect {guestName, guestId, deviceName, formFactor, resolution}`, `platform.remote_play_disconnect {id}`, `platform.set_ad {outcome, gdpr, tracking, privacyOptions}`, `platform.set_fake {signedIn, delayFrames, backend, cloudClock}` (an unknown option is refused with a "did you mean").
 
 ## 4. Which backend runs
 
@@ -389,8 +433,8 @@ store needs. Running it again keeps what is there. It patches factoria.json inst
 ### Steam (Steamworks)
 
 The `steam` plugin (`platforms/plugins/steam` in the engine, the `"steam"` template of `project.new_plugin`) answers the
-game's `platform.*` calls with Valve's Steamworks API: achievements, stats, leaderboards, Steam Cloud, DLC purchases, the
-overlay and rich presence. It holds **no Valve code or header**: it loads Valve's redistributable library at run time and
+game's `platform.*` calls with Valve's Steamworks API: achievements, stats, leaderboards, Steam Cloud (with the size and
+time of a file), DLC purchases, the overlay, rich presence and the guests of Remote Play Together. It holds **no Valve code or header**: it loads Valve's redistributable library at run time and
 calls its flat C API.
 
 **Set it up** with one call, then `factoria run`:
@@ -473,6 +517,8 @@ store and never touch Steam's data, but a running Steam client shows you as play
 | `leaderboards.submit(id, score)` | Uploads keeping the player's best; `best` is what Steam kept. Scores are 32-bit. A daily or weekly board is the Steam board `<name> <periodKey>` ("Leaderboard periods"). |
 | `leaderboards.entries(id, {range, count})` | `top`: ranks 1 to `count`. `around`: the player in the middle. `friends`: the player and friends (Steam gives them all; at most `count` are returned). Names are Steam persona names. |
 | `cloud.save / load / list / remove` | Steam Cloud files named `<key>.json`. Needs Cloud enabled for the app (partner site, App Admin > Cloud) and for the account; otherwise `unavailable`, saying which. A file is up to 100 MB; the app's quota applies. |
+| `cloud.stat(key)` | The file's size (`GetFileSize`) and Steam's own time for it (`GetFileTimestamp`, Unix seconds); `{ exists: false }` when Steam has no such file. Same `unavailable` as the other cloud calls when Cloud is off. |
+| `remotePlay.sessions()` | `ISteamRemotePlay`: the sessions Steam lists now (`GetSessionCount`, `GetSessionID`), each with the guest's SteamID and persona name, the device's name and form factor, and its resolution (`null` when Steam gives none). The service is offered only when the Steam library exports `ISteamRemotePlay` (the plugin tries `SteamAPI_SteamRemotePlay_v002`, then `_v001`): `steam.status` lists `ISteamRemotePlay v00N` among the interfaces when it does. |
 | `purchases.products(ids?)` | Steam's DLC list for the app, by the products' `ids.steam`: `title` is the DLC's name; `price` is `""` (Steam gives a DLC's price on its store page, not here), `priceValue` null. |
 | `purchases.buy(id)` | Owned already: `purchased` with the transaction `dlc-<appid>`. Not owned: the overlay opens the DLC in a cart and the answer is `pending`; when the player owns it, a `purchase` event follows. A consumable or a subscription is `unavailable` (below). |
 | `purchases.restore()` | The non-consumable products whose DLC the player owns. |
@@ -481,7 +527,10 @@ store and never touch Steam's data, but a running Steam client shows you as play
 | `presence.set(text, data?)` | Rich presence: `text` is the key `status`, each `data` key is sent as it is (`connect`, `steam_display`...), and what was shown before is replaced. Steam allows 30 keys of 64 bytes with values of 256. |
 
 **Events**: `overlay` (`{open}`, Steam's `GameOverlayActivated`), `purchase` (a DLC the player got, from the overlay or another
-computer: Steam's `DlcInstalled`), `player` (Steam went online or offline).
+computer: Steam's `DlcInstalled`), `player` (Steam went online or offline), `remotePlay` (a guest connected or disconnected:
+Steam's `SteamRemotePlaySessionConnected_t` and `SteamRemotePlaySessionDisconnected_t`). The disconnect callback carries
+only the session id, so the plugin keeps the description it read while the guest was connected and puts it in the event;
+sessions that were connected before the game started are read at start-up, and no event announces them.
 
 **DLC, not microtransactions.** Steam sells a game's extras as **DLC**, which is what `nonConsumable` products map to. Steam's
 other mechanism, microtransactions (`ISteamMicroTxn`), needs your own server calling Valve's web API and cannot start
@@ -491,7 +540,17 @@ items, is not wrapped either.)
 
 **Limits worth knowing.** Stat and achievement changes reach Steam when stored (every frame that set one, and at exit on macOS and
 Linux); an offline player's are kept by Steam and sent later. There is no `achievements.onUnlocked` event. A Steam Cloud
-file holds the JSON text of one key. Steam Input, workshop, networking, and inventory are not wrapped.
+file holds the JSON text of one key. What is wrapped: sign-in and the persona name, achievements, stats, leaderboards, Steam
+Cloud files (save, load, list, remove, stat), DLC, the overlay, rich presence, the Deck keyboard and Deck detection, and
+the Remote Play guest list and its connect and disconnect events. Not wrapped: Steam Input, workshop, networking, inventory,
+and Remote Play's other half (inviting someone with `BSendRemotePlayTogetherInvite`, the guests' own controller or mouse
+settings). Of Remote Play only what the list above says is read.
+
+**Tested against a mock only.** The plugin's tests (`steam_plugin_*`) run against a mock of Steam's library that checks
+every call's signature, so the `cloud.stat` and Remote Play code paths are exercised, but no real Steam client, real Cloud
+file or real Remote Play session has been tried. The manual check below does not cover them yet: until somebody runs a Remote Play
+session (a second computer or the Steam Link app on a phone) and a `cloud.stat` on app 480 and writes down what Steam
+answered, treat the `modified` of a Cloud file and the exact `formFactor` and `resolution` of a session as unverified.
 
 **Steam Deck.** The Deck is a Linux machine with the controller as a gamepad (the engine names its buttons like an Xbox pad).
 The release `factoria_player` for Linux is built in the Steam Linux Runtime "sniper" container (glibc 2.31, libstdc++
@@ -572,6 +631,9 @@ desktop OS you ship.
 6. `factoria run`. In the log: `steam: Steam is ready: app 480`, `backend steam`, your player, `unlock {"id":"first_win","unlocked":true,"newly":true}`
    (`newly` is false on a second run: reset it with `platform.achievements.reset()`), `wins` one higher each run, your score in
    `board`. A `cloud.save` may answer `unavailable` for app 480 if Valve has Cloud off for it; that message is the correct answer.
+   When Cloud works, `platform.cloud.stat("check")` answers `{ exists: true, size, modified }` with Steam's time for the file
+   (not yet tried against real Steam, see "Tested against a mock only"); with a guest on Remote Play Together
+   `platform.remotePlay.sessions()` lists it and the `remotePlay` event arrives when it connects and leaves.
 7. Open Steam's overlay in the game window (Shift+Tab): with the window focused it must open, and the game receives the
    `overlay` event. Call `platform.overlay.open("achievements")` from the script: it opens the overlay's achievements page.
    (The engine draws with Direct3D 11 on Windows, Metal on macOS and OpenGL on Linux: note in ENGINE_FEEDBACK.json on which of
@@ -644,7 +706,8 @@ FA_PLUGIN_INIT(mystore) {
 - `resolve` takes JSON text; text that is not JSON fails the request with `failed`. `reject` takes one of the codes of
   section 2 (`unavailable`, `notSignedIn`, `notAllowed`, `unknownId`, `network`, `failed`; anything else becomes
   `failed`), a message that says what went wrong and a hint that says how to fix it.
-- `emit(api, "purchase" | "overlay" | "player", data_json)` reaches `platform.on` in the running game.
+- `emit(api, "purchase" | "overlay" | "player" | "remotePlay", data_json)` reaches `platform.on` in the running game.
+  A `remotePlay` event is `{ status: "connected" | "disconnected", session }` (the table below says what a session is).
 - Strings passed to the engine are copied. A handler never lets an exception leave.
 
 **The contract.** The backend gets `(method, args)` and answers with the result below. `id` is the catalog id,
@@ -667,6 +730,8 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `cloud.load` | `{ key }` | `{ key, data }`, or `null` when there is no such key |
 | `cloud.list` | `{}` | `["key", ...]` |
 | `cloud.remove` | `{ key }` | `{}` |
+| `cloud.stat` | `{ key }` | `{ exists: false }`, or `{ exists: true, size, modified }` (`modified` in Unix seconds, or `null` when the store keeps no time) |
+| `remotePlay.sessions` | `{}` | `[{ id, guestName, guestId, deviceName, formFactor, resolution }]` (`formFactor`: `"phone"`, `"tablet"`, `"computer"`, `"tv"`, `"vr"` or `"unknown"`; `resolution`: `{ width, height }` or `null`) |
 | `purchases.products` | `{ products: [{ id, storeId, type }] }` | `[{ id, title, description, price, priceValue, currency, type }]` |
 | `purchases.buy` | `{ id, storeId, type }` | `{ status, productId, transactionId, receipt }` |
 | `purchases.finish` | `{ transactionId, id, storeId, type }` | `{}` |
@@ -737,6 +802,7 @@ of the App ID, from the Apple Developer portal) signs the app with them ([EXPORT
 | `achievements.reset()` | Resets *every* achievement of the player (development). |
 | `leaderboards.submit(id, score)`, `.entries(id, {range, count})` | The all-time board, or the period's ("Leaderboard periods": a recurring board at its current occurrence, with `periodStart` and `periodEnd`; a classic one with the `.today` / `.week` scope). `range`: `"top"`, `"around"` (empty until the player has a score) or `"friends"`. `best` is the player's best including this score. |
 | `cloud.save/load/list/remove` | One iCloud key-value key per cloud key; the value is stored as JSON text. Over 1 MB or 1024 keys: `failed`. No iCloud account or no entitlement: `unavailable`. Syncing between devices is iCloud's (seconds to minutes); `load` reads what this device has. |
+| `cloud.stat(key)` | `{ exists, size }` of the key's JSON text; `modified` is always `null` because the iCloud key-value store keeps no time for a key: keep a revision counter in the saved value to tell which save is newer ("Which save is newer"). |
 | `purchases.products(ids?)` | The product's `displayName`, `description`, `displayPrice` (the player's storefront), price value, currency and type. A product the store does not know is left out, with a warning in the log that says how to create it. |
 | `purchases.buy(id)` | Shows the purchase sheet. `purchased` (with `transactionId` and the JWS `receipt`), `cancelled`, or `pending` (Ask to Buy). `notAllowed` when Screen Time forbids purchases. The call waits as long as the player takes with the sheet, but gives up after 30 s when the App Store never shows it. |
 | `purchases.finish(transactionId)` | `Transaction.finish()`. The id must come from a `buy()` result, a `purchase` event or a `restore()` entry of this run. |
@@ -892,6 +958,7 @@ Google answers with its own ids: the engine maps the catalog ids to the `ids.goo
 | `leaderboards.submit(id, score)` | The all-time board, or the daily or weekly one for a board with a `period` ("Leaderboard periods"). `best` is the player's best in that table including this score. |
 | `leaderboards.entries(id, {range, count})` | `range`: `"top"`, `"around"` or `"friends"` (the player must allow friends in the Play Games app, else `notAllowed`). **At most 25 rows** per call: a larger `count` is cut to 25. The board's sort order is the one set in Play Console; the catalog's `order` is not sent. |
 | `cloud.save(key, data)`, `cloud.load(key)`, `cloud.list()`, `cloud.remove(key)` | One Saved Games snapshot per cloud key, named after it (Play allows letters, digits and `- . _ ~`, up to 100 characters: every key the engine accepts fits). The value is stored as JSON text. `load` of a key that does not exist is `null` (a script gets `undefined`). When two devices saved the same key, the most recently modified save wins. Saved Games not turned on in Play Console: `unavailable`. |
+| `cloud.stat(key)` | `{ exists, size, modified }`: the snapshot's last-modified time (`getLastModifiedTimestamp`, in Unix seconds) and the size of its data. Play has no call for the size alone, so `stat` **opens the snapshot and reads its bytes to count them** (it does not return them to the game, and closes it without saving); it costs about as much as `cloud.load`. A key with no snapshot is `{ exists: false }`. The last-modified time is the clock of the device that saved ("Which save is newer"). |
 | `purchases.products(ids?)` | The product's title, description, price text (the player's currency), price value, currency and type. A product Google does not know is left out, with a warning in the log that says how to create it. A subscription shows the price of its base plan's renewing phase. |
 | `purchases.buy(id)` | Shows Google's purchase sheet. `purchased` (with `transactionId` and `receipt`), `cancelled`, or `pending` (a payment that needs time: cash, a parent's approval). The call waits as long as the player takes with the sheet, but gives up after 30 s when Google answers nothing. |
 | `purchases.finish(transactionId)` | A consumable is **consumed** (it can be bought again), a non-consumable or a subscription is **acknowledged**. Google **refunds a purchase that is not acknowledged within three days**: grant, then finish. The id must come from a `buy()` result, a `purchase` event or a `restore()` entry of this run. |

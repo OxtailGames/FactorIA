@@ -89,6 +89,7 @@ bool set_tilemap_tile(Tilemap& tm, int col, int row, int value) {
         slot = &tm.tiles[i];
     }
     *slot = value;
+    ++tm.version;
     constexpr std::size_t kMaxEdits = 4096;  // nobody reads them (no physics): drop them, physics then compares hashes
     if (tm.edits.size() >= kMaxEdits) tm.edits.clear();
     tm.edits.push_back({row * size.width + col, tile_index(old), tile_index(value)});

@@ -317,12 +317,14 @@ one per miner (`ENGINE_LIGHT_CAP`); a test counts the active `Light2D` entities 
 `new Fog(map)` is a three-state map (`UNSEEN`, `SEEN`, `VISIBLE`) drawn on its own Tilemap: `stateAt(tx, ty)`, `isVisible`,
 `seen()`, `update(dt, { torches })`. Walls block sight, and digging opens it at once. `TORCH_RADIUS` is 4.5 tiles.
 
-### Pathfinding and behaviour trees: `scripts/game/pathfinding.js`, `scripts/game/behavior_tree.js`
+### Pathfinding and behaviour trees: `scripts/game/pathfinding.js`, the engine's `nav` and `bt`
 
-Both are generic (nothing in them knows this game) so another game can copy them. `navFor(map)` gives the shared `NavGrid`
+The search and the tree are the engine's: `nav.findTilePath` (A* over a `{width, height, cost}` grid that `pathfinding.js` builds from
+`MineMap.kinds`, because the real map is not the drawn Tilemap) and `bt` from `"factoria"`. `pathfinding.js` keeps the game's cost rules and the
+following. `navFor(map)` gives the shared `NavGrid`
 whose `version` goes up when a tile changes; `findPath(from, to, { dig: { tier, cost }, dangerCost, maxNodes })` is an A* over
 the tiles that can dig through what the pick can break and avoids water, magma and cracked floor unless `dangerCost` is finite;
-`PathFollower` walks a path and re-plans when `version` changed; `lineOfSight(map, a, b)`; `NavGrid.reachable(from, radius)`. `Tree` runs a
+`PathFollower` walks a path and re-plans when `version` changed; `lineOfSight(map, a, b)`; `NavGrid.reachable(from, radius)`. `bt.Tree` runs a
 description built from `sequence`, `selector`, `condition`, `action`, `wait`, `cooldown`, `inverter` and `succeeder` against a
 blackboard (the header documents the one catch: a RUNNING sequence resumes without asking its conditions again).
 
@@ -542,8 +544,8 @@ and no default build touches a network.
 | `seed_code.test.js` | encode and decode round trips, check character, look-alikes, copy at the camp and results, paste at the title |
 | `hazards.test.js` | a flood sealed then spreading, slow water and drowning, magma burning, a cave-in warning then impact, a miner on the lift spared, `allDown` with one and with three players, the results screen |
 | `light.test.js` | the cap of 16 Light2D with four players, six torches and a crystal hall, the nearest sources win the pool, torch rules and the T key, fog states, walls blocking sight and digging opening it |
-| `pathfinding.test.js` | the A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
-| `behavior_tree.test.js` | every node of the tree, including the running-sequence catch |
+| `pathfinding.test.js` | the cost rules over the engine's A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
+| `behavior_tree.test.js` | every node of the engine's `bt`, including the running-sequence catch |
 | `enemies.test.js` | the three brains driven by a fake blackboard, then a beetle, a chase through a tunnel dug a moment ago, the thief stealing, fleeing, escaping or being killed, the Mole King waking, slamming, charging, scaling with players and jamming the lift |
 | `strata.test.js` | the look and music of each stratum, the descent through the results over nine floors, victory then a new run, retry after `dark` and `allDown`, leaving before the results |
 | `coop.test.js` | the join screen with four pads, a keyboard and three pads, keyboard only and gamepad only, a Remote Play guest pad plugged in mid-lobby, a whole shift played by the bot through the join, reviving (bar, decay, no bleed-out, `allDown`), per-player rebinding (API and the Options page), the camera zoom, the leash and the split planner, a pad unplugged (pause, reconnect, hand-over, drop) |

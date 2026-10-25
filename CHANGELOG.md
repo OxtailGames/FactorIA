@@ -4,6 +4,41 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The exported player checks a build
+
+- `factoria_player` (the exported game) takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` together
+  with `--frames N`: the game runs headless through the same code as `factoria run --headless --frames N`, plays the replay
+  `input.record` writes, writes the world state after the last frame and a PNG of the last frame. Both equal what
+  `factoria run` writes for the same replay and frame count. Exit codes: 0, 1 after a script error, 2 for a missing replay,
+  an unwritable output or a missing `--frames`. New test `cli_player_replay`; EXPORTING.md has "Checking an exported build".
+
+Tile pathfinding and behaviour trees
+
+- `nav.findTilePath(map, from, to, {costs, diagonals, maxNodes, closest, allowBlockedGoal})` and the command
+  `nav.find_tile_path`: deterministic A* over the cells of a `Tilemap` (solid tiles block, `costs` per tile index) or of a
+  `{width, height, cost}` grid for games that keep their own map. Diagonals never cut corners; `closest` returns the nearest
+  reachable cell. The result lists `cells` and the world `points` of their centres. `nav.tileVersion(tilemap)` counts the
+  `setTile` writes so a script knows a kept path is stale. NAVIGATION.md, section 7.
+- `import { bt } from "factoria"`: behaviour trees in plain JS (`Tree`, `sequence`, `selector`, `condition`, `action`,
+  `wait`, `cooldown`, `inverter`, `succeeder`, `SUCCESS`, `FAILURE`, `RUNNING`), ticked by the script with its own `dt`.
+  SCRIPTING.md, "AI: behaviour trees", and an enemies recipe in the AI guide (section 9.27).
+
+Steam Remote Play guests and `platform.cloud.stat`
+
+- New platform service `remotePlay`: `platform.remotePlay.sessions()` lists the guests connected through Remote Play
+  Together (`[{ id, guestName, guestId, deviceName, formFactor, resolution }]`) and `platform.on("remotePlay", ...)` gets
+  `{ status: "connected" | "disconnected", session }` as each comes or goes. The Steam plugin offers it when the Steam
+  library has `ISteamRemotePlay`. A guest's controls arrive as one more gamepad; the engine does not say which pad is which
+  guest. The fake store has `game.platform.remotePlayConnect(info)` and `remotePlayDisconnect(id)` (commands
+  `platform.remote_play_connect` and `platform.remote_play_disconnect`).
+- New `platform.cloud.stat(key)`: `{ exists: false }` for a missing key, else `{ exists: true, size, modified }` without
+  returning the text (`modified` in Unix seconds, `null` on Apple, which keeps no time). Steam answers the file's time,
+  Google Play the snapshot's last-modified time (it opens the snapshot to count the bytes), the fake a deterministic
+  counter (`game.platform.set({ cloudClock })` sets it). To tell which save is newer keep a revision counter in the saved
+  value; PLATFORM.md says why.
+- The Steam, Apple and Google Play code for both was checked against the mock (Steam) and by reading (Apple, Google Play)
+  only: no real Remote Play session or real store was tried.
+
 Light2D on a light buffer: shadows from solid tiles and no 16-light cap
 
 - Point lights are now added up in a light buffer (one draw call, RGBA16F, or RGBA8 at half range on a GPU that cannot
