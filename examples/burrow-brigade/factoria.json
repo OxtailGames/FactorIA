@@ -175,5 +175,45 @@
         }
       }
     ]
+  },
+  "icon": "assets/icon.png",
+  "export": {
+    "scriptBytecode": true,
+    "exclude": [
+      "store/**",
+      "tools/**",
+      "tests/**",
+      "perf.json",
+      "scenes/busiest.scene.json",
+      "scripts/game/busiest.js",
+      "SHIPPING.md"
+    ],
+    "macos": {
+      "category": "public.app-category.games",
+      "minimumSystemVersion": "11.0",
+      "copyright": "Copyright 2026 Oxtail Games"
+    },
+    "linux": {
+      "categories": [
+        "Game",
+        "ArcadeGame"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foreground": "assets/icon_fg.png",
+        "background": "#141428"
+      }
+    }
+  },
+  "publish": {
+    "steam": {
+      "account": "FAKE_steam_build_account",
+      "depots": {
+        "windows": 9000001,
+        "macos": 9000002,
+        "linux": 9000003
+      }
+    }
   }
 }

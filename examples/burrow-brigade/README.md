@@ -4,7 +4,7 @@ A top-down 2D mining game for up to four players on one screen (couch co-op), fo
 rock with a pick, take the ore, keep your lamp alight with oil cans, free the moles trapped in the rock, and ride the lift
 up before the dark gets you. It is the third reference game of the FactorIA engine (milestone M28), built in eight
 packages (P1 to P8). P1 (the miner, digging and the mine), P2 (the world and its enemies), P3 (couch co-op), P4 (camp,
-progress and saves) and P5 (Steam and online) are in; the later packages build on the contracts below.
+progress and saves), P5 (Steam and online), P6 (sound and options) and P7 (shipping) are in; P8 (languages) builds on the contracts below.
 
 ## Run
 
@@ -148,6 +148,15 @@ still count. The flag starts again with a run continued from a save, so a Contin
 Colour-free ore and hazards: each ore and hazard tile carries a small white shape with a dark outline in its top-left corner (copper a disc,
 silver two bars, gold a triangle, a gem a diamond, water waves, magma a cross, a cracked floor an exclamation mark), the same in every
 stratum; `assets/src/make_markers.py` paints them after `make_atlases.py`. Checked with a greyscale screenshot.
+
+## Shipping (P7)
+
+`SHIPPING.md` has the settings, the Steam backend, the exports and what could not be checked. Short: `store/` holds the store
+texts in English, Russian and Thai (`python3 store/check_store.py` checks the Steam limits) and `store/make_store.py`, which
+rebuilds the 1920x1080 screenshots, the key art, the Steam and itch.io capsules and the trailer from input replays of four
+bots (`store/replays/`); the busiest floor (`scenes/busiest.scene.json`, four miners, every torch) is what `perf.json`,
+the engine's perf file and `tests/render_budget.test.js` measure; `factoria export --platform macos --release` gives
+the app. The Steam plugin is built per machine with Valve's SDK and is not committed.
 
 ## Layout
 
@@ -543,7 +552,7 @@ and no default build touches a network.
 | the ore and hazard shapes inside `assets/tiles_*.png` | stamped by `assets/src/make_markers.py` over the Kenney tiles | CC0 |
 | `assets/audio/*.wav` | made with `assets.synth_sound` (presets footstep, hit, coin, pickup, error, powerup, whoosh, click, growl, explosion, splash, laser) | CC0 |
 
-`assets.json` records the provenance of each file. The engine gaps found while building P1 to P5 are in `ENGINE_FEEDBACK.json`.
+`assets.json` records the provenance of each file. The engine gaps found while building P1 to P7 are in `ENGINE_FEEDBACK.json`.
 
 ## Status
 
@@ -555,9 +564,9 @@ and no default build touches a network.
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
-| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | to do |
+| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`, FB-0028 to FB-0035) |
 | P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | to do |
 
-Notes for the next packages. P7: the Options panel is 760 x 680 and the tab bar is 5 x 136 wide; the shift scene has the music
+Notes for the next packages (P7 is done: see SHIPPING.md, `store/` for the store material and `perf.json` for the budgets). P7: the Options panel is 760 x 680 and the tab bar is 5 x 136 wide; the shift scene has the music
 driver and the sound captions widget. P8: every new string is a `locales/en.json` key (`options.*`, `caption.*`); the game-speed note and the captions
 are written from keys with `i18n.t`, so a language file only needs those keys, and check the five tabs at 200 % text.

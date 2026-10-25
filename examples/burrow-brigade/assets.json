@@ -854,6 +854,30 @@
         "date": "2026-10-25"
       }
     },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-25",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
+        "provider": "tools/icon.json (assets.draw_icon)",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project"
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-25",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
+        "provider": "tools/icon.json (assets.draw_icon)",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project"
+      }
+    },
     "assets/music/music_crystal.wav": {
       "provenance": {
         "origin": "original",
@@ -996,6 +1020,18 @@
         "source": "https://kenney.nl/assets/tiny-dungeon + https://kenney.nl/assets/roguelike-caves-dungeons (assets/src/make_atlases.py) + assets/src/make_markers.py (the ore and hazard markers)",
         "license": "CC0",
         "author": "Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), recoloured and extended by the Burrow Brigade project"
+      }
+    },
+    "store/keyart.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "store/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Burrow Brigade project",
+        "notes": "a headless render of the game itself (Kenney CC0 tiles and the game art), lifted and cropped by the script; the Steam and itch.io capsules and the store screenshots are built from it and from real play",
+        "date": "2026-10-25"
       }
     }
   }

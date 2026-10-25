@@ -1,0 +1,356 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.07, 0.07, 0.11, 1]
+        }
+      }
+    },
+    {
+      "id": "camp",
+      "components": {
+        "Transform": {
+          "position": [0, -30, 0]
+        },
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 14,
+          "fit": true
+        }
+      },
+      "children": [
+        {
+          "id": "camp_title",
+          "components": {
+            "Text": {
+              "text": "camp.title",
+              "key": "camp.title",
+              "fontSize": 56,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "camp_cash",
+          "components": {
+            "Text": {
+              "text": "camp.cash",
+              "key": "camp.cash",
+              "fontSize": 34,
+              "space": "screen",
+              "keyArgs": {
+                "cash": 0
+              }
+            }
+          }
+        },
+        {
+          "id": "camp_body",
+          "components": {
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "row",
+              "spacing": 48,
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "shop",
+              "components": {
+                "Panel": {
+                  "color": [0, 0, 0, 0],
+                  "layout": "column",
+                  "spacing": 8,
+                  "fit": true
+                }
+              },
+              "children": [
+                {
+                  "id": "buy_pickTier",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Upgrade",
+                      "key": "camp.buy",
+                      "autoFocus": true,
+                      "keyArgs": {
+                        "name": "",
+                        "now": "",
+                        "next": "",
+                        "cost": 0
+                      }
+                    }
+                  },
+                  "tags": ["buy"]
+                },
+                {
+                  "id": "buy_pickSpeed",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Upgrade",
+                      "key": "camp.buy",
+                      "keyArgs": {
+                        "name": "",
+                        "now": "",
+                        "next": "",
+                        "cost": 0
+                      }
+                    }
+                  },
+                  "tags": ["buy"]
+                },
+                {
+                  "id": "buy_lampOil",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Upgrade",
+                      "key": "camp.buy",
+                      "keyArgs": {
+                        "name": "",
+                        "now": "",
+                        "next": "",
+                        "cost": 0
+                      }
+                    }
+                  },
+                  "tags": ["buy"]
+                },
+                {
+                  "id": "buy_lampRadius",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Upgrade",
+                      "key": "camp.buy",
+                      "keyArgs": {
+                        "name": "",
+                        "now": "",
+                        "next": "",
+                        "cost": 0
+                      }
+                    }
+                  },
+                  "tags": ["buy"]
+                },
+                {
+                  "id": "buy_walkSpeed",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Upgrade",
+                      "key": "camp.buy",
+                      "keyArgs": {
+                        "name": "",
+                        "now": "",
+                        "next": "",
+                        "cost": 0
+                      }
+                    }
+                  },
+                  "tags": ["buy"]
+                },
+                {
+                  "id": "buy_torches",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Upgrade",
+                      "key": "camp.buy",
+                      "keyArgs": {
+                        "name": "",
+                        "now": "",
+                        "next": "",
+                        "cost": 0
+                      }
+                    }
+                  },
+                  "tags": ["buy"]
+                }
+              ]
+            },
+            {
+              "id": "side",
+              "components": {
+                "Panel": {
+                  "color": [0, 0, 0, 0],
+                  "layout": "column",
+                  "spacing": 12,
+                  "fit": true
+                }
+              },
+              "children": [
+                {
+                  "id": "camp_next",
+                  "components": {
+                    "Text": {
+                      "text": "camp.next",
+                      "key": "camp.next",
+                      "fontSize": 28,
+                      "space": "screen",
+                      "keyArgs": {
+                        "stratum": "",
+                        "floor": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "camp_seed",
+                  "components": {
+                    "Text": {
+                      "text": "camp.seed",
+                      "key": "camp.seed",
+                      "fontSize": 26,
+                      "space": "screen",
+                      "keyArgs": {
+                        "code": ""
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "copy_code",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Copy code",
+                      "key": "camp.copy"
+                    }
+                  }
+                },
+                {
+                  "id": "descend",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Down to the mine",
+                      "key": "camp.descend"
+                    }
+                  }
+                },
+                {
+                  "id": "to_title",
+                  "components": {
+                    "Button": {
+                      "autoSize": true,
+                      "text": "Back to title",
+                      "key": "camp.toTitle"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "camp_message",
+          "components": {
+            "Text": {
+              "text": "camp.hint",
+              "key": "camp.hint",
+              "fontSize": 26,
+              "space": "screen",
+              "maxWidth": 560,
+              "align": "center"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "fire",
+      "components": {
+        "Transform": {
+          "position": [1100, 170, 0],
+          "scale": [1.6, 1.6, 1]
+        }
+      },
+      "children": [
+        {
+          "id": "logs",
+          "components": {
+            "Transform": {
+              "position": [0, -4, 0]
+            },
+            "Shape2D": {
+              "shape": "rectangle",
+              "size": [64, 10],
+              "color": [0.35, 0.2, 0.1, 1],
+              "layer": 1
+            }
+          }
+        },
+        {
+          "id": "flame0",
+          "components": {
+            "Transform": {
+              "position": [-14, 17.0, 0]
+            },
+            "Shape2D": {
+              "shape": "diamond",
+              "size": [18, 34],
+              "color": [1, 0.55, 0.15, 0.9],
+              "layer": 2
+            }
+          }
+        },
+        {
+          "id": "flame1",
+          "components": {
+            "Transform": {
+              "position": [0, 24.0, 0]
+            },
+            "Shape2D": {
+              "shape": "diamond",
+              "size": [18, 48],
+              "color": [1, 0.8, 0.25, 0.95],
+              "layer": 2
+            }
+          }
+        },
+        {
+          "id": "flame2",
+          "components": {
+            "Transform": {
+              "position": [14, 15.0, 0]
+            },
+            "Shape2D": {
+              "shape": "diamond",
+              "size": [18, 30],
+              "color": [1, 0.45, 0.1, 0.85],
+              "layer": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "store_setup",
+      "components": {
+        "Script": {
+          "path": "store/store_setup.js",
+          "props": {}
+        }
+      }
+    },
+    {
+      "id": "camp_script",
+      "components": {
+        "Script": {
+          "path": "scripts/camp.js"
+        }
+      }
+    }
+  ]
+}

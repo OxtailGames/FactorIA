@@ -1,0 +1,78 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Camera": {
+          "projection": "orthographic",
+          "orthoSize": 144,
+          "clearColor": [0.02, 0.02, 0.03, 1],
+          "primary": true
+        },
+        "Script": {
+          "path": "scripts/game/follow_camera.js"
+        }
+      }
+    },
+    {
+      "id": "mine",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Tilemap": {
+          "tileset": "assets/tiles_topsoil.png",
+          "tileSize": [16, 16],
+          "lit": true,
+          "layer": -10
+        }
+      }
+    },
+    {
+      "id": "busiest",
+      "components": {
+        "Script": {
+          "path": "scripts/game/busiest.js",
+          "props": {
+            "stratum": 1,
+            "floor": 3,
+            "seed": 1234,
+            "miners": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "shift",
+      "components": {
+        "Script": {
+          "path": "scripts/game/shift.js"
+        }
+      }
+    },
+    {
+      "id": "music",
+      "components": {
+        "Script": {
+          "path": "scripts/game/music.js"
+        }
+      }
+    },
+    {
+      "id": "pause",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    }
+  ],
+  "settings": {
+    "ambientLight": [0.07, 0.07, 0.1, 1]
+  }
+}
