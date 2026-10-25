@@ -61,14 +61,36 @@ struct SkinVertex {
 };
 static_assert(sizeof(SkinVertex) == 20, "SkinVertex must be 20 bytes");
 
-constexpr int kMaxLights2D = 16;  // Light2D entities shading one frame; the size of the light arrays in quad.glsl (35 vec4s)
+// Light2D budget of one frame (docs/PERFORMANCE.md): the point lights are added up in a light buffer, one quad each, so the
+// count is bounded by what the vertex stream and the fill rate can take, not by uniforms.
+constexpr int kMaxLights2D = 256;
+// Lit visuals with a normal map still shade per pixel in the fragment shader (the direction of every light matters there),
+// with the first kDirectLights2D lights: the size of the light arrays in quad.glsl (51 vec4s, far below the WebGL2 / GLES3
+// minimum of 224). The same loop shades every lit visual when the light buffer cannot be used (a perspective camera, or a
+// GPU that can render to neither a half-float nor an 8-bit target).
+constexpr int kDirectLights2D = 16;
+// Point lights with castShadows that get a shadow row (one row of kShadowAngles distances in a data texture); the rest shine
+// through walls.
+constexpr int kMaxShadowLights2D = 32;
+constexpr int kShadowAngles = 1024;
 
 // One Light2D as the quad shader reads it. pos: xyz + w = radius (point, xyz = position with z the height) or -1
-// (directional, xyz = unit vector towards the light); color: rgb * intensity, w = falloff exponent.
+// (directional, xyz = unit vector towards the light); color: rgb * intensity, w = falloff exponent; extra: x = the row of
+// the light's shadows in the shadow texture (-1 = none), y = 1 when the Light2D asked for shadows.
 struct Light2DData {
     float pos[4];
     float color[4];
+    float extra[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
 };
+
+// One corner of a point light's quad in the light buffer pass (light.glsl): the same values at the four corners.
+struct LightVertex {
+    float corner[2];  // -1 or 1: where the corner lies from the light, in radii
+    float pos[4];     // xy position, z height, w radius
+    float color[4];   // rgb * intensity, w falloff
+    float shadow[4];  // x = shadow row or -1
+};
+static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 
 // ---------------------------------------------------------------------------
 // GPU resources
@@ -485,6 +507,17 @@ public:
     bool colorfilter_ready();
     sg_pipeline colorfilter_pipeline();
 
+    // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
+    // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
+    bool light_ready();
+    // The format the light buffer is drawn in: RGBA16F where the GPU renders to it with blending and filtering, else RGBA8
+    // (half the range, see light_range()), else NONE: no light buffer. The environment variable FA_LIGHT_FORMAT (rgba16f,
+    // rgba8 or none) narrows the choice to that one, to test a path on a GPU that would pick another.
+    sg_pixel_format light_format() const { return lightFormat_; }
+    // How much light one texel of the light buffer holds: 1 in RGBA16F, 2 in RGBA8 (written as light / 2).
+    float light_range() const { return lightFormat_ == SG_PIXELFORMAT_RGBA8 ? 2.0f : 1.0f; }
+    sg_pipeline light_pipeline();
+
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
@@ -514,6 +547,7 @@ public:
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
+    sg_shader light_shader_{};
 
 private:
         sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
@@ -522,6 +556,8 @@ private:
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int bloomState_ = 0;  // 0 = shaders not created yet, 1 = ready, -1 = creation failed
     int colorfilterState_ = 0;  // same meaning as bloomState_
+    int lightState_ = 0;        // same meaning as bloomState_
+    sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     std::map<PipelineKey, sg_pipeline> pipelines_;

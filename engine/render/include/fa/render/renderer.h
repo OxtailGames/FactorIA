@@ -86,8 +86,9 @@ struct RenderStats {
     int shadowCasters = 0;   // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
     int lights = 0;          // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
     int lightsDropped = 0;   // 3D lights over the limit that were left out (the least relevant ones)
-    int lights2d = 0;        // Light2D lights shading the 2D visuals (at most 16)
-    int lights2dDropped = 0; // Light2D lights over the limit that were left out (off-view ones first)
+    int lights2d = 0;        // Light2D lights shading the 2D visuals (at most 256)
+    int lights2dDropped = 0; // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
+    int lights2dShadowed = 0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
     int materials = 0;       // distinct custom materials (MeshRenderer.material) drawn with their own shaders
     std::vector<std::string> materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
     double cpuMs = 0.0;

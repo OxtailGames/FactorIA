@@ -4,6 +4,31 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Light2D on a light buffer: shadows from solid tiles and no 16-light cap
+
+- Point lights are now added up in a light buffer (one draw call, RGBA16F, or RGBA8 at half range on a GPU that cannot
+  blend half floats) that lit sprites, tiles and shapes read, instead of every pixel looping over 16 lights. A frame keeps
+  up to 256 lights (it was 16): the same choice as before (directional first, then the lights that reach the view, more of
+  their radius in view first, then the brighter), the same stats (`lights2d`, `lights2dDropped`) and the same
+  `perf.measure` `lights`. The look of a scene with 16 lights or fewer is unchanged (the render goldens still match).
+  A lit sprite or tile WITH a normal map is still shaded per pixel by the first 16 lights, because its shading depends on
+  the direction of each light; flat surfaces get all of them. A scene without Light2D, or without lit visuals, draws no
+  light pass; one with them adds one draw call (the perf baselines of Burrow Brigade went from 10 to 11 draw calls).
+  The light pass needs an orthographic camera; a perspective camera shades per pixel with 16 lights as before.
+- New field `SceneSettings.lightScale` (0.25 to 1, default 1): the size of the light buffer as a fraction of the
+  picture. 0.5 quarters the fill cost of the lights, a good setting for phones and the web.
+- New `Light2D.castShadows` and `Tilemap.occludesLight` (both default false). A Tilemap with `occludesLight` makes the
+  tiles of its `solidTiles` block the light of every point Light2D with `castShadows`: the far side of a wall stays
+  dark, the wall's own face stays lit, and a light inside a solid tile shines out of it. Editing a tile at run time
+  (`tilemap.setTile`, the command `tilemap.set_tile`) moves the shadows on the next frame. The
+  shadows are traced on the CPU per light (1024 rays) and looked up on the GPU; a light that does not move reuses its rays.
+  At most 32 point lights per frame cast shadows (the ones ranked first); the others shine through walls, with one
+  warning per scene. The new stat `lights2dShadowed` (`renderStats()`, `game.render_stats`) counts the ones with a shadow.
+- docs/PERFORMANCE.md has the cost per light and per shadow-casting light measured on a Mac, and advice for mobile and
+  the web; docs/AI_GUIDE.md a recipe for lights with tile shadows. The doc strings and docs no longer say "16 lights".
+- `FA_LIGHT_FORMAT=rgba16f|rgba8|none` picks the light buffer format at start-up (testing the fallbacks; `none` uses the
+  per-pixel loop over 16 lights, the same as a GPU that cannot render to either format).
+
 Recording input and starting a scene with props
 
 - The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads
@@ -120,12 +145,12 @@ Thai line breaks and the sara am check
 Light2D in the stats and the perf budget
 
 - `RenderStats` (`game.render_stats`, `game.renderStats()`) gets `lights2d` and `lights2dDropped`: the Light2D lights
-  that shade a frame (at most 16) and the ones left out. `lights` and `lightsDropped` stay the 3D lights.
+  that shade a frame (at most 256 since the light buffer, see above) and the ones left out. `lights` and `lightsDropped` stay the 3D lights.
 - `perf.measure`'s `lights`, and so the `maxLights` budget, is now the most 2D plus 3D lights of any frame: a budget
   written for a 2D game used to watch nothing.
-- The 16 Light2D lights of a frame are the ones that light the view: directional lights first, then the point lights whose
+- The Light2D lights of a frame are the ones that light the view: directional lights first, then the point lights whose
   radius reaches the camera's visible rectangle (more of their radius in view first, then the more intense ones). A light
-  entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene naming the count.
+  entirely off-view is never kept over one in view. More than the budget (256) in view logs one warning per scene naming the count.
 
 Clipboard and window close
 

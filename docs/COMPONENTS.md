@@ -70,7 +70,7 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to. [0,0] top-left (default), [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right. Keeps HUD elements glued to screen edges on any aspect ratio. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false. (since 0.2.0) |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice. (since 0.2.0) |
-| `lit` | bool | `false` | World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D). (since 0.2.0) |
+| `lit` | bool | `false` | World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. How many lights shade a frame: see Light2D. (since 0.2.0) |
 | `normalMap` | asset (texture) | `""` | Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (since 0.2.0) |
 
 ### Parallax
@@ -91,7 +91,7 @@ Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, 
 
 Since 0.2.0.
 
-A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. The light sits at the entity's position (Transform) and ignores layers.
+A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -103,6 +103,7 @@ A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour i
 | `height` | float | `80.0` | Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp grazes the surface and shows relief, a high one lights it flatly. Range 0.0..100000.0. |
 | `direction` | float | `270.0` | Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down). |
 | `elevation` | float | `45.0` | Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it). Range 0.0..90.0. |
+| `castShadows` | bool | `false` | Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false. (not released yet, on main after 0.2.0) |
 
 ### SpriteAnimator
 
@@ -140,7 +141,7 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 | `sides` | int | `6` | polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon). Range 3.0..64.0. |
 | `points` | int | `5` | star only: number of tips (5 = the classic star). Range 3.0..64.0. |
 | `innerRadius` | float | `0.5` | star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, near 1 = a fat spiky polygon, near 0 = thin needles. Range 0.0..1.0. |
-| `lit` | bool | `false` | World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D). (since 0.2.0) |
+| `lit` | bool | `false` | World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D. (since 0.2.0) |
 
 ### Text
 
@@ -185,6 +186,7 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `layer` | int | `-10` | Draw order. Defaults below sprites (-10). |
 | `lit` | bool | `false` | true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false. (since 0.2.0) |
 | `normalMap` | asset (texture) | `""` | Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); flipped and rotated tiles turn their normals with them. Empty = flat tiles. (since 0.2.0) |
+| `occludesLight` | bool | `false` | true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no `lit` itself to cast. Default false. (not released yet, on main after 0.2.0) |
 
 ### ParticleEmitter
 
@@ -816,6 +818,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `horizonColor` | color | `[0.8,0.85,0.9,1.0]` | Bottom color of the 3D background gradient. |
 | `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. |
 | `musicVolume` | float | `0.6` | Volume of the background music, 0..1. Range 0.0..1.0. |
+| `lightScale` | float | `1.0` | Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights. Range 0.25..1.0. (not released yet, on main after 0.2.0) |
 
 
 # Commands reference
@@ -1532,7 +1535,7 @@ Not released yet (on main after 0.2.0).
 
 What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 16: the ones that reach the camera view are kept first). width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -5235,7 +5238,7 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
-     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. How many lights shade a frame: see Light2D.
      * @since 0.2.0
      */
     lit: boolean;
@@ -5281,7 +5284,7 @@ declare module "factoria" {
     readonly offset: Vec2;
   }
   /**
-   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -5328,6 +5331,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     elevation: number;
+    /**
+     * Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.
+     * @since unreleased
+     */
+    castShadows: boolean;
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
@@ -5440,7 +5448,7 @@ declare module "factoria" {
      */
     innerRadius: number;
     /**
-     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.
      * @since 0.2.0
      */
     lit: boolean;
@@ -5594,6 +5602,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no `lit` itself to cast. Default false.
+     * @since unreleased
+     */
+    occludesLight: boolean;
   }
   /**
    * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
@@ -7792,6 +7805,11 @@ declare module "factoria" {
      * Volume of the background music, 0..1.
      */
     musicVolume: number;
+    /**
+     * Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights.
+     * @since unreleased
+     */
+    lightScale: number;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -7840,11 +7858,11 @@ declare module "factoria" {
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
-    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
@@ -7871,7 +7889,7 @@ declare module "factoria" {
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -8216,9 +8234,9 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 16: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      */

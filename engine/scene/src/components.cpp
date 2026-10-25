@@ -262,7 +262,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("lit", &Sprite::lit,
                "World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
                "(its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture "
-               "says, whatever lights exist. At most 16 lights shade a frame (see Light2D).")
+               "says, whatever lights exist. How many lights shade a frame: see Light2D.")
         .asset_field("normalMap", &Sprite::normalMap, "texture",
                      "Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right "
                      "and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). "
@@ -289,14 +289,17 @@ void register_builtin_components(TypeRegistry& r) {
         .runtime_only().read_only();
 
     r.add<Light2D>("Light2D",
-                   "A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by "
+                   "A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by "
                    "SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, "
                    "scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one "
-                   "direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame "
-                   "(the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, "
-                   "the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never "
-                   "kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / "
-                   "lights2dDropped count what was kept and left out. "
+                   "direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light "
+                   "buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights "
+                   "shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones "
+                   "with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. "
+                   "More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was "
+                   "kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights "
+                   "(directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with "
+                   "occludesLight cast shadows (at most 32 shadow-casting lights per frame). "
                    "The light sits at the entity's position (Transform) and ignores layers.",
                    "2D")
         .enum_field("type", &Light2D::type, {"point", "directional"},
@@ -310,7 +313,13 @@ void register_builtin_components(TypeRegistry& r) {
                "Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp "
                "grazes the surface and shows relief, a high one lights it flatly.").range(0, 100000)
         .field("direction", &Light2D::direction, "Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down).")
-        .field("elevation", &Light2D::elevation, "Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).").range(0, 90);
+        .field("elevation", &Light2D::elevation, "Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).").range(0, 90)
+        .field("castShadows", &Light2D::castShadows,
+               "Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a "
+               "wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in "
+               "shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next "
+               "frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per "
+               "frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.");
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
@@ -372,7 +381,7 @@ void register_builtin_components(TypeRegistry& r) {
                "World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
                "(its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes "
                "for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false "
-               "(default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).");
+               "(default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.");
 
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
@@ -464,7 +473,12 @@ void register_builtin_components(TypeRegistry& r) {
                "true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false.")
         .asset_field("normalMap", &Tilemap::normalMap, "texture",
                      "Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); "
-                     "flipped and rotated tiles turn their normals with them. Empty = flat tiles.");
+                     "flipped and rotated tiles turn their normals with them. Empty = flat tiles.")
+        .field("occludesLight", &Tilemap::occludesLight,
+               "true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides "
+               "what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same "
+               "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no "
+               "`lit` itself to cast. Default false.");
 
     r.add<ParticleEmitter>("ParticleEmitter",
                            "Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color "
@@ -1308,7 +1322,12 @@ void register_builtin_components(TypeRegistry& r) {
         .asset_field("music", &SceneSettings::music, "audio", "Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this "
                      "track again, even when the previous scene had the same one; music a script started with "
                      "audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track.")
-        .field("musicVolume", &SceneSettings::musicVolume, "Volume of the background music, 0..1.").range(0, 1);
+        .field("musicVolume", &SceneSettings::musicVolume, "Volume of the background music, 0..1.").range(0, 1)
+        .field("lightScale", &SceneSettings::lightScale,
+               "Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture "
+               "pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); "
+               "use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights.")
+        .range(0.25f, 1);
 }
 
 void ensure_builtin_components() {
