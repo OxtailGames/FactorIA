@@ -1,6 +1,7 @@
 // @ts-check
-// The tile kinds of the mine, their rules (solid, how long to dig, which pick tier) and where each one is drawn in
-// assets/tiles.png. Everything that knows what a tile "is" reads this table: the generator writes kinds, the map and the
+// The tile kinds of the mine, their rules (solid, how long to dig, which pick tier) and where each one is drawn in the
+// stratum's tileset (assets/tiles_topsoil.png, tiles_crystal.png, tiles_magma.png: the same indices, other colours;
+// `tilesetOf` picks the file). Everything that knows what a tile "is" reads this table: the generator writes kinds, the map and the
 // miner ask it for rules, and only `tileIndex` knows the picture.
 
 /** Size of one tile in world units (the tileset's tile size too: one world unit is one tileset pixel). */
@@ -20,6 +21,14 @@ export const K = Object.freeze({
   LIFT_START: 9,
   LIFT_EXIT: 10,
   OIL: 11,
+  /** Water of a flood (P2): walkable, slows a miner down and drowns one who stays in it. */
+  WATER: 12,
+  /** Magma (P2): walkable, and burns a miner who steps on it. */
+  MAGMA: 13,
+  /** Cracked floor (P2): a miner who steps on it brings the roof down on the tiles around it (see hazards.js). */
+  SHAKY: 14,
+  /** Crystal wall (P2): a wall that glows (see lights.js) and is dug like rock. */
+  CRYSTAL: 15,
 });
 
 /**
@@ -30,7 +39,7 @@ export const K = Object.freeze({
  * @property {number} tier        Lowest pick tier that can dig it (0 = the starting pick).
  * @property {string|null} ore    Ore name this tile gives when dug, or null.
  * @property {number} value       Cash value of one piece of that ore.
- * @property {number} base        First atlas index of the kind in assets/tiles.png.
+ * @property {number} base        First atlas index of the kind in the stratum tilesets (they share one index table).
  * @property {number} variants    How many atlas pictures it has in a row (the tile picks one from its position).
  */
 
@@ -48,7 +57,27 @@ export const KINDS = Object.freeze({
   [K.LIFT_START]: { name: "liftStart", solid: false, digTime: 0, tier: 0, ore: null, value: 0, base: 21, variants: 1 },
   [K.LIFT_EXIT]: { name: "liftExit", solid: false, digTime: 0, tier: 0, ore: null, value: 0, base: 22, variants: 1 },
   [K.OIL]: { name: "oil", solid: false, digTime: 0, tier: 0, ore: null, value: 0, base: 23, variants: 1 },
+  [K.WATER]: { name: "water", solid: false, digTime: 0, tier: 0, ore: null, value: 0, base: 24, variants: 2 },
+  [K.MAGMA]: { name: "magma", solid: false, digTime: 0, tier: 0, ore: null, value: 0, base: 26, variants: 2 },
+  [K.SHAKY]: { name: "shaky", solid: false, digTime: 0, tier: 0, ore: null, value: 0, base: 28, variants: 1 },
+  [K.CRYSTAL]: { name: "crystal", solid: true, digTime: 1, tier: 0, ore: null, value: 0, base: 29, variants: 2 },
 });
+
+/** Kinds a miner must not walk through when it has a choice: the fluids and the cracked floor (the bot and the enemies avoid them). */
+export const DANGER_KINDS = Object.freeze([K.WATER, K.MAGMA, K.SHAKY]);
+
+/** True when the kind hurts a miner who stands on it (water, magma, cracked floor). */
+export function isDangerKind(kind) {
+  return kind === K.WATER || kind === K.MAGMA || kind === K.SHAKY;
+}
+
+/** The tileset file of a stratum's tile pictures. */
+export const TILESETS = Object.freeze(["assets/tiles_topsoil.png", "assets/tiles_crystal.png", "assets/tiles_magma.png"]);
+
+/** Path of the tileset for a stratum number (a number past the end uses the last one). */
+export function tilesetOf(stratum) {
+  return TILESETS[Math.max(0, Math.min(TILESETS.length - 1, Math.floor(stratum)))];
+}
 
 /** The ores, cheapest first: the keys of `run.ore`, the HUD rows and the results rows. */
 export const ORES = Object.freeze(["copper", "silver", "gold", "gem"]);
@@ -83,7 +112,7 @@ function spot(tx, ty) {
 }
 
 /**
- * Index in assets/tiles.png (the value written into `Tilemap.tiles`) of a tile of this kind at this place.
+ * Index in the stratum tileset (the value written into `Tilemap.tiles`) of a tile of this kind at this place.
  * @param {number} kind
  * @param {number} tx
  * @param {number} ty
@@ -107,4 +136,10 @@ export const SPRITE = Object.freeze({
   OIL_ICON: 7,
   ORE_ICON: { copper: 8, silver: 9, gold: 10, gem: 11 },
   CRACK: [12, 13, 14],
+  TORCH: 15,
+  BEETLE: 16,
+  THIEF: 17,
+  KING: 18,
+  WARNING: 19,
+  ROCK: 20,
 });

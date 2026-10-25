@@ -4,8 +4,8 @@
     "madeWith": "Made with FactorIA",
     "software": "This game uses the following software:",
     "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.",
-    "art": "Art: Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), CC0. The mole, the lift arrows and the cracks are drawn for this game.",
-    "sounds": "Sound effects: made with FactorIA's sound synthesiser, CC0."
+    "art": "Art: Kenney (Tiny Dungeon, Roguelike Caves and Dungeons), CC0. The moles, the beetles, the thief, the Mole King, the torches, the fog, the lift arrows, the cracks and the tint of the three strata are drawn for this game.",
+    "sounds": "Sound effects and music: made for this game with FactorIA's sound synthesiser and a small script, CC0."
   },
   "loading": {
     "text": "Loading..."
@@ -54,7 +54,8 @@
       "move_up": "Move up",
       "move_down": "Move down",
       "dig": "Dig",
-      "pause": "Pause"
+      "pause": "Pause",
+      "torch": "Place torch"
     },
     "binding": "{action}: {button}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
@@ -82,12 +83,24 @@
     "moleRescued": "A mole is free!",
     "liftWait": "On the lift. Waiting for the others...",
     "shiftLift": "Back on the lift. Good shift!",
-    "shiftDark": "Lost in the dark..."
+    "shiftDark": "Lost in the dark...",
+    "torches": "Torches: {count}",
+    "playerDown": "A miner is down!",
+    "flood": "Water is pouring into the tunnels!",
+    "magma": "Magma is breaking through!",
+    "caveIn": "The roof is shaking! Run!",
+    "oreStolen": "A thief took some ore! Catch it!",
+    "thiefEscaped": "The thief got away with the ore.",
+    "oreRecovered": "Ore recovered.",
+    "bossStarted": "The Mole King wakes!",
+    "bossDefeated": "The Mole King falls! The lift is free.",
+    "exitJammed": "The Mole King jams the lift!",
+    "shiftAllDown": "Every miner is down..."
   },
   "strata": {
     "topsoil": "Topsoil",
-    "rockLayers": "Rock layers",
-    "deep": "The deep"
+    "crystalCaves": "Crystal Caves",
+    "magmaDeep": "Magma Deep"
   },
   "results": {
     "titleLift": "Shift {shift} done",
@@ -102,7 +115,17 @@
     "time": "Time: {time}",
     "moles": "Moles rescued: {rescued} / {total}",
     "cash": "Cash: {cash}",
-    "again": "Another shift",
-    "toTitle": "Back to title"
+    "toTitle": "Back to title",
+    "titleAllDown": "Everyone is down",
+    "titleVictory": "The Mole King is beaten!",
+    "noteAllDown": "No miner was left standing. The ore stayed behind.",
+    "noteVictory": "The lift carries the brigade home. The mine is yours.",
+    "next": "Next: {stratum}, floor {floor}",
+    "nextBoss": "Next: {stratum}, floor {floor} - the Mole King waits",
+    "retry": "Again: {stratum}, floor {floor}",
+    "victoryEnd": "Back to the surface",
+    "nextFloor": "Next floor",
+    "retryFloor": "Try the floor again",
+    "newRun": "New run"
   }
 }

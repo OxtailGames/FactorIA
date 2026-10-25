@@ -11,6 +11,7 @@ import { KEY_SCHEMES } from "./players.js";
  * @property {number} x      -1 left .. 1 right.
  * @property {number} y      -1 down .. 1 up (the world's +Y).
  * @property {boolean} dig   The dig button is held.
+ * @property {boolean} torch  The torch button went down this frame (a press, not a hold).
  */
 
 /** Limits a vector to length 1 (two keys at once do not walk faster; a half-tilted stick stays slower). */
@@ -28,14 +29,14 @@ export function readInput(player) {
   if (d.kind === "keys") {
     const k = KEY_SCHEMES[d.scheme];
     const v = clamp((input.keyDown(k.right) ? 1 : 0) - (input.keyDown(k.left) ? 1 : 0), (input.keyDown(k.up) ? 1 : 0) - (input.keyDown(k.down) ? 1 : 0));
-    return { ...v, dig: input.keyDown(k.dig) };
+    return { ...v, dig: input.keyDown(k.dig), torch: input.keyPressed(k.torch) };
   }
   if (d.kind === "pad") {
     const pad = input.gamepad(d.index);
     const x = pad.axis("LeftX") + (pad.down("DpadRight") ? 1 : 0) - (pad.down("DpadLeft") ? 1 : 0);
     const y = pad.axis("LeftY") + (pad.down("DpadUp") ? 1 : 0) - (pad.down("DpadDown") ? 1 : 0);
-    return { ...clamp(x, y), dig: pad.down("A") || pad.down("X") };
+    return { ...clamp(x, y), dig: pad.down("A") || pad.down("X"), torch: pad.pressed("B") || pad.pressed("Y") };
   }
   const v = clamp(input.axis("move_left", "move_right"), input.axis("move_down", "move_up"));
-  return { ...v, dig: input.down("dig") };
+  return { ...v, dig: input.down("dig"), torch: input.pressed("torch") };
 }

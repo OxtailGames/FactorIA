@@ -1,0 +1,25 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Enemy",
+    "tags": ["enemy"],
+    "components": {
+      "Transform": {},
+      "Sprite": {
+        "texture": "assets/sprites.png",
+        "region": [0, 16, 16, 16],
+        "size": [16, 16],
+        "layer": 11,
+        "lit": true
+      },
+      "Script": {
+        "path": "scripts/game/enemy.js",
+        "props": {
+          "kind": "beetle",
+          "tx": 0,
+          "ty": 0
+        }
+      }
+    }
+  }
+}
