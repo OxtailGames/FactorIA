@@ -15,7 +15,7 @@ void Editor::session_begin() {
     run_.logSeq = log_last_seq();  // wall clock: only for the folder name
     run_.rec.start(run_.startFrame);
     const CalendarDate today = engine_->scripts().today();
-    run_.rec.set_date(today.iso(), today.utcOffsetMinutes);
+    run_.rec.set_date(today.iso(), today.utcOffsetMinutes, today.iso_time());
     PlaySession& s = run_.session;
     s.name = play_session_name(std::time(nullptr));
     s.scene = scenePath_;

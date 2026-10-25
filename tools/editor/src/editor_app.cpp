@@ -473,7 +473,7 @@ bool Editor::boot(const std::string& dirIn) {
         cfg.audioDevice = !autotest_;
         if (!autotest_) {  // playing in the editor is playing: the player's real date (the autotest keeps the fixed one)
             const CalendarDate today = local_calendar_date();
-            cfg.date = today.iso();
+            cfg.date = today.iso_datetime();
             cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
         }
         engine_ = std::make_unique<Engine>();

@@ -276,7 +276,28 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         out["name"] = localized(l.name, l.nameKey, c.translator);  // in the current language, for backends with no name of their own
         out["order"] = l.order;
         out["period"] = l.period;  // the board of "periodKey" (the day, or the Monday of the week; "" for allTime) in "date"'s calendar
-        out["periodKey"] = period_key(l.period, c.today);
+        std::string day;  // "day": the board of another UTC day, daily boards only
+        if (auto it = in.find("day"); it != in.end() && !it->is_null()) {
+            const std::string shown = describe_json_value(*it);
+            if (!it->is_string())
+                throw Bad{"\"day\" must be a string \"YYYY-MM-DD\", got " + shown, "Example: { day: \"2026-10-23\" }."};
+            if (l.period != "daily")
+                throw Bad{"\"day\" only addresses a daily board, but " + in_quotes(l.id) + " is " +
+                              (l.period.empty() || l.period == "allTime" ? std::string("an allTime board") : "a " + l.period + " board"),
+                          "Drop the option, or declare \"period\": \"daily\" for this leaderboard in factoria.json platform.leaderboards."};
+            auto parsed = parse_calendar_date(it->get<std::string>(), "\"day\"");
+            if (!parsed.ok() || it->get<std::string>().size() != 10)
+                throw Bad{"\"day\" must be a date \"YYYY-MM-DD\", got " + shown,
+                          "Example: { day: \"2026-10-23\" }; game.today().utc.iso is today's UTC day."};
+            day = parsed->iso();
+            // Game Center and Play Games only know the store's own current day.
+            if ((be == "apple" || be == "googleplay") && day != c.today.iso() && day != c.today.utc().iso())
+                throw Reject{"unsupported",
+                             "the " + in_quotes(be) + " backend cannot address the leaderboard " + in_quotes(l.id) + " on " + day +
+                                 ": its store only has the current daily board",
+                             "Omit \"day\" or pass game.today().utc.iso; other days are kept by the fake and Steam backends only."};
+        }
+        out["periodKey"] = day.empty() ? period_key(l.period, c.today) : day;
         out["date"] = c.today.iso();
         if (method == "leaderboards.submit") {
             const double score = need_number(in, "score", "the score to submit");

@@ -37,6 +37,21 @@ std::string CalendarDate::iso() const {
     return buf;
 }
 
+std::string CalendarDate::iso_time() const {
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%02d:%02d:%02d", hour, minute, second);
+    return buf;
+}
+
+std::string CalendarDate::iso_datetime() const { return iso() + "T" + iso_time(); }
+
+CalendarDate CalendarDate::utc() const {
+    long minutes = days_since_epoch() * 1440L + hour * 60L + minute - utcOffsetMinutes;
+    long days = minutes / 1440;
+    if (minutes % 1440 < 0) --days;  // floor, also before 1970
+    return calendar_date_from_days(days);
+}
+
 CalendarDate calendar_date_from_days(long z) {
     z += 719468;
     const long era = (z >= 0 ? z : z - 146096) / 146097;
@@ -59,7 +74,13 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
             if (text[i] < '0' || text[i] > '9') return false;
         return true;
     };
-    if (text.size() != 10 || text[4] != '-' || text[7] != '-' || !digits(0, 4) || !digits(5, 2) || !digits(8, 2))
+    const bool hasTime = text.size() > 10;
+    if (hasTime && (text[10] != 'T' && text[10] != ' ')) {
+        return Error{who + " '" + shown + "' is not a date of the form YYYY-MM-DD",
+                     "Write the year with four digits and the month and day with two, e.g. 2026-10-23, optionally followed by a time: 2026-10-23T18:30 or 2026-10-23T18:30:15."};
+    }
+    const std::string_view day = text.substr(0, 10);
+    if (text.size() < 10 || day[4] != '-' || day[7] != '-' || !digits(0, 4) || !digits(5, 2) || !digits(8, 2))
         return Error{who + " '" + shown + "' is not a date of the form YYYY-MM-DD",
                      "Write the year with four digits and the month and day with two, e.g. 2026-10-23."};
     CalendarDate c;
@@ -78,6 +99,20 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
         std::string hint = "Use a day from 01 to " + std::to_string(maxDay) + ".";
         if (c.month == 2 && c.day == 29) hint = std::string(text.substr(0, 4)) + " is not a leap year: use 02-28 or 03-01, or a leap year such as 2028-02-29.";
         return Error{who + " '" + shown + "' is not a real date: " + why, hint};
+    }
+    if (hasTime) {
+        const std::string_view t = text.substr(11);
+        const bool shape = (t.size() == 5 || t.size() == 8) && t[2] == ':' && digits(11, 2) && digits(14, 2) &&
+                           (t.size() == 5 || (t[5] == ':' && digits(17, 2)));
+        if (!shape)
+            return Error{who + " '" + shown + "' has a time that is not HH:MM or HH:MM:SS",
+                         "Write the time after the date with two digits per part, e.g. 2026-10-23T18:30 or 2026-10-23T18:30:15."};
+        c.hour = std::stoi(std::string(t.substr(0, 2)));
+        c.minute = std::stoi(std::string(t.substr(3, 2)));
+        c.second = t.size() == 8 ? std::stoi(std::string(t.substr(6, 2))) : 0;
+        if (c.hour > 23 || c.minute > 59 || c.second > 59)
+            return Error{who + " '" + shown + "' is not a real time: hours are 00-23, minutes and seconds 00-59",
+                         "Use a time such as 23:59:59; midnight is 00:00:00 of the next day."};
     }
     return c;
 }
