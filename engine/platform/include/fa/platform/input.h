@@ -17,6 +17,11 @@
 //              GamepadRightTrigger: ANALOG, see action_value()
 // Unknown names are rejected by set_actions with a "did you mean" hint.
 //
+// PLAYERS (local multiplayer): the actions above answer to every device. For games where two to four people share the
+// machine, a player (0..kMaxPlayers-1) is given a device (a gamepad, and/or a key scheme: a set of keys such as the left
+// half of the keyboard) with use_player_device() and then reads the SAME actions through player_action_*(): its pad
+// bindings read only its pad, its key bindings only the keys of its scheme. Each player can rebind on its own.
+//
 // Coordinates: mouse/touch positions are in DESIGN-RESOLUTION screen pixels,
 // origin top-left, +Y down (same as screen-space UI). The runtime converts
 // from window pixels (letterboxing/scaling).
@@ -27,6 +32,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <span>
 #include <string>
 #include <string_view>
@@ -102,6 +108,15 @@ struct GamepadEvent {
     GamepadInfo info;
 };
 
+// What a local player reads (Input::use_player_device): a gamepad, a key scheme, both or neither.
+inline constexpr int kMaxPlayers = kMaxGamepads;
+struct PlayerDevice {
+    int pad = -1;       // gamepad slot 0..kMaxGamepads-1, or -1 for none (ignored when padId is set)
+    std::string padId;  // the stable id of a pad (GamepadInfo::id): follows the pad to another slot; "" for none
+    std::string keys;   // key scheme name ("all", "left", "right" or the project's); "" for no keyboard
+    bool operator==(const PlayerDevice&) const = default;
+};
+
 // The kind of device that produced input last (Input::last_device()), for showing the matching button prompts.
 enum class InputDevice : std::uint8_t { Keyboard, Mouse, Gamepad, Touch };
 const char* input_device_name(InputDevice d);  // "keyboard", "mouse", "gamepad", "touch"
@@ -133,6 +148,7 @@ public:
 
 class Input {
 public:
+    Input();  // the built-in key schemes
     // Frame lifecycle: pressed/released edges and per-frame deltas (mouse delta,
     // wheel, typed text) accumulate from the event feed and stay valid until the
     // next begin_frame(). Call it ONCE PER FRAME AFTER the game has consumed the
@@ -339,6 +355,62 @@ public:
     // half-tilted stick gives a short vector and two held keys a unit diagonal.
     Vec2 vector(std::string_view left, std::string_view right, std::string_view down, std::string_view up) const;
 
+    // -------- players (local multiplayer: one device each; the actions above keep answering to every device)
+    // A player reads the project's actions (the same names) through its own device: gamepad bindings only on its pad, key
+    // bindings only on the keys of its scheme. Mouse and touch bindings belong to the one shared pointer, so players do not
+    // read them (the global actions do). A player with no device reads nothing. An out-of-range player reads nothing and
+    // ignores changes; the functions that report problems return them as text (empty = fine).
+    //
+    // Key schemes: "all" (every key), "left" and "right" (the two halves of the keyboard; key_scheme_keys lists them) are
+    // built in; the project adds its own in factoria.json "input.schemes". A scheme is a set of keys and may give the keys of
+    // some actions of its own; for the other actions a player's default key bindings are the project's key bindings that
+    // belong to the scheme.
+    // set_key_schemes() takes "input.schemes", e.g. { "arrows": { "extends": "right", "keys": ["Enter"], "actions":
+    // { "jump": ["Enter"] } } }: `extends` (a built-in scheme) and `keys` add to the set, the keys of `actions` too, and a bare
+    // array is {"keys": [...]}. It replaces the project's schemes; call it AFTER set_actions (the actions a scheme names must
+    // exist). Returns problems with "did you mean".
+    std::vector<std::string> set_key_schemes(const Json& schemes);
+    std::vector<std::string> key_scheme_names() const;                      // built-in ones first, then the project's, sorted
+    std::vector<std::string> key_scheme_keys(std::string_view name) const;  // canonical key names in Key order; empty if unknown
+    // Gives a player its device. The pad is a slot (pad >= 0) or the stable id of a pad (padId: the player follows that pad
+    // when it comes back in another slot, and reads nothing while it is unplugged); `keys` names a scheme. An empty field is
+    // "none". Returns problems (slot out of range, unknown scheme with "did you mean", pad and padId together) and changes
+    // nothing when there are any. What the player rebound stays with the player, not with the device.
+    std::vector<std::string> use_player_device(int player, const PlayerDevice& device);
+    const PlayerDevice& player_device(int player) const;  // an empty device for an out-of-range player
+    int player_pad(int player) const;                     // the slot it reads now; -1: none, or its padId pad is unplugged
+    // The actions every player has: the project's (action_names() without the ones bind() added). For any other name every
+    // read below gives false / 0.
+    bool has_player_action(std::string_view action) const;
+    float player_action_value(int player, std::string_view action) const;  // like action_value, from the player's device only
+    bool player_action_down(int player, std::string_view action) const;
+    bool player_action_pressed(int player, std::string_view action) const;
+    bool player_action_released(int player, std::string_view action) const;
+    float player_axis(int player, std::string_view negative, std::string_view positive) const;
+    Vec2 player_vector(int player, std::string_view left, std::string_view right, std::string_view down,
+                       std::string_view up) const;
+    // The bindings of a player's action are two lists, "keys" and "pad". `family` "keys" or "pad" gives that list (what the
+    // player would use on such a device, also when it has none now), "" gives the lists of the devices it has now, keys
+    // first. The defaults come from the project (see above); what the player rebound replaces them. Keys outside the
+    // player's scheme are not listed (they do not count either).
+    std::vector<std::string> player_bindings(int player, std::string_view action, std::string_view family = {}) const;
+    // Replaces one family's list of an action for this player. `family` is "keys" or "pad", or "" to take it from the
+    // names (they must all be of one family; an empty list with no family unbinds both). All or nothing: problems for an
+    // unknown action or binding (with "did you mean"), a mouse or touch binding, a key outside the player's scheme (outside
+    // "all" while the player has no keys device), a name of the other family than `family`.
+    std::vector<std::string> player_rebind(int player, std::string_view action, const std::vector<std::string>& bindings,
+                                           std::string_view family = {});
+    // Back to the defaults: one action, or every action when `action` is empty.
+    std::vector<std::string> player_reset(int player, std::string_view action = {});
+    // Like last_pressed() but only on the player's own device: the keys of its scheme, its pad's buttons and sticks.
+    std::string player_last_pressed(int player) const;
+    // What the player rebound, for a game to save: { "keys": { "jump": ["Space"] }, "pad": { "jump": ["GamepadB"] } }, only
+    // the actions that differ from the defaults ({} when nothing). player_import replaces the rebinds with such an object (the
+    // device is not part of it); an entry that is no longer valid (an action the project dropped, a bad name) is skipped and
+    // reported, the rest applies.
+    Json player_export(int player) const;
+    std::vector<std::string> player_import(int player, const Json& data);
+
     // Virtual action state (tests/AI): down=true forces the action down (in
     // addition to real bindings) until set back to false, which releases it
     // (the real bindings apply again). Produces pressed/released edges; a
@@ -378,12 +450,40 @@ private:
         std::array<float, size_t(GamepadAxis::Count)> axes{}, prevAxes{};
     };
     static bool parse_binding(std::string_view name, Binding& out);
+    // Which devices a read looks at: the global actions see everything, a player its own pad and key scheme.
+    using KeySet = std::array<bool, size_t(Key::Count)>;
+    struct View {
+        bool anyPad = false;             // every pad, the touch pad included
+        int pad = -1;                    // else this slot (-1: no pad)
+        bool pointer = false;            // mouse buttons and touch
+        bool keyboard = false;           // keys
+        const KeySet* keySet = nullptr;  // keyboard: only these keys (nullptr: all of them)
+    };
+    float binding_value_in(const Binding& b, bool previous, const View& view) const;
+    bool was_down_in(const std::vector<Binding>& list, const View& view) const;             // down as of the last begin_frame()
+    bool edge_in(const std::vector<Binding>& list, const View& view, bool released) const;  // went down (or up) this frame
     float binding_value(const Binding& b, bool previous) const;  // previous: as of the last begin_frame()
     float pad_axis(const Pad& pad, GamepadAxis a, bool previous) const;
     void release_pad(int index);     // connected = false, buttons released, axes zeroed; no event
     void mark_connected(int index);  // connected = true; announces the pad when it was not
     // The bindings listed for one action in `actions` (a JSON array or string), appending problems; `candidates` are the
     // names for "did you mean".
+    using ActionTable = std::unordered_map<std::string, std::vector<Binding>>;
+    struct KeyScheme {
+        KeySet keys{};
+        ActionTable actions;  // the scheme's own bindings for some actions
+        bool builtin = false;
+    };
+    struct PlayerState {
+        PlayerDevice device;
+        ActionTable keysOverride, padOverride;  // what the player rebound, per family
+    };
+    enum class Family : std::uint8_t { Keys, Pad };
+    static bool parse_family(std::string_view name, Family& out);
+    void rebuild_player_defaults();  // padDefaults_ and keyDefaults_ from the project's actions and the schemes
+    View player_view(int player) const;
+    // The list that applies to one family of a player's action: the rebind, else the default (nullptr: no such action).
+    const std::vector<Binding>* player_list(int player, Family family, const std::string& action) const;
     std::vector<Binding> parse_binding_list(const std::string& action, const Json& list,
                                             const std::vector<std::string>& candidates,
                                             std::vector<std::string>& problems) const;
@@ -421,6 +521,10 @@ private:
     bool pasteFromEvents_ = false;  // paste comes from on_paste() only, not from the V key
     std::vector<float> vibrations_;
     Json projectActions_;  // what the last set_actions() was given (reset_bindings)
+    std::map<std::string, KeyScheme> schemes_;        // the built-in schemes and the project's
+    ActionTable padDefaults_;                         // per action: the project's pad bindings
+    std::map<std::string, ActionTable> keyDefaults_;  // per scheme, per action: the default key bindings
+    std::array<PlayerState, kMaxPlayers> players_;
     std::unordered_map<std::string, std::vector<Binding>> actions_;
     // Action overrides: only `true` entries are stored (setting false erases and
     // hands control back to the bindings).
