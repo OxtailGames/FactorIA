@@ -23,6 +23,7 @@ namespace {
 const char* const kJp = "assets/fonts/NotoSansJP-Regular-subset.ttf";
 const char* const kKr = "assets/fonts/NotoSansKR-Regular-subset.ttf";
 const char* const kAr = "assets/fonts/NotoSansArabic-Regular-subset.ttf";
+const char* const kTh = "assets/fonts/NotoSansThai-Regular-subset.ttf";
 
 // The test project with the fixture fonts copied into assets/fonts (once), so Text.font, the fallback chain and the
 // coverage check can name them like a game would.
@@ -31,7 +32,8 @@ Gfx& with_fonts() {
     static const bool installed = [&] {
         const std::filesystem::path to = g.projectDir / "assets" / "fonts";
         std::filesystem::create_directories(to);
-        for (const char* name : {"NotoSansJP-Regular-subset.ttf", "NotoSansKR-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf"})
+        for (const char* name : {"NotoSansJP-Regular-subset.ttf", "NotoSansKR-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf",
+                                  "NotoSansThai-Regular-subset.ttf"})
             std::filesystem::copy_file(std::filesystem::path(FA_RENDER_DATA_DIR) / "fonts" / name, to / name,
                                        std::filesystem::copy_options::overwrite_existing);
         return true;
@@ -256,6 +258,82 @@ TEST_CASE("text: Latin text still breaks only at spaces") {
         rebuilt += (rebuilt.empty() ? U"" : U" ") + l.text;
     }
     CHECK(rebuilt == fr::decode_text(s));  // every break was a space: no word was cut
+}
+
+TEST_CASE("text: a line breaks after U+200B and the UAX 14 spaces, which draw nothing, and never inside a word") {
+    with_fonts();
+    Faces f({"builtin", kTh});
+    // Thai words (hello, thank you, goodbye) with U+200B between them, as a translator marks the boundaries
+    const std::string word1 = "\xE0\xB8\xAA\xE0\xB8\xA7\xE0\xB8\xB1\xE0\xB8\xAA\xE0\xB8\x94\xE0\xB8\xB5";
+    const std::string word2 = "\xE0\xB8\x82\xE0\xB8\xAD\xE0\xB8\x9A\xE0\xB8\x84\xE0\xB8\xB8\xE0\xB8\x93";
+    const std::string zw = "\xE2\x80\x8B";
+    const std::string marked = word1 + zw + word2 + zw + word1 + zw + word2;
+    const fr::ShapedText one = f.shape(word1, 16, 0);
+    REQUIRE(one.missing.empty());
+    const float w1 = one.lines[0].width;
+    const fr::ShapedText unwrapped = f.shape(marked, 16, 0);
+    CHECK(unwrapped.lines.size() == 1);
+    CHECK(unwrapped.missing.empty());
+    // U+200B takes no width: the marked text is as wide as the same words side by side
+    CHECK(unwrapped.lines[0].width == doctest::Approx(f.shape(word1 + word2 + word1 + word2, 16, 0).lines[0].width));
+    const fr::ShapedText t = f.shape(marked, 16, w1 * 1.5f);
+    CHECK(t.missing.empty());
+    REQUIRE(t.lines.size() >= 3);
+    for (const fr::ShapedLine& l : t.lines) {
+        CHECK(l.width <= w1 * 1.5f + 0.01f);
+        // each line is whole words: it starts at a word start and ends at a word end, so no word was cut
+        const std::u32string w1c = fr::decode_text(word1), w2c = fr::decode_text(word2);
+        const bool startsAtWord = l.text.compare(0, w1c.size(), w1c) == 0 || l.text.compare(0, w2c.size(), w2c) == 0;
+        CHECK(startsAtWord);
+        const bool endsAtWord = (l.text.size() >= w1c.size() && l.text.compare(l.text.size() - w1c.size(), w1c.size(), w1c) == 0) ||
+                                (l.text.size() >= w2c.size() && l.text.compare(l.text.size() - w2c.size(), w2c.size(), w2c) == 0);
+        CHECK(endsAtWord);
+    }
+    // the mark the line broke at is dropped from the end of the line
+    for (const fr::ShapedLine& l : t.lines) CHECK(l.text.back() != 0x200B);
+    // without the marks nothing may break inside the text
+    CHECK(f.shape(word1 + word2 + word1, 16, w1 * 1.5f).lines.size() == 1);
+}
+
+TEST_CASE("text: a thin space and the other break spaces are line break opportunities; a no-break space is not") {
+    with_fonts();
+    Faces f({"builtin"});
+    const std::string thin = "\xE2\x80\x89";  // U+2009
+    const fr::ShapedText t = f.shape("alpha" + thin + "beta" + thin + "gamma", 20, 90);
+    REQUIRE(t.lines.size() >= 2);
+    std::u32string all;
+    for (const fr::ShapedLine& l : t.lines) {
+        CHECK(l.width <= 90.01f);
+        CHECK(l.text.back() != 0x2009);  // dropped at the end of a wrapped line
+        all += l.text;
+    }
+    CHECK(all.find(U"alpha") != std::u32string::npos);
+    for (const char* sp : {"\xE2\x80\x8B", "\xE1\x9A\x80", "\xE2\x80\x80", "\xE2\x80\x8A", "\xE2\x81\x9F"})
+        CHECK(f.shape(std::string("alpha") + sp + "beta", 20, 85).lines.size() == 2);
+    CHECK(f.shape("alpha\xC2\xA0" "beta", 20, 85).lines.size() == 1);  // no-break space: the line cannot break there
+    // a hyphen ends a line; a minus sign before a digit does not
+    CHECK(f.shape("well-known", 20, 90).lines.size() == 2);
+    CHECK(f.shape("value-5", 20, 90).lines.size() == 1);
+}
+
+TEST_CASE("fonts: SARA AM needs U+0E4D and U+0E32, whether or not the font has U+0E33") {
+    with_fonts();
+    const std::vector<std::uint32_t> parts = {0x0E4D, 0x0E32};
+    // the built-in fonts have no Thai at all: the parts are named, in order, and not the composed vowel itself
+    auto cov = FontCoverage::load({"builtin:pixel"});
+    REQUIRE(cov.ok());
+    CHECK(cov->missing("\xE0\xB8\xB3") == parts);
+    CHECK(fr::composed_parts(0x0EB3) == std::u32string_view(U"\u0ECD\u0EB2"));  // Lao AM (DejaVu covers Lao: no font to miss it)
+    CHECK(fr::composed_parts(U'a').empty());
+    // a Thai font that has them covers the vowel
+    auto th = FontCoverage::load({kTh});
+    REQUIRE(th.ok());
+    CHECK(th->missing("\xE0\xB8\x99\xE0\xB9\x89\xE0\xB8\xB3").empty());
+    // the render-time warning list names the parts too
+    Faces f({"builtin"});
+    const fr::ShapedText t = f.shape("\xE0\xB8\xB3", 16, 0);
+    CHECK(std::find(t.missing.begin(), t.missing.end(), char32_t(0x0E4D)) != t.missing.end());
+    CHECK(std::find(t.missing.begin(), t.missing.end(), char32_t(0x0E32)) != t.missing.end());
 }
 
 // ---- the fallback chain ---------------------------------------------------------------------------------------------------

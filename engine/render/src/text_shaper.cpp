@@ -45,10 +45,21 @@ constexpr std::u32string_view kNoBreakBefore =
     U"、。，．：；！？）］｝〉》」』】〕〗〙〛｠,.:;!?)]}%’”»›ゝゞヽヾーぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ々〻‥…・〜～";
 constexpr std::u32string_view kNoBreakAfter = U"（［｛〈《「『【〔〖〘〚｟([{‘“«‹";
 
+// A space a line may end with: U+0020, U+200B ZERO WIDTH SPACE (how a translator marks the word boundaries of Thai, Khmer,
+// Lao and Burmese) and the UAX #14 class BA spaces (Ogham, the en/em/thin spaces, the medium mathematical space). It hangs on
+// the end of a line and is dropped when the line wraps. The no-break spaces (U+00A0, U+2007, U+202F) are not in the list.
+bool is_break_space(char32_t c) {
+    return c == U' ' || c == 0x200B || c == 0x1680 || (c >= 0x2000 && c <= 0x2006) || (c >= 0x2008 && c <= 0x200A) || c == 0x205F;
+}
+
+// A hyphen a line may end after: U+002D and U+2010, unless a number follows ("-5", "x -5") or another hyphen.
+bool is_break_hyphen(char32_t c) { return c == U'-' || c == 0x2010; }
+
 // A line may break between two clusters whose first code points are `a` and `b`.
 bool can_break_between(char32_t a, char32_t b) {
-    if (b == U' ') return false;  // spaces hang on the end of the line
-    if (a == U' ') return true;
+    if (is_break_space(b)) return false;  // spaces hang on the end of the line
+    if (is_break_space(a)) return true;
+    if (is_break_hyphen(a) && !is_break_hyphen(b) && !(b >= U'0' && b <= U'9') && kNoBreakBefore.find(b) == std::u32string_view::npos) return true;
     if (!breaks_everywhere(a) && !breaks_everywhere(b)) return false;
     return kNoBreakBefore.find(b) == std::u32string_view::npos && kNoBreakAfter.find(a) == std::u32string_view::npos;
 }
@@ -143,7 +154,7 @@ void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size
             Cluster c;
             c.first = info[i].cluster;
             c.g0 = c.g1 = std::uint32_t(pool.size());
-            c.space = p[c.first] == U' ';
+            c.space = is_break_space(p[c.first]);
             clusters.push_back(c);
         }
         pool.push_back({f, info[i].codepoint, float(pos[i].x_advance) * scale, float(pos[i].x_offset) * scale, float(pos[i].y_offset) * scale});
@@ -184,6 +195,9 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
                 out.missing.push_back(c);
         }
         faceOf[i] = f;
+        for (char32_t part : composed_parts(c))  // the shaper decomposes SARA AM whatever the font has
+            if (!f->has_glyph(part) && out.missing.size() < 8 && std::find(out.missing.begin(), out.missing.end(), part) == out.missing.end())
+                out.missing.push_back(part);
     }
 
     // ---- scripts (Common and Inherited take the script of what comes before) and bidirectional levels ----
