@@ -111,8 +111,8 @@ A 3D example game for phones
 - With this release's fixes, Clockwork Courier dropped the rest of its workarounds: the dog and tap-to-move walk on a
   `NavMesh3D`, the level panels are three shared prefabs, the name screen uses the menu kit's keyboard, the paints are
   per-material colours, the stars are ★ and ☆, and its tests reset their state with `game.resetState` and drive the
-  mouse and the wheel. `ui.check_layout` finds no issue in it. Still open: playing a video for the studio intro
-  (FB-0051), and rope bridges and moving platforms in the navmesh, so a dog stops at a bridge (FB-0056).
+  mouse and the wheel. `ui.check_layout` finds no issue in it. Its studio intro is a video (FB-0051) and its dogs
+  follow the courier across the rope bridges (FB-0056): no entry of its feedback is open.
 
 Sliders and lists
 
