@@ -3,9 +3,11 @@
 // GPU-free: a scaffolded project in a temporary folder and a stand-in player, like the export tests of fa_test_tooling.
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <thread>
 
 #include "doctest.h"
@@ -17,10 +19,23 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
+void set_env(const char* name, const char* value) {
+#if defined(_WIN32)
+    _putenv_s(name, value ? value : "");  // an empty value removes the variable
+#else
+    if (value) setenv(name, value, 1);
+    else unsetenv(name);
+#endif
+}
+
 struct TempProject {
     stdfs::path root, dir;
+    std::optional<std::string> oldHome;
     explicit TempProject(const std::string& name) {
         root = fs::make_temp_dir("fa_editor_export_" + name);
+        // FACTORIA_HOME somewhere empty: not the players `factoria setup players` installed on this computer.
+        if (const char* cur = std::getenv("FACTORIA_HOME")) oldHome = cur;
+        set_env("FACTORIA_HOME", (root / "factoria-home").string().c_str());
         ScaffoldOptions so;
         so.name = "Export Test";
         so.id = "com.example.exporttest";
@@ -29,6 +44,7 @@ struct TempProject {
         dir = stdfs::weakly_canonical(r->dir);
     }
     ~TempProject() {
+        set_env("FACTORIA_HOME", oldHome ? oldHome->c_str() : nullptr);
         std::error_code ec;
         stdfs::remove_all(root, ec);
     }
