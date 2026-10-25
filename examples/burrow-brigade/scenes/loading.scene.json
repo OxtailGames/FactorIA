@@ -19,8 +19,11 @@
           "position": [-48, -48, 0]
         },
         "Text": {
-          "text": "Loading...",
-          "key": "loading.text",
+          "text": "Loading... 0%",
+          "key": "loading.progress",
+          "keyArgs": {
+            "percent": 0
+          },
           "fontSize": 36,
           "space": "screen",
           "anchor": [1, 1],

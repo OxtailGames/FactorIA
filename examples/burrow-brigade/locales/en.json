@@ -8,7 +8,7 @@
     "sounds": "Sound effects and music: made for this game with FactorIA's sound synthesiser and a small script, CC0."
   },
   "loading": {
-    "text": "Loading..."
+    "progress": "Loading... {percent}%"
   },
   "menu": {
     "title": "Burrow Brigade",
@@ -20,7 +20,10 @@
     "continue": "Continue",
     "daily": "Daily dig",
     "code": "Seed code",
-    "dailyInfo": "Daily dig {key}: {tries} tries, deepest {depth} m",
+    "dailyInfo": {
+      "one": "Daily dig {key}: {tries} try, deepest {depth} m",
+      "other": "Daily dig {key}: {tries} tries, deepest {depth} m"
+    },
     "boards": "Boards"
   },
   "options": {
@@ -75,7 +78,10 @@
     "privacyOptions": "Ad privacy settings",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent",
+    "percent": {
+      "one": "{value} percent",
+      "other": "{value} percent"
+    },
     "player": "Player {n}",
     "playerBinding": "{action}: {keys}  |  {pad}",
     "playerPress": "{action}: press a key or a button (Esc cancels)",
@@ -93,7 +99,9 @@
     "gameSpeed": "Game speed: {percent} percent",
     "gameSpeedNote": "A slower shift does not post to the boards.",
     "reducedFlashing": "Reduced flashing",
-    "accessNote": "Ore and hazards also carry a shape, so they read without colour."
+    "accessNote": "Ore and hazards also carry a shape, so they read without colour.",
+    "readToggle": "{label}, {state}",
+    "readSlider": "{label}, {value}"
   },
   "pause": {
     "title": "Paused",
@@ -209,7 +217,10 @@
   "slots": {
     "title": "Choose a slot",
     "empty": "Slot {slot}: empty - new run",
-    "filled": "Slot {slot}: {stratum}, floor {floor} - {cash} cash - {time} - best {best} m",
+    "filled": {
+      "one": "Slot {slot}: {stratum}, floor {floor} - {cash} cash - {time} - best {best} m",
+      "other": "Slot {slot}: {stratum}, floor {floor} - {cash} cash - {time} - best {best} m"
+    },
     "broken": "Slot {slot}: cannot be read",
     "delete": "Delete",
     "sync": "Sync with the cloud",
@@ -288,16 +299,16 @@
     "loading": "Loading...",
     "empty": "No scores yet. Bank some ore on the lift!",
     "unavailable": "The boards are not available here.",
-    "row": "{rank}. {name}",
-    "score": "{score}",
-    "you": "you",
+    "row": "{rank}. {name}   {score}",
     "dailyNote": "The board of {date}. Start a daily dig from the camp to post here.",
-    "progress": "{value} / {goal}",
-    "unlocked": "Unlocked",
-    "locked": "Locked",
     "numbers": "Your numbers",
     "posted": "Score {score} posted.",
-    "dailySkipped": "The daily dig crossed midnight: its score was not posted to today's board."
+    "dailySkipped": "The daily dig crossed midnight: its score was not posted to today's board.",
+    "rowYou": "{rank}. {name} (you)   {score}",
+    "trophyUnlocked": "{name}\n{description}",
+    "trophyLocked": "{name}   (Locked)\n{description}",
+    "trophyProgress": "{name}   (Locked)\n{description}   {value} / {goal}",
+    "stat": "{label}: {value}"
   },
   "presence": {
     "menu": "In the main menu",
@@ -314,13 +325,14 @@
     "resultsDown": "Lost shift {shift} down the mine"
   },
   "online": {
-    "news": "News",
     "consentTitle": "Anonymous play statistics",
     "consentBody": "Help improve the game by sending when a shift ends, which floor you reach and when you quit. No name, no device, nothing you typed. You can change this in Options.",
     "consentYes": "Yes, send",
     "consentNo": "No, thanks",
     "hintSelect": "Select",
-    "hintBack": "Back"
+    "hintBack": "Back",
+    "newsLine": "News: {line}",
+    "hintLine": "{button}: {action}"
   },
   "textEntry": {
     "keyboard": "Type the code, then press Enter.",

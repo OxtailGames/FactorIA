@@ -121,7 +121,7 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 ## Options (P6)
 
 Options has five tabs; every row works with the mouse, the keyboard (arrows or Tab, Enter) and a gamepad (d-pad, A, B to go back),
-is applied at once and saved in `settings` (`scripts/settings.js`). The texts are `locales/en.json` keys (English only until P8) and
+is applied at once and saved in `settings` (`scripts/settings.js`). The texts are `locales/<language>.json` keys (English, Russian, Thai: see Languages below) and
 the rows grow with the text size.
 
 - **Video**: window mode (windowed or full screen), window size, vsync, frame cap, colour filter. The engine has no borderless
@@ -131,7 +131,8 @@ the rows grow with the text size.
 - **Controls**: rebinding per player.
 - **Access**: sound captions (off by default), reduced flashing (starts from the system's "reduce motion"), game speed (100, 80 or
   60 %), and for each player (Player 1 to 4) dig as hold or as press to start, press to stop.
-- **Language**.
+- **Language**: one row that cycles English, Русский, ไทย; every text on every screen changes at once and the choice is saved in
+  `settings.language`.
 
 Sound captions: a cue such as a beetle's bite, a cave-in, the lamp running low or the mole's call writes a short line
 ("Beetle bite! (right)", the direction seen from the nearest miner) in the bottom middle of the screen, clear of the four players' bars at the bottom left and of the HUD text at the top. The line stays 2.5 s and the list keeps two lines.
@@ -148,6 +149,24 @@ still count. The flag starts again with a run continued from a save, so a Contin
 Colour-free ore and hazards: each ore and hazard tile carries a small white shape with a dark outline in its top-left corner (copper a disc,
 silver two bars, gold a triangle, a gem a diamond, water waves, magma a cross, a cracked floor an exclamation mark), the same in every
 stratum; `assets/src/make_markers.py` paints them after `make_atlases.py`. Checked with a greyscale screenshot.
+
+## Languages (P8)
+
+English, Russian (`locales/ru.json`) and Thai (`locales/th.json`), all with the same key set (`tests/languages.test.js` fails on a missing or
+extra key, a changed `{placeholder}` or a plural that is not one). The first start uses the player's system language when it is one of
+the three (the engine does that; the game keeps `settings.language` null until the player chooses); a saved choice wins.
+Options > Language cycles the three with the mouse, the keyboard or a gamepad. Scripts that write their own text (Options rows, the
+slots, boards, camp prices) rewrite it on `i18n.on("change")`.
+
+- Russian plurals have `one`, `few`, `many`, `other` (daily tries, slot coins, miners in the presence line, volume percent).
+- Thai: the engine wraps only at spaces, so the Thai table has a real space between phrases and never a space-free run over 16 base letters
+  (`tools/thai_spaces.py --check`, a test). The font is `assets/fonts/NotoSansThai-Regular-subset.ttf` (SIL OFL 1.1, `assets/fonts/OFL.txt`; rebuilt by
+  `assets/fonts/make_subset.py`, which keeps U+0E4D because the engine draws sara am as two letters: FB-0041). Engine gaps: FB-0040 (no Thai
+  word breaking), FB-0041, FB-0042 (`ui.check_layout` and ScrollLists).
+- Text size: every screen was checked at 100 % and 200 % (`ui.textScale`) in the three languages: panels that fit their content
+  (`fit`), a column or grid fallback when a row gets too wide (`fallbackLayout`), `maxTextScale` on headings, `autoSize` on buttons, scrolling
+  lists for the camp shop and the Options rows, and a modal consent card on the title at big sizes. `tests/layout.test.js` covers it;
+  `screenshots/` has a few looks.
 
 ## Layout
 
@@ -527,6 +546,8 @@ and no default build touches a network.
 | `balance.test.js` | values applied, out-of-range, wrong type and unknown keys rejected with hints, held during a shift, the offline fallback, `reset` |
 | `analytics.test.js` | nothing queued or sent without consent, the events after a yes, quit, a failed send, revoking |
 | `deck.test.js` | Deck detection, the 1280x800 fit, suspend and resume, the text-entry helper |
+| `languages.test.js` | the three string tables (same keys, placeholders, plural forms), Russian plurals on real counts, the Thai break rule, the language row by mouse, keyboard and gamepad, saved, a saved choice over the start language |
+| `layout.test.js` | every screen, panel and Options tab in en, ru, th at 100 % and 200 %: nothing overflows, leaves the screen or overlaps; `ui.check_layout` over the scenes |
 | `online_ui.test.js` | the title's news, the consent card, the hints row, leaving the title mid-request, the boards screen with the mouse and a pad, the Options switch |
 | `sound.test.js` | the music layers rising in a chase and falling after it, bar-line starts, the mix (ducking, paused, underwater, cavern echo, user sliders), the sound captions with their direction and the option |
 | `access.test.js` | hold and toggle dig per player, the game speed (`time.scale`, the event, no board post when assisted), reduced flashing, the Options > Access tab with mouse, keyboard only and gamepad only, the greyed Video rows |
@@ -539,6 +560,7 @@ and no default build touches a network.
 | `assets/music/*.wav` | one looping track per stratum, synthesised by `assets/src/make_music.py` (no sample taken from anywhere) | CC0 |
 | `assets/achievements/*.png`, `assets/glyphs/<xbox, playstation, nintendo, steamdeck>/*.png` | six trophy icons and the button pictures of four pad families, drawn by `assets/src/make_online_art.py` (64 px, deterministic, no outside image) | CC0 |
 | `assets/music/music_<stratum>_danger.wav`, `_fight.wav` | the one-bar layers over each stratum's track, synthesised by `assets/src/make_music_layers.py` | CC0 |
+| `assets/fonts/NotoSansThai-Regular-subset.ttf` | Noto Sans Thai, cut to the glyphs of `locales/th.json` by `assets/fonts/make_subset.py` | SIL OFL 1.1 (`assets/fonts/OFL.txt`) |
 | `assets/audio/beetle_alert.wav`, `lamp_low.wav`, `mole_call.wav` | the cue sounds of P6, made with `assets.synth_sound` | CC0 |
 | the ore and hazard shapes inside `assets/tiles_*.png` | stamped by `assets/src/make_markers.py` over the Kenney tiles | CC0 |
 | `assets/audio/*.wav` | made with `assets.synth_sound` (presets footstep, hit, coin, pickup, error, powerup, whoosh, click, growl, explosion, splash, laser) | CC0 |
@@ -556,7 +578,7 @@ and no default build touches a network.
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
 | P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | to do |
-| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | to do |
+| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai cannot be wrapped by words: FB-0040; sara am glyph: FB-0041; check_layout and ScrollLists: FB-0042) |
 
 Notes for the next packages. P7: the Options panel is 760 x 680 and the tab bar is 5 x 136 wide; the shift scene has the music
 driver and the sound captions widget. P8: every new string is a `locales/en.json` key (`options.*`, `caption.*`); the game-speed note and the captions

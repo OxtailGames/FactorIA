@@ -49,11 +49,26 @@ export default class Camp extends Behaviour {
 
   onUpdate(dt) {
     this.age += dt;
+    this.fitList();
     this.flames.forEach((f, i) => {
       if (!f?.alive) return;
       const flick = 1 + 0.22 * Math.sin(this.age * (7 + i * 2.3) + i) + 0.1 * Math.sin(this.age * 17 + i * 5);
       f.scale = [1, flick, 1];
     });
+  }
+
+  /**
+   * The shop and the side column sit in a scrolling list (at a big text size they no longer fit the screen). The list is
+   * left-aligned and its width is mine, so it is as wide as what it holds (at most the screen): at a normal size the camp
+   * stays centred like before.
+   */
+  fitList() {
+    const body = ui.rectOf("camp_body");
+    const list = world.find("camp_scroll");
+    if (!body || !list) return;
+    const size = list.get("ScrollList").size;
+    const width = Math.min(Math.ceil(body[2]) + 12, 1260);
+    if (Math.abs(size[0] - width) > 0.5) list.get("ScrollList").size = [width, size[1]];
   }
 
   onDestroy() {

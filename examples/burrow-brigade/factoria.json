@@ -71,7 +71,12 @@
   "localization": {
     "defaultLanguage": "en",
     "languages": [
-      "en"
+      "en",
+      "ru",
+      "th"
+    ],
+    "fallbackFonts": [
+      "assets/fonts/NotoSansThai-Regular-subset.ttf"
     ]
   },
   "platform": {
