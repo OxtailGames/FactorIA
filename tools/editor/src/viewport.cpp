@@ -231,6 +231,7 @@ void Editor::draw_viewport() {
         if (!(io.MouseDown[0] && play_ != PlayState::Playing)) {
             if (play_ != PlayState::Playing) engine_->physics().sync(w);
             navCells_ = engine_->physics().nav_cells(w, 20000);
+            navLinks_ = engine_->physics().nav_links(w);
         }
         for (const NavCell& c : navCells_) {
             const float h = c.size * 0.5f;
@@ -238,7 +239,25 @@ void Editor::draw_viewport() {
                                  to_vp(r->world_to_screen(Vec3{c.center.x + h, c.center.y, c.center.z - h})),
                                  to_vp(r->world_to_screen(Vec3{c.center.x + h, c.center.y, c.center.z + h})),
                                  to_vp(r->world_to_screen(Vec3{c.center.x - h, c.center.y, c.center.z + h}))};
-            dl->AddConvexPolyFilled(q, 4, c.blocked ? IM_COL32(255, 70, 60, 90) : IM_COL32(60, 220, 120, 70));
+            dl->AddConvexPolyFilled(q, 4, c.blocked ? IM_COL32(255, 70, 60, 90)
+                                           : c.moving ? IM_COL32(70, 170, 255, 110) : IM_COL32(60, 220, 120, 70));
+        }
+        // Off-mesh links (NavLink3D): a line from the start to the end, with an arrowhead at the end of a one-way one;
+        // grey when an end is not on walkable ground.
+        {
+            for (const NavLinkDraw& l : navLinks_) {
+                const ImVec2 a = to_vp(r->world_to_screen(l.from)), b = to_vp(r->world_to_screen(l.to));
+                const ImU32 col = l.connected ? IM_COL32(255, 220, 70, 230) : IM_COL32(150, 150, 150, 200);
+                dl->AddLine(a, b, col, 2.0f);
+                dl->AddCircleFilled(a, 4.0f, col);
+                dl->AddCircleFilled(b, 4.0f, col);
+                if (!l.bidirectional) {
+                    const float dx = b.x - a.x, dy = b.y - a.y, len = std::max(std::hypot(dx, dy), 1.0f);
+                    const float ux = dx / len, uy = dy / len;
+                    dl->AddTriangleFilled(b, ImVec2(b.x - 10 * ux + 5 * uy, b.y - 10 * uy - 5 * ux),
+                                          ImVec2(b.x - 10 * ux - 5 * uy, b.y - 10 * uy + 5 * ux), col);
+                }
+            }
         }
     }
     Entity sel = selected();
