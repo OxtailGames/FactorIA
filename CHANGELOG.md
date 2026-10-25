@@ -16,6 +16,9 @@ Video player
   validate` reports a `Video` whose file is missing or that the engine cannot play, with the ffmpeg command that fixes it.
 - `docs/MENUS.md` has a studio-intro recipe where any button skips the video. Clockwork Courier's intro is now a 4.8 second
   video of half a megabyte (FB-0051), recorded from an animated scene kept in `store/intro/`.
+- Software renderers (llvmpipe, WARP) draw screen-sized pictures several times faster: batches of plain textured quads
+  (sprites, panels, a video) use a shader without the branches of glyphs, shapes and 2D lights, and a `Video` leaves out
+  its background when the opaque picture covers it.
 
 Steam Deck keyboard
 

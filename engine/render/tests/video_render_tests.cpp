@@ -108,3 +108,35 @@ TEST_CASE("video: a Video whose file is missing draws only its background and a 
     CHECK(t.r > 0.75f);
     CHECK(t.g < 0.2f);
 }
+
+TEST_CASE("video: the background is left out when the opaque picture hides all of it") {
+    // A full-screen video would otherwise fill the screen twice: on a software renderer that is most of a frame.
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_fixture(g);
+    auto draw = [&](VideoFit fit, float width, float tintAlpha, int& drawCalls) {
+        World w;
+        w.add<Camera>(make(w, "cam"));
+        Video& v = video_at(w, 10, 10, width, 128, fit);
+        v.color = Color{0, 1, 0, 1};
+        v.tint.a = tintAlpha;
+        update_videos(w, 0.0f);
+        Image img = g.render(w);
+        drawCalls = g.renderer.stats().drawCalls;
+        return img;
+    };
+    int opaque = 0, see_through = 0, square = 0, bars = 0;
+    const Image a = draw(VideoFit::Stretch, 128, 1.0f, opaque);
+    const Image b = draw(VideoFit::Stretch, 128, 0.999f, see_through);
+    draw(VideoFit::Contain, 128, 1.0f, square);            // a square picture in a square rectangle: covers it too
+    const Image c = draw(VideoFit::Contain, 200, 1.0f, bars);  // wider: bars on the sides
+    CHECK(see_through == opaque + 1);  // the background is drawn under a picture that lets it through
+    CHECK(square == opaque);
+    CHECK(bars == opaque + 1);
+    const Color bar = c.pixel(20, 74);
+    CHECK((bar.g > 0.9f && bar.r < 0.05f));
+    CHECK(is_red(a.pixel(70, 74)));
+    CHECK(is_red(b.pixel(70, 74)));
+    CHECK(is_red(a.pixel(11, 136)));  // the picture reaches the rectangle's corners (its top rows are noise)
+    CHECK(is_red(a.pixel(136, 136)));
+}

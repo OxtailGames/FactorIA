@@ -63,13 +63,14 @@ bool Gpu::init(int sampleCount, std::string* error) {
     shadowsSupported_ = r32.render && r32.sample;
 
     quad_shader_ = sg_make_shader(quad_quad_shader_desc(backend));
+    quadPlainShader_ = sg_make_shader(quad_quad_plain_shader_desc(backend));
     mesh_shader_ = sg_make_shader(mesh_mesh_shader_desc(backend));
     sky_shader_ = sg_make_shader(sky_sky_shader_desc(backend));
     shadow_shader_ = sg_make_shader(mesh_shadow_shader_desc(backend));
     blit_shader_ = sg_make_shader(blit_blit_shader_desc(backend));
     meshSkinShader_ = sg_make_shader(mesh_mesh_skin_shader_desc(backend));
     shadowSkinShader_ = sg_make_shader(mesh_shadow_skin_shader_desc(backend));
-    for (sg_shader s : {quad_shader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, meshSkinShader_, shadowSkinShader_}) {
+    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, meshSkinShader_, shadowSkinShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
                 *error = "Failed to create a built-in shader for the " + std::string(backend == SG_BACKEND_GLCORE ? "OpenGL" : "current") +
@@ -121,7 +122,7 @@ void Gpu::shutdown() {
     for (auto& s : samplers_) { sg_destroy_sampler(s); s = {}; }
     sg_destroy_buffer(quadIndices_);
     sg_destroy_buffer(fsTriangle_);
-    for (sg_shader* s : {&quad_shader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_, &meshSkinShader_, &shadowSkinShader_}) {
+    for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
         *s = {};
     }
@@ -158,10 +159,10 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
     return p;
 }
 
-sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend) {
-    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2)};
+sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool plain) {
+    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) | (plain ? 0x10u : 0u)};
     sg_pipeline_desc d{};
-    d.shader = quad_shader_;
+    d.shader = plain ? quadPlainShader_ : quad_shader_;
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_quad_quad_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_color0].format = SG_VERTEXFORMAT_UBYTE4N;
@@ -197,7 +198,7 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend) {
     d.cull_mode = SG_CULLMODE_NONE;
     d.face_winding = SG_FACEWINDING_CCW;
     d.sample_count = sampleCount_;
-    d.label = lines ? "quad-lines" : (depthTest ? "quad-3d" : "quad-2d");
+    d.label = lines ? "quad-lines" : plain ? (depthTest ? "quad-3d-plain" : "quad-2d-plain") : (depthTest ? "quad-3d" : "quad-2d");
     return find_or_make(key, d);
 }
 
