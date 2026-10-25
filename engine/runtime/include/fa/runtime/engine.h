@@ -173,6 +173,11 @@ public:
     Json project_settings() const override;
     Vec2 design_size() const override;
     double fixed_dt() const override;
+    Clipboard* clipboard() override;  // the system's in a game window, an in-memory one everywhere else
+    // What clipboard reads returned since the last call (oldest first), once log on is set: the editor's play session
+    // records them as the "clipboard" of the frame they happened in. Off by default; set false to stop logging.
+    void log_clipboard_reads(bool on);
+    std::vector<std::string> take_clipboard_reads();
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
     const I18n* i18n() override;
@@ -231,6 +236,7 @@ int run_windowed(const EngineConfig& config);
 //       "30": { "release": ["jump"] } },
 //     "timing": [[0.0167, 1], [0.05, 3]] }     // optional: frame N runs with that dt and that many fixed steps
 //                                              // (editor play sessions record it); frames past its end step(1)
+//       "40": { "clipboard": "ABC123" }   // optional per frame: the text clipboard.read() / Ctrl+V give from that frame on
 //     "date": "2026-03-14", "utcOffsetMinutes": 60  // optional: what game.today() returns (editor play sessions
 //                                              // record it); --date wins; without it the fixed default date is used
 // "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).

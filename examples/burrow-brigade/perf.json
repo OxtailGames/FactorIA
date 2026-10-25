@@ -13,7 +13,7 @@
       "entities": 134,
       "graphics": "Metal / Apple M5",
       "triangles": 0,
-      "lights": 0,
+      "lights": 16,
       "textureMB": 0.08
     }
   },

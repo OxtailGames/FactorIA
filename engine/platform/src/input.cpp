@@ -193,6 +193,7 @@ void Input::begin_frame() {
     wheel_ = 0.0f;
     text_.clear();
     backEdge_ = false;
+    pasteEdge_ = false;
 }
 
 void Input::vibrate(float seconds) {
@@ -352,6 +353,12 @@ void Input::update_touch_pad() {
     }
     pad.buttons = buttons;
 }
+
+bool Input::command_chord_down() const {
+    return key_down(Key::LeftControl) || key_down(Key::RightControl) || key_down(Key::LeftSuper) || key_down(Key::RightSuper);
+}
+bool Input::paste_pressed() const { return pasteEdge_ || (!pasteFromEvents_ && key_pressed(Key::V) && command_chord_down()); }
+bool Input::copy_pressed() const { return key_pressed(Key::C) && command_chord_down(); }
 
 void Input::on_text(std::uint32_t codepoint) { text_.push_back(char32_t(codepoint)); }
 

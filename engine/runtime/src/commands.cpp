@@ -635,7 +635,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
            "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "
            "drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, "
-           "triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. "
+           "triangles, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, "
+           "width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d "
+           "and lights2dDropped count the Light2D lights (at most 16: the ones that reach the camera view are kept first). "
            "width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() "
            "in tests. Needs graphics. Example: game.render_stats {}",
            parse_schema(R"({"type":"object","properties":{}})"),
@@ -824,7 +826,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
            "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "
-           "music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
+           "music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
            "(time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq "
            "from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with "
            "/<path>. Example: audio.log {\"path\":\"jump.wav\"}",

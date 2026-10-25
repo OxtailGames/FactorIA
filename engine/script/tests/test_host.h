@@ -7,6 +7,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
 #include "fa/physics/physics.h"
+#include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/localize.h"
@@ -80,6 +81,8 @@ struct TestHost : ScriptHost {
     Input& input() override { return in; }
     Audio& audio() override { return au; }
     Physics& physics() override { return ph; }
+    MemoryClipboard clip;  // clipboard.* in tests: in memory, like a headless run
+    Clipboard* clipboard() override { return &clip; }
     Renderer* renderer() override { return nullptr; }
     PlatformServices* platform_services() override { return &platformServices; }
     const I18n* i18n() override { return &loc; }

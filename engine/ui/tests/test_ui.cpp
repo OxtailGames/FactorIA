@@ -1451,3 +1451,66 @@ TEST_CASE("ui textfield: the phone's keyboard goes up with the focus and down wi
     t.frame();
     CHECK(t.in.keyboard_shown());
 }
+
+TEST_CASE("ui textfield: Ctrl+V pastes (no newlines or control characters, maxLength, at the end), Ctrl+C copies") {
+    Ui t;
+    MemoryClipboard clip;
+    t.ui.set_clipboard(&clip);
+    Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
+    TextField& f = *t.w.get<TextField>(e);
+    f.autoFocus = true;
+    f.maxLength = 8;
+    t.frame();
+    t.events();
+    f.text = "ab";
+    clip.set("cd\r\nef\tg\x01h");
+    t.in.on_key(Key::LeftControl, true);
+    t.in.on_text(U'v');  // some platforms also send the letter of the chord: it is not typed
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text == "abcdefgh");  // CR, LF, tab and the control character are dropped; 8 code points fit
+    CHECK(t.events() == V{"ui.change:f=\"abcdefgh\""});
+    t.in.on_key(Key::V, false);
+    t.frame();
+    t.in.on_key(Key::V, true);  // full: nothing more is taken
+    t.frame();
+    CHECK(f.text == "abcdefgh");
+    t.in.on_key(Key::V, false);
+    f.maxLength = 0;
+    clip.set("\xC3\xA9");  // a code point of two bytes
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text == "abcdefgh\xC3\xA9");
+    t.in.on_key(Key::V, false);
+    t.frame();
+    t.in.on_key(Key::C, true);  // copy
+    t.frame();
+    CHECK(clip.get() == "abcdefgh\xC3\xA9");
+    t.in.on_key(Key::C, false);
+    t.in.on_key(Key::LeftControl, false);
+    // Without Ctrl, V pastes nothing.
+    clip.set("zzz");
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text == "abcdefgh\xC3\xA9");
+    t.in.on_key(Key::V, false);
+}
+
+TEST_CASE("ui textfield: the web pastes on the paste event, not on the V key") {
+    Ui t;
+    MemoryClipboard clip;
+    t.ui.set_clipboard(&clip);
+    t.in.set_paste_from_events(true);
+    Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
+    TextField& f = *t.w.get<TextField>(e);
+    f.autoFocus = true;
+    t.frame();
+    clip.set("hi");
+    t.in.on_key(Key::LeftSuper, true);
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text.empty());
+    t.in.on_paste();
+    t.frame();
+    CHECK(f.text == "hi");
+}
