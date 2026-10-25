@@ -52,6 +52,7 @@ struct Loaded {
     std::optional<PluginBackendSpec> backend;  // what add_backend registered (ABI version 2)
     FaTextInputHandler textInput = nullptr;  // what add_text_input registered (ABI version 3)
     void* textInputUser = nullptr;
+    int steamDeck = -1;  // what set_device_fact("steamDeck") said (ABI version 4); -1 nothing
     bool initializing = false;  // add_command / add_function / add_backend are accepted only inside the entry point
     FaPluginApi api{};
 };
@@ -212,6 +213,16 @@ int add_text_input(const FaPluginApi* api, FaTextInputHandler handler, void* use
     return 0;
 }
 
+void set_device_fact(const FaPluginApi* api, const char* name, int value) {
+    Loaded* p = of(api);
+    if (!p) return;
+    if (name && std::string_view(name) == "steamDeck") {
+        p->steamDeck = value != 0 ? 1 : 0;
+        return;
+    }
+    refuse(*p, "set_device_fact", std::string("unknown fact '") + (name ? name : "") + "'; the only one is \"steamDeck\"");
+}
+
 void submit_text(const FaPluginApi* api, const char* text) {
     if (!of(api)) return;
     std::lock_guard<std::mutex> lock(g_submittedMutex);
@@ -292,7 +303,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
     }
     p.api = FaPluginApi{FA_PLUGIN_API_VERSION, p.name.c_str(), runtime_platform(), &p, add_command, add_function, reply, fail,
                         plugin_log, native_handle, add_backend, plugin_resolve, plugin_reject, plugin_emit,
-                        add_text_input, submit_text};
+                        add_text_input, submit_text, set_device_fact};
     p.initializing = true;
     const int rc = init(&p.api);
     p.initializing = false;
@@ -302,6 +313,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         p.functions.clear();
         p.backend.reset();
         p.textInput = nullptr;
+        p.steamDeck = -1;
     }
     return true;
 }
@@ -437,6 +449,7 @@ PluginInstall install_plugins(const ProjectSettings& project, const std::string&
             result.backends.push_back({ps.name, spec.name, spec.services, [spec] { return make_plugin_backend(spec); }});
         }
         if (p->textInput) result.textInputs.push_back({ps.name, p->textInput, p->textInputUser});
+        if (p->steamDeck >= 0) result.steamDeck = std::max(result.steamDeck, p->steamDeck);
         FA_DEBUG("plugin", "{}: {} command(s), {} function(s){}{} from {}", ps.name, p->commands.size(), p->functions.size(),
                  p->backend ? ", platform backend '" + p->backend->name + "'" : std::string(),
                  p->textInput ? ", text input handler" : "", library);

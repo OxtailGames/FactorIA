@@ -27,6 +27,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -81,6 +82,26 @@ std::vector<std::string> gamepad_type_names();
 // The vendor decides; the name is the fallback; anything else is Generic.
 GamepadType gamepad_type_from_ids(std::uint16_t vendorId, std::string_view name);
 
+// What a pad is, as far as the platform can tell. `id` is stable across plugging: the same physical pad gives the same id
+// every time (see make_gamepad_id), which a game uses to remember who held it; the slot (0..3) is only where it sits now.
+struct GamepadInfo {
+    std::string id;     // "045e:028e:Xbox 360 Controller#<serial>": vendor, product, name and the serial/GUID/path when the OS has one
+    std::string name;   // what the OS calls the pad ("Wireless Controller"); "Gamepad" when it did not say
+    std::uint16_t vendor = 0, product = 0;  // USB ids, 0 = unknown
+    GamepadType type = GamepadType::Generic;
+    bool operator==(const GamepadInfo&) const = default;
+};
+// The id of a pad: lower-case hex vendor and product, then the name, then "#" and `unique` (a serial number, GUID, device
+// path or index the platform has; "" for none). Two pads of one model without a `unique` share an id: they then take the
+// slots in plugging order.
+std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::string_view name, std::string_view unique);
+// A pad that came or went: what game.on("gamepadConnected" / "gamepadDisconnected") hands to scripts.
+struct GamepadEvent {
+    bool connected = false;
+    int slot = 0;
+    GamepadInfo info;
+};
+
 // The kind of device that produced input last (Input::last_device()), for showing the matching button prompts.
 enum class InputDevice : std::uint8_t { Keyboard, Mouse, Gamepad, Touch };
 const char* input_device_name(InputDevice d);  // "keyboard", "mouse", "gamepad", "touch"
@@ -89,6 +110,25 @@ struct Touch {
     std::uint64_t id = 0;
     Vec2 position;  // design-resolution pixels
     bool pressedThisFrame = false;
+};
+
+// Told about every event the feed below receives, BEFORE it changes the state: what the input recorder (fa/runtime/input_recorder.h)
+// writes a replay from. Only the events a caller feeds are reported: the mouse a touch drives and the pad disconnects of
+// release_all() are consequences, not events, and are not (the replay reproduces them from the touch / release_all).
+class InputObserver {
+public:
+    virtual ~InputObserver() = default;
+    virtual void observe_key(Key, bool) {}
+    virtual void observe_mouse_move(Vec2) {}
+    virtual void observe_mouse_button(MouseButton, bool) {}
+    virtual void observe_touch_begin(std::uint64_t /*id*/, Vec2) {}
+    virtual void observe_touch_move(std::uint64_t /*id*/, Vec2) {}
+    virtual void observe_touch_end(std::uint64_t /*id*/) {}
+    virtual void observe_gamepad_connected(int, bool) {}
+    virtual void observe_gamepad_button(int, GamepadButton, bool) {}
+    virtual void observe_gamepad_axis(int, GamepadAxis, float) {}
+    virtual void observe_back() {}
+    virtual void observe_release_all() {}
 };
 
 class Input {
@@ -124,7 +164,10 @@ public:
     // The system Back button or gesture (Android). An edge: back_pressed() is true until the next begin_frame(). Scripts
     // get it as input.onBack; when none of their handlers consumes it, the runtime asks the game to quit (what Back did
     // before there was an event). Tests and replays call it too.
-    void on_back() { backEdge_ = true; }
+    void on_back() {
+        if (InputObserver* o = tap()) o->observe_back();
+        backEdge_ = true;
+    }
     // Gamepads (index 0..kMaxGamepads-1; out-of-range indices are ignored). A button or axis event also marks the pad
     // connected. Disconnecting releases its buttons (with release edges) and zeroes its axes. Axis values are clamped
     // (sticks -1..1 with +Y up, triggers 0..1). The platform's poll_gamepads() feeds these; tests and replays call them.
@@ -135,6 +178,20 @@ public:
     // vendor id and name, see gamepad_type_from_ids) and by tests. Survives release_all() and a disconnect, so a pad that
     // comes back keeps its type. Out-of-range indices are ignored.
     void set_gamepad_type(int index, GamepadType type);
+    // Who pad `index` is (id, name, ids, type): a backend calls it BEFORE on_gamepad_connected(index, true) (and again every
+    // poll, which changes nothing while it is the same), so the "gamepadConnected" event carries it. Out-of-range ignored.
+    // The info survives a disconnect, like the type. An empty id becomes make_gamepad_id(0, 0, name, "slot N").
+    void set_gamepad_info(int index, GamepadInfo info);
+    const GamepadInfo& gamepad_info(int index) const;  // a default (empty) info for an out-of-range index
+    // The slot a pad should take: the one it had the last time it was connected when that one is free, else the first
+    // free one; -1 when every slot is taken. `occupied[i]` says whether the backend has a pad in slot i (fewer entries than
+    // kMaxGamepads: the rest are free). Backends that choose their own slots (Apple, web, Android) ask this when a pad
+    // appears; the memory is of the last 16 ids and ends with reset_options().
+    int choose_gamepad_slot(std::string_view id, std::span<const bool> occupied) const;
+    // The pads that were plugged in or out since the last call, oldest first (at most 64 are kept). A pad is announced once
+    // per real plug: the disconnect release_all() does when the window loses the focus is not one, and the pad coming
+    // back after it is not a new connection. The script host calls this once a frame.
+    std::vector<GamepadEvent> take_gamepad_events();
     // Test isolation (and nothing else): bindings back to the project's, cursor visible and unlocked, on-screen keyboard
     // hidden, last device the keyboard, every pad generic, no pending Back press, no recorded vibration.
     void reset_options();
@@ -292,7 +349,18 @@ public:
     // Debug snapshot: keys down, mouse, touches, actions down.
     Json snapshot() const;
 
+    // One observer at a time (nullptr = none): the runtime's recorder. Not owned.
+    void set_observer(InputObserver* observer) { observer_ = observer; }
+
 private:
+    InputObserver* tap() const { return observerDepth_ == 0 ? observer_ : nullptr; }
+    struct ObserverMute {  // events fed by another event (a touch's mouse) are not reported on their own
+        explicit ObserverMute(Input& in) : in_(in) { ++in_.observerDepth_; }
+        ~ObserverMute() { --in_.observerDepth_; }
+        Input& in_;
+    };
+    InputObserver* observer_ = nullptr;
+    int observerDepth_ = 0;
     struct Binding {
         enum class Kind : std::uint8_t { Key, Mouse, Touch, PadButton, PadAxis } kind = Kind::Key;
         Key key = Key::Unknown;
@@ -304,12 +372,16 @@ private:
     struct Pad {
         bool connected = false;
         GamepadType type = GamepadType::Generic;
+        GamepadInfo info;
+        bool announced = false;  // a "connected" event went out and no "disconnected" one since
         std::array<bool, size_t(GamepadButton::Count)> buttons{}, prevButtons{}, pressedEdge{}, releasedEdge{};
         std::array<float, size_t(GamepadAxis::Count)> axes{}, prevAxes{};
     };
     static bool parse_binding(std::string_view name, Binding& out);
     float binding_value(const Binding& b, bool previous) const;  // previous: as of the last begin_frame()
     float pad_axis(const Pad& pad, GamepadAxis a, bool previous) const;
+    void release_pad(int index);     // connected = false, buttons released, axes zeroed; no event
+    void mark_connected(int index);  // connected = true; announces the pad when it was not
     // The bindings listed for one action in `actions` (a JSON array or string), appending problems; `candidates` are the
     // names for "did you mean".
     std::vector<Binding> parse_binding_list(const std::string& action, const Json& list,
@@ -338,6 +410,8 @@ private:
     // The numbered pads, then the touch pad (pads_[kMaxGamepads]): the bindings loop over all of them, the numbered
     // queries stop before it.
     std::array<Pad, kMaxGamepads + 1> pads_;
+    std::vector<GamepadEvent> padEvents_;
+    std::vector<std::pair<std::string, int>> padSlotMemory_;  // id -> the slot it last held, newest last
     std::vector<TouchControl> touchControls_;
     float deadzone_ = 0.2f;
     InputDevice lastDevice_ = InputDevice::Keyboard;

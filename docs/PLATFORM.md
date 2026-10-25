@@ -489,6 +489,14 @@ linked in; `scripts/build-sniper.sh`, docs/BUILDING.md), and CI runs it there, s
 gives Linux games, on the Deck included (pick "Steam Linux Runtime 3.0 (sniper)" in the Steamworks partner site); the
 Windows build through Proton is the alternative.
 
+**Steam Deck detection.** The Steam plugin answers `game.device.steamDeck` (and `handheld`) from `IsSteamRunningOnSteamDeck`, which is
+certain; when the game runs without Steam the `SteamDeck=1` environment variable decides, and `SteamDeck=0` turns it off.
+
+**Gamepad ids.** `input.gamepad(i).id` and `game.on("gamepadConnected")` give each pad a stable id: Windows XInput has none, so it
+is "an Xbox pad in XInput slot N"; Linux uses vendor, product, name and the kernel `uniq` serial, and the slot is the `jsN`
+number; macOS, iOS and the web (Gamepad.id) use the name, the web also vendor and product; Android adds the InputDevice
+descriptor. See docs/SCRIPTING.md, "Pads plugged in and out".
+
 **Steam Deck keyboard.** On a Steam Deck, and in Big Picture on any computer (`IsSteamRunningOnSteamDeck` or
 `IsSteamInBigPictureMode`), a `TextField` that takes the focus while the last input came from a gamepad gets Steam's own
 keyboard (plugin API 3, [section 5](#5-writing-a-backend-plugin)). The plugin first tries the **floating** keyboard

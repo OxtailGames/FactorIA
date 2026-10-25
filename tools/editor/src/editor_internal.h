@@ -52,7 +52,6 @@
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
 #include "platform_settings.h"
-#include "play_recorder.h"
 #include "project_browser_model.h"
 #include "setup_job.h"
 
@@ -346,7 +345,6 @@ public:
     struct PlayRun {
         bool active = false;
         PlaySession session;
-        PlayRecorder rec;
         std::vector<double> frameMs;
         ProfileSummary profile;  // the profiler's numbers of the session (session.json "profile")
         std::uint64_t startFrame = 0, logSeq = 0;

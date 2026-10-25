@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Recording input and starting a scene with props
+
+- The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads
+  (connections, buttons, axes) itself. The new command `input.record` (`{action: "start" | "stop", path?}`) records any
+  running game; `stop` returns the replay that `factoria run --input` plays (optionally written to `path`). The editor
+  records its Play sessions with the same recorder. Not recorded: mouse wheel, locked-mouse movement and typed text.
+- Scenes can start with props: `scene.load(path, props)`, `game.load(path, props)`, `game.loadJson(scene, props)`, the
+  `scene.load` command's `props`, and `factoria run --props JSON|FILE`. `game.sceneProps()` returns them from the scene's
+  first `onStart`. A reload keeps them; a load without props gives `{}`.
+
 Monitor choice and window modes
 
 - `window.monitors()` lists the monitors (`index`, `name`, `size`, `primary`, `current`), `window.monitor` is the one the
@@ -36,6 +46,24 @@ Menu kit: optional shop and age gate, a Controls tab from the actions
 - The options screen's Controls tab lists every input action of the game except the `ui_*` ones (it was a fixed list of
   `move_left`, `move_right`, `jump`, `pause`), labelled with `options.action.<action>` or the action's name when the game
   has no such string. The `actions` property of the prefab's Script (`"props": { "actions": [...] }`) picks and orders them.
+
+Gamepads that come and go, and the Steam Deck
+
+- `game.on("gamepadConnected" | "gamepadDisconnected", fn)` gives `{ slot, id, name, type }`. `input.gamepad(i).id` and
+  `.name` read the same. The id is stable per physical pad on Windows (XInput slot), Linux, macOS, iOS, Android and the web,
+  and a pad that returns gets its old slot when it is free. Tests: `game.gamepad(i).connect({ id, name, type })`.
+- `game.device.steamDeck` and `game.device.handheld`. The Steam plugin says whether this is a Deck (plugin API version 4,
+  `set_device_fact`); without it the `SteamDeck=1` environment variable decides. `game.setDevice` accepts both.
+
+Tilemap: tileset margin and spacing, `setTile` without rewriting the array
+
+- `Tilemap.margin` and `Tilemap.spacing` (pixels, default 0) describe a tileset image with a border and gutters between
+  tiles. The 2D renderer (also the normal map), the tile count, `factoria validate` and the level commands read them.
+  `assets.slice_sheet` is for animation grids and does not take them.
+- `entity.tilemap.setTile(col, row, id)` and `getTile(col, row)` change one tile in place, and the new command
+  `tilemap.set_tile` does the same from the CLI and MCP. The renderer reads the grid in place (no copy per frame), and 2D
+  physics rebuilds only the colliders of the tiles you changed; a write of the whole `tiles` array still works and is
+  caught by a hash.
 
 The time of day and the day boundary
 

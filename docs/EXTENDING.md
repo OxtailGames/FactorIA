@@ -684,7 +684,7 @@ platform.add_backend` sets one up in a single step; an unknown name lists the on
 
 ```js
 plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
-fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 3}
+fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 4}
 ```
 
 ### G.2 The declaration
@@ -829,3 +829,8 @@ FA_PLUGIN_INIT(example) {
   focus (cut to `maxLength`, control characters dropped, `ui.change` sent); otherwise it is dropped. A keyboard that types key
   presses into the window, like Steam's floating one, needs no `submit_text`. A plugin built for version 3 checks
   `api->version >= 3` before it reads `add_text_input` or `submit_text`; version 1 and 2 plugins are not affected.
+- **Device facts (version 4).** `set_device_fact(api, "steamDeck", 0 or 1)` tells the engine something about the machine that
+  only the plugin can know. The only name today is `steamDeck`: `game.device.steamDeck` (and `handheld`) follow it, and when
+  no plugin says anything the `SteamDeck=1` environment variable is used. The Steam plugin calls it once Steam is running, with
+  `IsSteamRunningOnSteamDeck`. Call it from the entry point: the engine reads it when the entry point returns. A plugin
+  built for version 4 checks `api->version >= 4` first; older plugins are not affected.

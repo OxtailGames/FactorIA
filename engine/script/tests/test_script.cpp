@@ -823,7 +823,7 @@ TEST_CASE("game.loadJson, touch input and default host without scene JSON suppor
     TestHost h("loadjson");
     h.file("tests/t.test.js", R"(
 import { test, expect, game } from "factoria:test";
-import { input } from "factoria";
+import { input, game as app } from "factoria";
 test("loadJson", () => {
   game.loadJson({ format: "factoria.scene/1", entities: [{ id: "solo", components: { Transform: { position: [4, 5] } } }] });
   expect(game.find("solo").position.x).toBe(4);
@@ -1243,6 +1243,32 @@ TEST_CASE("entity.bounds: Tilemap size x tileSize from its top-left corner, rows
     CHECK(ev_ok(h, "Array.isArray(physics.overlapBox(world.find('level').bounds()))") == true);
 }
 
+TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place") {
+    TestHost h("tilemap_settile");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id: 'flat', components: {Tilemap: {tileSize: [16, 16], width: 3, height: 2, tiles: [0, 1, 2, 3, -1, 5]}}})");
+    ev_ok(h, "world.spawn({id: 'rows', components: {Tilemap: {tileSize: [16, 16], tiles: [[0, 1], [2, 3]]}}})");
+    CHECK(ev_ok(h, "world.find('flat').tilemap.width") == 3);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.height") == 2);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(2, 1)") == 5);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == -1);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(9, 9)") == -1);  // outside the map reads as empty
+    ev_ok(h, "world.find('flat').tilemap.setTile(1, 1, 7); world.find('rows').tilemap.setTile(0, 1, -1)");
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == 7);
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,7,5");
+    CHECK(ev_ok(h, "JSON.stringify(world.find('rows').get('Tilemap').tiles)") == "[[0,1],[-1,3]]");
+    const Tilemap* tm = h.w.get<Tilemap>(h.w.find("flat"));
+    REQUIRE(tm);
+    CHECK(tm->edits.size() == 1);  // recorded for 2D physics
+    // Errors teach: the map size, the 0-based cells.
+    std::string m = ev_err(h, "world.find('flat').tilemap.setTile(3, 0, 1)");
+    CHECK(m.find("3 x 2 map") != std::string::npos);
+    m = ev_err(h, "world.find('flat').tilemap.setTile(0, 0, 'a')");
+    CHECK(m.find("expects three numbers") != std::string::npos);
+    m = ev_err(h, "world.spawn({id: 'plain'}).tilemap");
+    CHECK(m.find("has no Tilemap component") != std::string::npos);
+}
+
 TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and flip") {
     TestHost h("bounds_sprite");
     Image img;
@@ -1399,6 +1425,53 @@ TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
     }
 }
 
+TEST_CASE("gamepad: game.on(gamepadConnected / gamepadDisconnected) reports slot, id, name and type") {
+    TestHost h("gamepad_events");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input, game as app } from "factoria";
+test("connect, disconnect and reconnect raise events and keep the id", () => {
+  const seen = [];
+  app.on("gamepadConnected", (p) => seen.push(["+", p.slot, p.id, p.name, p.type]));
+  app.on("gamepadDisconnected", (p) => seen.push(["-", p.slot, p.id, p.name, p.type]));
+  game.gamepad(1).connect({ id: "red", name: "Red pad", type: "playstation" });
+  expect(seen.length).toBe(0);            // announced at the next frame
+  game.step(1);
+  expect(seen).toEqual([["+", 1, "red", "Red pad", "playstation"]]);
+  expect(input.gamepad(1).id).toBe("red");
+  expect(input.gamepad(1).name).toBe("Red pad");
+  game.step(2);
+  expect(seen.length).toBe(1);            // once per plug, not per frame
+  game.gamepad(1).press("A");             // already connected: nothing new
+  game.step(1);
+  expect(seen.length).toBe(1);
+  game.gamepad(1).disconnect();
+  game.step(1);
+  expect(seen[1]).toEqual(["-", 1, "red", "Red pad", "playstation"]);
+  expect(input.gamepad(1).id).toBe("red");  // kept after unplugging
+  game.gamepad(1).connect();               // the same pad again
+  game.step(1);
+  expect(seen[2]).toEqual(["+", 1, "red", "Red pad", "playstation"]);
+  game.gamepad(0).setType("xbox");
+  game.step(1);
+  expect(seen[3][0]).toBe("+");
+  expect(seen[3][1]).toBe(0);
+  expect(seen[3][4]).toBe("xbox");
+  expect(seen[3][2]).toContain("Gamepad");  // no identity given: made from the slot
+});
+test("mistakes in connect(info) teach", () => {
+  expect(() => game.gamepad(0).connect({ nme: "x" })).toThrow("did you mean 'name'");
+  expect(() => game.gamepad(0).connect({ type: "xboks" })).toThrow("Did you mean 'xbox'");
+  expect(() => game.gamepad(0).connect({ vendor: 70000 })).toThrow("0 to 65535");
+  expect(() => app.on("gamepadConnect", () => {})).toThrow('did you mean "gamepadConnected"');
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
 TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads, errors teach") {
     Json settings = Json::object({{"input", Json::object({{"actions", Json::parse(R"({
         "jump": ["Space", "GamepadA"],
@@ -1409,7 +1482,7 @@ TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads,
     TestHost h("gamepad", settings);
     h.file("tests/t.test.js", R"(
 import { test, expect, game } from "factoria:test";
-import { input } from "factoria";
+import { input, game as app } from "factoria";
 test("a button drives an action; press/release mirror keyDown/keyUp, tap steps", () => {
   const pad = game.gamepad(0);
   expect(input.gamepad(0).connected).toBe(false);   // asking for the handle does not plug the pad in

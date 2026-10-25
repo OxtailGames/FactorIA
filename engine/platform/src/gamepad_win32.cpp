@@ -9,6 +9,7 @@
 #include <xinput.h>
 
 #include <algorithm>
+#include <string>
 
 #include "fa/platform/gamepad.h"
 
@@ -40,10 +41,19 @@ void poll_gamepads(Input& in) {
         if (!present[i] && !rescan) continue;
         XINPUT_STATE st{};
         bool ok = get_state(DWORD(i), &st) == ERROR_SUCCESS;
+        if (ok && !present[i]) {
+            // XInput tells nothing about the pad (no name, no ids, no serial): it is "an Xbox pad in XInput slot i", and the id
+            // says so. The slot IS the identity: a pad that is replugged gets its XInput user index back when it is free.
+            GamepadInfo info;
+            info.name = "Xbox controller (XInput)";
+            info.vendor = 0x045e;  // Microsoft: what XInput pads present as; the product is unknown
+            info.type = GamepadType::Xbox;  // XInput only serves Xbox-style pads
+            info.id = make_gamepad_id(info.vendor, 0, "XInput controller", "xinput" + std::to_string(i));
+            in.set_gamepad_info(i, std::move(info));
+        }
         if (ok != present[i]) in.on_gamepad_connected(i, ok);
         present[i] = ok;
         if (!ok) continue;
-        in.set_gamepad_type(i, GamepadType::Xbox);  // XInput only serves Xbox-style pads
         const XINPUT_GAMEPAD& g = st.Gamepad;
         const struct { WORD mask; GamepadButton button; } map[] = {
             {XINPUT_GAMEPAD_A, GamepadButton::A}, {XINPUT_GAMEPAD_B, GamepadButton::B},
