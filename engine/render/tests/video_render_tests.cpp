@@ -3,6 +3,7 @@
 // 0.4 - 0.8 s, blue 0.8 - 1.2 s, with noise in its top 8 rows.
 #include "test_util.h"
 
+#include <cmath>
 #include <filesystem>
 
 #include "fa/scene/video.h"
@@ -139,4 +140,13 @@ TEST_CASE("video: the background is left out when the opaque picture hides all o
     CHECK(is_red(b.pixel(70, 74)));
     CHECK(is_red(a.pixel(11, 136)));  // the picture reaches the rectangle's corners (its top rows are noise)
     CHECK(is_red(a.pixel(136, 136)));
+    // The opaque picture is drawn without blending: the same pixels as a blended one at (almost) full alpha.
+    const Color pa = a.pixel(70, 74), pb = b.pixel(70, 74);
+    CHECK(std::abs(pa.r - pb.r) < 0.02f);
+    CHECK(std::abs(pa.g - pb.g) < 0.02f);
+    CHECK(std::abs(pa.b - pb.b) < 0.02f);
+    // A translucent one still blends with its background.
+    int half = 0;
+    const Color pd = draw(VideoFit::Stretch, 128, 0.5f, half).pixel(70, 74);
+    CHECK((pd.g > 0.35f && pd.g < 0.65f && pd.r > 0.3f && pd.r < 0.65f));
 }

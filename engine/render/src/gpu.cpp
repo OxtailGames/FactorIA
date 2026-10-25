@@ -159,8 +159,9 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
     return p;
 }
 
-sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool plain) {
-    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) | (plain ? 0x10u : 0u)};
+sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool plain, bool opaque) {
+    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) | (plain ? 0x10u : 0u) |
+                    (opaque ? 0x20u : 0u)};
     sg_pipeline_desc d{};
     d.shader = plain ? quadPlainShader_ : quad_shader_;
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -173,7 +174,7 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
     d.colors[0].pixel_format = kColorFormat;
-    d.colors[0].blend.enabled = true;
+    d.colors[0].blend.enabled = !opaque;
     switch (blend) {
         case BlendMode::Additive:  // dst + src.rgb * src.a  (glow: overlapping items accumulate light)
             d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;

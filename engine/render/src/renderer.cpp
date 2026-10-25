@@ -1139,7 +1139,7 @@ void Renderer::Impl::render(World& world, float dt) {
         }
         for (const QuadBatch& qb : batches) {
             apply_clip(qb.clip);
-            sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain));
+            sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
             apply_uniforms(UB_quad_vs_params, u);
             if (qb.lit) {
                 litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
