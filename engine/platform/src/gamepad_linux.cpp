@@ -39,7 +39,7 @@ namespace {
 struct Slot {
     int fd = -1;
     std::optional<GamepadMapper> mapper;  // present while the pad is open
-    GamepadType type = GamepadType::Generic;  // from the pad's vendor id and name
+    GamepadInfo info;                     // id, name, ids and the family (from the vendor id and name)
     std::vector<EvdevAxisRoute> routes;   // raw axis number -> mapping axis or hat
 };
 Slot g_slots[kMaxGamepads];
@@ -67,6 +67,13 @@ const UserMappings& user_mappings() {
         return u;
     }();
     return mappings;
+}
+
+std::string read_line(const std::string& path) {  // "" when the file is missing
+    std::ifstream f(path);
+    std::string line;
+    std::getline(f, line);
+    return line;
 }
 
 unsigned read_hex(const std::string& path) {  // the id files hold one hex number, such as "054c"
@@ -122,7 +129,14 @@ bool open_pad(int index, Slot& s) {
                            "SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
                 index, id.name, gamepad_guid(id), mapping.name, mapping.guid, kGamepadUserDbFile);
     s.mapper.emplace(std::move(mapping));
-    s.type = gamepad_type_from_ids(id.vendor, id.name);
+    // The kernel's "uniq" is the pad's serial number (a Bluetooth pad's address); many USB pads have none, and then two pads of
+    // one model share an id. The slot is the kernel's jsN number, so a pad that is replugged takes the slot the kernel gives it
+    // (usually the one it had, when that is free); the id is what tells it is the same pad.
+    s.info.name = id.name.empty() ? "Gamepad" : id.name;
+    s.info.vendor = id.vendor;
+    s.info.product = id.product;
+    s.info.type = gamepad_type_from_ids(id.vendor, id.name);
+    s.info.id = make_gamepad_id(id.vendor, id.product, s.info.name, read_line(ids + "../uniq"));
     s.fd = fd;
     return true;
 }
@@ -174,7 +188,7 @@ void poll_gamepads(Input& in) {
             in.on_gamepad_connected(i, false);
             continue;
         }
-        in.set_gamepad_type(i, s.type);
+        in.set_gamepad_info(i, s.info);  // before the feed, which connects the pad
         s.mapper->state().feed(in, i);  // all of it, every poll: also reconnects the pad after a focus loss
     }
 }

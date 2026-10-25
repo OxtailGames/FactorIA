@@ -937,6 +937,19 @@ void ScriptSystem::dispatch_back() {
     if (!consumed) I.request_quit();
 }
 
+void ScriptSystem::dispatch_gamepads() {
+    Impl& I = *impl_;
+    if (!I.host) return;
+    const std::vector<GamepadEvent> events = I.host->input().take_gamepad_events();
+    if (!I.initialized || events.empty()) return;
+    for (const GamepadEvent& e : events) {
+        Json data = Json::object({{"slot", e.slot}, {"id", e.info.id}, {"name", e.info.name}, {"type", gamepad_type_name(e.info.type)}});
+        I.host->world().events().game.push_back(
+            GameEvent{e.connected ? "app.gamepadConnected" : "app.gamepadDisconnected", std::move(data), kNullEntity});
+    }
+    dispatch_events();
+}
+
 void ScriptSystem::update(float dt) {
     if (!impl_->initialized) return;
     impl_->lastDt = dt;

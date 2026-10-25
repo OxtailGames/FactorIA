@@ -1516,6 +1516,15 @@ NATIVE(inPadType) {  // (index)
     return JS_NewString(ctx, gamepad_type_name(I->host->input().gamepad_type(i)));
 }
 
+NATIVE(inPadInfo) {  // (index): { id, name } of the pad in that slot (the last one it had when it is unplugged)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    const GamepadInfo& info = I->host->input().gamepad_info(i);
+    return I->from_json(Json::object({{"id", info.id}, {"name", info.name}}));
+}
+
 NATIVE(inButtonName) {  // (bindingOrAction, pad)
     SETUP;
     std::string n = arg_str(ctx, argc, argv, 0);
@@ -2339,7 +2348,7 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     return JS_UNDEFINED;
 }
 
-NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type, index, name, value)
+NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type|6 validate a pad type, index, name, value, info)
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     int i = 0;
@@ -2356,13 +2365,30 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 se
         if (!pad_axis_name(ctx, name, a, exc)) return exc;
         if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
         in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
+    } else if (kind == 6) {  // only checks that `name` is a pad family
+        GamepadType t{};
+        if (!gamepad_type_from_name(name, t))
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").connect: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
     } else if (kind == 5) {
         GamepadType t{};
         if (!gamepad_type_from_name(name, t))
             return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
+        in.set_gamepad_type(i, t);  // first: a pad that is announced by this call carries its type
         in.on_gamepad_connected(i, true);  // a type only means something for a pad that is there
-        in.set_gamepad_type(i, t);
     } else {
+        if (kind == 3 && argc > 4 && JS_IsObject(argv[4])) {  // connect(info): who the pad is, before it is announced
+            const Json j = I->to_json(argv[4]);
+            GamepadInfo info = in.gamepad_info(i);
+            if (j.contains("name")) info.name = j["name"].get<std::string>();
+            if (j.contains("vendor")) info.vendor = std::uint16_t(j["vendor"].get<int>());
+            if (j.contains("product")) info.product = std::uint16_t(j["product"].get<int>());
+            if (j.contains("type")) gamepad_type_from_name(j["type"].get<std::string>(), info.type);
+            info.id = j.contains("id") ? j["id"].get<std::string>() : std::string();  // empty: made from the ids and the name
+            if (info.id.empty() && (j.contains("name") || j.contains("vendor") || j.contains("product")))
+                info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
+            if (info.id.empty()) info.id = in.gamepad_info(i).id;
+            in.set_gamepad_info(i, std::move(info));
+        }
         in.on_gamepad_connected(i, kind == 3);
     }
     return JS_UNDEFINED;
@@ -2520,9 +2546,9 @@ const Reg kRegs[] = {
     R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
-    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
+    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
+    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
