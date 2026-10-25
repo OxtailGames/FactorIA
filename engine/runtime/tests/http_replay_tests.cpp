@@ -1,5 +1,5 @@
-// http.fetch and replays: the "http" field of a replay entry queues the answers of the game's requests, and an Engine can hand
-// over what each request got, in request order, for the recorder (docs/NETWORKING.md "Replays").
+// http.fetch and replays: the "http" field of a replay entry queues the answers of the game's requests, and the input recording
+// writes what each request got, in request order, in the frame of the request (docs/NETWORKING.md "Replays").
 #include <doctest.h>
 
 #include <filesystem>
@@ -32,7 +32,7 @@ struct NetProject {
 
 }  // namespace
 
-TEST_CASE("http.fetch: a replay's http entries are the answers of the game's requests, in order, and every request is logged") {
+TEST_CASE("http.fetch: a replay's http entries are the answers of the game's requests, in order, and the recording keeps them") {
     NetProject p;
     EngineConfig cfg;
     cfg.projectDir = p.dir.generic_string();
@@ -42,7 +42,7 @@ TEST_CASE("http.fetch: a replay's http entries are the answers of the game's req
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
-    e.log_http_answers(true);
+    e.start_input_recording();
 
     std::vector<std::string> problems;
     e.apply_input_entry(Json::parse(R"({"http":[
@@ -65,15 +65,21 @@ TEST_CASE("http.fetch: a replay's http entries are the answers of the game's req
     e.step(2);
     CHECK(run("out[2]") == "network");
 
-    // What happened is handed over for the recorder: one entry per request, in order, with the frame of the request.
-    const std::vector<HttpLogEntry> log = e.take_http_answers();
-    REQUIRE(log.size() == 3);
-    CHECK(log[0].answer["result"]["text"] == R"({"daily":7})");
-    CHECK(log[1].answer["error"] == "network");
-    CHECK(log[1].answer["hint"] == "Try again.");
-    CHECK(log[2].answer["error"] == "network");
-    CHECK(log[0].frame <= log[1].frame);
-    CHECK(e.take_http_answers().empty());
+    // The recording has every answer, in request order, in the frame of the request (both made in the first frame, the third
+    // two frames later).
+    const Json replay = e.stop_input_recording();
+    Json http = Json::array();
+    for (const auto& [frame, entry] : replay["frames"].items())
+        if (entry.contains("http"))
+            for (const Json& a : entry["http"]) http.push_back(Json::object({{"frame", std::stoi(frame)}, {"answer", a}}));
+    INFO(replay.dump());
+    REQUIRE(http.size() == 3);
+    CHECK(http[0]["answer"]["result"]["text"] == R"({"daily":7})");
+    CHECK(http[1]["answer"]["error"] == "network");
+    CHECK(http[1]["answer"]["hint"] == "Try again.");
+    CHECK(http[2]["answer"]["error"] == "network");
+    CHECK(http[0]["frame"] == http[1]["frame"]);
+    CHECK(http[2]["frame"].get<int>() == http[0]["frame"].get<int>() + 2);
 
     // Mistakes in the entry are reported, not ignored.
     problems.clear();

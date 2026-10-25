@@ -451,9 +451,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"scene.load", "Replace the running scene with a scene file.",
            "Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules "
            "and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in "
-           "`messages`. Example: scene.load {\"path\":\"scenes/level2.scene.json\"}",
+           "`messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first "
+           "start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. "
+           "Example: scene.load {\"path\":\"scenes/level2.scene.json\",\"props\":{\"difficulty\":\"hard\"}}",
            parse_schema(R"({"type":"object","required":["path"],"properties":{
-               "path":{"type":"string","description":"Project-relative scene path."}}})"),
+               "path":{"type":"string","description":"Project-relative scene path."},
+               "props":{"type":"object","description":"Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {})."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
               std::string path = a["path"].get<std::string>();
@@ -462,10 +465,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("not_found", "Scene file '" + path + "' not found. " + did_you_mean(path, scenes),
                                      "Use project.info to list scenes.");
               }
+              const bool hasProps = a.contains("props") && a["props"].is_object();
               if (I.inFrame) {
-                  engine.request_scene_change(path);
+                  if (hasProps) engine.request_scene_change_with_props(path, a["props"]);
+                  else engine.request_scene_change(path);
                   return Json::object({{"scheduled", true}, {"path", path}});
               }
+              if (hasProps) I.nextProps = a["props"];
               std::string err;
               bool ok = I.load_scene_impl(path, &err);
               return Json::object({{"ok", ok}, {"path", path}, {"entityCount", I.world.entity_count()}, {"messages", I.sceneIssues}});
@@ -499,7 +505,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine, &I](const Json&) {
               if (I.currentScene.empty()) throw CommandError("unavailable", "No scene is loaded.", "Use scene.load first.");
               std::string err;
-              bool ok = I.load_scene_impl(I.currentScene, &err);
+              bool ok = I.load_scene_impl(I.currentScene, &err, true);  // the same scene starts again with its props
               return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
           });
 
@@ -526,6 +532,41 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               apply_input_lists(I, a);
               engine.step(a.value("frames", 1));
               return brief_state(I, errs, seq);
+          });
+
+    I.commands.add({"input.record", "Record the input the game receives as an input replay (start / stop).",
+           "`start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, "
+           "game.input or a replay), the dt and fixed steps of each frame, the clipboard reads, the answers of http.fetch and the "
+           "calendar date; what is held "
+           "at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that "
+           "`factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and "
+           "locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to "
+           "that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop "
+           "between frames. Starting while recording begins again. Example: input.record {\"action\":\"start\"} ... "
+           "input.record {\"action\":\"stop\",\"path\":\"replays/run1.json\"}",
+           parse_schema(R"({"type":"object","required":["action"],"properties":{
+               "action":{"type":"string","enum":["start","stop"],"description":"start: begin recording now. stop: end it and return the replay."},
+               "path":{"type":"string","description":"stop only: also write the replay to this project-relative file (e.g. replays/run1.json)."}}})"),
+           false, "game"},
+          [&engine, &I](const Json& a) {
+              const std::string action = a["action"].get<std::string>();
+              if (action == "start") {
+                  const bool restarted = engine.input_recording();
+                  engine.start_input_recording();
+                  return Json::object({{"recording", true}, {"startFrame", I.frame}, {"restarted", restarted}});
+              }
+              if (!engine.input_recording())
+                  throw CommandError("unavailable", "Nothing is being recorded.", "Start with input.record {\"action\":\"start\"}.");
+              const std::size_t frames = engine.input_recording_frames();
+              Json replay = engine.stop_input_recording();
+              Json out = Json::object({{"recording", false}, {"frames", frames}, {"replay", replay}});
+              if (a.contains("path") && a["path"].is_string()) {
+                  const std::string path = a["path"].get<std::string>();
+                  if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+                  if (auto r = fs::write_text(path, replay.dump(1)); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+                  out["path"] = path;
+              }
+              return out;
           });
 
     I.commands.add({"game.input", "Inject input: press/release actions or keys, or set an action state, mouse position/buttons, "

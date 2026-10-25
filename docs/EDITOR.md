@@ -324,7 +324,7 @@ nothing. Edit mode shows nothing: nothing runs.
 
 Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switch on.
 
-- **While you play**: the editor records the input it feeds the game, the frame times, and the warnings and errors that are logged.
+- **While you play**: the editor records (with the engine's `input.record` recorder, docs/DEBUGGING.md "Recording and replaying input") the input it feeds the game, the frame times, and the warnings and errors that are logged.
 - **F9 marks a problem** (the toolbar shows "F9 marks a problem" while the game runs). The game pauses on that frame, a screenshot is taken
   and a small window asks for a one-line note. **Enter** saves the mark and the game continues; **Esc** discards it.
 - **On Stop** the session is written to `.factoria/sessions/<yyyymmdd-hhmmss>/`:

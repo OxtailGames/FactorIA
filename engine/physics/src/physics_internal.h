@@ -125,7 +125,14 @@ private:
         Entity e;
         std::string id;
         b2BodyId body = b2_nullBodyId;
-        std::uint64_t hash = 0;
+        std::uint64_t hash = 0;       // layout: size, tileSize, scale, solidTiles. A change rebuilds the whole body.
+        std::uint64_t tilesHash = 0;  // the tiles (sum of per-cell mixes), kept in step with Tilemap::edits
+        int cols = 0;                 // grid size the colliders were built for
+        int rows = 0;
+        std::vector<int> solid;       // sorted solid tile indices
+        // One box per run of solid tiles (cells c0..c1 x r0..r1), parallel to shapeKeys and boxes.
+        struct Run { int c0, c1, r0, r1; b2ShapeId shape; };
+        std::vector<Run> runs;
         std::vector<std::uint64_t> shapeKeys;
         std::vector<Rect> boxes;  // world-space AABBs (for debug)
         Vec3 pos;
