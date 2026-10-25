@@ -475,10 +475,21 @@ file holds the JSON text of one key. Steam Input, workshop, networking, and inve
 The release `factoria_player` for Linux is built in the Steam Linux Runtime "sniper" container (glibc 2.31, libstdc++
 linked in; `scripts/build-sniper.sh`, docs/BUILDING.md), and CI runs it there, so a Linux export runs in the runtime Steam
 gives Linux games, on the Deck included (pick "Steam Linux Runtime 3.0 (sniper)" in the Steamworks partner site); the
-Windows build through Proton is the alternative. **The Deck's
-on-screen keyboard for a `TextField` is not wired:** Steam's `ShowGamepadTextInput` and `ShowFloatingGamepadTextInput` would
-have to be called when a text field takes focus, and the plugin API has no hook for that (M12 "Left open" in
-feedback/ROADMAP.md). Until then players type with the keyboard Steam opens by itself (Steam button + X).
+Windows build through Proton is the alternative.
+
+**Steam Deck keyboard.** On a Steam Deck, and in Big Picture on any computer (`IsSteamRunningOnSteamDeck` or
+`IsSteamInBigPictureMode`), a `TextField` that takes the focus while the last input came from a gamepad gets Steam's own
+keyboard (plugin API 3, [section 5](#5-writing-a-backend-plugin)). The plugin first tries the **floating** keyboard
+(`ShowFloatingGamepadTextInput`): Steam draws it over the game next to the field, whose rectangle the plugin passes in window
+pixels, and types into the window as key presses, so the field fills as with a real keyboard and sends `ui.change` as usual.
+Where Steam does not offer it, the plugin opens the **full-screen** one (`ShowGamepadTextInput`, with the field's text and
+`maxLength`); when the player confirms, the text comes back (`GamepadTextInputDismissed_t`, `GetEnteredGamepadTextInput`) and
+replaces the field's text (cut to `maxLength`, `ui.change` sent); cancelling changes nothing. The floating keyboard is taken
+down when the field loses the focus, and pressing A on the focused field opens it again. While Steam's keyboard has the
+field, `input.platformKeyboard` is true and the menu kit's on-screen keyboard stays closed; a game's own keyboard can read
+the same flag. On a desktop Steam nothing changes: the player has a keyboard, and a pad uses the kit's on-screen keyboard.
+Steam's keyboard is single line and not a password field because `TextField` has neither yet. If Steam refuses both
+keyboards the plugin logs one warning and the game's own keyboard is used.
 
 **Troubleshooting.** The plugin's messages say what to do; the usual ones:
 
@@ -538,7 +549,22 @@ desktop OS you ship.
 8. In Steam, your friends list shows "Checking Steam" under your name while the game runs.
 9. In Steam's own page for the achievement (Library > Spacewar > Achievements, or `steamcommunity.com/stats/480/achievements`),
    "Win a game" shows unlocked.
-10. Export: `factoria export --platform <this OS>`; the exported folder holds the plugin and Valve's library, **no**
+10. **Deck keyboard (on a real Steam Deck, or a desktop in Big Picture mode).** The tests run against a mock; this is
+    the check against the real keyboard. Add a scene with a `TextField` (`factoria call scene.add_entity`, or the menu kit's
+    `name` scene) and run the game from Steam as a non-Steam game, or from Desktop Mode with Steam open.
+    a. With the pad (do not touch the keyboard or the touch screen), move the focus to the field with the d-pad: Steam's
+       floating keyboard appears next to the field, over the game, and the kit's own on-screen keyboard does not.
+       `input.platformKeyboard` is true (log it from `onUpdate`).
+    b. Type with the Deck's touch keyboard: the characters appear in the field, `ui.change` arrives for each, and `maxLength` is
+       respected. Press Enter on it: `ui.submit` arrives.
+    c. Move the focus to a button: the keyboard goes away and `input.platformKeyboard` is false. Come back to the field and
+       press A: it comes up again.
+    d. If the floating keyboard does not appear (older SteamOS), the full-screen one must: type "hello", confirm, and the field
+       holds "hello". Cancel instead: the text is unchanged.
+    e. Plug in a keyboard and press a key: nothing breaks, the field takes the typing. On a desktop Steam (not Big Picture)
+       steps a to d do not apply: the pad opens the kit's keyboard.
+    Note in `ENGINE_FEEDBACK.json` anything that differs (a keyboard in the wrong place means the window rectangle is off).
+11. Export: `factoria export --platform <this OS>`; the exported folder holds the plugin and Valve's library, **no**
     `steam_appid.txt`. Start the exported game from a terminal with Steam running: without an app id Steam refuses to start
     it, the log says so, and the game runs with no platform services (`platform.backend` is `none`). For the final check, a
     game started by the Steam client gets its app id from Steam: upload a build to your own app with SteamPipe (app 480 takes no
@@ -548,7 +574,10 @@ desktop OS you ship.
 
 A [native plugin](EXTENDING.md#g-native-plugins-cc-for-one-game) becomes a backend with the **plugin API version 2**:
 `add_backend`, and `resolve`, `reject` and `emit` to answer. (`factoria call project.new_plugin` copies `fa_plugin.h`;
-a version 1 plugin keeps working, and one built for version 2 checks `api->version >= 2`.)
+a version 1 plugin keeps working, and one built for version 2 checks `api->version >= 2`.) **Version 3** adds
+`add_text_input` and `submit_text`, for a platform keyboard that a gamepad player gets for a `TextField` (the Steam Deck's;
+[EXTENDING.md](EXTENDING.md#g-native-plugins-cc-for-one-game)); a plugin built for version 2 keeps working, and
+one that wants the hook checks `api->version >= 3` before it reads the new members.
 
 ```c
 #include <string.h>

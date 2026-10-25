@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Steam Deck keyboard
+
+- Plugin API 3: `add_text_input` registers a handler the engine calls when a `TextField` takes or loses the focus with a
+  gamepad (the field's rectangle in window pixels, its text, `maxLength`), and `submit_text` hands text from the platform's
+  keyboard back to that field on the next frame. Plugins built for version 1 or 2 are unaffected. `input.platformKeyboard`
+  is true while a plugin's keyboard has the field, and the menu kit's on-screen keyboard stays closed then.
+- The Steam plugin uses it: on a Steam Deck or in Big Picture it opens Steam's floating keyboard over the field, or the
+  full-screen one where the floating one is not offered. Real-Deck check steps are in `docs/PLATFORM.md`.
+
 Navigation: off-mesh links and walkable moving bodies
 
 - `NavLink3D` (an entity's position to `end`, `bidirectional`, `cost`) is an off-mesh link: `nav.findPath` may take it to

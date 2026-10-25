@@ -50,6 +50,8 @@ struct Loaded {
     std::vector<Command> commands;
     std::vector<ScriptPlugin::Function> functions;
     std::optional<PluginBackendSpec> backend;  // what add_backend registered (ABI version 2)
+    FaTextInputHandler textInput = nullptr;  // what add_text_input registered (ABI version 3)
+    void* textInputUser = nullptr;
     bool initializing = false;  // add_command / add_function / add_backend are accepted only inside the entry point
     FaPluginApi api{};
 };
@@ -59,6 +61,13 @@ std::mutex g_mutex;
 std::map<std::string, std::unique_ptr<Loaded>>& loaded() {  // key: name + '\n' + library
     static std::map<std::string, std::unique_ptr<Loaded>> m;
     return m;
+}
+
+// Text plugins handed back with submit_text, until the next frame takes it (any thread may add).
+std::mutex g_submittedMutex;
+std::vector<std::string>& submitted() {
+    static std::vector<std::string> v;
+    return v;
 }
 
 std::map<std::string, FaPluginInitFn>& statics() {
@@ -190,6 +199,25 @@ int add_backend(const FaPluginApi* api, const FaBackendDesc* d) {
     return 0;
 }
 
+int add_text_input(const FaPluginApi* api, FaTextInputHandler handler, void* user) {
+    Loaded* p = of(api);
+    if (!p) return 1;
+    if (!p->initializing) return refuse(*p, "add_text_input", "register the text input handler inside fa_plugin_init only");
+    if (!handler)
+        return refuse(*p, "add_text_input", "no handler: it receives a FaTextInput each time a TextField takes or loses the focus "
+                                            "with a gamepad, and returns 1 when the platform shows its own keyboard");
+    if (p->textInput) return refuse(*p, "add_text_input", "this plugin already registered a text input handler (one per plugin)");
+    p->textInput = handler;
+    p->textInputUser = user;
+    return 0;
+}
+
+void submit_text(const FaPluginApi* api, const char* text) {
+    if (!of(api)) return;
+    std::lock_guard<std::mutex> lock(g_submittedMutex);
+    submitted().push_back(text ? text : "");
+}
+
 void reply(FaCall* call, const char* json) {
     if (!call || call->answered) return;  // the first answer counts
     call->answered = true;
@@ -263,7 +291,8 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         }
     }
     p.api = FaPluginApi{FA_PLUGIN_API_VERSION, p.name.c_str(), runtime_platform(), &p, add_command, add_function, reply, fail,
-                        plugin_log, native_handle, add_backend, plugin_resolve, plugin_reject, plugin_emit};
+                        plugin_log, native_handle, add_backend, plugin_resolve, plugin_reject, plugin_emit,
+                        add_text_input, submit_text};
     p.initializing = true;
     const int rc = init(&p.api);
     p.initializing = false;
@@ -272,6 +301,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         p.commands.clear();
         p.functions.clear();
         p.backend.reset();
+        p.textInput = nullptr;
     }
     return true;
 }
@@ -406,11 +436,20 @@ PluginInstall install_plugins(const ProjectSettings& project, const std::string&
             PluginBackendSpec spec = *p->backend;
             result.backends.push_back({ps.name, spec.name, spec.services, [spec] { return make_plugin_backend(spec); }});
         }
-        FA_DEBUG("plugin", "{}: {} command(s), {} function(s){} from {}", ps.name, p->commands.size(), p->functions.size(),
-                 p->backend ? ", platform backend '" + p->backend->name + "'" : std::string(), library);
+        if (p->textInput) result.textInputs.push_back({ps.name, p->textInput, p->textInputUser});
+        FA_DEBUG("plugin", "{}: {} command(s), {} function(s){}{} from {}", ps.name, p->commands.size(), p->functions.size(),
+                 p->backend ? ", platform backend '" + p->backend->name + "'" : std::string(),
+                 p->textInput ? ", text input handler" : "", library);
     }
     scripts.set_plugins(std::move(forScripts));
     return result;
+}
+
+std::vector<std::string> plugin_take_submitted_text() {
+    std::lock_guard<std::mutex> lock(g_submittedMutex);
+    std::vector<std::string> out;
+    out.swap(submitted());
+    return out;
 }
 
 }  // namespace fa

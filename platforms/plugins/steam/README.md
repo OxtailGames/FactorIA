@@ -12,7 +12,7 @@ This folder is what it leaves behind, so you can also do it by hand.
 
 - `src/`: the plugin. `plugin.cpp` (entry point), `steam_loader.cpp` (loads the redistributable, starts Steam), `backend.cpp`
   (callbacks, call results), `methods_game.cpp` (achievements, stats, leaderboards, cloud), `methods_store.cpp` (purchases,
-  overlay, presence), `steam_functions.h` and `steam_types.h` (the part of the Steamworks API it uses, declared here).
+  overlay, presence), `text_input.cpp` (the Steam Deck keyboard), `steam_functions.h` and `steam_types.h` (the part of the Steamworks API it uses, declared here).
   `include/fa_plugin.h` is the engine's plugin API.
 - `CMakeLists.txt`: builds it and copies the library into this folder, one subfolder per platform: `windows/{{NAME}}.dll`,
   `macos/lib{{NAME}}.dylib`, `linux/lib{{NAME}}.so`. It needs no Steamworks SDK to build.

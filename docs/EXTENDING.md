@@ -684,7 +684,7 @@ platform.add_backend` sets one up in a single step; an unknown name lists the on
 
 ```js
 plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
-fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 2}
+fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 3}
 ```
 
 ### G.2 The declaration
@@ -810,3 +810,16 @@ FA_PLUGIN_INIT(example) {
   message, hint)`, now or later and from any thread, and push unasked news with `emit(api, "purchase" | "overlay" |
   "player", data_json)`. A plugin built for version 2 checks `api->version >= 2`; a version 1 plugin keeps working.
   [PLATFORM.md](PLATFORM.md), section 5, has the method table and a minimal backend.
+- **Platform keyboard (version 3).** A plugin that has a keyboard of the platform for gamepad players (the Steam plugin's
+  Steam Deck keyboard) registers `add_text_input(api, handler, user)` (one per plugin, inside the entry point). The engine calls
+  `int handler(const FaTextInput* in, void* user)` on the game thread, in the frame's UI update, when a `TextField` takes the
+  focus while the last input was a gamepad (or the pad's submit button is pressed on the focused field again), with
+  `focused` 1, the field's rectangle `x, y, width, height` in window pixels, its `text`, `max_length` (0 = no limit) and
+  `multiline`, `password` (both 0: `TextField` has neither yet). Return nonzero when the platform shows its own keyboard:
+  `input.platformKeyboard` is then true until the field loses the focus, and the menu kit's on-screen keyboard stays closed.
+  When the field loses the focus (or goes away) the handler of the plugin that took it is called with `focused` 0, to take
+  its keyboard down; its return value is ignored. Text the keyboard returns goes back with `submit_text(api, utf8)`
+  (any thread): at the start of the next frame it replaces the text of the field that took the keyboard, if it still has the
+  focus (cut to `maxLength`, control characters dropped, `ui.change` sent); otherwise it is dropped. A keyboard that types key
+  presses into the window, like Steam's floating one, needs no `submit_text`. A plugin built for version 3 checks
+  `api->version >= 3` before it reads `add_text_input` or `submit_text`; version 1 and 2 plugins are not affected.
