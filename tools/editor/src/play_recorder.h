@@ -4,7 +4,7 @@
 // the events received between two frames mean. Each frame's dt and fixed-step count go to "timing": [[dt, steps], ...],
 // so the headless replay runs the same frames (exact even when the editor ran slower or faster than the fixed rate).
 // No ImGui, no Editor: tests feed it directly.
-// Not recorded (the replay format has no field for them): mouse wheel, typed text. The editor feeds no gamepad or touch.
+// Not recorded (the replay format has no field for them): mouse wheel, typed text. Clipboard reads are. The editor feeds no gamepad or touch.
 #pragma once
 
 #include <cstdint>
@@ -35,6 +35,12 @@ public:
     void mouse_button(std::uint64_t frame, MouseButton b, bool down) {
         if (down) buttons_.insert(b); else buttons_.erase(b);
         entry(frame)["mouse"][button_name(b)] = down;
+    }
+    // What a clipboard read returned during `frame` ("clipboard" of the replay entry): the replay puts that text on the clipboard
+    // before the frame, so a paste plays back the same. The first read of a frame wins (a later one may be a text the game wrote).
+    void clipboard(std::uint64_t frame, const std::string& text) {
+        Json& e = entry(frame);
+        if (!e.contains("clipboard")) e["clipboard"] = text;
     }
     // Everything held is let go (the editor does this on Pause / focus loss, the engine does the same to its input).
     void release_all(std::uint64_t frame) {

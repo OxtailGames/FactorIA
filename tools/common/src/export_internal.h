@@ -55,6 +55,7 @@ struct Project {
         std::string name;
         stdfs::path build;  // <plugin folder>/<platform> (plugin_build): what the export copies or links
     };
+    std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the plugins whose build for this platform is missing
     std::vector<Plugin> plugins;             // the native plugins of the platform being exported
     std::vector<stdfs::path> pluginFolders;  // every plugin's folder: the ones inside the project stay out of game/
     // Shipped path -> the file copy_game copies instead of <dir>/<path>: what the asset steps converted (export_assets.cpp).

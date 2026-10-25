@@ -432,7 +432,7 @@ library), and takes over Steam's callbacks (manual dispatch: it calls Steam once
 `SteamAPI_RunCallbacks`). `SteamAPI_Shutdown` runs when the process ends (not on Windows, where the DLL's exit handlers run
 after Steam's own DLL is gone; Steam notices the process ending, and stats are stored every frame anyway). When Steam
 cannot start (it is not running, there is no app id, the library is missing or from another SDK) the plugin **logs why, with
-what to do**, and the game falls back: the fake backend in a development run, **none** in an exported game.
+what to do** (a warning, not an error: `project.new_plugin` and `platform.add_backend` declare the plugin `optional`), and the game falls back: the fake backend in a development run, **none** in an exported game.
 `factoria call platform.state` shows the backend and `why`; `factoria call steam.status` shows what the plugin found (app id and
 where it came from, player, library and interface versions, overlay, Cloud).
 

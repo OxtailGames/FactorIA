@@ -4,7 +4,9 @@
 #include <cstring>
 
 #include "asset_test_helpers.h"
+#include "fa/audio/analysis.h"
 #include "fa/core/asset_manifest.h"
+#include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/validate.h"
 
 extern "C" unsigned char* stbi_zlib_compress(unsigned char* data, int data_len, int* out_len, int quality);  // stb_image_write
@@ -442,4 +444,26 @@ TEST_CASE("assets.synth_sound: the same seed gives the same bytes, another seed 
     CHECK_FALSE(p.call("assets.synth_sound", {{"path", "assets/audio/bark.wav"}, {"preset", "bark"}}).ok);  // exists
     CHECK_FALSE(p.call("assets.synth_sound", {{"path", "sounds/x.wav"}, {"preset", "bark"}}).ok);
     CHECK_FALSE(p.call("assets.synth_sound", {{"path", "assets/x.ogg"}, {"preset", "bark"}}).ok);
+}
+
+TEST_CASE("assets.synth_sound: every preset lands near -18 LUFS and passes validate's loudness check") {
+    AssetsProject p;
+    for (const char* preset : {"bark", "growl", "meow", "screech", "whoosh", "explosion", "hit", "coin", "pickup", "jump", "powerup",
+                               "laser", "blip", "click", "error", "splash", "footstep"}) {
+        for (int seed : {1, 7}) {
+            const std::string path = std::string("assets/audio/l_") + preset + std::to_string(seed) + ".wav";
+            p.ok("assets.synth_sound", {{"path", path}, {"preset", preset}, {"seed", seed}});
+            const std::string wav = read_all(p.file(path));
+            auto loudness = measure_loudness({reinterpret_cast<const std::uint8_t*>(wav.data()), wav.size()}, ".wav");
+            REQUIRE_MESSAGE(loudness.ok(), preset);
+            INFO(std::string(preset) << " seed " << seed << ": " << loudness->integratedLufs << " LUFS, peak " << loudness->peakDb << " dBFS");
+            CHECK(loudness->integratedLufs == doctest::Approx(-18.0).epsilon(0.1));  // within about 1.8 LU
+            CHECK(loudness->peakDb <= -0.99);  // the gain stops at the -1 dBFS peak (16-bit rounding)
+        }
+    }
+    for (const ValidationIssue& issue : check_audio_loudness(p.dir)) {
+        CHECK_MESSAGE(issue.message.find("Very loud") == std::string::npos, issue.file, ": ", issue.message);
+        CHECK_MESSAGE(issue.message.find("Very quiet") == std::string::npos, issue.file, ": ", issue.message);
+        CHECK_MESSAGE(issue.message.find("clipped") == std::string::npos, issue.file, ": ", issue.message);
+    }
 }

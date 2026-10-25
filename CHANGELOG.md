@@ -42,6 +42,42 @@ Light2D in the stats and the perf budget
   radius reaches the camera's visible rectangle (more of their radius in view first, then the more intense ones). A light
   entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene naming the count.
 
+Clipboard and window close
+
+- `clipboard.read()` (a Promise) and `clipboard.write(text)` work on Windows, macOS, Linux and the web
+  (`window.supports("clipboard")`); phones answer `unsupported`. Headless runs and tests use an in-memory clipboard, and a
+  replay's `"clipboard"` entry sets it. A focused `TextField` pastes with Ctrl+V (Cmd+V) and copies with Ctrl/Cmd+C.
+- `game.on("quit", fn)` runs when the player closes the window (close button, Cmd+Q, Alt+F4); `event.cancel()` keeps the
+  game running. `game.quit()` closes without asking again. Desktop only. Test helper `game.closeWindow()`.
+
+Music: scene loads, live volume, layers
+
+- Fixed: a scene load stopped the sounds but kept the old scene's music in the mixer's memory, so a scene with the same
+  `settings.music` started nothing (state said the track played, no voice did). A scene load now restarts the new scene's
+  music, the same track included. `audio.music(path, { persist: true })` keeps a track playing through scene loads; a scene
+  with the same `settings.music` does not restart it, another track replaces it.
+- `audio.setVoiceVolume(id, volume, fade?)` changes the volume of a playing sound, with a straight-line fade.
+- `audio.musicLayers({ name: path }, { volume, fade, persist, levels })` starts stems on the same audio sample (one lock,
+  so no block of audio has only some of them) and `audio.setLayer(name, level, fade?)` fades them; the play log entries
+  have a `layer` field. Layers loop, are never evicted by a full mixer, and `audio.stopMusic` stops all of them.
+- `assets.synth_sound` levels every preset to about -18 LUFS (peak under -1 dBFS) instead of a -3 dBFS peak: squares, saws
+  and noise were around -5 LUFS and tripped `factoria validate`'s loudness warning. The bytes of every seed change.
+
+Steam from one Mac: optional plugin, exports, app 480, capsules
+
+- The Steam plugin logs a warning, not an ERROR, when Valve's library is missing or Steam is not running. `project.new_plugin`
+  (so `platform.add_backend`) now declares the plugin `"optional": true`; pass `optional: false` for a plugin the game needs.
+- `project.export` takes `allowMissingPlugins` (`--allow-missing-plugins`): a plugin whose build for the target platform is
+  missing is left out instead of stopping the export, a warning names it and the result lists it in `pluginsLeftOut`. It also
+  works for a plugin that is not optional (the warning says scripts that call it fail). Plugins are still built only for the
+  computer you build on: EXTENDING.md and EXPORTING.md say to take the other platforms' builds from CI.
+- A desktop player with no build fingerprint (release 0.2.0 and older) now gets its own error: it predates fingerprints,
+  `factoria setup players` installs the same one again, so use a newer player, `--player` or `--allow-player-mismatch`.
+- `publish.steam` accepts app 480 (Spacewar) in a dry run with a warning; a real upload still refuses it.
+- `assets.draw_capsules` takes `safeArea` (margins the logo stays inside, per store if needed; the Microsoft poster keeps its
+  bottom third free by default) and `logoAnchor` (a name or a point of the safe area), and `focus` moves the logo when the key
+  art already has the capsule's proportions. Misspelt keys get a "did you mean".
+
 Video player
 
 - A `Video` component draws an `.mpg` (MPEG-1 video with MP2 sound, decoded by pl_mpeg on the CPU, the same on every

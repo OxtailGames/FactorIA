@@ -323,12 +323,29 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     if (focus_) {
         if (TextField* tf = w.get<TextField>(focus_)) {
             bool changed = false;
-            for (const char32_t c : in.text_input()) {
+            // A Ctrl or Cmd chord (Ctrl+V) is a command, not typing; Ctrl+Alt is AltGr, which does type.
+            const bool chord = (in.key_down(Key::LeftControl) || in.key_down(Key::RightControl) || in.key_down(Key::LeftSuper) ||
+                                in.key_down(Key::RightSuper)) &&
+                               !in.key_down(Key::LeftAlt) && !in.key_down(Key::RightAlt);
+            for (const char32_t c : chord ? std::u32string() : in.text_input()) {
                 if (c < 32 || c == 127 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) continue;
                 if (tf->maxLength > 0 && utf8_length(tf->text) >= std::size_t(tf->maxLength)) break;
                 utf8_append(tf->text, c);
                 changed = true;
             }
+            if (clipboard_ && in.paste_pressed()) {
+                // Pastes at the end (the field has no caret yet): newlines and other control characters are dropped, and
+                // maxLength counts code points like typing does.
+                const std::string pasted = clipboard_->get();
+                for (std::size_t i = 0; i < pasted.size();) {
+                    const char32_t c = utf8_next(pasted, i);
+                    if (c < 32 || c == 127 || (c >= 0x80 && c < 0xA0)) continue;
+                    if (tf->maxLength > 0 && utf8_length(tf->text) >= std::size_t(tf->maxLength)) break;
+                    utf8_append(tf->text, c);
+                    changed = true;
+                }
+            }
+            if (clipboard_ && in.copy_pressed()) clipboard_->set(tf->text);
             if (backspace_.tick(in.key_pressed(Key::Backspace), in.key_down(Key::Backspace), dt) && !tf->text.empty()) {
                 pop_code_point(tf->text);
                 changed = true;
