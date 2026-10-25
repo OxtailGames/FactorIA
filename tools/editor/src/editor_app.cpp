@@ -789,6 +789,8 @@ void Editor::on_frame(double dt) {
         }
         for (const std::string& text : engine_->take_clipboard_reads())
             if (run_.active) run_.rec.clipboard(frameBefore, text);
+        for (const HttpLogEntry& e : engine_->take_http_answers())
+            if (run_.active) run_.rec.http(e.frame, e.answer);
         if (run_.active && engine_->frame_index() > frameBefore) {
             const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
             run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());

@@ -38,6 +38,7 @@
 #include "fa/runtime/project.h"
 #include "fa/scene/world.h"
 #include "fa/script/script.h"
+#include "fa/services/platform.h"
 
 namespace fa {
 
@@ -178,6 +179,11 @@ public:
     // records them as the "clipboard" of the frame they happened in. Off by default; set false to stop logging.
     void log_clipboard_reads(bool on);
     std::vector<std::string> take_clipboard_reads();
+    // Recording for replays, like the clipboard reads: while on, the http.fetch requests the game makes are kept with the frame of
+    // the request and their answers ({"result": {status, headers, text}} or {"error": code, "message", "hint"}, what the replay's
+    // "http" entry field takes), in request order, once each is answered. take_http_answers() hands over what is complete.
+    void log_http_answers(bool on);
+    std::vector<HttpLogEntry> take_http_answers();
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
     const I18n* i18n() override;

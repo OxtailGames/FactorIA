@@ -89,6 +89,17 @@ void Engine::Impl::apply_project_settings() {
         startupProblems.push_back(problem);
         platform.set_catalog(PlatformCatalog{});
     }
+    // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
+    auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
+    if (network.ok()) {
+        platform.set_network(std::move(network.value()));
+    } else {
+        const std::string problem = "network: the declaration is ignored: " + network.error().to_string() +
+                                    " (`factoria validate` lists every problem)";
+        FA_WARN("platform", "{}", problem);
+        startupProblems.push_back(problem);
+        platform.set_network(NetworkPolicy{});
+    }
 }
 
 Vec2 Engine::Impl::design_size() const {
@@ -530,6 +541,17 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_DEBUG("platform", "{}", choice.adsWhy);
         I.platform.set_ads_backend(nullptr, choice.adsWhy);  // platform.state's adsWhy says why no ads plugin is in use
     }
+    // http.fetch: the system's HTTP client, except in headless runs, tests, `factoria call` and the MCP server (they ask for the fake
+    // backend, which answers what game.platform.respond scripted and never touches the network).
+    if (config.platformBackend != "fake") {
+        auto client = make_system_http_client();
+        std::string why = "the system's HTTP client (" + client->name() + ")";
+        if (!client->available()) {
+            why = client->unavailable_reason();  // the sentence http.fetch's "unavailable" answer carries
+            FA_INFO("platform", "http.fetch is not available on this computer: {}", why);
+        }
+        I.platform.set_http_backend(make_http_backend(std::move(client)), why);
+    }
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     if (!I.scripts.init(*this, &serr)) {
@@ -825,6 +847,11 @@ WindowControl* Engine::window() { return impl_->appWindow.get(); }
 Clipboard* Engine::clipboard() { return &impl_->clipboard; }
 void Engine::log_clipboard_reads(bool on) { impl_->clipboard.log_reads(on); }
 std::vector<std::string> Engine::take_clipboard_reads() { return impl_->clipboard.take_reads(); }
+void Engine::log_http_answers(bool on) {
+    impl_->platform.set_frame_clock(&impl_->frame);
+    impl_->platform.log_http(on);
+}
+std::vector<HttpLogEntry> Engine::take_http_answers() { return impl_->platform.take_http_log(); }
 
 double Engine::render_scale() const { return impl_->renderer ? impl_->heldScale : ScriptHost::render_scale(); }
 

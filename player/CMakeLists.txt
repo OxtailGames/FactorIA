@@ -45,7 +45,7 @@ elseif(FA_PLATFORM STREQUAL "web")
         -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
         -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=67108864
         -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS -lidbfs.js
-        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_emscripten_stack_get_current,__emscripten_stack_restore
+        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_fa_web_http_done,_emscripten_stack_get_current,__emscripten_stack_restore
         -sEXIT_RUNTIME=0)
     target_link_options(factoria_player PRIVATE "$<$<CONFIG:Debug>:-sASSERTIONS=1>")
 elseif(FA_PLATFORM STREQUAL "ios")

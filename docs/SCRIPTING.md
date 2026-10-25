@@ -824,6 +824,20 @@ server to verify). Everything about it, the catalog, the error
 codes, the fake store's test hooks (`game.platform` in `factoria:test`) and how to write a backend plugin, is in
 [PLATFORM.md](PLATFORM.md). `game.platform` of the `factoria` module is the operating system's name, a different thing.
 
+### http (web requests)
+`import { http } from "factoria"`: `http.fetch(url, { method, headers, body, timeout })` returns a Promise of the server's
+answer `{ status, ok, headers, text, json() }`, on every platform (WinHTTP, `NSURLSession`, libcurl, `HttpURLConnection`,
+the browser's `fetch`). The game declares the servers it may call in `factoria.json` (`"network": { "hosts": [...],
+"purpose": "..." }`); `https://` only; an undeclared host throws at once. Tests get the fake: `game.platform.respond("http.fetch",
+{ status: 200, json: {...} })`, no network. The answer may arrive after the scene changed: check `scene.current` before
+using it. Limits, the recipe, replays, per-platform notes (CORS on the web, the Android permission) and the privacy side:
+[NETWORKING.md](NETWORKING.md).
+
+```js
+const r = await http.fetch("https://api.example.com/daily").catch(() => null);   // rejects on a network failure
+if (r && r.ok) startChallenge(r.json().seed);                                   // a 404 resolves with ok: false
+```
+
 ### i18n (several languages)
 `import { i18n } from "factoria"`: the strings of `locales/<language>.json` in the player's language (factoria.json
 `"localization"` lists the languages; without it `t(key)` returns the key and `languages` is `[]`). A Text or widget

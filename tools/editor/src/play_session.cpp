@@ -17,6 +17,7 @@ void Editor::session_begin() {
     const CalendarDate today = engine_->scripts().today();
     run_.rec.set_date(today.iso(), today.utcOffsetMinutes, today.iso_time());
     engine_->log_clipboard_reads(true);  // what clipboard.read() / Ctrl+V returned goes into the replay
+    engine_->log_http_answers(true);     // so do the answers of http.fetch
     PlaySession& s = run_.session;
     s.name = play_session_name(std::time(nullptr));
     s.scene = scenePath_;
@@ -52,6 +53,7 @@ void Editor::session_end() {
     if (!run_.active) return;
     run_.active = false;
     if (engine_) engine_->log_clipboard_reads(false);
+    if (engine_) engine_->log_http_answers(false);
     PlaySession s = std::move(run_.session);
     s.frames = engine_->frame_index() - run_.startFrame;
     if (s.frames == 0 && s.marks.empty()) return;  // nothing was played
