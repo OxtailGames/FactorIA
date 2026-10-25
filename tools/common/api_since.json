@@ -594,6 +594,7 @@
     "i18n.import": "0.2.0",
     "i18n.set_language": "0.2.0",
     "i18n.state": "0.2.0",
+    "input.record": "unreleased",
     "material.info": "0.2.0",
     "nav.bake": "unreleased",
     "nav.find_path": "unreleased",

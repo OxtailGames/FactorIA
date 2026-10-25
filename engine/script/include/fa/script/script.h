@@ -114,6 +114,23 @@ public:
     virtual double preload_time_budget_ms() const { return 0.0; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
+    // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first
+    // start(). `props` becomes the props of the loaded scene; scene_props() answers the current scene's (an empty object when
+    // it has none). request_scene_reload restarts the current scene KEEPING its props. Hosts without props keep the
+    // defaults: the props are dropped and scene_props() is empty.
+    virtual void request_scene_change_with_props(std::string_view scenePath, const Json& props) {
+        (void)props;
+        request_scene_change(scenePath);
+    }
+    virtual void request_scene_reload(std::string_view scenePath) { request_scene_change(scenePath); }
+    virtual const Json& scene_props() const {
+        static const Json none = Json::object();
+        return none;
+    }
+    virtual std::string load_scene_now_with_props(std::string_view scenePath, const Json& props) {
+        (void)props;
+        return load_scene_now(scenePath);
+    }
     virtual void request_quit() = 0;
     // Test runner only: synchronously simulate n frames (input -> fixed -> update -> render).
     virtual void step_frames(int n) = 0;
@@ -125,6 +142,11 @@ public:
         (void)scene;
         (void)sourceName;
         return "not supported by this host (load_scene_json_now is not implemented)";
+    }
+    // The props of game.loadJson(scene, props); hosts without props ignore them.
+    virtual std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) {
+        (void)props;
+        return load_scene_json_now(scene, sourceName);
     }
     virtual bool screenshot(std::string_view path, std::string* error) = 0;
     // Same at `scale` times the design size (render scale: the same frame drawn sharper, 1.5 on 1280x720 = 1920x1080 PNG).

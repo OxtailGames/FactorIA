@@ -1382,8 +1382,8 @@
        "doc": "Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload(\"scenes/level2.scene.json\"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load(\"scenes/level2.scene.json\"); or job.promise.then(() => scene.load(...))."
       },
       {
-       "sig": "load(path: string): void",
-       "doc": "Deferred to the end of the frame."
+       "sig": "load(path: string, props?: Json): void",
+       "doc": "Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load(\"scenes/level.scene.json\", { level: 3 })."
       },
       {
        "sig": "reload(): void",
@@ -1448,6 +1448,10 @@
       {
        "sig": "paused: boolean",
        "doc": "True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused."
+      },
+      {
+       "sig": "sceneProps(): Json",
+       "doc": "The props the current scene was started with: scene.load(path, props), factoria run --props, or the scene.load command's props. A plain object, {} when none were given; available from the first onStart. A reload keeps them, a load without props drops them. A fresh copy each call. Example: const level = game.sceneProps().level ?? 1."
       },
       {
        "sig": "today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } }",
@@ -3305,8 +3309,8 @@
        "doc": "The window loses the focus: game.focused becomes false and the game.on(\"blur\") handlers run. Does not pause anything (a window that lost the focus keeps running)."
       },
       {
-       "sig": "load(path: string): void",
-       "doc": "Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step()."
+       "sig": "load(path: string, props?: Json): void",
+       "doc": "Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}."
       },
       {
        "sig": "fileReads(): number",
@@ -3413,8 +3417,8 @@
        "doc": "Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList."
       },
       {
-       "sig": "loadJson(scene: Json): void",
-       "doc": "Loads a scene given as JSON ({ format: \"factoria.scene/1\", entities: [...] }) instead of a file."
+       "sig": "loadJson(scene: Json, props?: Json): void",
+       "doc": "Loads a scene given as JSON ({ format: \"factoria.scene/1\", entities: [...] }) instead of a file. `props` is what the scene reads with game.sceneProps(); without it the new scene has {}."
       },
       {
        "sig": "touch(target: Vec2Like | Entity | string, frames?: number): void",

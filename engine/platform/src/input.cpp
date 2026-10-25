@@ -201,6 +201,7 @@ void Input::vibrate(float seconds) {
 }
 
 void Input::on_key(Key key, bool down) {
+    if (InputObserver* o = tap(); o && key != Key::Unknown) o->observe_key(key, down);
     size_t i = size_t(key);
     if (key == Key::Unknown || i >= size_t(Key::Count)) return;
     if (down && !keys_[i]) {
@@ -212,6 +213,7 @@ void Input::on_key(Key key, bool down) {
 }
 
 void Input::on_mouse_move(Vec2 designPos) {
+    if (InputObserver* o = tap()) o->observe_mouse_move(designPos);
     if (designPos != mouse_) lastDevice_ = InputDevice::Mouse;
     mouseDelta_ += designPos - mouse_;
     mouse_ = designPos;
@@ -223,6 +225,7 @@ void Input::on_mouse_delta(Vec2 delta) {
 }
 
 void Input::on_mouse_button(MouseButton b, bool down) {
+    if (InputObserver* o = tap()) o->observe_mouse_button(b, down);
     size_t i = size_t(b);
     if (i >= size_t(MouseButton::Count)) return;
     if (down && !mouse_buttons_[i]) {
@@ -242,6 +245,8 @@ void Input::on_mouse_wheel(float dy) {
 // touch devices unchanged. It lives here, not in the platform event handler, so every feed (a device, game.touch in
 // tests) behaves the same.
 void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
+    if (InputObserver* o = tap()) o->observe_touch_begin(id, designPos);
+    ObserverMute mute(*this);
     if (touch_control_of(id)) return on_touch_move(id, designPos);  // duplicate begin of a finger a control holds
     for (auto it = touchControls_.rbegin(); it != touchControls_.rend(); ++it) {  // the later control wins an overlap
         if (it->down || !it->rect.contains(designPos)) continue;
@@ -269,6 +274,8 @@ void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
 }
 
 void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
+    if (InputObserver* o = tap()) o->observe_touch_move(id, designPos);
+    ObserverMute mute(*this);
     if (TouchControl* c = touch_control_of(id)) {
         if (c->stick) {
             const float radius = std::max(1.0f, std::min(c->rect.w, c->rect.h) * 0.5f);
@@ -289,6 +296,8 @@ void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
 }
 
 void Input::on_touch_end(std::uint64_t id) {
+    if (InputObserver* o = tap()) o->observe_touch_end(id);
+    ObserverMute mute(*this);
     if (TouchControl* c = touch_control_of(id)) {
         c->down = false;
         c->value = {};
@@ -369,6 +378,7 @@ std::string Input::text_utf8() const {
 }
 
 void Input::on_gamepad_connected(int index, bool connected) {
+    if (InputObserver* o = tap()) o->observe_gamepad_connected(index, connected);
     if (index < 0 || index >= kMaxGamepads) return;
     Pad& pad = pads_[size_t(index)];
     pad.connected = connected;
@@ -381,6 +391,7 @@ void Input::on_gamepad_connected(int index, bool connected) {
 }
 
 void Input::on_gamepad_button(int index, GamepadButton button, bool down) {
+    if (InputObserver* o = tap()) o->observe_gamepad_button(index, button, down);
     if (index < 0 || index >= kMaxGamepads || size_t(button) >= size_t(GamepadButton::Count)) return;
     Pad& pad = pads_[size_t(index)];
     pad.connected = true;
@@ -394,6 +405,7 @@ void Input::on_gamepad_button(int index, GamepadButton button, bool down) {
 }
 
 void Input::on_gamepad_axis(int index, GamepadAxis axis, float value) {
+    if (InputObserver* o = tap()) o->observe_gamepad_axis(index, axis, value);
     if (index < 0 || index >= kMaxGamepads || size_t(axis) >= size_t(GamepadAxis::Count)) return;
     Pad& pad = pads_[size_t(index)];
     pad.connected = true;
@@ -424,6 +436,8 @@ void Input::reset_options() {
 }
 
 void Input::release_all() {
+    if (InputObserver* o = tap()) o->observe_release_all();
+    ObserverMute mute(*this);
     for (size_t i = 0; i < keys_.size(); ++i) {
         if (keys_[i]) keyReleasedEdge_[i] = true;
         keys_[i] = false;
