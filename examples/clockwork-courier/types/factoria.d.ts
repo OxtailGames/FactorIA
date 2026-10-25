@@ -398,6 +398,10 @@ declare module "factoria" {
      */
     readonly animator: AnimatorAPI;
     /**
+     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     */
+    readonly tilemap: TilemapAPI;
+    /**
      * Playback of this entity's Video component (play, pause, stop, seek, time, duration, the "ended" event). Throws if the entity has no Video; entity.get("Video") answers null instead.
      */
     readonly video: VideoAPI;
@@ -2007,6 +2011,32 @@ declare module "factoria" {
   }
 
   /**
+   * Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   */
+  export class TilemapAPI {
+    /**
+     * The tile value at column x, row y (0-based, row 0 = TOP row): the tile index plus flip/rotate flag bits, -1 when empty or outside the map. Mask with `& 0xFFFFFFF` for the plain index.
+     */
+    getTile(x: number, y: number): number;
+    /**
+     * Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step.
+     */
+    setTile(x: number, y: number, tile: number): void;
+    /**
+     * Map width in tiles.
+     */
+    readonly width: number;
+    /**
+     * Map height in tiles (rows).
+     */
+    readonly height: number;
+    /**
+     * The Tilemap component view.
+     */
+    readonly component: Components["Tilemap"];
+  }
+
+  /**
    * Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on("ended", () => scene.load("scenes/menu.scene.json"))`; `intro.video.seek(10)`.
    */
   export class VideoAPI {
@@ -2718,6 +2748,16 @@ declare module "factoria" {
      * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
+    /**
+     * Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map.
+     * @since unreleased
+     */
+    margin: number;
+    /**
+     * Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)).
+     * @since unreleased
+     */
+    spacing: number;
     /**
      * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
@@ -5003,7 +5043,7 @@ declare module "factoria" {
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };

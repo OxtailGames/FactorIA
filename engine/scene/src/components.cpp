@@ -434,6 +434,14 @@ void register_builtin_components(TypeRegistry& r) {
                "Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the "
                "default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. "
                "Set it only when the image has a different layout.").range(0, 4096)
+        .field("margin", &Tilemap::margin,
+               "Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). "
+               "Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile "
+               "count and for the normal map.").range(0, 4096)
+        .field("spacing", &Tilemap::spacing,
+               "Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles "
+               "are packed edge to edge. With margin M and spacing S, tile (col, row) starts at "
+               "(M + col*(tileSize.x+S), M + row*(tileSize.y+S)).").range(0, 4096)
         .field("width", &Tilemap::width,
                "Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the "
                "size; drawing and collision both use it).").range(0, 65536)

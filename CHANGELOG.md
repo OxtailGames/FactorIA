@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Tilemap: tileset margin and spacing, `setTile` without rewriting the array
+
+- `Tilemap.margin` and `Tilemap.spacing` (pixels, default 0) describe a tileset image with a border and gutters between
+  tiles. The 2D renderer (also the normal map), the tile count, `factoria validate` and the level commands read them.
+  `assets.slice_sheet` is for animation grids and does not take them.
+- `entity.tilemap.setTile(col, row, id)` and `getTile(col, row)` change one tile in place, and the new command
+  `tilemap.set_tile` does the same from the CLI and MCP. The renderer reads the grid in place (no copy per frame), and 2D
+  physics rebuilds only the colliders of the tiles you changed; a write of the whole `tiles` array still works and is
+  caught by a hash.
+
 The time of day and the day boundary
 
 - `game.today()` also returns `hour`, `minute`, `second` (the local time of day) and `utc: { year, month, day, iso }` (the

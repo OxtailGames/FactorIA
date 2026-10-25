@@ -175,6 +175,8 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `tileset` | asset (texture) | `""` | Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom). |
 | `tileSize` | vec2 | `[16.0,16.0]` | Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units). |
 | `columns` | int | `0` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout. Range 0.0..4096.0. |
+| `margin` | int | `0` | Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map. Range 0.0..4096.0. (not released yet, on main after 0.2.0) |
+| `spacing` | int | `0` | Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)). Range 0.0..4096.0. (not released yet, on main after 0.2.0) |
 | `width` | int | `0` | Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it). Range 0.0..65536.0. |
 | `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
 | `tiles` | json | `[]` | Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. |
@@ -2163,14 +2165,14 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
 | `legend` | object | no | Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0\|90\|180\|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
 | `legendFrom` | string | no | Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted. |
-| `tilemap` | object | no | Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
 | `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
@@ -2434,6 +2436,23 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 | `testCertificate` | boolean | no | Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC. Default false. |
 | `timestampUrl` | string | no | RFC 3161 time-stamp server. Default: http://timestamp.digicert.com. |
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign nothing. Works on any computer. Default false. |
+
+## scene
+
+### `tilemap.set_tile` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Change one tile of a Tilemap in the running scene, in place.
+
+Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) at column `col`, row `row` of the Tilemap on entity `id` (0-based, row 0 = TOP row). Only that element of `tiles` changes: the array is not rewritten, the renderer reads it directly and 2D physics rebuilds only the colliders of the changed tiles on the next step. This is the command form of `entity.tilemap.setTile(col, row, tile)` in scripts. It changes the RUNNING world only (not the scene file; use scene.save to keep it, scene.import_ascii to rebuild a level file). A cell outside the map or a value that is not a tile is refused and nothing changes. Returns {id, col, row, tile, previous}. Example: tilemap.set_tile {"id":"map","col":12,"row":7,"tile":-1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `col` | integer | yes | Tile column, 0 = leftmost. |
+| `row` | integer | yes | Tile row, 0 = TOP row. |
+| `tile` | integer | yes | Tileset index (plus optional flip flags, see Tilemap.tiles), or -1 to empty the cell. |
 
 ## ui
 
@@ -2933,6 +2952,10 @@ declare module "factoria" {
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      */
     readonly animator: AnimatorAPI;
+    /**
+     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     */
+    readonly tilemap: TilemapAPI;
     /**
      * Playback of this entity's Video component (play, pause, stop, seek, time, duration, the "ended" event). Throws if the entity has no Video; entity.get("Video") answers null instead.
      */
@@ -4543,6 +4566,32 @@ declare module "factoria" {
   }
 
   /**
+   * Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   */
+  export class TilemapAPI {
+    /**
+     * The tile value at column x, row y (0-based, row 0 = TOP row): the tile index plus flip/rotate flag bits, -1 when empty or outside the map. Mask with `& 0xFFFFFFF` for the plain index.
+     */
+    getTile(x: number, y: number): number;
+    /**
+     * Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step.
+     */
+    setTile(x: number, y: number, tile: number): void;
+    /**
+     * Map width in tiles.
+     */
+    readonly width: number;
+    /**
+     * Map height in tiles (rows).
+     */
+    readonly height: number;
+    /**
+     * The Tilemap component view.
+     */
+    readonly component: Components["Tilemap"];
+  }
+
+  /**
    * Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on("ended", () => scene.load("scenes/menu.scene.json"))`; `intro.video.seek(10)`.
    */
   export class VideoAPI {
@@ -5254,6 +5303,16 @@ declare module "factoria" {
      * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
+    /**
+     * Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map.
+     * @since unreleased
+     */
+    margin: number;
+    /**
+     * Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)).
+     * @since unreleased
+     */
+    spacing: number;
     /**
      * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
@@ -7539,7 +7598,7 @@ declare module "factoria" {
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };

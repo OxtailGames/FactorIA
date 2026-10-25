@@ -61,6 +61,40 @@ TilemapSize tilemap_size(const Tilemap& tm) {
     return size;
 }
 
+int tilemap_tile_at(const Tilemap& tm, const TilemapSize& size, int col, int row) {
+    if (col < 0 || row < 0 || col >= size.width || row >= size.height || !tm.tiles.is_array()) return -1;
+    const Json& t = tm.tiles;
+    if (!t.empty() && t[0].is_array()) {
+        const Json& r = t[std::size_t(row)];
+        return r.is_array() && std::size_t(col) < r.size() ? tile_value(r[std::size_t(col)]) : -1;
+    }
+    const std::size_t i = std::size_t(row) * std::size_t(size.width) + std::size_t(col);
+    return i < t.size() ? tile_value(t[i]) : -1;
+}
+
+bool set_tilemap_tile(Tilemap& tm, int col, int row, int value) {
+    const TilemapSize size = tilemap_size(tm);
+    if (size.empty() || col < 0 || row < 0 || col >= size.width || row >= size.height) return false;
+    if (value < -1 || value > (kTileFlagMask | kTileIndexMask)) return false;
+    const int old = tilemap_tile_at(tm, size, col, row);
+    Json* slot = nullptr;
+    if (tm.tiles[0].is_array()) {
+        Json& r = tm.tiles[std::size_t(row)];
+        if (!r.is_array()) r = Json::array();
+        while (r.size() <= std::size_t(col)) r.push_back(-1);
+        slot = &r[std::size_t(col)];
+    } else {
+        const std::size_t i = std::size_t(row) * std::size_t(size.width) + std::size_t(col);
+        while (tm.tiles.size() <= i) tm.tiles.push_back(-1);
+        slot = &tm.tiles[i];
+    }
+    *slot = value;
+    constexpr std::size_t kMaxEdits = 4096;  // nobody reads them (no physics): drop them, physics then compares hashes
+    if (tm.edits.size() >= kMaxEdits) tm.edits.clear();
+    tm.edits.push_back({row * size.width + col, tile_index(old), tile_index(value)});
+    return true;
+}
+
 TilemapGrid tilemap_grid(const Tilemap& tm) {
     TilemapGrid g;
     const TilemapSize size = tilemap_size(tm);
@@ -85,7 +119,8 @@ TilemapGrid tilemap_grid(const Tilemap& tm) {
 int tileset_columns(const Tilemap& tm, int imageWidth) {
     if (tm.columns > 0) return tm.columns;
     if (imageWidth <= 0 || tm.tileSize.x <= 0) return 0;
-    return std::max(1, static_cast<int>(float(imageWidth) / tm.tileSize.x));
+    const float usable = float(imageWidth - 2 * std::max(0, tm.margin) + std::max(0, tm.spacing));
+    return std::max(1, static_cast<int>(usable / (tm.tileSize.x + float(std::max(0, tm.spacing)))));
 }
 
 std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
@@ -231,7 +266,8 @@ Vec2 tilemap_cell_center(const Tilemap& tm, int col, int row) {
 
 int tileset_tile_count(const Tilemap& tm, int imageWidth, int imageHeight) {
     if (imageWidth <= 0 || imageHeight <= 0 || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return 0;
-    const int tilesY = int(float(imageHeight) / tm.tileSize.y);
+    const float usableY = float(imageHeight - 2 * std::max(0, tm.margin) + std::max(0, tm.spacing));
+    const int tilesY = int(usableY / (tm.tileSize.y + float(std::max(0, tm.spacing))));
     const int cols = tileset_columns(tm, imageWidth);
     if (cols <= 0 || tilesY <= 0) return 0;
     return cols * tilesY;

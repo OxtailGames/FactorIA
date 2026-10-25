@@ -123,3 +123,18 @@ TEST_CASE("validate: without columns the tileset width decides, so tile 3 of a 4
     CHECK(i->hint.find("0..3") != std::string::npos);
     CHECK(i->hint.find("remove") == std::string::npos);
 }
+
+TEST_CASE("validate: margin and spacing change how many tiles the tileset image holds") {
+    // 128x32 image of 14x14 tiles with margin 1 and spacing 2: (128 - 2 + 2) / 16 = 8 columns, (32 - 2 + 2) / 16 = 2 rows
+    // = 16 tiles. Packed it would hold 9 x 2 = 18, so tile 16 is only wrong because margin and spacing are read.
+    testing::TempDir tmp;
+    auto ok = validate_with_tilemap(tmp, R"({"tileset":"assets/tiles.png","tileSize":[14,14],"margin":1,"spacing":2,"width":2,"height":1,"tiles":[0,15]})");
+    CHECK(ok.ok);
+    testing::TempDir tmp2;
+    auto r = validate_with_tilemap(tmp2, R"({"tileset":"assets/tiles.png","tileSize":[14,14],"margin":1,"spacing":2,"width":2,"height":1,"tiles":[0,16]})");
+    REQUIRE_FALSE(r.ok);
+    const ValidationIssue* i = find_issue(r.errors, "/components/Tilemap/tiles/1");
+    REQUIRE(i != nullptr);
+    CHECK(i->message.find("16 tiles") != std::string::npos);
+    CHECK(i->hint.find("0..15") != std::string::npos);
+}

@@ -898,6 +898,39 @@ NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     return a;
 }
 
+// Tilemap tile access of entity.tilemap: (entity, col, row[, tile]). The array of `tiles` is neither copied to JS nor
+// replaced: one element changes in place (see set_tilemap_tile).
+Tilemap* script_tilemap(Impl* I, JSContext* ctx, Entity e, JSValue* exc) {
+    Tilemap* tm = I->host->world().get<Tilemap>(e);
+    if (!tm) *exc = throw_err(ctx, "entity '" + I->host->world().id_of(e) + "' has no Tilemap component; add one: entity.add(\"Tilemap\", {tileset: \"assets/tiles.png\", tileSize: [16, 16], width: 8, height: 8, tiles: [...]})");
+    return tm;
+}
+
+NATIVE(tileGet) {  // (entity, col, row) -> tile value (index + flag bits), -1 = empty or outside the map
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_NewInt32(ctx, tilemap_tile_at(*tm, tilemap_size(*tm), col, row));
+}
+
+NATIVE(tileSet) {  // (entity, col, row, tile) -> void; throws when outside the map or the value is not a tile
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const double c = arg_num(ctx, argc, argv, 1, 0), r = arg_num(ctx, argc, argv, 2, 0), v = arg_num(ctx, argc, argv, 3, -1);
+    if (!set_tilemap_tile(*tm, static_cast<int>(std::floor(c)), static_cast<int>(std::floor(r)), static_cast<int>(v))) {
+        const TilemapSize size = tilemap_size(*tm);
+        return throw_err(ctx, std::format("tilemap.setTile({}, {}, {}) failed: the cell must be inside the {} x {} map (0-based, row 0 = top) and the tile -1 (empty) or a tile index (plus optional flip flags)",
+                                          c, r, v, size.width, size.height));
+    }
+    return JS_UNDEFINED;
+}
+
 // ---- components ---------------------------------------------------------------------------------------------------
 NATIVE(hasComp) {
     SETUP;
@@ -2526,7 +2559,7 @@ const Reg kRegs[] = {
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
