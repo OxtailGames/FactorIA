@@ -11,7 +11,7 @@
 //                "fullscreen": false, "vsync": true, "orientation": "landscape",
 //                "pixelArt": false },
 //   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
-//   "input": { "actions": { "jump": ["Space", "W"] }, "deadzone": 0.2 },   // deadzone: gamepad sticks and triggers
+//   "input": { "actions": { "jump": ["Space", "W"] }, "deadzone": 0.2 },   // deadzone: gamepad sticks and triggers; "schemes": key sets of local players
 //   "platforms": ["windows", "macos", "linux", "ios", "android"],
 //   "feedbackFile": "ENGINE_FEEDBACK.json",
 //   "icon": "assets/icon.png",                // the game icon; export.<platform>.icon replaces it for one platform
@@ -95,6 +95,7 @@ struct ProjectSettings {
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
+    Json inputSchemes = Json::object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
     double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;

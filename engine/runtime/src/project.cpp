@@ -81,6 +81,8 @@ Json ProjectSettings::to_json() const {
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
     input["deadzone"] = inputDeadzone;
+    if (!inputSchemes.empty()) input["schemes"] = inputSchemes;
+    else input.erase("schemes");
     j["input"] = input;
     Json plats = Json::array();
     for (const auto& p : platforms) plats.push_back(p);
@@ -489,6 +491,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             }
             s.inputActions = *a;
         }
+        if (auto sc = it->find("schemes"); sc != it->end() && !sc->is_null()) {
+            if (!sc->is_object())
+                return field_error("/input/schemes", "an object mapping scheme names to key sets", *sc,
+                                   "Example: \"schemes\": {\"arrows\": {\"extends\": \"right\"}}; the actions and key names are checked when the game starts.");
+            s.inputSchemes = *sc;
+        }
         if (auto d = it->find("deadzone"); d != it->end() && !d->is_null()) {
             if (!d->is_number()) return field_error("/input/deadzone", "a number from 0 to 0.95", *d);
             double v = d->get<double>();
@@ -679,6 +687,24 @@ constexpr const char* kSchemaText =
               "type": "string"
             },
             "description": "Bindings that trigger this action."
+          }
+        },
+        "schemes": {
+          "type": "object",
+          "description": "Key schemes for local multiplayer: named sets of keys a player can be given with input.player(i).use({keys: name}). The built-in ones are \"all\", \"left\" (WASD side of the keyboard) and \"right\" (arrows side). Each scheme is {\"extends\": a built-in scheme, \"keys\": [key names], \"actions\": {action: [key names]}} or just an array of key names; its keys are the extended scheme's plus \"keys\" plus the keys of \"actions\", and \"actions\" gives the keys of those actions for players of the scheme (the others use the key bindings of input.actions that belong to the scheme).\",
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "array", "items": {"type": "string"}},
+              {
+                "type": "object",
+                "properties": {
+                  "extends": {"type": "string", "enum": ["all", "left", "right"]},
+                  "keys": {"type": "array", "items": {"type": "string"}},
+                  "actions": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+                },
+                "additionalProperties": false
+              }
+            ]
           }
         },
         "deadzone": {
