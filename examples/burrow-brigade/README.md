@@ -58,7 +58,7 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 - **Daily dig**: one shared seed per local calendar day. It is played once for the score; a run in daily mode does not write
   to the slots.
 - **Seed codes**: a floor and seed as `XXXX-XXXX` (base32 with a check character). The results and camp screens copy it, the
-  title pastes it. The clipboard is a session buffer inside the game: scripts cannot reach the system clipboard (FB-0013), so a
+  title pastes it. The clipboard is a session buffer inside the game: scripts cannot reach the system clipboard (FB-0016), so a
   code copied here is pasted here; typing a code from elsewhere works as usual.
 
 ## The shift
@@ -253,7 +253,7 @@ slot 1 once), `save()`, `newRun(slot, opts)`, `continueSlot(slot)`, `load`, `app
 ### Cloud saves: `scripts/game/cloud.js`
 
 `syncSlot(n, { allowDownload })`, `syncAll()`, `removeSlot(n)`, `available()`. Each slot is the cloud key `slot<N>`. The platform gives no
-modified time (FB-0015), so the game keeps the revision it last synced (`burrow.cloudBase.N`): only local changed -> upload; only
+modified time (FB-0018), so the game keeps the revision it last synced (`burrow.cloudBase.N`): only local changed -> upload; only
 cloud changed -> download (only when `allowDownload`, which the title sets and the camp does not, so the camp is upload-only); both
 changed -> **conflict**: the copy with more progress (deeper floor, then more shifts, then more play time) wins and the loser is kept
 in `burrow.backup.N` and never deleted. Answers: `unavailable`, `none`, `inSync`, `uploaded`, `downloaded`, `conflict`, `waiting`,
@@ -262,7 +262,7 @@ in `burrow.backup.N` and never deleted. Answers: `unavailable`, `none`, `inSync`
 ### Daily dig: `scripts/game/daily.js`
 
 `todayKey()`, `isKey(s)`, `seedFor(key)` (FNV-1a of `burrow-brigade/daily/<key>`), `status()`, `start()`, `noteShift(...)`. The key
-is the local date: `game.today()` has no time of day, so UTC cannot be derived (FB-0014). Played days are in `burrow.daily`.
+is the local date: `game.today()` has no time of day, so UTC cannot be derived (FB-0017). Played days are in `burrow.daily`.
 
 ### Seed codes: `scripts/game/seed_code.js`, `scripts/game/clipboard.js`
 
