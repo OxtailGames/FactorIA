@@ -1574,6 +1574,173 @@ NATIVE(inResetBindings) {  // (action?)
     return JS_UNDEFINED;
 }
 
+// ---- players: input.player(i) (M29.15) ------------------------------------------------------------------------------
+// The player number of argument `i`: an integer 0..kMaxPlayers-1, else a teaching error in `exc`.
+bool check_player(JSContext* ctx, int argc, JSValueConst* argv, int i, int& player, JSValue& exc) {
+    double d = arg_num(ctx, argc, argv, i);
+    if (!(d >= 0 && d < kMaxPlayers) || d != std::floor(d)) {
+        exc = throw_err(ctx, "input.player(index): index must be a whole number from 0 to " + std::to_string(kMaxPlayers - 1) +
+                                 " (a player; the first is 0), got " + arg_str(ctx, argc, argv, i));
+        return false;
+    }
+    player = static_cast<int>(d);
+    return true;
+}
+
+bool check_player_action(Impl* I, JSContext* ctx, const std::string& a, JSValue& exc) {
+    Input& in = I->host->input();
+    if (in.has_player_action(a)) return true;
+    auto names = in.action_names();
+    exc = throw_err(ctx, "unknown input action '" + a + "'. " +
+                             (names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
+                                            : did_you_mean(a, names)));
+    return false;
+}
+
+NATIVE(inPlayerRead) {  // (kind, player, action...) kind: 0 down, 1 pressed, 2 released, 3 value, 4 axis, 5 vector
+    SETUP;
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 1, player, exc)) return exc;
+    std::string a[4] = {arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), arg_str(ctx, argc, argv, 4), arg_str(ctx, argc, argv, 5)};
+    const int count = kind == 5 ? 4 : kind == 4 ? 2 : 1;
+    for (int i = 0; i < count; ++i)
+        if (!check_player_action(I, ctx, a[i], exc)) return exc;
+    Input& in = I->host->input();
+    switch (kind) {
+        case 0: return JS_NewBool(ctx, in.player_action_down(player, a[0]));
+        case 1: return JS_NewBool(ctx, in.player_action_pressed(player, a[0]));
+        case 2: return JS_NewBool(ctx, in.player_action_released(player, a[0]));
+        case 3: return float_to_js(ctx, in.player_action_value(player, a[0]));
+        case 4: return float_to_js(ctx, in.player_axis(player, a[0], a[1]));
+        default: {
+            Vec2 v = in.player_vector(player, a[0], a[1], a[2], a[3]);
+            return array_of(ctx, {v.x, v.y});
+        }
+    }
+}
+
+NATIVE(inPlayerDevice) {  // (player, spec?) with a spec: assigns; without: { pad, padId, keys, slot }
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    Input& in = I->host->input();
+    if (argc < 2 || JS_IsUndefined(argv[1])) {
+        const PlayerDevice& d = in.player_device(player);
+        Json out = {{"pad", d.pad}, {"padId", d.padId}, {"keys", d.keys}, {"slot", in.player_pad(player)}};
+        return I->from_json(out);
+    }
+    Json spec = I->to_json(argv[1]);
+    PlayerDevice device;
+    std::vector<std::string> problems;
+    const std::string who = "input.player(" + std::to_string(player) + ").use";
+    if (spec.is_null()) {
+        // no device
+    } else if (!spec.is_object()) {
+        problems.push_back(who + "(device) expects an object like {pad: 0, keys: \"left\"} or {padId: gamepad.id}, or null for no device; got " +
+                           describe_json_value(spec));
+    } else {
+        const std::vector<std::string> fields = {"pad", "padId", "keys"};
+        for (auto it = spec.begin(); it != spec.end(); ++it) {
+            if (it.key() == "pad") {
+                if (it.value().is_number_integer()) device.pad = it.value().get<int>();
+                else if (!it.value().is_null()) problems.push_back(who + ": pad must be a gamepad slot (a whole number from 0 to " + std::to_string(kMaxGamepads - 1) + "), got " + describe_json_value(it.value()));
+            } else if (it.key() == "padId") {
+                if (it.value().is_string()) device.padId = it.value().get<std::string>();
+                else if (!it.value().is_null()) problems.push_back(who + ": padId must be the id string of a pad (input.gamepad(i).id), got " + describe_json_value(it.value()));
+            } else if (it.key() == "keys") {
+                if (it.value().is_string()) device.keys = it.value().get<std::string>();
+                else if (!it.value().is_null()) problems.push_back(who + ": keys must be the name of a key scheme (input.keySchemes()), got " + describe_json_value(it.value()));
+            } else {
+                problems.push_back(who + ": unknown field '" + it.key() + "'. " + did_you_mean(it.key(), fields));
+            }
+        }
+    }
+    if (problems.empty()) problems = in.use_player_device(player, device);
+    if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPlayerBindings) {  // (player, action, family?)
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string a = arg_str(ctx, argc, argv, 1);
+    if (!check_player_action(I, ctx, a, exc)) return exc;
+    std::string family = argc > 2 && JS_IsString(argv[2]) ? arg_str(ctx, argc, argv, 2) : "";
+    if (!family.empty() && family != "keys" && family != "pad")
+        return throw_err(ctx, "input.player(i).bindings(action, family): family must be \"keys\" or \"pad\" (or left out), got '" + family + "'");
+    return I->from_json(Json(I->host->input().player_bindings(player, a, family)));
+}
+
+NATIVE(inPlayerRebind) {  // (player, action, bindings[], family?)
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string a = arg_str(ctx, argc, argv, 1);
+    if (!check_player_action(I, ctx, a, exc)) return exc;
+    Json list = argc > 2 ? I->to_json(argv[2]) : Json(nullptr);
+    std::vector<std::string> names;
+    bool ok = list.is_array();
+    if (ok)
+        for (const Json& item : list) {
+            if (item.is_string()) names.push_back(item.get<std::string>());
+            else ok = false;
+        }
+    if (!ok)
+        return throw_err(ctx, "input.player(i).rebind(action, bindings) expects an array of binding names, e.g. "
+                              "input.player(1).rebind(\"" + a + "\", [\"Space\"]); got " + (list.is_null() ? "nothing" : describe_json_value(list)));
+    std::string family = argc > 3 && JS_IsString(argv[3]) ? arg_str(ctx, argc, argv, 3) : "";
+    std::vector<std::string> problems = I->host->input().player_rebind(player, a, names, family);
+    if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPlayerReset) {  // (player, action?)
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string a = argc > 1 && !JS_IsUndefined(argv[1]) ? arg_str(ctx, argc, argv, 1) : "";
+    if (!a.empty() && !check_player_action(I, ctx, a, exc)) return exc;
+    I->host->input().player_reset(player, a);
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPlayerLastPressed) {
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string s = I->host->input().player_last_pressed(player);
+    return s.empty() ? JS_NULL : JS_NewString(ctx, s.c_str());
+}
+
+NATIVE(inPlayerData) {  // (player, data?) without data: what the player rebound; with data: imports it, returns the problems
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    Input& in = I->host->input();
+    if (argc < 2 || JS_IsUndefined(argv[1])) return I->from_json(in.player_export(player));
+    return I->from_json(Json(in.player_import(player, I->to_json(argv[1]))));
+}
+
+NATIVE(inKeySchemes) {  // () -> names; (name) -> the keys of that scheme
+    SETUP;
+    Input& in = I->host->input();
+    if (argc < 1 || JS_IsUndefined(argv[0])) return I->from_json(Json(in.key_scheme_names()));
+    std::string name = arg_str(ctx, argc, argv, 0);
+    auto names = in.key_scheme_names();
+    if (std::find(names.begin(), names.end(), name) == names.end())
+        return throw_err(ctx, "input.keySchemeKeys: unknown key scheme '" + name + "'. " + did_you_mean(name, names));
+    return I->from_json(Json(in.key_scheme_keys(name)));
+}
+
 NATIVE(inLastPressed) {
     SETUP;
     std::string s = I->host->input().last_pressed();
@@ -2772,6 +2939,8 @@ const Reg kRegs[] = {
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
+    R(inPlayerRead, 6), R(inPlayerDevice, 2), R(inPlayerBindings, 3), R(inPlayerRebind, 4), R(inPlayerReset, 2),
+    R(inPlayerLastPressed, 1), R(inPlayerData, 2), R(inKeySchemes, 1),
     R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),

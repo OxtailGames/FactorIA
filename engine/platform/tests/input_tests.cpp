@@ -1057,7 +1057,7 @@ TEST_CASE("project key schemes: extends, keys, actions, and errors that teach") 
     })"));
     const std::string all = join_lines(bad);
     INFO(all);
-    CHECK(bad.size() == 7);  // "w" has an unknown field and no keys
+    CHECK(bad.size() == 6);  // one problem per scheme; "w" only reports its unknown field
     CHECK(all.find("built-in scheme") != std::string::npos);
     CHECK(all.find("left") != std::string::npos);
     CHECK(all.find("Space") != std::string::npos);

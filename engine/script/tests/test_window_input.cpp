@@ -303,6 +303,88 @@ test("errors name the problem and suggest the fix, and change nothing", () => {
     CHECK(rep.ok());
 }
 
+TEST_CASE("input.player(i): per-player devices, bindings and errors that teach; nothing leaks into the next test") {
+    TestHost h("input_player", Json::parse(R"({"input": {
+        "actions": {"jump": ["Space", "Enter", "GamepadA"], "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
+                    "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"]},
+        "schemes": {"ijkl": {"keys": ["I", "J", "K", "L"], "actions": {"jump": ["I"]}}}}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("two pads drive two players independently, the global actions hear both", () => {
+  input.player(0).use({ pad: 0 });
+  input.player(1).use({ pad: 1 });
+  game.gamepad(0).axis("LeftX", 1);
+  game.gamepad(1).press("DpadLeft");
+  expect(input.player(0).axis("move_left", "move_right")).toBe(1);
+  expect(input.player(1).axis("move_left", "move_right")).toBe(-1);
+  expect(input.player(0).down("move_left")).toBe(false);
+  expect(input.player(1).down("move_left")).toBe(true);
+  expect(input.player(1).pressed("move_left")).toBe(true);
+  expect(input.player(0).vector("move_left", "move_right", "jump", "jump").x).toBe(1);
+  expect(input.player(0).value("move_right")).toBe(1);
+  expect(input.down("move_left")).toBe(true);
+  expect(input.down("move_right")).toBe(true);
+  expect(input.player(0).device.slot).toBe(0);
+  expect(input.player(1).pad).toBe(1);
+});
+test("a new test starts with no devices, like it starts with the project's bindings", () => {
+  expect(input.player(0).device).toEqual({ pad: -1, padId: "", keys: "", slot: -1 });
+  expect(input.player(2).down("jump")).toBe(false);
+});
+test("keyboard halves, a project scheme and rebinding one player", () => {
+  expect(input.keySchemes()).toEqual(["all", "left", "right", "ijkl"]);
+  expect(input.keySchemeKeys("ijkl")).toEqual(["I", "J", "K", "L"]);
+  input.player(0).use({ keys: "left" });
+  input.player(1).use({ keys: "right" });
+  input.player(2).use({ keys: "ijkl" });
+  game.keyDown("A");
+  game.keyDown("Right");
+  expect(input.player(1).lastPressed()).toBe("Right");
+  expect(input.player(0).lastPressed()).toBe("A");
+  game.keyDown("I");
+  expect(input.player(0).down("move_left")).toBe(true);
+  expect(input.player(0).down("move_right")).toBe(false);
+  expect(input.player(1).down("move_right")).toBe(true);
+  expect(input.player(2).down("jump")).toBe(true);
+  expect(input.player(2).bindings("jump")).toEqual(["I"]);
+  expect(input.player(0).bindings("jump")).toEqual(["Space"]);
+  input.player(1).rebind("jump", ["Backspace"]);
+  expect(input.player(1).bindings("jump")).toEqual(["Backspace"]);
+  expect(input.player(1).bindings("jump", "pad")).toEqual(["GamepadA"]);
+  expect(input.player(0).bindings("jump")).toEqual(["Space"]);
+  expect(input.bindings("jump")).toEqual(["Space", "Enter", "GamepadA"]);
+  const saved = input.player(1).export();
+  expect(saved).toEqual({ keys: { jump: ["Backspace"] } });
+  input.player(1).reset();
+  expect(input.player(1).bindings("jump")).toEqual(["Enter"]);
+  expect(input.player(1).import(saved)).toEqual([]);
+  expect(input.player(1).bindings("jump")).toEqual(["Backspace"]);
+  expect(input.player(1).import({ keys: { gone: ["A"] } }).length).toBe(1);
+});
+test("errors name the problem and suggest the fix", () => {
+  expect(() => input.player(4)).toThrow("whole number from 0 to 3");
+  expect(() => input.player("1")).toThrow("whole number from 0 to 3");
+  expect(() => input.player(0).use({ keys: "lefft" })).toThrow("Did you mean 'left'");
+  expect(() => input.player(0).use({ pad: 7 })).toThrow("gamepad slot");
+  expect(() => input.player(0).use({ pads: 0 })).toThrow("Did you mean 'pad'");
+  expect(() => input.player(0).use({ pad: 0, padId: "x" })).toThrow("not both");
+  expect(() => input.player(0).down("jmp")).toThrow("Did you mean 'jump'");
+  expect(() => input.player(0).rebind("jump", ["MouseLeft"])).toThrow("pointer");
+  expect(() => input.player(0).rebind("jump", ["Spce"])).toThrow("Did you mean 'Space'");
+  expect(() => input.player(0).rebind("jump", "Z")).toThrow("expects an array of binding names");
+  expect(() => input.keySchemeKeys("lefft")).toThrow("Did you mean 'left'");
+  input.player(0).use({ keys: "left" });
+  expect(() => input.player(0).rebind("jump", ["Enter"])).toThrow("not a key of this player's scheme 'left'");
+  expect(input.player(0).bindings("jump")).toEqual(["Space"]);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
 TEST_CASE("input.text, lastPressed, lastDevice, cursor and keyboard state") {
     TestHost h("input_settings");
     h.file("tests/t.test.js", R"JS(

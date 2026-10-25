@@ -53,6 +53,7 @@ struct TestHost : ScriptHost {
                                                                      {"move_left", Json::array({"A"})},
                                                                      {"move_right", Json::array({"D"})}})}});
         in.set_actions(proj["input"]["actions"]);
+        if (proj["input"].contains("schemes")) in.set_key_schemes(proj["input"]["schemes"]);
         au.init(false, nullptr);
         au.set_clock(&w);
         if (proj.contains("audio")) au.set_snapshots(parse_audio_settings(proj["audio"]).snapshots);  // as the Engine does

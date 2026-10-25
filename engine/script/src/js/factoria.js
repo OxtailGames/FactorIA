@@ -937,6 +937,7 @@
   };
 
   const KEY_DOC = null;
+  const players = [];  // input.player(i) objects, made on first use
   const input = {
     down: (a) => N.inAction(0, a), pressed: (a) => N.inAction(1, a), released: (a) => N.inAction(2, a),
     // value(action): 0..1, analog for gamepad sticks and triggers (the action is "down" from 0.5). axis() and vector() are analog too.
@@ -959,6 +960,45 @@
         axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
       };
     },
+    // ---- players (M29.15): local multiplayer. player(i) reads the project's actions (the same names as input.down, ...)
+    // through ONE player's own devices: its gamepad (use({pad: 0}) or use({padId: gamepad.id})) and/or a key scheme
+    // (use({keys: "left"}): the left half of the keyboard; "right", "all" and the factoria.json input.schemes are the others).
+    // A player with no device reads nothing; the global input.down(...) keeps hearing every device.
+    maxPlayers: 4,
+    player(index) {
+      if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= 4)
+        throw new Error(`input.player(index) expects a whole number from 0 to 3 (a player, the first is 0), e.g. input.player(1).down("jump"), but got ${inspect(index)}`);
+      let p = players[index];
+      if (!p) {
+        p = players[index] = {
+          index,
+          // Assigns the devices ({pad, padId, keys}; null or {} for none) or reads them back: { pad, padId, keys, slot }, where
+          // slot is the pad the player reads now (-1 for none, or for a padId pad that is unplugged). A bad scheme or slot throws.
+          use(device) { N.inPlayerDevice(index, device === undefined ? null : plain(device)); },
+          get device() { return N.inPlayerDevice(index); },
+          get pad() { return N.inPlayerDevice(index).slot; },
+          down: (a) => N.inPlayerRead(0, index, a), pressed: (a) => N.inPlayerRead(1, index, a), released: (a) => N.inPlayerRead(2, index, a),
+          value: (a) => N.inPlayerRead(3, index, a),
+          axis: (neg, pos) => N.inPlayerRead(4, index, neg, pos),
+          vector(l, r, d, u) { const v = N.inPlayerRead(5, index, l, r, d, u); return new Vec2(v[0], v[1]); },
+          // The bindings of an action for this player, one family ("keys" or "pad") or those of the devices it has now. Defaults:
+          // the project's bindings that belong to the player's key scheme and to a pad.
+          bindings: (action, family) => N.inPlayerBindings(index, action, family),
+          // Replaces one family of an action for this player only (names of one family, or pass "keys" / "pad"); all or nothing.
+          rebind(action, bindings, family) { N.inPlayerRebind(index, action, bindings, family); },
+          reset(action) { N.inPlayerReset(index, action); },
+          lastPressed: () => N.inPlayerLastPressed(index),
+          // What the player rebound ({keys: {...}, pad: {...}}), for the game to save; import() takes it back and returns the
+          // problems of the entries it skipped (an action the project dropped, a bad name).
+          export: () => N.inPlayerData(index),
+          import: (data) => N.inPlayerData(index, plain(data === undefined || data === null ? {} : data)),
+        };
+      }
+      return p;
+    },
+    // The key schemes players can use: "all", "left", "right" and the project's. keySchemeKeys(name) lists a scheme's keys.
+    keySchemes: () => N.inKeySchemes(),
+    keySchemeKeys: (name) => N.inKeySchemes(name),
     // ---- settings an options menu needs (M10): text, rebinding, last input, button names, cursor, on-screen keyboard
     // Characters typed this frame (UTF-8), from the keyboard or the on-screen keyboard.
     get text() { return N.inText(); },
