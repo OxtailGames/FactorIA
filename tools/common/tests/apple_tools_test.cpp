@@ -93,6 +93,86 @@ TEST_CASE("plugin manifest: every mistake names the file and the JSON pointer an
     CHECK(e.message.find("apple/ios/plugin.json") != std::string::npos);
 }
 
+TEST_CASE("plugin manifest: xcframeworks and infoPlist") {
+    auto m = parse_plugin_manifest(R"({
+      "xcframeworks": ["frameworks/GoogleMobileAds.xcframework", "frameworks/GoogleMobileAds.xcframework", "frameworks/UserMessagingPlatform.xcframework"],
+      "infoPlist": {"SKAdNetworkItems": [{"SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"}], "GADIsAdManagerApp": true, "Level": 3, "Name": "a & b"}
+    })", "admob/ios/plugin.json");
+    REQUIRE_MESSAGE(m.ok(), (m.ok() ? "" : m.error().to_string()));
+    CHECK(m->xcframeworks == std::vector<std::string>{"frameworks/GoogleMobileAds.xcframework", "frameworks/UserMessagingPlatform.xcframework"});
+    CHECK(m->infoPlist.size() == 4);
+    CHECK_FALSE(m->empty());
+    CHECK_FALSE(parse_plugin_manifest(R"({"xcframeworks": ["a.xcframework"]})", "p.json")->empty());
+    CHECK_FALSE(parse_plugin_manifest(R"({"infoPlist": {"A": "b"}})", "p.json")->empty());
+
+    auto bad = [](const char* text) {
+        auto r = parse_plugin_manifest(text, "admob/ios/plugin.json");
+        REQUIRE_FALSE(r.ok());
+        return r.error();
+    };
+    Error e = bad(R"({"xcframeworks": "frameworks/A.xcframework"})");
+    CHECK(e.message.find("admob/ios/plugin.json#/xcframeworks") != std::string::npos);
+    CHECK_FALSE(e.hint.empty());
+    for (const char* path : {"frameworks/A.framework", "../A.xcframework", "/abs/A.xcframework", "frameworks\\\\A.xcframework", "C:/A.xcframework", "frameworks//A.xcframework", ".xcframework"}) {
+        e = bad((std::string(R"({"xcframeworks": ["ok/A.xcframework", ")") + path + R"("]})").c_str());
+        CHECK_MESSAGE(e.message.find("#/xcframeworks/1") != std::string::npos, path);
+        CHECK_MESSAGE(e.hint.find("relative to the folder of this plugin.json") != std::string::npos, path);
+    }
+    e = bad(R"({"xcframeworks": [3]})");
+    CHECK(e.message.find("#/xcframeworks/0") != std::string::npos);
+
+    e = bad(R"({"infoPlist": ["x"]})");
+    CHECK(e.message.find("#/infoPlist") != std::string::npos);
+    e = bad(R"({"infoPlist": {"Key": null}})");
+    CHECK(e.message.find("#/infoPlist/Key") != std::string::npos);
+    CHECK(e.hint.find("null") != std::string::npos);
+    e = bad(R"({"infoPlist": {"Key": [1, null]}})");  // a null deep inside has no plist form either
+    CHECK(e.message.find("#/infoPlist/Key") != std::string::npos);
+    e = bad(R"({"infoplist": {}})");
+    CHECK(e.hint.find("Did you mean 'infoPlist'?") != std::string::npos);
+}
+
+TEST_CASE("plugin manifest: xcframeworks and infoPlist are merged over several plugins, and a clash names both") {
+    PluginManifest a;
+    a.xcframeworks = {"frameworks/A.xcframework"};
+    a.infoPlist = Json::parse(R"({"SKAdNetworkItems": [{"SKAdNetworkIdentifier": "x.skadnetwork"}], "Shared": "same"})");
+    PluginManifest b;
+    b.xcframeworks = {"frameworks/A.xcframework", "libs/B.xcframework"};  // the same path in another plugin is another file
+    b.infoPlist = Json::parse(R"({"Shared": "same", "Other": true})");
+    auto merged = merge_plugin_manifests({{"admob", a}, {"mediation", b}});
+    REQUIRE_MESSAGE(merged.ok(), (merged.ok() ? "" : merged.error().to_string()));
+    CHECK(merged->xcframeworks ==
+          std::vector<std::string>{"admob/frameworks/A.xcframework", "mediation/frameworks/A.xcframework", "mediation/libs/B.xcframework"});
+    CHECK(merged->infoPlist.size() == 3);
+
+    PluginManifest c;
+    c.infoPlist = Json::parse(R"({"Shared": "different"})");
+    auto clash = merge_plugin_manifests({{"admob", a}, {"other", c}});
+    REQUIRE_FALSE(clash.ok());
+    CHECK(clash.error().message.find("'admob' and 'other'") != std::string::npos);
+    CHECK(clash.error().message.find("Info.plist entry Shared") != std::string::npos);
+    CHECK_FALSE(clash.error().hint.empty());
+}
+
+TEST_CASE("info_plist_entries writes key/value pairs of any JSON value for the Info.plist") {
+    const std::string xml = info_plist_entries(Json::parse(R"({
+      "GADApplicationIdentifier": "ca-app-pub-1~2",
+      "FactoriaAdsTest": true, "Off": false, "Count": 3, "Ratio": 1.5,
+      "Name": "a & <b>",
+      "SKAdNetworkItems": [{"SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"}]
+    })"));
+    CHECK(xml.find("\t<key>GADApplicationIdentifier</key>\n\t<string>ca-app-pub-1~2</string>\n") != std::string::npos);
+    CHECK(xml.find("<key>FactoriaAdsTest</key>\n\t<true/>\n") != std::string::npos);
+    CHECK(xml.find("<key>Off</key>\n\t<false/>\n") != std::string::npos);
+    CHECK(xml.find("<integer>3</integer>") != std::string::npos);
+    CHECK(xml.find("<real>1.5</real>") != std::string::npos);
+    CHECK(xml.find("<string>a &amp; &lt;b&gt;</string>") != std::string::npos);
+    CHECK(xml.find("\t<array>\n\t\t<dict>\n\t\t\t<key>SKAdNetworkIdentifier</key>\n\t\t\t<string>cstr6suwn9.skadnetwork</string>\n\t\t</dict>\n\t</array>\n") !=
+          std::string::npos);
+    CHECK(xml.find("<?xml") == std::string::npos);  // pairs only, for the dictionary that Info.plist.in already opens
+    CHECK(info_plist_entries(Json::object()).empty());
+}
+
 TEST_CASE("plugin manifest: read from a folder, and merged over several plugins") {
     testing::TempDir tmp;
     const stdfs::path dir = tmp.sub("ios");

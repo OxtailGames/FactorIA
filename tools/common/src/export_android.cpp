@@ -291,7 +291,7 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
 
     // ---- ads: a release export that would carry Google's sample ids (only when the game has the admob plugin) ----
     if (o.release)
-        for (const AdsIssue& i : check_ads(generic(p.dir))) warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
+        for (const AdsIssue& i : check_ads(generic(p.dir), "android")) warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
 
     // ---- release signing ----
     if (!s.signing.keystore.empty() && !s.signing.alias.empty()) {

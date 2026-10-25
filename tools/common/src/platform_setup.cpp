@@ -35,6 +35,17 @@ std::string tail(const std::string& text, std::size_t lines) {
 
 }  // namespace
 
+std::filesystem::path expand_path(const std::string& text, const std::string& projectDir) {
+    std::string t = text;
+    if (t.rfind("~/", 0) == 0 || t == "~") {
+        const char* home = std::getenv("HOME");
+        if (!home || !*home) home = std::getenv("USERPROFILE");
+        if (home && *home) t = std::string(home) + t.substr(1);
+    }
+    std::filesystem::path p(t);
+    return p.is_absolute() ? p : std::filesystem::path(projectDir) / p;
+}
+
 std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
     auto project = load_project(projectDir);
     if (!project.ok()) throw CommandError("invalid_argument", project.error().message, project.error().hint);
@@ -107,7 +118,16 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
     for (const Backend& b : backends()) {
         names.push_back(b.name);
         perBackend += " " + b.name + ": " + b.summary;
-        for (auto it = b.properties.begin(); it != b.properties.end(); ++it) properties[it.key()] = it.value();
+        for (auto it = b.properties.begin(); it != b.properties.end(); ++it) {
+            // An argument two backends read (sdk) is one property: its descriptions are joined, each starting with "(backend)".
+            if (properties.contains(it.key()) && properties[it.key()].contains("description") && it.value().contains("description")) {
+                Json merged = properties[it.key()];
+                merged["description"] = merged["description"].get<std::string>() + " " + it.value()["description"].get<std::string>();
+                properties[it.key()] = merged;
+            } else {
+                properties[it.key()] = it.value();
+            }
+        }
     }
     Json backendNames = Json::array();
     for (const std::string& n : names) backendNames.push_back(n);

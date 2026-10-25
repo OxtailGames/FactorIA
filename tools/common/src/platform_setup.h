@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
@@ -54,6 +55,22 @@ struct Backend {
     std::string summary;      // one sentence for the command's description: what setting it up does
     Json properties;          // the JSON Schema "properties" this backend reads besides "backend" (may be an empty object)
     std::function<void(Context&)> run;  // does the work; throws CommandError (teaching) when something is missing
+};
+
+// A path from an "sdk" argument: `~` is the home folder, a relative path starts in the project folder.
+std::filesystem::path expand_path(const std::string& text, const std::string& projectDir);
+
+// A temporary folder an SDK .zip is unpacked into, removed when this goes out of scope.
+struct Scratch {
+    std::filesystem::path dir;
+    Scratch() = default;
+    Scratch(const Scratch&) = delete;
+    Scratch& operator=(const Scratch&) = delete;
+    ~Scratch() {
+        if (dir.empty()) return;
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
 };
 
 // `"a", "b"`: ids for a nextSteps sentence.
