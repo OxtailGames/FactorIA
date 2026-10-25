@@ -1636,7 +1636,7 @@ Not released yet (on main after 0.2.0).
 
 Record the input the game receives as an input replay (start / stop).
 
-`start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, game.input or a replay), the dt and fixed steps of each frame, the clipboard reads and the calendar date; what is held at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that `factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop between frames. Starting while recording begins again. Example: input.record {"action":"start"} ... input.record {"action":"stop","path":"replays/run1.json"}
+`start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, game.input or a replay), the dt and fixed steps of each frame, the clipboard reads, the answers of http.fetch and the calendar date; what is held at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that `factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop between frames. Starting while recording begins again. Example: input.record {"action":"start"} ... input.record {"action":"stop","path":"replays/run1.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1900,7 +1900,7 @@ Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 
-Returns {backend, why, adsBackend, adsWhy, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads plugin such as admob, the store backend when it offers ads, or "none") and `adsWhy` says why; `audience` is factoria.json platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). Example: platform.state {}
+Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads plugin such as admob, the store backend when it offers ads, or "none") and `adsWhy` says why; `audience` is factoria.json platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). `httpBackend` is what answers http.fetch (the system HTTP client such as curl or winhttp in a windowed run or a shipped game, the fake in tests and headless runs, or "none"), `httpWhy` says why (also why a client cannot run) and `networkHosts` is the hosts factoria.json "network" declares. Example: platform.state {}
 
 ## play
 
@@ -4155,9 +4155,9 @@ declare module "factoria" {
   }
 
   /**
-   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
+   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable". "http" is http.fetch: it is offered when the system's HTTP client can run (always in tests, which answer from game.platform.respond).
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "http";
 
   /**
    * Who is signed in to the store.
@@ -4456,7 +4456,7 @@ declare module "factoria" {
      */
     readonly adsBackend: string;
     /**
-     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion.
+     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion. platform.has("http") tells whether http.fetch can run: false when this computer has no HTTP client (a Linux without libcurl).
      */
     has(service: PlatformService): boolean;
     /**
@@ -4492,6 +4492,64 @@ declare module "factoria" {
      * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
      */
     readonly release: boolean;
+  }
+
+  /**
+   * The options of http.fetch. Every field is optional.
+   */
+  export interface HttpFetchOptions {
+    /**
+     * The HTTP method, "GET" by default (lower case works too). Another method throws with a suggestion. PATCH works on every platform (Android sends it as POST with X-HTTP-Method-Override).
+     */
+    method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+    /**
+     * Request headers: at most 32, string values, no duplicates (names ignore case). Host, Content-Length, Connection, Transfer-Encoding, Upgrade, Expect, TE, Trailer, Keep-Alive, Proxy-* and Sec-* are set by the system and throw.
+     */
+    headers?: Record<string, string>;
+    /**
+     * The request body, at most 1 MB, not for GET or HEAD. A string is sent as it is; an object or array is sent as JSON, with Content-Type application/json unless you set a content type yourself.
+     */
+    body?: string | Json;
+    /**
+     * Seconds to wait for the whole request, above 0 and at most 120. Default 15. A request that takes longer rejects with code "network".
+     */
+    timeout?: number;
+  }
+
+  /**
+   * What http.fetch resolves with: the server's answer, whatever its status. Immutable.
+   */
+  export interface HttpResponse {
+    /**
+     * The HTTP status code: 200, 404, 500...
+     */
+    readonly status: number;
+    /**
+     * True for a status from 200 to 299.
+     */
+    readonly ok: boolean;
+    /**
+     * The response headers with lower-case names; a header the server sent twice is joined with ", ".
+     */
+    readonly headers: Readonly<Record<string, string>>;
+    /**
+     * The body as text (UTF-8; bytes that are not valid UTF-8 become U+FFFD). At most 4 MB: a bigger answer rejects with code "network".
+     */
+    readonly text: string;
+    /**
+     * The body parsed as JSON. Throws an Error that shows the start of the body when it is not JSON; check ok and the content-type header first when the server may answer an error page.
+     */
+    json(): any;
+  }
+
+  /**
+   * HTTP requests to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md): a leaderboard server, a news feed, a daily seed. Only https:// URLs (plain http:// only to localhost, for development); a host that is not declared throws at once. Works the same on Windows, macOS, iOS, Linux, Android and the web; in tests and headless runs the fake answers what game.platform.respond scripted and never touches the network. Example: `const r = await http.fetch("https://api.example.com/scores"); if (r.ok) show(r.json());`.
+   */
+  export interface HttpAPI {
+    /**
+     * Sends one request. Resolves with the server's answer even for 404 or 500 (look at response.ok); rejects with an Error that has `code` ("network": no connection, DNS, TLS, timeout, too big an answer; "unavailable": no HTTP client on this computer) and `hint`. A mistake in the call (a host factoria.json "network" does not declare, a http:// URL, a bad header or body) throws at once with what to change. Redirects are followed, to https only, at most 5. The answer settles at the start of an engine frame, maybe long after your code ran: a script that awaits it must check that its scene is still the current one (scene.current, entity.alive) before it uses the answer. Example: `const r = await http.fetch(url, { method: "POST", body: { name, score } });`.
+     */
+    fetch(url: string, options?: HttpFetchOptions): Promise<HttpResponse>;
   }
 
   /**
@@ -4676,6 +4734,11 @@ declare module "factoria" {
    * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
+
+  /**
+   * http.fetch(url, options): HTTP requests to the hosts declared in factoria.json "network" (docs/NETWORKING.md).
+   */
+  export const http: HttpAPI;
 
   /**
    * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
@@ -8032,7 +8095,7 @@ declare module "factoria:test" {
    */
   export interface TestPlatform {
     /**
-     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion.
+     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion. For "http.fetch" there is no default answer: a request nobody scripted rejects with code "network", so a test never depends on a server. Script it with { status: 200, json: { ... } } (json becomes the text, with a content-type header), { status: 404, text: "not found", headers: { "Retry-After": "5" } }, or { error: "network" } for an offline player; status 200, no headers and an empty text fill what you leave out. See docs/NETWORKING.md.
      */
     respond(method: string, answer: Json, times?: number): void;
     /**

@@ -269,7 +269,13 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   `ScriptSystem::dispatch_platform()` first thing), which settles the scripts' Promises and calls `platform.on` listeners.
 - **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.revoke`, `platform.set_fake`
   (`platform_commands.h`, registered by the runtime): `game.platform` of `factoria:test` is a view of them.
-Docs: [PLATFORM.md](PLATFORM.md).
+- **`http.fetch`** is a method of the same pipeline with a backend slot of its own (`set_http_backend`, next to the store and
+  ads backends). `PlatformServices::prepare` checks the URL against the `"network"` hosts of factoria.json
+  (`fa/services/network.h`) and shapes the arguments; the runtime's `HttpBackend` (`http_backend.cpp`) hands them to
+  an `HttpClient` of `fa_platform` (`fa/platform/http.h`: WinHTTP, `NSURLSession`, libcurl loaded with dlopen, Android's
+  `HttpURLConnection` through JNI, the browser's `fetch`; one `http_<platform>` file each). Headless runs and tests ask for
+  the fake backend, which never touches the network. A plugin cannot offer the "http" service.
+Docs: [PLATFORM.md](PLATFORM.md), [NETWORKING.md](NETWORKING.md).
 
 ### Localization
 Text lives in string tables, `locales/<language>.json`, and the engine shows the player's language (docs:
