@@ -866,6 +866,21 @@ NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     return JS_UNDEFINED;
 }
 
+NATIVE(uiUnclickable) {  // (entity) -> null | string: why a widget cannot be clicked now (game.click throws it), null when it can
+    SETUP;
+    ENTITY(e, 0);
+    const Vec2 design = I->host->design_size();
+    if (ui_kind(W, e) == UiKind::None) return JS_NULL;
+    if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
+    const std::optional<Rect> r = ui_rect(W, e, design);
+    if (!r || !(r->w > 0) || !(r->h > 0))
+        return JS_NewString(ctx, "it has no area (its size is 0), so it was never laid out: give it a size, or make it a child of a Panel with a layout");
+    if (const std::optional<Rect> clip = ui_clip_rect(W, e, design))
+        if (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r))
+            return JS_NewString(ctx, "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus(widget) scrolls to it)");
+    return JS_NULL;
+}
+
 NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left origin | null
     SETUP;
     ENTITY(e, 0);
@@ -1562,6 +1577,15 @@ NATIVE(inPadType) {  // (index)
     return JS_NewString(ctx, gamepad_type_name(I->host->input().gamepad_type(i)));
 }
 
+NATIVE(inPadInfo) {  // (index): { id, name } of the pad in that slot (the last one it had when it is unplugged)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    const GamepadInfo& info = I->host->input().gamepad_info(i);
+    return I->from_json(Json::object({{"id", info.id}, {"name", info.name}}));
+}
+
 NATIVE(inButtonName) {  // (bindingOrAction, pad)
     SETUP;
     std::string n = arg_str(ctx, argc, argv, 0);
@@ -1794,8 +1818,46 @@ NATIVE(captionList) {  // () -> [{text, speaker, key, source}], oldest first
 }
 NATIVE(audioMusic) {
     SETUP;
-    I->host->audio().play_music(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)));
+    I->host->audio().play_music(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)),
+                                  arg_num(ctx, argc, argv, 3, 0) != 0);
     return JS_UNDEFINED;
+}
+NATIVE(audioMusicLayers) {  // ([{name, path, level}], volume, fade, persist) -> true when every layer started
+    SETUP;
+    const Json list = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
+    std::vector<MusicLayer> layers;
+    if (list.is_array()) {
+        for (const Json& j : list) {
+            MusicLayer l;
+            l.name = j.value("name", std::string());
+            l.path = j.value("path", std::string());
+            l.level = j.value("level", 1.0f);
+            layers.push_back(std::move(l));
+        }
+    }
+    const bool ok = I->host->audio().play_music_layers(layers, static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)),
+                                                       static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)),
+                                                       arg_num(ctx, argc, argv, 3, 0) != 0);
+    return JS_NewBool(ctx, ok);
+}
+NATIVE(audioSetLayer) {  // (name, level, fade) -> false for an unknown layer
+    SETUP;
+    return JS_NewBool(ctx, I->host->audio().set_layer(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 1)),
+                                                      static_cast<float>(arg_num(ctx, argc, argv, 2, 0))));
+}
+NATIVE(audioLayerNames) {
+    SETUP;
+    Json names = Json::array();
+    for (const std::string& n : I->host->audio().layer_names()) names.push_back(n);
+    return I->from_json(names);
+}
+NATIVE(audioSetVoiceVolume) {  // (voice, volume, fade) -> true while the voice plays
+    SETUP;
+    Audio& a = I->host->audio();
+    const VoiceId voice = static_cast<VoiceId>(arg_num(ctx, argc, argv, 0));
+    if (!a.is_playing(voice)) return JS_NewBool(ctx, false);
+    a.set_voice_volume(voice, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_NewBool(ctx, true);
 }
 NATIVE(audioStopMusic) {
     SETUP;
@@ -2385,7 +2447,7 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     return JS_UNDEFINED;
 }
 
-NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type, index, name, value)
+NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type|6 validate a pad type, index, name, value, info)
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     int i = 0;
@@ -2402,13 +2464,30 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 se
         if (!pad_axis_name(ctx, name, a, exc)) return exc;
         if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
         in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
+    } else if (kind == 6) {  // only checks that `name` is a pad family
+        GamepadType t{};
+        if (!gamepad_type_from_name(name, t))
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").connect: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
     } else if (kind == 5) {
         GamepadType t{};
         if (!gamepad_type_from_name(name, t))
             return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
+        in.set_gamepad_type(i, t);  // first: a pad that is announced by this call carries its type
         in.on_gamepad_connected(i, true);  // a type only means something for a pad that is there
-        in.set_gamepad_type(i, t);
     } else {
+        if (kind == 3 && argc > 4 && JS_IsObject(argv[4])) {  // connect(info): who the pad is, before it is announced
+            const Json j = I->to_json(argv[4]);
+            GamepadInfo info = in.gamepad_info(i);
+            if (j.contains("name")) info.name = j["name"].get<std::string>();
+            if (j.contains("vendor")) info.vendor = std::uint16_t(j["vendor"].get<int>());
+            if (j.contains("product")) info.product = std::uint16_t(j["product"].get<int>());
+            if (j.contains("type")) gamepad_type_from_name(j["type"].get<std::string>(), info.type);
+            info.id = j.contains("id") ? j["id"].get<std::string>() : std::string();  // empty: made from the ids and the name
+            if (info.id.empty() && (j.contains("name") || j.contains("vendor") || j.contains("product")))
+                info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
+            if (info.id.empty()) info.id = in.gamepad_info(i).id;
+            in.set_gamepad_info(i, std::move(info));
+        }
         in.on_gamepad_connected(i, kind == 3);
     }
     return JS_UNDEFINED;
@@ -2566,13 +2645,13 @@ const Reg kRegs[] = {
     R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
-    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
+    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
+    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
-    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

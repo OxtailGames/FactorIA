@@ -52,7 +52,7 @@
  *   - The api pointer stays valid until the process ends: keep it for reply/fail/log.
  *   - The engine only grows this struct at its end and raises FA_PLUGIN_API_VERSION when it does; a plugin built
  *     against a newer header checks api->version before it uses a newer member (add_backend, resolve, reject and emit
- *     need version 2, add_text_input and submit_text version 3; a version 1 plugin keeps working unchanged).
+ *     need version 2, add_text_input and submit_text version 3, set_device_fact version 4; a version 1 plugin keeps working unchanged).
  *   - Backends: answer each FaRequest exactly once; a second answer, or one for a game that has since ended, is
  *     ignored. resolve, reject and emit may be called from any thread. frame runs on the game thread.
  */
@@ -61,7 +61,7 @@
 
 #include <stdint.h>
 
-#define FA_PLUGIN_API_VERSION 3
+#define FA_PLUGIN_API_VERSION 4
 
 #if defined(_WIN32)
 #define FA_PLUGIN_EXPORT __declspec(dllexport)
@@ -177,6 +177,15 @@ struct FaPluginApi {
      * replacing the field's text (cut to its maxLength) and sending ui.change. Text for a field that no longer has the
      * focus is dropped. */
     void (*submit_text)(const FaPluginApi* api, const char* text_utf8);
+
+    /* Version 4: facts about the device. Check api->version >= 4 before using this. */
+
+    /* Tell the engine a fact about the device the game runs on, from inside the entry point (the engine reads it when
+     * the entry point returns; a later call changes nothing). name "steamDeck": value 1 when the platform says this is a
+     * Steam Deck, 0 when it says it is not (game.device.steamDeck, and game.device.handheld with it). An unknown name is ignored with a warning in the log. A
+     * plugin that does not know (its SDK did not start) must not call it: the engine then falls back to the SteamDeck=1
+     * environment variable. */
+    void (*set_device_fact)(const FaPluginApi* api, const char* name, int value);
 };
 
 typedef int (*FaPluginInitFn)(const FaPluginApi* api);

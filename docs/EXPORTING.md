@@ -6,7 +6,7 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 
 ```bash
 factoria export [project] --platform <linux|windows|macos|android|ios|web> [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]]
-                [--player PATH] [--engine-root DIR | --mobile-dir DIR]
+                [--player PATH] [--engine-root DIR | --mobile-dir DIR] [--allow-player-mismatch] [--allow-missing-plugins]
 ```
 
 `--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android);
@@ -37,7 +37,7 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
 `gradle`; Linux: `appimage`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
-`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `materials` when the game has custom materials, `files`, `nextSteps`, `warnings`); an
+`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `pluginsLeftOut` with `allowMissingPlugins`, `materials` when the game has custom materials, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
@@ -512,13 +512,20 @@ or pass `--player path/to/factoria_player[.exe]` for one built there.
 
 **The player must come from the same build as `factoria`.** Both carry a build fingerprint (the commit they were built from,
 with `-dirty` when tracked files had uncommitted changes; `factoria version` prints it). The export reads the player's
-bytes, so it checks the player of another OS too. A player from another build, or an older one without a fingerprint, stops
-the export with an error that names both builds: it may lack the components or the script API the game uses, or fail to
-start. Fix it by building both from one checkout, or `factoria setup players` for the release's players. To bundle that
-player anyway, pass `--allow-player-mismatch` (the `export` command's `allowPlayerMismatch` argument): the export goes on
-and `warnings` says which builds differ. A `factoria` or a player built outside a git checkout carries `unknown` and is not
-compared. The same commit with `-dirty` on one side only is a warning, not an error; the fingerprint does not see which
-edits a `-dirty` build had, so rebuild both after editing the engine.
+bytes, so it checks the player of another OS too (the Android and iOS libraries are not checked). A player from another
+build stops the export with an error that names both builds: it may lack the components or the script API the game uses, or
+fail to start. Fix it by building both from one checkout, or with `factoria setup players` when this `factoria` is the
+release those players belong to. To bundle that player anyway, pass `--allow-player-mismatch` (the `export` command's
+`allowPlayerMismatch` argument): the export goes on and `warnings` says which builds differ. A `factoria` or a player built
+outside a git checkout carries `unknown` and is not compared. The same commit with `-dirty` on one side only is a warning,
+not an error; the fingerprint does not see which edits a `-dirty` build had, so rebuild both after editing the engine.
+
+**A player with no fingerprint** is one from a release older than the check (v0.2.0 and earlier). `factoria setup players`
+installs the players of *this factoria's version*, so on a newer `factoria` built from source it would put the same old
+player back: the error then says the player predates fingerprints, and the ways on are a player from a newer release (once
+one is published and your `factoria` matches it), a player built from your checkout (`--player`), or
+`--allow-player-mismatch` when you know the old player runs your game (it lacks whatever the engine gained since; the
+warning says so). The check is not relaxed to compare engine versions: only the fingerprint tells two builds apart.
 
 ```
 linux/windows:  my-game-linux/
@@ -560,7 +567,14 @@ the platform next to the executable: the contents of the plugin's `windows/` or 
 ones it needs), or of `macos/` into `Contents/Frameworks` (the ad hoc signature below covers them, with `--deep`). The
 player loads them from there. An export for a platform the plugin is declared for but not built for fails and says
 which file is missing; `factoria validate` lists those problems for every platform (a warning for each platform other
-than this computer's). A `plugin.json` in the plugin's `macos/` folder (the entitlements it needs, EXTENDING.md section G)
+than this computer's). A plugin is built only for the computer it is built on (`platform.add_backend` and CMake), but the
+export of every platform needs its build: get the other platforms' builds from CI or from the other computer (the same
+command there) and copy each platform's folder next to the plugin. Without them, pass `--allow-missing-plugins` (the
+`export` command's `allowMissingPlugins`): the export leaves out each plugin whose build is missing, with a warning that
+names it, and the report lists them in `pluginsLeftOut`. It applies to plugins declared `optional` and to those that are
+not (the game then starts, but scripts that call the missing plugin fail, and the warning says so): use it for a build you
+test or send to a tester, and build every plugin before the one you publish. A Steam game exported this way has no Steam:
+it runs with no platform services (`platform.backend` is `none`). A `plugin.json` in the plugin's `macos/` folder (the entitlements it needs, EXTENDING.md section G)
 does not ship in the app: the export writes the entitlements to `<game>.entitlements` next to it, for the signing step
 with your Apple developer certificate (the ad hoc signature cannot carry Game Center or iCloud).
 
@@ -1336,7 +1350,7 @@ Things to know:
 - Steam keeps the executable bit of a file only when the upload runs on macOS or Linux: upload the `macos` and `linux` depots
   from that OS. An export made on Windows has no executable bit to keep. This is a Steamworks rule, not FactorIA's.
 - After the first upload set each depot's launch option in Steamworks (the result's `nextSteps` lists the file for each platform).
-- The app id 480 (Valve's test app) is refused. If `steam_appid.txt` is missing the error says how to write it.
+- The app id 480 (Valve's test app, Spacewar) is refused in a real upload. A dry run accepts it and warns, so you can see the plan before you have your own id. If `steam_appid.txt` is missing the error says how to write it.
 
 ```
 publish_steam {"dryRun":true}
@@ -1551,6 +1565,22 @@ transparent background) or the title drawn with the same rasterizer as [`assets.
 it: centred on capsules and covers, in the upper part for Microsoft (the bottom third is overlaid), none on heroes, page
 backgrounds and screenshots (Steam's library hero must have no text), and alone on a transparent canvas for the logo-only
 assets (Steam's library logo, Epic's logo). Assets with the same size in one store are one file.
+
+Three arguments frame the logo:
+
+- `safeArea`: the margin the logo keeps from the edges, as fractions of the image (0 to 0.45 each). A number is every side,
+  `{"left": 0.05, "top": 0.05, "right": 0.05, "bottom": 0.3}` names sides (the others keep 0.05), and
+  `{"default": 0.08, "microsoft": {"bottom": 0.4}}` differs per store (a store not named uses `default`, or the asset's
+  own default). Without it every capsule keeps 0.05 on each side, and the Microsoft poster and box art also keep their bottom
+  third, which the store overlays with text. The logo is made smaller to fit inside the area and is never placed outside it.
+- `logoAnchor`: where the logo sits in the safe area instead of the asset's rule: `center`, `top`, `bottom`, `left`, `right`,
+  `topLeft`, `topRight`, `bottomLeft`, `bottomRight`, or a point `[x, y]` (`[0, 0]` puts the logo's corner on the area's
+  top-left corner, `[1, 1]` on the bottom-right one, `[0.5, 0.5]` is the middle). It applies to every asset that carries a
+  logo, but not to the logo-only assets (Steam's library logo, Epic's logo): those stay centred.
+- `focus` also moves the logo when the key art already has the capsule's proportions (within 1%): the crop then has nothing
+  to choose, so the logo moves by how far `focus` is from `[0.5, 0.5]` (a focus of `[0.3, 0.5]` moves it a fifth of the width to
+  the left of where the rule or `logoAnchor` put it), kept inside the safe area. On art of another shape `focus` only decides
+  the crop.
 
 ```
 factoria screenshot --frames 120 --render-scale 1.5 --out store/keyart.png

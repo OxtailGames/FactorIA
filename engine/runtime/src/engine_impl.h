@@ -113,6 +113,7 @@ struct Engine::Impl {
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;
+    int pluginSteamDeck = -1;  // what a plugin said about the Steam Deck (plugin API 4): -1 nothing, 0 no, 1 yes
 
     // Hot reload
     std::map<std::string, std::int64_t> watched;

@@ -951,6 +951,10 @@
         get connected() { return N.inPad(0, index, ""); },
         // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic": the family of a connected pad, from its vendor id and name.
         get type() { return N.inPadType(index); },
+        // The stable id of the pad in this slot (the same physical pad gives the same id every time; "" for a slot that never had a
+        // pad) and the name the OS gave it. Both are kept after the pad is unplugged, until another pad takes the slot.
+        get id() { return N.inPadInfo(index).id; },
+        get name() { return N.inPadInfo(index).name; },
         down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
         axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
       };
@@ -1125,7 +1129,31 @@
       return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0);
     },
     stop: (id) => N.audioStop(id), stopAll: () => N.audioStopAll(),
-    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5); },
+    // music(path, { volume, fade, persist }): looping music on the "music" bus. A scene load stops it unless persist is true.
+    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0); },
+    // musicLayers({ name: path }, { volume, fade, persist, levels }) -> true when every layer started. All layers start on the
+    // same sample and loop; setLayer fades them in and out. levels = starting level per name (default 1).
+    musicLayers(layers, o = {}) {
+      if (layers === null || typeof layers !== "object" || Array.isArray(layers)) throw new Error(`audio.musicLayers(layers, options): layers is an object of layer name to clip path, e.g. { base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, but got ${inspect(layers)}`);
+      const names = Object.keys(layers);
+      if (names.length === 0) throw new Error("audio.musicLayers(layers): needs at least one layer, e.g. { base: \"assets/music/base.ogg\" }");
+      const levels = o.levels ?? {};
+      for (const n of Object.keys(levels)) {
+        if (!(n in layers)) throw new Error(`audio.musicLayers(layers, { levels }): '${n}' is not a layer; the layers are ${names.join(", ")}`);
+      }
+      const list = names.map((name) => {
+        if (typeof layers[name] !== "string") throw new Error(`audio.musicLayers(layers): layer '${name}' must be a clip path string, e.g. "assets/music/${name}.ogg", but got ${inspect(layers[name])}`);
+        return { name, path: layers[name], level: levels[name] ?? 1 };
+      });
+      return N.audioMusicLayers(list, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0);
+    },
+    setLayer(name, level, fade = 0) {
+      if (!N.audioSetLayer(name, level, fade)) {
+        const current = N.audioLayerNames();
+        throw new Error(`audio.setLayer(${inspect(name)}, ...): no such music layer. ${current.length ? "The layers playing are " + current.join(", ") : "No layered music is playing: start it with audio.musicLayers({ name: path, ... })"}`);
+      }
+    },
+    setVoiceVolume(id, volume, fade = 0) { return N.audioSetVoiceVolume(id, volume, fade); },
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
     getVolume: (bus) => N.audioGetVolume(bus),
@@ -1295,7 +1323,7 @@
     get current() { return N.scenePath(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1326,6 +1354,11 @@
     // "quit" (desktop windows only: the close button, Cmd+Q, Alt+F4) gets an event { cancel(), cancelled }: event.cancel() keeps
     // the window open, for a "Really quit?" menu or a last save; call game.quit() later to close it. A quit the game asked for
     // with game.quit() does not raise "quit".
+    // "gamepadConnected" and "gamepadDisconnected" (a pad was plugged in or out, or paired or lost over Bluetooth) get
+    // { slot, id, name, type }: the slot is the pad number input.gamepad(slot) answers for, the id stays the same for the same
+    // physical pad every time (use it to give a player their pad back), the name is what the OS calls it and the type is
+    // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic". A pad that comes back takes the slot it had when that is
+    // free. Pads that are already plugged in when the first scene starts are not announced: read input.gamepad(i).connected.
     on(event, fn) {
       if (!APP_EVENTS.includes(event)) {
         const sug = closest(String(event), APP_EVENTS);
@@ -1340,12 +1373,15 @@
           fn(ev);
         }, null);
       }
+      if (event === "gamepadConnected" || event === "gamepadDisconnected")
+        return addListener("app." + event, (data) => fn(Object.freeze({ slot: data.slot, id: data.id, name: data.name, type: data.type })), null);
       return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
     // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
-    // "low" | "medium" | "high" from the graphics backend and the memory }. Headless runs and tests always read
-    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } (tests change it with game.setDevice).
+    // "low" | "medium" | "high" from the graphics backend and the memory, steamDeck: true on a Steam Deck, handheld: true on a Steam Deck,
+    // a phone or a tablet }. Headless runs and tests always read
+    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } (tests change it with game.setDevice).
     get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
@@ -2156,9 +2192,14 @@
   const stepN = (n) => N.testStep(n);
   // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
   // game.step after game.setSafeArea).
+  // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
   const posArg = (p, what) => {
     if (typeof p === "string" || p instanceof Entity) {
-      const r = N.screenRect(entityHandle(p, what));
+      const h = entityHandle(p, what);
+      N.uiLayout();
+      const why = what === "game.mouseMove" ? null : N.uiUnclickable(h);
+      if (why) throw new Error(`${what}: ${inspect(p)} cannot be clicked: ${why}`);
+      const r = N.screenRect(h);
       if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
       return [r[0] + r[2] / 2, r[1] + r[3] / 2];
     }
@@ -2201,6 +2242,9 @@
     press(action) { N.inSetAction(action, true); },
     release(action) { N.inSetAction(action, false); },
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
+    // Presses a key and releases it over one frame, like tap does for an action (keyDown / keyUp hold it): game.tapKey("Enter")
+    // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A".
+    tapKey(key) { N.inKeyEvent(key, true); stepN(1); N.inKeyEvent(key, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
     // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change
@@ -2222,7 +2266,23 @@
         release(button) { N.testPad(1, index, button, 0); },
         tap(button) { N.testPad(0, index, button, 0); stepN(1); N.testPad(1, index, button, 0); stepN(1); },
         axis(name, value) { N.testPad(2, index, name, value); },
-        connect() { N.testPad(3, index, "", 0); },
+        // connect(info?): info = { id?, name?, type?, vendor?, product? } says who the pad is (the "gamepadConnected" event and
+        // input.gamepad(i).id carry it); one left out keeps what the slot had. Without an id one is made from vendor, product and name.
+        connect(info) {
+          if (info !== undefined) {
+            const keys = ["id", "name", "type", "vendor", "product"];
+            if (!isObj(info)) throw new Error(`game.gamepad(${index}).connect(info) expects { id?, name?, type?, vendor?, product? }, but got ${inspect(info)}`);
+            for (const k of Object.keys(info)) {
+              if (keys.includes(k)) continue;
+              const sug = closest(k, keys);
+              throw new Error(`game.gamepad(${index}).connect: unknown field '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+            }
+            for (const k of ["id", "name", "type"]) if (info[k] !== undefined && typeof info[k] !== "string") throw new Error(`game.gamepad(${index}).connect: ${k} must be a string, but got ${inspect(info[k])}`);
+            for (const k of ["vendor", "product"]) if (info[k] !== undefined && !(Number.isInteger(info[k]) && info[k] >= 0 && info[k] <= 65535)) throw new Error(`game.gamepad(${index}).connect: ${k} must be an integer from 0 to 65535 (a USB id), but got ${inspect(info[k])}`);
+            if (info.type !== undefined) N.testPad(6, index, info.type, 0);  // validates the family
+          }
+          N.testPad(3, index, "", 0, info === undefined ? undefined : plain(info));
+        },
         disconnect() { N.testPad(4, index, "", 0); },
         // Plugs the pad in as this family, for input.buttonName("jump") and input.gamepad(i).type: "xbox", "playstation",
         // "nintendo", "steamdeck" or "generic". Tests start with "generic" pads.
@@ -2327,10 +2387,11 @@
     get world() { return world; },
     get time() { return time; },
     // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
-    // { formFactor, gpuBackend, memoryGB, tier }; one left out keeps the headless value. Reset before every test.
+    // { formFactor, gpuBackend, memoryGB, tier, steamDeck, handheld }; one left out keeps the headless value (handheld follows a
+    // phone, tablet or Steam Deck). Reset before every test.
     setDevice(overrides) {
-      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier"];
-      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
+      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier", "steamDeck", "handheld"];
+      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier?, steamDeck?, handheld? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
       for (const k of Object.keys(overrides)) {
         if (keys.includes(k)) continue;
         const sug = closest(k, keys);
@@ -2341,7 +2402,11 @@
       if (overrides.tier !== undefined && !tiers.includes(overrides.tier)) throw new Error(`game.setDevice: tier must be one of ${tiers.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.tier)}`);
       if (overrides.gpuBackend !== undefined && typeof overrides.gpuBackend !== "string") throw new Error(`game.setDevice: gpuBackend must be a string such as "metal", but got ${inspect(overrides.gpuBackend)}`);
       if (overrides.memoryGB !== undefined && (typeof overrides.memoryGB !== "number" || !(overrides.memoryGB >= 0))) throw new Error(`game.setDevice: memoryGB must be a number of gigabytes, but got ${inspect(overrides.memoryGB)}`);
-      N.testDevice(plain(overrides));
+      for (const k of ["steamDeck", "handheld"]) if (overrides[k] !== undefined && typeof overrides[k] !== "boolean") throw new Error(`game.setDevice: ${k} must be true or false, but got ${inspect(overrides[k])}`);
+      const o = plain(overrides);
+      // A Steam Deck is a handheld, and a phone or tablet is too, unless the test says otherwise.
+      if (o.handheld === undefined && (o.steamDeck === true || (o.formFactor !== undefined && o.formFactor !== "desktop"))) o.handheld = true;
+      N.testDevice(o);
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
     // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,

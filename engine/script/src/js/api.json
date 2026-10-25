@@ -873,6 +873,14 @@
        "doc": "The family of the pad: \"xbox\", \"playstation\", \"nintendo\", \"steamdeck\" or \"generic\" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always \"generic\"). Use input.buttonName() to get the label, not this."
       },
       {
+       "sig": "readonly id: string",
+       "doc": "The stable id of the pad in this slot: the same physical pad gives the same id every time it is plugged in (see game.on(\"gamepadConnected\") for what goes into it on each platform). \"\" for a slot that never had a pad; kept after the pad is unplugged until another pad takes the slot."
+      },
+      {
+       "sig": "readonly name: string",
+       "doc": "What the OS calls the pad (\"Wireless Controller\", \"Xbox controller (XInput)\"); \"\" for a slot that never had a pad; kept after the pad is unplugged."
+      },
+      {
        "sig": "down(button: GamepadButton): boolean",
        "doc": "Button held. Unknown names throw with a suggestion."
       },
@@ -1062,15 +1070,27 @@
       },
       {
        "sig": "stopAll(): void",
-       "doc": ""
+       "doc": "Stops every sound and the music now, a persisted track included."
       },
       {
-       "sig": "music(path: string, opts?: { volume?: number; fade?: number }): void",
-       "doc": "Starts looping background music."
+       "sig": "music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void",
+       "doc": "Starts looping background music on the \"music\" bus (volume default 0.6, fade-in `fade` seconds default 0.5). The same track already playing is only retuned. A scene load (scene.load, reload) stops every sound and the music, and then starts the new scene's SceneSettings.music, even when it is the same track as before; with persist: true this track keeps playing through scene loads (a scene whose SceneSettings.music is the same track does not restart it; another track replaces it). Example: audio.music(\"assets/theme.ogg\", { persist: true })."
+      },
+      {
+       "sig": "musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean",
+       "doc": "Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: \"assets/m/base.ogg\", drums: \"assets/m/drums.ogg\" }, { levels: { drums: 0 } }); later audio.setLayer(\"drums\", 1, 2)."
+      },
+      {
+       "sig": "setLayer(name: string, level: number, fade?: number): void",
+       "doc": "Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer."
+      },
+      {
+       "sig": "setVoiceVolume(voice: number, volume: number, fade?: number): boolean",
+       "doc": "Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play(\"assets/wind.ogg\", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3)."
       },
       {
        "sig": "stopMusic(fade?: number): void",
-       "doc": ""
+       "doc": "Stops the music (and every layer) fading out over `fade` seconds (default 0.5)."
       },
       {
        "sig": "setVolume(bus: \"master\" | \"sfx\" | \"music\" | \"ui\", volume: number): void",
@@ -1454,6 +1474,10 @@
        "doc": "Listens to the life of the app: \"suspend\" (the app goes to the background: the home button on a phone, a call), \"resume\" (it is back), \"focus\" and \"blur\" (the window gains or loses the focus; a desktop window that is covered does not suspend). \"dayChanged\" (the local calendar day changed while the game ran: past midnight, or the clock was set; a game with a window reads the clock about once a minute) calls fn with game.today(); the other handlers take no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json \"pauseOnSuspend\" (default true) the engine also freezes the game and the music while suspended: after the \"suspend\" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the \"resume\" ones. Set \"pauseOnSuspend\": false to decide yourself. Example: game.on(\"suspend\", () => pauseMenu.open());"
       },
       {
+       "sig": "on(event: \"gamepadConnected\" | \"gamepadDisconnected\", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void",
+       "doc": "Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is \"xbox\", \"playstation\", \"nintendo\", \"steamdeck\" or \"generic\". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is \"an Xbox pad in XInput slot N\" (its id ends with \"#xinputN\"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on(\"gamepadConnected\", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));"
+      },
+      {
        "sig": "on(event: \"quit\", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void",
        "doc": "Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask \"Really quit?\", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on(\"quit\", (e) => { e.cancel(); flush().then(() => game.quit()); });"
       },
@@ -1474,8 +1498,8 @@
        "doc": "The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them)."
       },
       {
-       "sig": "readonly device: Readonly<{ formFactor: \"desktop\" | \"phone\" | \"tablet\"; gpuBackend: string; memoryGB: number; tier: \"low\" | \"medium\" | \"high\" }>",
-       "doc": "The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend (\"metal\", \"d3d11\", \"glcore\", \"gles3\", \"wgpu\", \"vulkan\"; \"headless\" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier (\"low\", \"medium\" or \"high\", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium). Headless runs, tests and the editor always read { formFactor: \"desktop\", gpuBackend: \"headless\", memoryGB: 8, tier: \"high\" } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: \"performance\", medium: \"balanced\", high: \"quality\" }[game.device.tier]."
+       "sig": "readonly device: Readonly<{ formFactor: \"desktop\" | \"phone\" | \"tablet\"; gpuBackend: string; memoryGB: number; tier: \"low\" | \"medium\" | \"high\"; steamDeck: boolean; handheld: boolean }>",
+       "doc": "The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend (\"metal\", \"d3d11\", \"glcore\", \"gles3\", \"wgpu\", \"vulkan\"; \"headless\" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier (\"low\", \"medium\" or \"high\", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium), steamDeck (true on a Steam Deck: the Steam plugin says so when Steam is running, which is certain; without it the SteamDeck=1 environment variable that Steam sets for games it starts on a Deck decides, and a SteamDeck=0 launch option turns it off; a Deck reports formFactor \"desktop\") and handheld (true on a Steam Deck, a phone or a tablet: a screen held in the hands, so a game picks bigger text and touch or pad prompts). Headless runs, tests and the editor always read { formFactor: \"desktop\", gpuBackend: \"headless\", memoryGB: 8, tier: \"high\", steamDeck: false, handheld: false } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: \"performance\", medium: \"balanced\", high: \"quality\" }[game.device.tier]."
       },
       {
        "sig": "readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>",
@@ -3156,6 +3180,10 @@
        "doc": ""
       },
       {
+       "sig": "readonly layer: string",
+       "doc": "The layer name when audio.musicLayers started it; \"\" otherwise."
+      },
+      {
        "sig": "readonly music: boolean",
        "doc": "Started with audio.music() or SceneSettings.music."
       },
@@ -3191,8 +3219,8 @@
        "doc": "Sets a stick (-1..1, +Y up) or trigger (0..1) as the device would; it stays until set again. Bound actions see it after the deadzone, so axis(\"LeftX\", -1) is a full push left."
       },
       {
-       "sig": "connect(): void",
-       "doc": "Plugs the pad in (input.gamepad(i).connected becomes true)."
+       "sig": "connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number }): void",
+       "doc": "Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on(\"gamepadConnected\") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: \"pad-red\", name: \"Red pad\", type: \"playstation\" })."
       },
       {
        "sig": "disconnect(): void",
@@ -3344,6 +3372,10 @@
        "doc": "Press for one frame, then release."
       },
       {
+       "sig": "tapKey(key: string): void",
+       "doc": "Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey(\"Enter\") submits the focused field (ui.submit {id, value})."
+      },
+      {
        "sig": "keyDown(key: string): void",
        "doc": ""
       },
@@ -3368,8 +3400,8 @@
        "doc": "Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to \"none\" before every test."
       },
       {
-       "sig": "setDevice(overrides: { formFactor?: \"desktop\" | \"phone\" | \"tablet\"; gpuBackend?: string; memoryGB?: number; tier?: \"low\" | \"medium\" | \"high\" }): void",
-       "doc": "Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: \"desktop\", gpuBackend: \"headless\", memoryGB: 8, tier: \"high\" }. An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: \"phone\", tier: \"low\" })."
+       "sig": "setDevice(overrides: { formFactor?: \"desktop\" | \"phone\" | \"tablet\"; gpuBackend?: string; memoryGB?: number; tier?: \"low\" | \"medium\" | \"high\"; steamDeck?: boolean; handheld?: boolean }): void",
+       "doc": "Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: \"desktop\", gpuBackend: \"headless\", memoryGB: 8, tier: \"high\", steamDeck: false, handheld: false }, except handheld, which is true when you set steamDeck: true or a phone or tablet formFactor (and nothing else says it is not). For a Steam Deck: game.setDevice({ steamDeck: true }). An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: \"phone\", tier: \"low\" })."
       },
       {
        "sig": "renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number }",
@@ -3421,7 +3453,7 @@
       },
       {
        "sig": "click(target: Vec2Like | Entity | string, button?: \"left\" | \"right\" | \"middle\"): void",
-       "doc": "Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf)."
+       "doc": "Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList."
       },
       {
        "sig": "loadJson(scene: Json): void",

@@ -109,6 +109,6 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `account` | string | no | Steam account that uploads (the builder account, with the 'Edit App Metadata' permission). Default: publish.steam.account of factoria.json. Its password is never stored: steamcmd keeps the login. |
-| `appId` | integer | no | Steam app id. Default: the number in steam_appid.txt of the project (not 480, Valve's test app). |
+| `appId` | integer | no | Steam app id. Default: the number in steam_appid.txt of the project (a dry run accepts 480, Valve's test app, with a warning; a real upload refuses it). |
 | `branch` | string | no | Beta branch to set the build live on after the upload. Default: publish.steam.branch, else none. 'default' is refused: Steam sets that one by hand. |
 
