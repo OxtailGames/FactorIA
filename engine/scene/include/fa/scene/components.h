@@ -182,6 +182,9 @@ struct Tilemap {
     std::string normalMap;            // normal map image with the same layout as the tileset ("" = flat); needs lit
     // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
     std::vector<TileEdit> edits;
+    // Runtime only: goes up by one on every set_tilemap_tile() (never reset by physics), so `nav.tileVersion` tells a script
+    // cheaply that the map changed. Writes that bypass set_tilemap_tile (replacing `tiles` as a whole) do not count.
+    std::uint32_t version = 0;
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so

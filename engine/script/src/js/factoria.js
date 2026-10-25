@@ -1930,14 +1930,172 @@
       }
       return out;
     },
+    // findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): A* over the cells of a Tilemap
+    // entity (or its id) or of a grid { width, height, cost, origin?, cellSize? } (docs/NAVIGATION.md, "Tile paths").
+    // Cells are { col, row } or [col, row], row 0 = top. Result { found, complete, cells: {col,row}[], points: Vec2[], cost,
+    // length } or { found: false, reason, message, hint }. Never throws for "no route".
+    findTilePath(map, from, to, o) {
+      const label = "nav.findTilePath(map, from, to)";
+      const cell = (c, what) => {
+        const a = Array.isArray(c) ? c : (c && typeof c === "object" && "col" in c && "row" in c) ? [c.col, c.row] : null;
+        if (!a || a.length !== 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1]))
+          throw new Error(`${label}: \`${what}\` must be a cell { col, row } or [col, row] (0-based, row 0 = top), but got ${inspect(c)}`);
+        return [a[0], a[1]];
+      };
+      const args = { from: cell(from, "from"), to: cell(to, "to") };
+      if (typeof map === "string") args.tilemap = map;
+      else if (map instanceof Entity) args.tilemap = map.id;
+      else if (map && typeof map === "object" && Array.isArray(map.cost)) {
+        const cost = new Array(map.cost.length);
+        for (let i = 0; i < cost.length; i++) { const c = map.cost[i]; cost[i] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : -1; }
+        args.grid = { width: map.width, height: map.height, cost };
+        if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
+        if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id) or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      if (o) {
+        for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+        if (o.costs !== undefined) {
+          const costs = {};
+          for (const k of Object.keys(o.costs)) { const c = o.costs[k]; costs[k] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : null; }
+          args.costs = costs;
+        }
+      }
+      const r = N.navFindTilePath(args);
+      const out = { found: r.found, complete: r.complete, cells: r.cells.map((c) => ({ col: c[0], row: c[1] })),
+                    points: r.points.map((p) => new Vec2(p[0], p[1])), cost: r.cost, length: r.length };
+      if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
+      return out;
+    },
+    // tileVersion(tilemap): how many tiles were written to the Tilemap with setTile / tilemap.set_tile so far; compare it
+    // with the value you saw when you searched to know a path is stale. Writes that replace `tiles` as a whole do not count.
+    tileVersion(tilemap) {
+      const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
+      if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);
+      return N.tileVersion(e.$h);
+    },
     // bake(mesh?): bakes now (autoBake does it by itself) and returns the stats.
     bake(mesh) { return N.navBake(mesh === undefined ? "" : String(mesh)); },
+  };
+
+  // ================================================================================================================== bt
+  // bt: a small behaviour tree in plain JS (docs/SCRIPTING.md, "AI: behaviour trees"). Deterministic: time only advances by
+  // the dt the script passes to tick().
+  const BT_SUCCESS = "success", BT_FAILURE = "failure", BT_RUNNING = "running";
+  const btNode = (label, node) => node;
+  function btChildren(label, list) {
+    list.forEach((c, i) => {
+      if (!c || typeof c.type !== "string") throw new Error(`bt.${label}: child ${i} is not a node (${inspect(c)}); build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+    });
+    return list;
+  }
+  function btFn(label, fn) {
+    if (typeof fn !== "function") throw new Error(`bt.${label} expects a function, e.g. bt.${label}((bb) => bb.ready), but got ${inspect(fn)}`);
+    return fn;
+  }
+  function btSeconds(label, s) {
+    if (!(typeof s === "number" && s >= 0)) throw new Error(`bt.${label}(seconds): seconds must be a number >= 0, but got ${inspect(s)}`);
+    return s;
+  }
+  class BtTree {
+    // `blackboard` is the object every condition and action receives: the state of the thing the tree drives.
+    constructor(root, blackboard = {}) {
+      if (!root || typeof root.type !== "string") throw new Error(`new bt.Tree(root, blackboard): root must be a node built with bt.sequence, bt.selector, bt.action..., but got ${inspect(root)}`);
+      this.root = root; this.blackboard = blackboard; this.clock = 0; this.count = 0; this.dt = 0;
+      this.memory = new Map(); this.status = BT_FAILURE;
+    }
+    tick(dt) {
+      if (!(typeof dt === "number" && dt >= 0)) throw new Error(`tree.tick(dt): dt must be a number of seconds >= 0 (pass the dt of onUpdate), but got ${inspect(dt)}`);
+      this.clock += dt; this.count++; this.dt = dt;
+      this.status = this.run(this.root);
+      for (const [node, mem] of this.memory)
+        if (node.type === "action" && mem.running && mem.seen !== this.count) { mem.running = false; node.hooks?.onExit?.(this.blackboard, "aborted"); }
+      return this.status;
+    }
+    reset() {
+      for (const [node, mem] of this.memory) if (node.type === "action" && mem.running) node.hooks?.onExit?.(this.blackboard, "aborted");
+      this.memory.clear();
+    }
+    mem(node) {
+      let m = this.memory.get(node);
+      if (!m) { m = { seen: -10 }; this.memory.set(node, m); }
+      if (m.seen !== this.count - 1 && m.seen !== this.count) {
+        const keep = node.type === "cooldown" ? m.until : undefined;
+        for (const k of Object.keys(m)) if (k !== "seen" && k !== "running") delete m[k];
+        if (keep !== undefined) m.until = keep;
+      }
+      m.seen = this.count;
+      return m;
+    }
+    run(node) {
+      const bb = this.blackboard;
+      switch (node.type) {
+        case "condition": this.mem(node); return node.fn(bb) ? BT_SUCCESS : BT_FAILURE;
+        case "action": {
+          const m = this.mem(node);
+          if (!m.running) { m.running = true; node.hooks?.onEnter?.(bb); }
+          const st = node.fn(bb, this.dt, this);
+          if (st !== BT_SUCCESS && st !== BT_FAILURE && st !== BT_RUNNING)
+            throw new Error(`bt.action: the function returned ${inspect(st)}; it must return bt.SUCCESS, bt.FAILURE or bt.RUNNING`);
+          if (st !== BT_RUNNING) { m.running = false; node.hooks?.onExit?.(bb, st); }
+          return st;
+        }
+        case "sequence": {
+          const m = this.mem(node);
+          for (let i = m.index ?? 0; i < node.children.length; i++) {
+            const st = this.run(node.children[i]);
+            if (st === BT_RUNNING) { m.index = i; return BT_RUNNING; }
+            if (st === BT_FAILURE) { m.index = 0; return BT_FAILURE; }
+          }
+          m.index = 0; return BT_SUCCESS;
+        }
+        case "selector": {
+          this.mem(node);
+          for (const child of node.children) { const st = this.run(child); if (st !== BT_FAILURE) return st; }
+          return BT_FAILURE;
+        }
+        case "wait": {
+          const m = this.mem(node);
+          m.waited = (m.waited ?? 0) + this.dt;
+          if (m.waited >= node.seconds) { m.waited = 0; return BT_SUCCESS; }
+          return BT_RUNNING;
+        }
+        case "cooldown": {
+          const m = this.mem(node);
+          if (m.until !== undefined && this.clock < m.until) return BT_FAILURE;
+          const st = this.run(node.children[0]);
+          if (st !== BT_RUNNING) m.until = this.clock + node.seconds;
+          return st;
+        }
+        case "inverter": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_SUCCESS ? BT_FAILURE : st === BT_FAILURE ? BT_SUCCESS : BT_RUNNING;
+        }
+        case "succeeder": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_RUNNING ? BT_RUNNING : BT_SUCCESS;
+        }
+      }
+      throw new Error(`bt: unknown node type '${node.type}'; build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+    }
+  }
+  const bt = {
+    SUCCESS: BT_SUCCESS, FAILURE: BT_FAILURE, RUNNING: BT_RUNNING, Tree: BtTree,
+    sequence: (...children) => btNode("sequence", { type: "sequence", children: btChildren("sequence", children) }),
+    selector: (...children) => btNode("selector", { type: "selector", children: btChildren("selector", children) }),
+    condition: (fn) => ({ type: "condition", fn: btFn("condition", fn) }),
+    action: (fn, hooks = {}) => ({ type: "action", fn: btFn("action", fn), hooks }),
+    wait: (seconds) => ({ type: "wait", seconds: btSeconds("wait", seconds) }),
+    cooldown: (seconds, child) => ({ type: "cooldown", seconds: btSeconds("cooldown", seconds), children: btChildren("cooldown", [child]) }),
+    inverter: (child) => ({ type: "inverter", children: btChildren("inverter", [child]) }),
+    succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
   };
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
-    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
+    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens, bt,
   };
 
   // ============================================================================================ eval serialization

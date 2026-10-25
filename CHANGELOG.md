@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Tile pathfinding and behaviour trees
+
+- `nav.findTilePath(map, from, to, {costs, diagonals, maxNodes, closest, allowBlockedGoal})` and the command
+  `nav.find_tile_path`: deterministic A* over the cells of a `Tilemap` (solid tiles block, `costs` per tile index) or of a
+  `{width, height, cost}` grid for games that keep their own map. Diagonals never cut corners; `closest` returns the nearest
+  reachable cell. The result lists `cells` and the world `points` of their centres. `nav.tileVersion(tilemap)` counts the
+  `setTile` writes so a script knows a kept path is stale. NAVIGATION.md, section 7.
+- `import { bt } from "factoria"`: behaviour trees in plain JS (`Tree`, `sequence`, `selector`, `condition`, `action`,
+  `wait`, `cooldown`, `inverter`, `succeeder`, `SUCCESS`, `FAILURE`, `RUNNING`), ticked by the script with its own `dt`.
+  SCRIPTING.md, "AI: behaviour trees", and an enemies recipe in the AI guide (section 9.27).
+
 Recording input and starting a scene with props
 
 - The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads

@@ -1658,6 +1658,26 @@ A* over the walkable grid, then string pulling: the result is few corner points 
 | `closest` | boolean | no | When the goal is unreachable, return a path to the reachable point nearest to it (complete=false). |
 | `mesh` | string | no | Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`. |
 
+### `nav.find_tile_path`
+
+Not released yet (on main after 0.2.0).
+
+Find a path over the cells of a Tilemap (or a plain cost grid) with A*.
+
+Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in solidTiles block, every other cell costs 1, `costs` {"<tile index>": cost | null} overrides per tile, null = blocked, key "-1" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] (cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. Deterministic. Scripts: nav.findTilePath(map, from, to, opts). Example: nav.find_tile_path {"tilemap":"ground","from":[0,0],"to":[5,3],"diagonals":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `tilemap` | string | no | Id of the entity with the Tilemap. Give this or `grid`. |
+| `grid` | object | no | A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y] top-left corner, cellSize?: number \| [w,h]}. |
+| `from` | array | yes | Start cell [col,row]. |
+| `to` | array | yes | Goal cell [col,row]. |
+| `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}; null or negative blocks, a solid tile listed here is walkable. |
+| `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
+| `maxNodes` | integer | no | Most cells the search expands before it gives up (too_far). Default 100000. |
+| `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
+| `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
+
 ### `nav.info`
 
 Not released yet (on main after 0.2.0).
@@ -3410,13 +3430,129 @@ declare module "factoria" {
   }
 
   /**
-   * Path finding on the baked NavMesh3D (docs/NAVIGATION.md). The mesh is baked from the static colliders when the scene loads.
+   * A cell of a tile map: 0-based column and row, row 0 = the top row.
+   */
+  export interface NavCell {
+    /**
+     * Column, 0 = left.
+     */
+    col: number;
+    /**
+     * Row, 0 = top.
+     */
+    row: number;
+  }
+
+  /**
+   * A plain cost grid for nav.findTilePath, for maps that are not a Tilemap (a game's own grid).
+   */
+  export interface NavTileGrid {
+    /**
+     * Cells per row.
+     */
+    width: number;
+    /**
+     * Number of rows.
+     */
+    height: number;
+    /**
+     * width * height numbers, row-major, row 0 = top: the cost of ENTERING the cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined = blocked.
+     */
+    cost: readonly (number | null | undefined)[];
+    /**
+     * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     */
+    origin?: Vec2Like;
+    /**
+     * Size of a cell in the world (default 1); used for `points` and `length`.
+     */
+    cellSize?: number | Vec2Like;
+  }
+
+  /**
+   * Options of nav.findTilePath.
+   */
+  export interface NavTileOptions {
+    /**
+     * Tilemap only: cost of entering a cell per tile index (flip flags ignored). Infinity or null blocks. A solid tile listed here becomes walkable at that cost; key -1 sets empty cells. Default: solidTiles block, every other cell costs 1.
+     */
+    costs?: { [tileIndex: number]: number };
+    /**
+     * Allow 8-way steps (default false). A diagonal costs sqrt(2) times the cell entered and never cuts a corner: both cells it passes between must be open.
+     */
+    diagonals?: boolean;
+    /**
+     * Most cells the search expands before it gives up with reason "too_far" (default 100000).
+     */
+    maxNodes?: number;
+    /**
+     * When the goal cannot be reached, return the path to the reachable cell nearest to it (found true, complete false).
+     */
+    closest?: boolean;
+    /**
+     * A blocked goal cell can still be entered (at cost 1): a path that ends ON the wall or the enemy being chased.
+     */
+    allowBlockedGoal?: boolean;
+  }
+
+  /**
+   * Result of nav.findTilePath.
+   */
+  export interface NavTilePath {
+    /**
+     * True when `cells` holds a path (check `complete` for closest).
+     */
+    found: boolean;
+    /**
+     * False when only the path to the cell nearest the goal was found (options.closest).
+     */
+    complete: boolean;
+    /**
+     * The path from the start cell to the end cell, both included.
+     */
+    cells: NavCell[];
+    /**
+     * The centres of those cells in the world (a Tilemap's transform applied; for a grid origin + (col + 0.5, -(row + 0.5)) * cellSize).
+     */
+    points: Vec2[];
+    /**
+     * Sum of the entering costs along the path.
+     */
+    cost: number;
+    /**
+     * Distance along the cell centres in the map's own units (tile size times cells for a Tilemap, before the entity's scale; cellSize for a grid).
+     */
+    length: number;
+    /**
+     * Why there is no path (found false).
+     */
+    reason?: "start_off_map" | "goal_off_map" | "goal_blocked" | "blocked" | "too_far";
+    /**
+     * What is wrong, with the cells.
+     */
+    message?: string;
+    /**
+     * How to fix it.
+     */
+    hint?: string;
+  }
+
+  /**
+   * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
    */
   export interface NavAPI {
     /**
      * Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];
      */
     findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
+    /**
+     * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost }. 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     */
+    findTilePath(map: Entity | string | NavTileGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * How many tiles were written to the Tilemap with setTile or tilemap.set_tile so far (a counter, cheap). Compare it with the value from when you searched to know a cached path is stale. Writes that replace `tiles` as a whole are not counted; starts at 0 on every scene load.
+     */
+    tileVersion(tilemap: Entity | string): number;
     /**
      * Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise.
      */
@@ -4461,6 +4597,11 @@ declare module "factoria" {
   export const nav: NavAPI;
 
   /**
+   * Behaviour trees (bt.Tree, bt.sequence, bt.selector...), ticked by your script.
+   */
+  export const bt: BtAPI;
+
+  /**
    * Game clock.
    */
   export const time: TimeAPI;
@@ -4746,6 +4887,119 @@ declare module "factoria" {
     readonly bounceIn: EaseFn;
     readonly bounceOut: EaseFn;
     readonly bounceInOut: EaseFn;
+  }
+
+  /**
+   * What a behaviour tree node returns each tick: bt.SUCCESS, bt.FAILURE or bt.RUNNING.
+   */
+  export type BtStatus = "success" | "failure" | "running";
+
+  /**
+   * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter and bt.succeeder.
+   */
+  export interface BtNode {
+    /**
+     * sequence, selector, condition, action, wait, cooldown, inverter or succeeder.
+     */
+    readonly type: string;
+  }
+
+  /**
+   * Hooks of bt.action.
+   */
+  export interface BtActionHooks {
+    /**
+     * Runs when the action starts (the first tick it is reached, or after it finished or was interrupted).
+     */
+    onEnter?: (blackboard: any) => void;
+    /**
+     * Runs when the action returns SUCCESS or FAILURE, or with "aborted" when a tick did not reach it (a selector chose an earlier child) or the tree was reset.
+     */
+    onExit?: (blackboard: any, status: BtStatus | "aborted") => void;
+  }
+
+  /**
+   * A behaviour tree with its own memory per node: ten enemies can each run a Tree built from the same node description.
+   */
+  export interface BtTree {
+    /**
+     * The root node.
+     */
+    readonly root: BtNode;
+    /**
+     * The object every condition and action receives.
+     */
+    blackboard: any;
+    /**
+     * Seconds the tree has run: the sum of the dt it was ticked with.
+     */
+    readonly clock: number;
+    /**
+     * Result of the last tick.
+     */
+    readonly status: BtStatus;
+    /**
+     * Runs the tree one step; call it once per frame with the dt of onUpdate. A node that was not ticked on the previous tick starts fresh (a sequence goes back to its first child, a wait to zero).
+     */
+    tick(dt: number): BtStatus;
+    /**
+     * Forgets what every node remembers (running actions get onExit with "aborted").
+     */
+    reset(): void;
+  }
+
+  /**
+   * Behaviour trees in plain JS, ticked by your script with a dt you pass (deterministic). Example: const tree = new bt.Tree(bt.selector(bt.sequence(bt.condition((b) => b.sees), bt.action((b, dt) => { b.chase(dt); return bt.RUNNING; })), bt.action((b, dt) => { b.wander(dt); return bt.RUNNING; })), enemy); in onUpdate(dt): tree.tick(dt).
+   */
+  export interface BtAPI {
+    /**
+     * Status: the node finished well.
+     */
+    readonly SUCCESS: "success";
+    /**
+     * Status: the node failed or its condition was false.
+     */
+    readonly FAILURE: "failure";
+    /**
+     * Status: the node needs more ticks.
+     */
+    readonly RUNNING: "running";
+    /**
+     * Creates a tree for one agent.
+     */
+    readonly Tree: new (root: BtNode, blackboard?: any) => BtTree;
+    /**
+     * Ticks the children in order: FAILURE as soon as one fails, RUNNING while one runs (the next tick resumes at that child without asking the earlier conditions again), SUCCESS when all succeeded.
+     */
+    sequence(...children: BtNode[]): BtNode;
+    /**
+     * Ticks the children in order from the FIRST one every tick, so a more important child can interrupt a running one; returns the first result that is not FAILURE.
+     */
+    selector(...children: BtNode[]): BtNode;
+    /**
+     * Truthy = SUCCESS, falsy = FAILURE. Never RUNNING.
+     */
+    condition(fn: (blackboard: any) => unknown): BtNode;
+    /**
+     * Does something and returns bt.SUCCESS, bt.FAILURE or bt.RUNNING (anything else throws).
+     */
+    action(fn: (blackboard: any, dt: number, tree: BtTree) => BtStatus, hooks?: BtActionHooks): BtNode;
+    /**
+     * RUNNING for that many seconds of tick dt, then SUCCESS. Starts over when it was not ticked on the previous tick.
+     */
+    wait(seconds: number): BtNode;
+    /**
+     * Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once.
+     */
+    cooldown(seconds: number, child: BtNode): BtNode;
+    /**
+     * Swaps SUCCESS and FAILURE; RUNNING stays.
+     */
+    inverter(child: BtNode): BtNode;
+    /**
+     * SUCCESS whenever the child finishes, either way.
+     */
+    succeeder(child: BtNode): BtNode;
   }
 
   /**

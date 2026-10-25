@@ -600,6 +600,7 @@
     "material.info": "0.2.0",
     "nav.bake": "unreleased",
     "nav.find_path": "unreleased",
+    "nav.find_tile_path": "unreleased",
     "nav.info": "unreleased",
     "perf.baseline": "0.2.0",
     "perf.check": "0.2.0",

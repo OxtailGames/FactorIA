@@ -4,8 +4,10 @@ import { cleanBeforeEach, playRows, playGenerated, miner, miners, enemyList, tel
 import { live } from "../scripts/game/mine_map.js";
 import { run, lampOf } from "../scripts/game/run_state.js";
 import * as players from "../scripts/game/players.js";
-import { Tree } from "../scripts/game/behavior_tree.js";
+import { bt } from "factoria";
 import { STATS, beetleBrain, thiefBrain, kingBrain } from "../scripts/game/enemy_brains.js";
+
+const { Tree } = bt;
 
 const SECOND = 60;
 
