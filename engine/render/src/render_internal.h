@@ -389,8 +389,7 @@ private:
     struct VideoTexture {
         std::weak_ptr<VideoDecoder> decoder;
         std::unique_ptr<TextureAsset> tex;
-        std::uint64_t serial = 0;  // picture_serial() of the picture the image holds
-        bool uploaded = false;
+        std::uint64_t writtenFrame = 0;  // Gpu::frame() + 1 of the last write of the picture into the image, 0 = never
         bool seen = false;
     };
     std::unordered_map<const VideoDecoder*, VideoTexture> videoTextures_;
@@ -487,6 +486,9 @@ public:
     void note_commit() { committed_ = true; }
     // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
     bool committed() const { return committed_; }
+    // The sokol frame being recorded: the sg_commit() calls made so far by anyone, the editor's included (a commit
+    // listener counts them). A write-transient image is written once in it, before it is bound (Assets::video_texture).
+    std::uint64_t frame() const { return frame_; }
 
     bool depth_zero_to_one() const { return zeroToOne_; }
     bool is_gl() const { return isGl_; }
@@ -512,6 +514,9 @@ private:
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
     bool committed_ = true;
+    std::uint64_t frame_ = 0;
+    bool listening_ = false;  // count_commit is registered as a commit listener
+    static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }
 };
 
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
