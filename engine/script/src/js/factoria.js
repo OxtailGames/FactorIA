@@ -1675,13 +1675,14 @@
     },
     stats: platformStats,
     leaderboards: {
-      // options.day: "YYYY-MM-DD" (a UTC day, game.today().utc.iso is today's) on a daily board, to write the board of another day.
+      // options.day: "YYYY-MM-DD" on a daily board, to write the board of another day (default: the local date, game.today().iso;
+      // game.today().utc.iso, passed to submit and entries alike, gives one board worldwide).
       submit(id, score, options = {}) {
         const o = isObj(options) ? options : {};
         return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score, day: o.day });
       },
       // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10); day: "YYYY-MM-DD" on a
-      // daily board (a UTC day; the board of that day instead of today's).
+      // daily board (the board of that day instead of today's, keyed as submit wrote it).
       entries(id, options = {}) {
         const o = isObj(options) ? options : {};
         return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count, day: o.day }, leaderboardEntries);

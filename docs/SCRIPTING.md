@@ -690,8 +690,8 @@ rng.seed(t.year * 10000 + t.month * 100 + t.day);   // a daily challenge: everyb
 ```
 
 `weekday` is 0 = Sunday to 6 = Saturday; `hour`, `minute` and `second` are the local time of day; `utcOffsetMinutes` is the
-local offset from UTC and `utc` is the date of the same moment in UTC (the day a store's daily leaderboard runs on, see
-`options.day` in PLATFORM.md, "Leaderboard periods"). In a built game the date and time are the player's real local ones,
+local offset from UTC and `utc` is the date of the same moment in UTC (pass `utc.iso` as a leaderboard's `options.day` for one daily board
+worldwide, see PLATFORM.md, "Leaderboard periods"). In a built game the date and time are the player's real local ones,
 read when the game starts, about once a minute while it runs, and each time the app comes back to the foreground or the
 window gets the focus (before `game.on("resume")` / `game.on("focus")` run), so `game.today()` is at most a minute behind the
 clock. When the local calendar day changes meanwhile (past midnight, a clock set to another day, a game left in the
