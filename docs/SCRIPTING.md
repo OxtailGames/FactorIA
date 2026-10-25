@@ -873,7 +873,7 @@ test("player jumps", () => {
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`; like a finger on a device,
   the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
   `click` needed), `press(action)`, `release(action)`, `tap(action)`,
-  `keyDown(key)`, `keyUp(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
+  `keyDown(key)`, `keyUp(key)`, `tapKey(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
@@ -892,6 +892,38 @@ not picked again, a test starts in the default language; empty again before each
 `resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
 unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
 one file share storage and the fake store unless you call `resetState`.
+
+**Clicking a widget.** `game.click(widget)` (also `mouseMove`, `touch`, `touchStart`, `touchMove`) given an `Entity` or an
+id/name lays the UI out first, so a panel opened in the same frame (`panel.active = true`, then `game.click("close")`) is
+already in place with no `game.step` or `ui.layout()` between. It throws, naming the widget and why, when the widget cannot
+be clicked: it or a parent is inactive, it has no area (size 0), or it is scrolled out of its `ScrollList`. Pass a position
+`{x, y}` to click a spot whatever is there.
+
+**Keys.** `game.tapKey(key)` presses and releases a key over one frame (press, step, release, step), as `tap` does for an
+action; `keyDown` / `keyUp` hold it. A `TextField` reads the Enter key itself, not an action, so this submits it:
+
+```js
+test("Enter submits the name", () => {
+  game.load("scenes/menu.scene.json");
+  const submitted = [];
+  ui.on("submit", "name_field", (e) => submitted.push(e.value));
+  game.click("name_field");                              // focuses the TextField
+  game.find("name_field").set("TextField", { text: "Mara" });
+  game.tapKey("Enter");                                  // the field sends ui.submit { id, value: "Mara" }
+  expect(submitted).toEqual(["Mara"]);
+});
+```
+
+**Saving a file from a test.** A test can call any command with `fa.call`, and `fs.write` writes a project file (text up to
+8 MiB; `.factoria/` is refused except `.factoria/tmp/`): keep a recording or a layout dump to look at afterwards.
+
+```js
+test("dump the menu layout", () => {
+  game.load("scenes/menu.scene.json");
+  game.step(5);
+  fa.call("fs.write", { path: "build/menu_layout.json", content: JSON.stringify(ui.state(), null, 2) });
+});
+```
 
 **`scene.load` and `game.load` differ.** `scene.load(path)` called from a test (or from a script) takes effect at the start
 of the next frame, as in a game: `scene.current` changes at once but the new scene's scripts start on the next

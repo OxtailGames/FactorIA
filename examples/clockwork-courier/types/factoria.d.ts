@@ -5322,6 +5322,10 @@ declare module "factoria:test" {
      * Press for one frame, then release.
      */
     tap(action: string): void;
+    /**
+     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     */
+    tapKey(key: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
     /**
@@ -5390,7 +5394,7 @@ declare module "factoria:test" {
     resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
     /**
-     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**
