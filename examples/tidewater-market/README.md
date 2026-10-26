@@ -322,7 +322,7 @@ Other changes the interface made: `camera_rig.js` ignores the wheel while `rig.w
 panel rectangles); the date and speed buttons moved a little so the bar has room; goods that do not fit left of the date are
 hidden from the end of the top bar (`fitTopBar` in `game_controller.js`; the goods table has them all). The simulation is only
 changed through the same actions as before: `place`, `demolish`, `rotateBuilding` (new, refuses roads and housing),
-`people.reassign` and `people.release`. At a text size of 150 % or the largest interface size the panels move out of each
+`people.reassign` and `people.release`. At a text size of 150 % or the largest interface size (125 %) the panels move out of each
 other's way (P6, below; `ui_layout.test.js` checks 1280 x 720 with the inspector open).
 
 Tests: `ui_mouse.test.js` (mouse only), `ui_keys.test.js` (keyboard only), `ui_dragdrop.test.js`, `ui_layout.test.js`. Engine gaps
@@ -388,11 +388,13 @@ at most the voice cap at once (the stress town stays under it: `sound.test.js`).
 **Options.** `scripts/ui/options.js` (prefab `prefabs/ui/options.prefab.json`) opens from the title and the pause menu; tabs Audio,
 Video, Controls, Access and Language. It edits one object saved in `storage` under `"settings"` (`scripts/settings.js`: `volume` per
 bus, `windowMode`, `vsync`, `frameCap`, `colorFilter`, `bindings` (action to binding names, only the ones the player changed), `textScale`
-(1, 1.25, 1.5, 2) and `uiScale` (1, 1.25, 1.5), `reducedMotion`, `safeColors`, `holdFree`, `language`, `subtitles`). `applyOnce()` applies it when the first
+(1, 1.25, 1.5, 2) and `uiScale` (1, 1.25), `reducedMotion`, `safeColors`, `holdFree`, `language`, `subtitles`). `applyOnce()` applies it when the first
 scene starts. Key rebinding refuses a key another action already has, says which, and keeps the old binding. Safe colours add patterns to
 the overlays and a mark before each notice; reduced motion turns off camera easing, notice fades and the moving title picture; hold-free
-turns roads and demolishing into two clicks, workers into click-to-carry and the pan into a toggle. Interface size is a registry in
-`ui_kit.js` (FB-0042); the HUD moves the inspector, goods table, charts and help clear of the right column and the build bar.
+turns roads and demolishing into two clicks, workers into click-to-carry and the pan into a toggle. Interface size is the engine's `ui.scale`
+(FB-0042, fixed in the engine: every size, padding, spacing and font of the screen-space widgets is multiplied, anchors stay put); the
+two bars take the screen width again on `ui.on("scale")` (`spanBars` in `game_controller.js`), the inspector column has a `minSize` instead of
+a spacer, and the order board and the cards lay out again on `ui.on("textScale")` (FB-0017 and FB-0065, fixed in the engine). The HUD moves the inspector, goods table, charts and help clear of the right column and the build bar.
 
 **Gamepad cursor.** The first move of a stick or press of a button makes `input.lastDevice` `"gamepad"`; `scripts/ui/pad_cursor.js` then
 draws a reticle and `scripts/game/pointer.js` moves it with the left stick (faster the further it is pushed). A clicks the widget or map

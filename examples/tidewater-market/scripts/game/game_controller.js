@@ -32,6 +32,7 @@ import { footprintCells, roadPath } from "./rules.js";
 import { cellToWorld, mapBounds } from "./iso.js";
 import { amountText, buildingName, compactText, dateText, reasonText, stepText } from "./format.js";
 import { Hud } from "./ui_hud.js";
+import { DESIGN } from "./camera_math.js";
 
 const COLOR_BUTTON = [0.17, 0.21, 0.28, 1];
 const COLOR_BUTTON_ACTIVE = [0.33, 0.52, 0.72, 1];
@@ -130,7 +131,9 @@ export default class GameController extends Behaviour {
       ev.on("payday", (e) => e.broke && this.toast(i18n.t("toast.broke"))),
       i18n.on("change", () => this.buildSpeedLabels()),
       ui.on("click", (e) => this.onClick(e.id)),
+      ui.on("scale", () => this.spanBars()), // the interface size changed: the two bars must still reach both edges of the screen
     ];
+    this.spanBars();
     this.refreshButtons();
     this.refreshHud(true);
     if (this.run.tracker) this.goalPanel = new GoalPanel(this); // P4: the goals of a scenario game (scripts/ui/goal_panel.js)
@@ -280,6 +283,14 @@ export default class GameController extends Behaviour {
     if (right() > limit && this.popBase && this.popText.get("Text").text !== this.popBase) {
       this.popText.get("Text").text = this.popBase;
       ui.layout();
+    }
+  }
+
+  /** The top bar and the status bar are as wide as the screen: the scene writes 1280 UI units, which ui.scale would make wider. */
+  spanBars() {
+    for (const bar of [this.hudBar, this.statusBar]) {
+      const panel = bar.get("Panel");
+      panel.size = [DESIGN.width / ui.scale, panel.size.y];
     }
   }
 

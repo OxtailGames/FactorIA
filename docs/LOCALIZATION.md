@@ -248,7 +248,8 @@ font, has the Arabic-Indic and Persian ones).
   `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
 - **Text size.** `ui.textScale` (0.5 to 3) makes every text bigger for players who ask: translations are longer than
   English, so give buttons, toggles and sliders `"autoSize": true`: they stay at their design size and grow to their
-  label at the current language and text size (docs/TEXT.md, "Text size").
+  label at the current language and text size (docs/TEXT.md, "Text size"). `ui.scale` makes the whole interface bigger
+  or smaller (docs/TEXT.md, "Interface size"); `ui.check_layout` checks each size you offer.
 
 ## 7. Checks: `factoria validate`
 
@@ -355,7 +356,8 @@ overflows its box (the test of `ui.overflowed`, so `autoSize`, `autoShrink` and 
 text or widget, or leaves the screen. Each problem comes once, with the scene, the entity id and path, the `key`, the
 rectangle and every language and scale where it happens, so the fix goes to the widget: `autoSize`, `autoShrink` with
 `minFontSize`, `maxWidth`, a bigger box or a shorter string. Narrow it with `scenes`, `languages` and `textScales`
-(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`). A widget in a `ScrollList` is checked on the part the list shows (a row half scrolled out is judged by its visible half; a row
+(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`); `uiScales` (default: the interface scale now in use) adds the
+interface sizes (`ui.scale`) the game offers, crossed with the languages and text scales: `{"uiScales":[1,1.25,1.5]}`. A widget in a `ScrollList` is checked on the part the list shows (a row half scrolled out is judged by its visible half; a row
 fully outside is skipped). It checks what is active when the scene has settled: a panel a script opens later (options, shop)
 is not seen unless you open it with `steps`, a list per scene run before the checks
 (`{"steps":{"scenes/menu.scene.json":[{"click":"options_button"},{"frames":10}]}}`; a step is `click` a widget by name or id,
@@ -373,7 +375,7 @@ it on a fresh game, not in the middle of a play session.
   translators exchange (section 8). Both write files, `i18n.export` only under `out` (default `build/translations/`,
   never in `locales/`).
 
-- `ui.check_layout {scenes?, languages?, textScales?, pseudo?, settleFrames?}`: the layout check above; returns
+- `ui.check_layout {scenes?, languages?, textScales?, uiScales?, pseudo?, settleFrames?}`: the layout check above; returns
   `{ok, checked, skipped, issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?, cases}]}` with `kind`
   `overflow`, `overlap` or `offscreen`.
 

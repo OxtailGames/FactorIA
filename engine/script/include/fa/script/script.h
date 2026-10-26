@@ -201,8 +201,28 @@ public:
     // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
     // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:
     // the game stores its options.
+    // A change sends the game event `ui.textScale` {value, previous} (scripts: `ui.on("textScale", ...)`), like i18n.change; setting
+    // the same value again sends nothing.
     float text_scale() const { return textScale_; }
-    virtual void set_text_scale(float scale) { textScale_ = scale; }
+    virtual void set_text_scale(float scale) {
+        const float previous = textScale_;
+        textScale_ = scale;
+        if (scale != previous) push_scale_event("ui.textScale", scale, previous);
+    }
+    // The interface scale (`ui.scale`, the `ui.set_scale` command, ui_rect.h): the size, offset, padding, spacing, margins and
+    // font size of every screen-space widget are multiplied by it (0.5 .. 3, 1 = as authored). The game's default is the
+    // `ui.scale` of factoria.json (default_ui_scale()); a script or the Options menu changes it. The default implementation only
+    // remembers it (and tells the world, whose layout and drawing read it); Engine hands it to the renderer too. A change sends
+    // the game event `ui.scale` {value, previous}. It is not saved: the game stores its options.
+    float ui_scale() const { return uiScale_; }
+    virtual void set_ui_scale(float scale) {
+        const float previous = uiScale_;
+        uiScale_ = scale;
+        world().set_ui_scale(scale);
+        if (scale != previous) push_scale_event("ui.scale", scale, previous);
+    }
+    // The `ui.scale` of the project's factoria.json (1 when it has none): what a test starts from.
+    virtual float default_ui_scale() const { return 1.0f; }
 
     // Text to speech (`ui.speak`, the `ui.speak` command). Records every line; a game with its own window also gets the
     // system's speech (set_backend_factory), headless runs and tests only record (`game.spoken()`).
@@ -213,7 +233,11 @@ public:
     CaptionList& captions() { return captions_; }
 
 private:
+    void push_scale_event(const char* name, float value, float previous) {
+        world().events().game.push_back(GameEvent{name, Json::object({{"value", value}, {"previous", previous}}), kNullEntity});
+    }
     float textScale_ = 1.0f;
+    float uiScale_ = 1.0f;
     double renderScale_ = 1.0;
     Speech speech_;
     CaptionList captions_;

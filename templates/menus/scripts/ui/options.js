@@ -1,16 +1,18 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
-// monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
+// monitor, size, vsync, frame cap, the interface size and the colour filter, two accessibility options that work without a window),
 // Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
 // (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
 const TABS = ["video", "audio", "controls", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
+/** Interface sizes (ui.scale) the "Interface size" button cycles through; only the ones this panel still fits the screen at are offered. */
+const UI_SCALES = [0.75, 1, 1.25, 1.5, 2];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
@@ -68,6 +70,7 @@ export default class Options extends Behaviour {
     // The monitor row only exists where the game can move between monitors and this computer has more than one.
     world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
     this.refreshVideo();
+    ui.on("scale", () => this.refreshVideo()); // the size changed (here, or a script): write the percentage again
 
     ui.on("click", "window_mode", () => {
       // windowed -> borderless -> fullscreen -> windowed (macOS cannot go from fullscreen straight to borderless); a platform without borderless skips it.
@@ -92,6 +95,14 @@ export default class Options extends Behaviour {
       const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
       this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
+    ui.on("click", "ui_scale", () => {
+      const sizes = this.uiScales();
+      const next = sizes.find((k) => k > ui.scale + 1e-3) ?? sizes[0];
+      ui.scale = next; // every widget of every screen, this panel included, at once (docs/TEXT.md, "Interface size")
+      s.uiScale = next;
+      settings.save(s);
+      this.refreshVideo();
+    });
     ui.on("click", "color_filter", () => {
       const all = settings.COLOR_FILTERS;
       s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
@@ -99,6 +110,18 @@ export default class Options extends Behaviour {
       settings.save(s);
       this.refreshVideo();
     });
+  }
+
+  /**
+   * The interface sizes to offer: the ones where this panel, drawn ui.scale times as big, still fits the screen (a bigger one
+   * would leave the panel's edges and its Back button off screen), plus the size now in use, whatever it is.
+   */
+  uiScales() {
+    const panel = this.entity.get("Panel").size; // in UI units: the size before ui.scale
+    const screenSize = screen.size;
+    const fits = UI_SCALES.filter((k) => panel.x * k <= screenSize.x && panel.y * k <= screenSize.y);
+    if (!fits.includes(ui.scale)) fits.push(ui.scale);
+    return fits.sort((a, b) => a - b);
   }
 
   /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
@@ -125,6 +148,9 @@ export default class Options extends Behaviour {
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
       : i18n.t("options.frameCapOff");
+    const uiScale = world.find("ui_scale").get("Button");
+    uiScale.text = i18n.t("options.uiScale", { percent: Math.round(ui.scale * 100) });
+    uiScale.interactable = this.uiScales().length > 1; // nothing to choose when no other size fits
     world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
 

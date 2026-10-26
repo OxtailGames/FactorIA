@@ -38,7 +38,7 @@ export default class PadCursor extends Behaviour {
     if (this.reticle.active !== pad) this.reticle.active = pad;
     if (pad) {
       const p = pointer.position();
-      this.reticle.position = [p.x, p.y, 0];
+      this.reticle.position = [p.x / ui.scale, p.y / ui.scale, 0]; // the pointer is in screen pixels, the position in UI units
     }
   }
 }

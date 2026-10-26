@@ -3,7 +3,6 @@
 import { test, expect, game } from "factoria:test";
 import { audio, input, scene, session, storage, ui } from "factoria";
 import * as settings from "../scripts/settings.js";
-import { currentUiScale } from "../scripts/game/ui_kit.js";
 import { cellToWorld } from "../scripts/game/iso.js";
 import { Notices } from "../scripts/game/ui_model.js";
 import { townScene, textOf, shown, cellAt } from "./ui_helper.js";
@@ -35,13 +34,12 @@ test("options: what the player chose is saved and in effect after a restart", ()
   game.step(2);
   game.click("text_scale"); // 100 % -> 125 %
   game.click("ui_scale"); // 100 % -> 125 %
-  game.click("ui_scale"); // -> 150 %
   game.click("safe_colors");
   game.click("reduced_motion");
   game.click("hold_free");
   game.step(2);
   expect(textOf("text_scale")).toContain("125");
-  expect(textOf("ui_scale")).toContain("150");
+  expect(textOf("ui_scale")).toContain("125");
   expect(ui.textScale).toBeCloseTo(1.25);
   // a volume of each kind, written the way the Audio tab writes it
   const s = settings.load();
@@ -49,7 +47,7 @@ test("options: what the player chose is saved and in effect after a restart", ()
   settings.save(s);
   const saved = storage.get("settings");
   expect(saved.textScale).toBeCloseTo(1.25);
-  expect(saved.uiScale).toBeCloseTo(1.5);
+  expect(saved.uiScale).toBeCloseTo(1.25);
   expect(saved.safeColors).toBe(true);
   expect(saved.reducedMotion).toBe(true);
   expect(saved.holdFree).toBe(true);
@@ -62,7 +60,7 @@ test("options: what the player chose is saved and in effect after a restart", ()
   expect(audio.getVolume("ui")).toBeCloseTo(0.55);
   expect(audio.getVolume("ambience")).toBeCloseTo(0.45);
   expect(ui.textScale).toBeCloseTo(1.25);
-  expect(currentUiScale()).toBeCloseTo(1.5);
+  expect(ui.scale).toBeCloseTo(1.25);
   const live = settings.live();
   expect(live.safeColors).toBe(true);
   expect(live.reducedMotion).toBe(true);
@@ -73,7 +71,7 @@ test("options: what the player chose is saved and in effect after a restart", ()
   game.click("tab_access");
   game.step(2);
   expect(game.find("safe_colors").get("Toggle").value).toBe(true);
-  expect(textOf("ui_scale")).toContain("150");
+  expect(textOf("ui_scale")).toContain("125");
   // put the defaults back for the tests after this one
   storage.clear();
   settings.apply(settings.load());

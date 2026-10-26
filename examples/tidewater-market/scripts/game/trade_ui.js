@@ -82,8 +82,9 @@ export default class TradeUi extends Behaviour {
       ui.on("click", (e) => this.onClick(e.id)),
       // the board and the card are written by this script: write them again when the language changes
       i18n.on("change", () => this.redraw()),
+      // ... and when the text size changes: the card's layout depends on it
+      ui.on("textScale", () => this.redraw()),
     ];
-    this.shownScale = ui.textScale;
     this.refreshHud();
     if (this.trade.card) {
       // a game saved with a card open was saved at speed 0 (the card holds the clock): go on at x1 after the answer
@@ -118,13 +119,11 @@ export default class TradeUi extends Behaviour {
     }
     if (input.pressed("order_board") && !this.trade.card) this.toggleBoard();
     this.refreshHud();
-    if (this.shownScale !== ui.textScale) this.redraw(); // the text size option changed: the card's layout depends on it
     if (this.boardUi) this.drawBoard();
   }
 
   /** The language or the text size changed: lay the open card and board out again. */
   redraw() {
-    this.shownScale = ui.textScale;
     if (!this.tradeOn) return;
     if (this.cardUi) this.renderCard();
     if (this.boardUi) {

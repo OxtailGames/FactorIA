@@ -155,6 +155,12 @@ public:
     const EdgeInsets& safe_insets() const { return safeInsets_; }
     void set_safe_insets(const EdgeInsets& insets) { safeInsets_ = insets; }
 
+    // The interface scale `ui.scale` (1 = as written; ui_rect.h explains what it multiplies). The runtime sets it from the
+    // project default and from `ui.scale = ...`; a test sets it directly. Survives clear() and scene loads, like the safe
+    // insets: it is a setting of the player, not of the scene.
+    float ui_scale() const { return uiScale_; }
+    void set_ui_scale(float scale) { uiScale_ = scale; }
+
     // True when the game's current language is written right to left. The runtime sets it with the language (localization
     // pass); Text align start / end and Panel direction auto read it; a test sets it to try a right-to-left language. Survives
     // clear() and scene loads, like the safe insets.
@@ -189,6 +195,7 @@ private:
     WorldEvents events_;
     Rng rng_;
     EdgeInsets safeInsets_;
+    float uiScale_ = 1.0f;
     bool rtl_ = false;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;

@@ -112,7 +112,7 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 
 Reload the current scene from disk (discards runtime changes).
 
-Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing them), factoria.json input actions, fixedHz and deadzone; script errors are cleared. Example: scene.reload {}
+Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing them), factoria.json input actions, fixedHz, deadzone and ui.scale; script errors are cleared. Example: scene.reload {}
 
 ## `scene.remove_component` (modifies state)
 

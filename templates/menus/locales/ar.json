@@ -42,6 +42,7 @@
     "windowSizeFullscreen": "حجم النافذة: ملء الشاشة",
     "frameCap": "حد الإطارات: {fps} إطار/ث",
     "frameCapOff": "حد الإطارات: متوقف",
+    "uiScale": "حجم الواجهة: {percent}%",
     "colorFilter": "فلتر الألوان: {filter}",
     "filter": {
       "none": "متوقف",

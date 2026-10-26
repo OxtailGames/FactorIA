@@ -261,6 +261,7 @@ struct ScriptSystem::Impl {
     void unregister_tools();
     TestReport run_tests(const std::vector<std::string>& files, std::string_view nameFilter);
     void reset_for_test_file();
+    void set_scales_quietly(float uiScale, float textScale);
     void reset_modules();  // every project module gets a fresh instance on its next import
     void after_test_load();
     Result<Json> eval(std::string_view code);

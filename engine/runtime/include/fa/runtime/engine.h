@@ -207,6 +207,8 @@ public:
     void request_quit() override;
     void step_frames(int n) override;
     void set_text_scale(float scale) override;  // also the renderer's
+    void set_ui_scale(float scale) override;    // also the renderer's (text measuring)
+    float default_ui_scale() const override;    // the ui.scale of factoria.json
     double render_scale() const override;       // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
     Json device_info() const override;          // a game window reports the real device; headless runs the fixed values
