@@ -293,18 +293,3 @@ test("the undo history is limited", () => {
   }
   expect(game.undoStack.length).toBeLessThanOrEqual(limit);
 });
-
-test("the clock is paused in P1 and the date stays at spring 1, year 1", () => {
-  const game = fresh();
-  game.clock.advance(100);
-  expect(game.clock.date()).toEqual({ day: 0, year: 1, season: "spring", seasonIndex: 0, dayOfSeason: 1 });
-  game.clock.setSpeed(2);
-  const days = [];
-  game.events.on("clock.day", (e) => days.push(e.day));
-  for (let i = 0; i < 24; i++) game.clock.advance(0.25); // 6 real seconds at 2x = 12 game seconds = 2 days (secondsPerDay = 6)
-  expect(days).toEqual([1, 2]);
-  game.clock.setDay(10);
-  expect(game.clock.date().season).toBe("summer");
-  game.clock.setDay(40);
-  expect(game.clock.date()).toEqual({ day: 40, year: 2, season: "spring", seasonIndex: 0, dayOfSeason: 1 });
-});

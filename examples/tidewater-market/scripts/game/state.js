@@ -12,6 +12,7 @@ import { getData } from "./data.js";
 import { Events } from "./events.js";
 import { Economy, negate, refundOf } from "./economy.js";
 import { Clock } from "./clock.js";
+import { Simulation } from "./sim.js";
 import { GameMap } from "./map.js";
 import { generateMap, mapFromRows } from "./mapgen.js";
 import { checkPlacement, footprintCells, isRoad, originFor, roadMask, roadPath, sizeAt } from "./rules.js";
@@ -22,11 +23,13 @@ import { checkPlacement, footprintCells, isRoad, originFor, roadMask, roadPath, 
  */
 
 export class GameState {
-  /** @param {{ seed?: number, testMap?: boolean, data?: ReturnType<typeof getData> }} [options] */
+  /** @param {{ seed?: number, testMap?: boolean, rows?: string[], data?: ReturnType<typeof getData> }} [options] rows = a custom map as text rows of terrain characters (data/terrain.json `char`), as the stress town does */
   constructor(options = {}) {
     this.data = options.data || getData();
     this.events = new Events();
-    const raw = options.testMap
+    const raw = options.rows
+      ? mapFromRows(options.rows, this.data.terrainByChar)
+      : options.testMap
       ? mapFromRows(this.data.testMap.rows, this.data.terrainByChar)
       : generateMap(options.seed ?? this.data.map.defaultSeed, this.data.map, this.data.terrainIds);
     this.map = new GameMap(raw, this.data);
@@ -40,6 +43,8 @@ export class GameState {
     /** @type {any[]} */
     this.redoStack = [];
     this.testMap = !!options.testMap;
+    /** The town's life: villagers, walkers, production, carriers, wages (scripts/game/sim.js). It runs on clock.tick. */
+    this.sim = new Simulation(this);
   }
 
   // ---- queries -----------------------------------------------------------------------------------------------------
@@ -85,7 +90,7 @@ export class GameState {
     return this.redoStack.length > 0;
   }
 
-  /** A fingerprint of everything that matters: terrain, buildings, coins and stock. Equal states give equal strings. */
+  /** A fingerprint of everything that matters: terrain, buildings, coins, stock and the simulation (villagers, production, ledger). Equal states give equal strings. */
   hash() {
     let h = 0x811c9dc5;
     const feed = (n) => {
@@ -108,6 +113,7 @@ export class GameState {
     feed(this.economy.coins);
     feed(this.economy.coins >> 16);
     for (const g of this.data.goodIds) feed(this.economy.stock[g] || 0);
+    this.sim.feed(feed);
     return (h >>> 0).toString(16).padStart(8, "0");
   }
 
