@@ -12,6 +12,7 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include <encoder/basisu_miniz.h>
 
+#include "fa/core/build_info.h"
 #include "fa/core/fs.h"
 #include "fa/core/pack.h"
 #include "fa/core/json.h"
@@ -26,10 +27,17 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-std::string fake_player(const testing::TempDir& tmp) {
-    const stdfs::path dir = tmp.sub("web-player");
+// A wasm stand-in: the magic, the build fingerprint (`fingerprint`, none when empty) and padding up to 1008 bytes.
+std::string fake_wasm(const std::string& fingerprint) {
+    std::string bytes = std::string("\0asm\1\0\0\0", 8);
+    if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
+    return bytes + std::string(1008 - bytes.size(), 'w');
+}
+
+std::string fake_player(const testing::TempDir& tmp, const std::string& fingerprint = build_fingerprint(), const char* folder = "web-player") {
+    const stdfs::path dir = tmp.sub(folder);
     testing::write_all(dir / "factoria_player.js", "// fake emscripten glue\n");
-    testing::write_all(dir / "factoria_player.wasm", std::string("\0asm\1\0\0\0", 8) + std::string(1000, 'w'));
+    testing::write_all(dir / "factoria_player.wasm", fake_wasm(fingerprint));
     return dir.string();
 }
 
@@ -265,4 +273,79 @@ TEST_CASE("export web: scripts are compiled to bytecode in the pack, like a desk
     REQUIRE(bytes.ok());
     CHECK(has(r->packed, "factoria.json"));
     CHECK(is_script_bytecode(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size())));
+}
+
+TEST_CASE("export web: a player of another build stops the export unless allowPlayerMismatch") {
+    if (std::string(build_fingerprint()) == "unknown") return;  // built outside a git checkout: nothing to compare
+    testing::TempDir tmp;
+    ExportOptions o = web_options(tmp, make_project(tmp));
+
+    SUBCASE("the same build exports quietly") {
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        for (const std::string& w : r->warnings) CHECK(w.find("build fingerprint") == std::string::npos);
+    }
+    SUBCASE("another fingerprint stops with an error that says what to do") {
+        o.playerBinary = fake_player(tmp, "0123456789ab", "old-player");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("web player") != std::string::npos);
+        CHECK(r.error().message.find("was built from 0123456789ab") != std::string::npos);
+        CHECK(r.error().hint.find("factoria setup players --platforms web") != std::string::npos);
+        CHECK(r.error().hint.find("build/web-release") != std::string::npos);
+        CHECK(r.error().hint.find("allowPlayerMismatch") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(stdfs::path(tmp.sub("out")) / "web-test-web"));  // nothing was written
+    }
+    SUBCASE("a player with no fingerprint is told apart") {
+        o.playerBinary = fake_player(tmp, "", "old-player");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("has no build fingerprint") != std::string::npos);
+    }
+    SUBCASE("allowPlayerMismatch exports anyway and says so") {
+        o.playerBinary = fake_player(tmp, "0123456789ab", "old-player");
+        o.allowPlayerMismatch = true;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool said = false;
+        for (const std::string& w : r->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        CHECK(said);
+    }
+}
+
+TEST_CASE("export web: without --player the player whose fingerprint matches is chosen") {
+    if (std::string(build_fingerprint()) == "unknown") return;
+    testing::TempDir tmp;
+    ScopedHome home(tmp.sub("fa-home"));
+    ExportOptions o = web_options(tmp, make_project(tmp));
+    o.playerBinary.clear();
+    // The installed player (of an older release) and the checkout's own build.
+    const stdfs::path installed = stdfs::path(tmp.sub("fa-home")) / "players" / FA_ENGINE_VERSION / "web";
+    testing::write_all(installed / "factoria_player.js", "// installed glue\n");
+    testing::write_all(installed / "factoria_player.wasm", fake_wasm("0123456789ab"));
+    const stdfs::path checkout = tmp.sub("checkout");
+    o.buildSourceRoot = checkout.string();
+
+    SUBCASE("the checkout's build/web-release wins over an installed player of another build") {
+        const stdfs::path build = checkout / "build" / "web-release" / "player";
+        testing::write_all(build / "factoria_player.js", "// built glue\n");
+        testing::write_all(build / "factoria_player.wasm", fake_wasm(build_fingerprint()));
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(r->mode == "build");
+    }
+    SUBCASE("a stale build of the checkout loses to an installed player that matches") {
+        const stdfs::path build = checkout / "build" / "web-release" / "player";
+        testing::write_all(build / "factoria_player.js", "// built glue\n");
+        testing::write_all(build / "factoria_player.wasm", fake_wasm("ffffffffffff"));
+        testing::write_all(installed / "factoria_player.wasm", fake_wasm(build_fingerprint()));
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(r->mode == "installed");
+    }
+    SUBCASE("none matches: the export stops on the first one found") {
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("was built from 0123456789ab") != std::string::npos);
+    }
 }

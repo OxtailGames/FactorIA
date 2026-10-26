@@ -77,7 +77,7 @@ struct ExportOptions {
     std::string playerBinary;   // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
                                 // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
-    bool allowPlayerMismatch = false;  // desktop: bundle a factoria_player built from another commit than this factoria (its
+    bool allowPlayerMismatch = false;  // bundle a player (desktop, web, prebuilt Android/iOS) built from another commit than this factoria (its
                                 // build fingerprint differs, or it has none) with a warning instead of stopping; the
                                 // game may not run on that player
     bool allowMissingPlugins = false;  // a native plugin whose build for the target platform is missing (optional or not) is left

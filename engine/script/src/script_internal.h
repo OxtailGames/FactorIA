@@ -225,6 +225,7 @@ struct ScriptSystem::Impl {
     std::string module_file(const std::string& normalized) const;  // strips ?v=
     std::string module_name_for(const std::string& path) const;    // adds ?v= when reloaded
     // Imports a project module (project-relative path). Returns namespace (valid until module cache is cleared).
+    void explain_missing_api(ScriptError& e);  // adds which module/export or method the player lacks
     Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr);  // returned value is DUPLICATED, caller frees
     std::vector<std::string> bump_module_versions(const std::string& path);  // returns affected paths
 
