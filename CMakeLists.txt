@@ -80,6 +80,13 @@ if(FA_LINUX_STATIC_LIBSTDCXX AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(STATUS "FactorIA: libstdc++ and libgcc are linked statically (FA_LINUX_STATIC_LIBSTDCXX)")
 endif()
 
+# Linux: one section per function and per data object, so the player's --gc-sections (player/CMakeLists.txt) can drop what
+# no game calls. Set for every target (the engine archives and external/ too) because the linker only removes whole sections.
+# The Android NDK toolchain already sets both flags, Apple's -dead_strip needs neither, MSVC Release has /OPT:REF.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-ffunction-sections -fdata-sections)
+endif()
+
 if(FA_BUILD_TESTS)
     enable_testing()
     # This checkout's paths for tests, in a header rather than -D flags: only the tests that include it differ between

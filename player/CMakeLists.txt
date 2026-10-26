@@ -145,3 +145,14 @@ else()
 endif()
 
 target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)
+
+# Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing reaches
+# (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and plugin entry
+# points stay: plugins reach the engine through the FaPluginApi table, not through exported symbols. Android (NDK) and
+# MSVC Release already do this by default, Emscripten too. No LTO: it saved 0.1 MB more and can change which code is
+# inlined across modules, which the floating-point rules of the root CMakeLists.txt keep identical on every platform.
+if(APPLE)
+    target_link_options(factoria_player PRIVATE -Wl,-dead_strip)
+elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(factoria_player PRIVATE -Wl,--gc-sections)
+endif()

@@ -152,6 +152,25 @@ Textures are the one thing an export changes instead of copying (import settings
 - Encoding is cached in `.factoria/export-cache/<platform>/` (never shipped), so only the first export is slow. A texture
   that cannot be converted ships as a PNG with a warning; the export never fails because of it.
 
+### Size of the player
+
+Every game of a platform ships the same prebuilt player (that is what lets a game export without a compiler), so it
+carries the whole engine: 2D and 3D, physics, audio, networking, UI. Code a game never calls costs disk space only: it is
+not run and allocates nothing. The linker drops the functions and data that nothing reaches: `-dead_strip` on macOS and iOS,
+`--gc-sections` on Linux (with every file compiled into its own sections), the NDK's default `--gc-sections` on Android,
+`/OPT:REF` with MSVC on Windows, and Emscripten's own removal on the web. Measured 2026-10-26 on the M29 engine:
+
+| Player | Size |
+|---|---|
+| macOS arm64, Release, without symbols | 9.1 MB (10.2 MB before `-dead_strip`) |
+| Web, `factoria_player.wasm` (v0.2.0) | 6.8 MB, 2.7 MB with gzip |
+| Windows x64 (v0.2.0) | 8.1 MB |
+| Linux x86_64 (v0.2.0, before `--gc-sections`) | 13 MB |
+
+Link-time optimization (LTO) saved 0.1 MB more on macOS and is not used: it changes which code is inlined across
+modules, and the engine keeps its floating-point code identical on every platform. For most games the assets weigh more
+than the player; [Textures](#textures) and `export.exclude` are where an export gets smaller.
+
 ## Replacing an earlier export
 
 Every export starts by deleting `<out>/<game-slug>-<platform>/` and writing it again, so files you add there do not

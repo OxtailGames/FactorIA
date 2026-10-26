@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A smaller player
+
+- The linker drops the engine code no game reaches: `-dead_strip` on macOS and iOS (the macOS player goes from 10.2 to
+  9.1 MB without symbols), `--gc-sections` on Linux. Android, Windows and the web already did. A game plays the same: five
+  levels of the reference games give the same world state and screenshot after 1200 frames. Sizes per platform:
+  docs/EXPORTING.md, "Size of the player".
+
 Burrow Brigade drops the workarounds M29 made unnecessary
 
 - Burrow Brigade gives every torch, crystal and magma source its own Light2D (no pool of 16), writes fog and shift tiles with
