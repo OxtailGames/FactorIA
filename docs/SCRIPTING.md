@@ -566,7 +566,7 @@ is silent. Give `fade` when you switch a low-pass or reverb on or off in the mid
 - `nav.findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal })` → `{ found, complete, cells:
   {col, row}[], points: Vec2[], cost, length }` or `{ found: false, reason, message, hint }`: A* over a `Tilemap` entity
   (solid tiles block; `costs` per tile index) or your own `{ width, height, cost }` grid; `nav.tileVersion(tilemap)` counts
-  the `setTile` writes. See NAVIGATION.md, section 7.
+  the changes of the tiles. See NAVIGATION.md, section 7.
 
 ### AI: behaviour trees (`bt`)
 `import { bt } from "factoria"` is a small behaviour tree in plain JS (like `tween`): you build a description once, give each
@@ -590,6 +590,14 @@ export default class Rat extends Behaviour {
   child WITHOUT asking the earlier conditions again), SUCCESS when all succeeded.
 - `selector(...children)`: in order from the first child on every tick, the first result that is not FAILURE; so an earlier
   (more important) child interrupts a running later one.
+- `parallel(...children)` / `parallel({ succeed: "any" }, ...children)`: ticks the children in order EVERY tick. The first
+  FAILURE fails it (later children are not ticked that tick). Default `succeed: "all"`: SUCCESS once every child has
+  succeeded (a child that succeeded is not ticked again meanwhile); `"any"`: SUCCESS at the first success. Otherwise RUNNING.
+  When it finishes, the children still running are stopped: an action gets `onExit(blackboard, "aborted")` and everything
+  else starts fresh next time. No children: SUCCESS for "all", FAILURE for "any".
+- `repeat(child, times?)`: runs the child again each time it succeeds. RUNNING while it repeats, FAILURE as soon as the child
+  fails, SUCCESS after `times` successes (a whole number >= 1); without `times` it repeats forever. One run of the child per
+  tick: the next run starts on the NEXT tick, so a child that succeeds at once cannot loop forever inside one tick.
 - `condition(fn)`: `fn(blackboard)` truthy = SUCCESS, falsy = FAILURE. `action(fn, { onEnter, onExit })`: `fn(blackboard, dt,
   tree)` returns `bt.SUCCESS`, `bt.FAILURE` or `bt.RUNNING` (anything else throws); `onExit(blackboard, status)` also runs with
   `"aborted"` when a tick no longer reaches a running action, or `tree.reset()` stops it.

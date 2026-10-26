@@ -1448,7 +1448,8 @@ if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(
 
 A behaviour tree (`bt`, SCRIPTING.md "AI: behaviour trees") picks WHAT the enemy does; `nav.findTilePath` (NAVIGATION.md,
 section 7) says WHERE to step on a tile map. Search again only when the goal's cell changed or the map did
-(`nav.tileVersion(map)`), not every frame.
+(`nav.tileVersion(map)`, which also counts a whole `tiles` replacement), not every frame. `bt.parallel` runs
+several children at once (move and shoot) and `bt.repeat(child, times?)` repeats one (SCRIPTING.md).
 
 ```js
 import { Behaviour, bt, nav, world } from "factoria";

@@ -2458,8 +2458,8 @@
       if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
       return out;
     },
-    // tileVersion(tilemap): how many tiles were written to the Tilemap with setTile / tilemap.set_tile so far; compare it
-    // with the value you saw when you searched to know a path is stale. Writes that replace `tiles` as a whole do not count.
+    // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles change (setTile, tilemap.set_tile or a write
+    // that replaces `tiles`); compare it with the value you saw when you searched to know a path is stale.
     tileVersion(tilemap) {
       const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
       if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);
@@ -2476,9 +2476,27 @@
   const btNode = (label, node) => node;
   function btChildren(label, list) {
     list.forEach((c, i) => {
-      if (!c || typeof c.type !== "string") throw new Error(`bt.${label}: child ${i} is not a node (${inspect(c)}); build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+      if (!c || typeof c.type !== "string") throw new Error(`bt.${label}: child ${i} is not a node (${inspect(c)}); build nodes with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter or bt.succeeder`);
     });
     return list;
+  }
+  // bt.parallel's optional first argument: { succeed: "all" | "any" }. Returns [options, children].
+  function btParallelArgs(args) {
+    let succeed = "all", children = args;
+    const first = args[0];
+    if (first !== undefined && first !== null && typeof first === "object" && typeof first.type !== "string") {
+      for (const k of Object.keys(first))
+        if (k !== "succeed") throw new Error(`bt.parallel: unknown option '${k}'; the only option is succeed ("all" or "any"), e.g. bt.parallel({ succeed: "any" }, childA, childB)`);
+      if (first.succeed !== undefined) succeed = first.succeed;
+      children = args.slice(1);
+    }
+    if (succeed !== "all" && succeed !== "any") throw new Error(`bt.parallel: option succeed must be "all" or "any", but got ${inspect(succeed)}; it fails as soon as one child fails either way`);
+    return [{ succeed }, btChildren("parallel", children)];
+  }
+  function btTimes(times) {
+    if (times !== undefined && !(Number.isInteger(times) && times >= 1))
+      throw new Error(`bt.repeat(child, times): times must be a whole number >= 1 (or left out to repeat forever), but got ${inspect(times)}`);
+    return times;
   }
   function btFn(label, fn) {
     if (typeof fn !== "function") throw new Error(`bt.${label} expects a function, e.g. bt.${label}((bb) => bb.ready), but got ${inspect(fn)}`);
@@ -2506,6 +2524,16 @@
     reset() {
       for (const [node, mem] of this.memory) if (node.type === "action" && mem.running) node.hooks?.onExit?.(this.blackboard, "aborted");
       this.memory.clear();
+    }
+    // Stops everything running under `node` (a child a bt.parallel ends while it still runs): running actions get
+    // onExit(bb, "aborted") and every other node starts fresh the next time it is ticked (a cooldown keeps its timer).
+    halt(node) {
+      const m = this.memory.get(node);
+      if (m) {
+        if (node.type === "action") { if (m.running) { m.running = false; node.hooks?.onExit?.(this.blackboard, "aborted"); } }
+        else m.seen = -10;
+      }
+      if (node.children) for (const c of node.children) this.halt(c);
     }
     mem(node) {
       let m = this.memory.get(node);
@@ -2545,6 +2573,37 @@
           for (const child of node.children) { const st = this.run(child); if (st !== BT_FAILURE) return st; }
           return BT_FAILURE;
         }
+        case "parallel": {
+          // Ticks the children in order every tick. A child that succeeded is not ticked again until the node finishes.
+          // The first FAILURE fails the node; "all" succeeds when every child has succeeded, "any" at the first success.
+          const m = this.mem(node);
+          const done = m.done ?? (m.done = new Set());
+          let result = BT_RUNNING;
+          const running = [];
+          for (let i = 0; i < node.children.length; i++) {
+            if (done.has(i)) continue;
+            const st = this.run(node.children[i]);
+            if (st === BT_FAILURE) { result = BT_FAILURE; break; }
+            if (st === BT_SUCCESS) { done.add(i); if (node.succeed === "any") { result = BT_SUCCESS; break; } }
+            else running.push(i);
+          }
+          if (result === BT_RUNNING && node.succeed === "all" && done.size === node.children.length) result = BT_SUCCESS;
+          if (result === BT_RUNNING && node.children.length === 0) result = node.succeed === "all" ? BT_SUCCESS : BT_FAILURE;
+          if (result !== BT_RUNNING) { for (const i of running) this.halt(node.children[i]); m.done = undefined; }
+          return result;
+        }
+        case "repeat": {
+          // One run of the child per tick: after a SUCCESS the next run starts on the NEXT tick, so a child that succeeds
+          // at once cannot loop forever inside one tick.
+          const m = this.mem(node);
+          const st = this.run(node.children[0]);
+          if (st === BT_FAILURE) { m.count = 0; return BT_FAILURE; }
+          if (st === BT_SUCCESS) {
+            m.count = (m.count ?? 0) + 1;
+            if (node.times !== undefined && m.count >= node.times) { m.count = 0; return BT_SUCCESS; }
+          }
+          return BT_RUNNING;
+        }
         case "wait": {
           const m = this.mem(node);
           m.waited = (m.waited ?? 0) + this.dt;
@@ -2569,17 +2628,19 @@
           return st === BT_RUNNING ? BT_RUNNING : BT_SUCCESS;
         }
       }
-      throw new Error(`bt: unknown node type '${node.type}'; build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+      throw new Error(`bt: unknown node type '${node.type}'; build nodes with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter or bt.succeeder`);
     }
   }
   const bt = {
     SUCCESS: BT_SUCCESS, FAILURE: BT_FAILURE, RUNNING: BT_RUNNING, Tree: BtTree,
     sequence: (...children) => btNode("sequence", { type: "sequence", children: btChildren("sequence", children) }),
     selector: (...children) => btNode("selector", { type: "selector", children: btChildren("selector", children) }),
+    parallel: (...args) => { const [o, children] = btParallelArgs(args); return { type: "parallel", succeed: o.succeed, children }; },
     condition: (fn) => ({ type: "condition", fn: btFn("condition", fn) }),
     action: (fn, hooks = {}) => ({ type: "action", fn: btFn("action", fn), hooks }),
     wait: (seconds) => ({ type: "wait", seconds: btSeconds("wait", seconds) }),
     cooldown: (seconds, child) => ({ type: "cooldown", seconds: btSeconds("cooldown", seconds), children: btChildren("cooldown", [child]) }),
+    repeat: (child, times) => ({ type: "repeat", times: btTimes(times), children: btChildren("repeat", [child]) }),
     inverter: (child) => ({ type: "inverter", children: btChildren("inverter", [child]) }),
     succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
   };
