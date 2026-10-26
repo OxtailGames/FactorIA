@@ -12,6 +12,7 @@
 #include "fa/core/i18n.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/input_recorder.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/serialize.h"
 #include "fa/services/platform.h"
 #include "fa/ui/ui.h"
@@ -130,6 +131,7 @@ struct Engine::Impl {
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;
+    RichTextStyle richStyle;  // the project's "text" section: markup colours, icons, bold faces (empty when absent or broken)
     int pluginSteamDeck = -1;  // what a plugin said about the Steam Deck (plugin API 4): -1 nothing, 0 no, 1 yes
 
     // Hot reload

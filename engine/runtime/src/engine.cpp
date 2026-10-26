@@ -121,6 +121,24 @@ void Engine::Impl::apply_project_settings() {
         audio.set_buses({});
         audio.set_snapshots(AudioSnapshots{});
     }
+    // The rich text style (markup colours, icons, bold faces). A section with errors counts as empty (a [c:name] then shows as
+    // written); the first error is logged here, `factoria validate` lists them all.
+    TextSettingsParse textSettings = parse_text_settings(project.raw.is_object() && project.raw.contains("text") ? project.raw["text"] : Json());
+    for (const TextSettingsIssue& w : textSettings.warnings) FA_WARN("text", "factoria.json#{}: {} {}", w.pointer, w.message, w.hint);
+    if (textSettings.ok()) {
+        richStyle = std::move(textSettings.style);
+    } else {
+        const TextSettingsIssue& first = textSettings.issues.front();
+        const std::string problem = "text: the markup colours, icons and bold faces are ignored: factoria.json#" + first.pointer + ": " +
+                                    first.message + " (hint: " + first.hint + ")" +
+                                    (textSettings.issues.size() > 1 ? " and " + std::to_string(textSettings.issues.size() - 1) +
+                                                                          " more (`factoria validate` lists them all)"
+                                                                    : std::string());
+        FA_WARN("text", "{}", problem.substr(6));
+        startupProblems.push_back(problem);
+        richStyle = RichTextStyle{};
+    }
+    if (renderer) renderer->set_rich_text_style(richStyle);
     // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
     auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
     if (network.ok()) {
@@ -518,6 +536,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             if (config.shaderCompiler) I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
+            I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
                           : std::format("window {}x{} px (dpi scale {})", app_framebuffer_width(), app_framebuffer_height(),
@@ -717,6 +736,7 @@ const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
 PlatformServices* Engine::platform_services() { return &impl_->platform; }
 const I18n* Engine::i18n() { return &impl_->i18n; }
+const RichTextStyle* Engine::rich_text_style() { return &impl_->richStyle; }
 std::string Engine::set_language(std::string_view language) {
     auto switched = impl_->switch_language(language);
     return switched.ok() ? std::string() : switched.error().to_string();

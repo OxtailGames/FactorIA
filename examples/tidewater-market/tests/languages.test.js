@@ -10,7 +10,6 @@ import fr from "../locales/fr.json";
 import zh from "../locales/zh-Hans.json";
 import { LANGUAGES, inLanguage } from "./layout_helper.js";
 import { numberText, compactText, coinsText, villagersText, goodAmountText, amountText, listText, dateText } from "../scripts/game/format.js";
-import { parseMarkup } from "../scripts/game/richtext.js";
 import { newScenarioGame, GoalTracker } from "../scripts/game/scenarios.js";
 import { growTown } from "../scripts/game/bot.js";
 import { getData } from "../scripts/game/data.js";
@@ -72,7 +71,7 @@ test("every string with rich-text markup parses, in every language", () => {
   for (const code of LANGUAGES) {
     for (const [key, text] of flatten(TABLES[code])) {
       if (!markup(text).length) continue;
-      const { errors } = parseMarkup(text);
+      const errors = ui.markupProblems(text);
       if (errors.length) problems.push(`${code} ${key}: ${JSON.stringify(errors)}`);
     }
   }

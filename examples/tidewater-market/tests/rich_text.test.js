@@ -1,52 +1,30 @@
-// The markup of the cards and the order board (scripts/game/richtext.js, trade_text.js): parsing, layout and the text of effects.
-// Pure functions: the width of a string is 10 px per character here, so the numbers are easy to check.
+// The markup of the cards and the order board: the engine reads it (Text.markup, the `text` section of factoria.json); the game
+// writes it (trade_text.js) and checks it (ui.markupProblems).
 import { test, expect } from "factoria:test";
+import { ui } from "factoria";
 import en from "../locales/en.json";
-import { parseMarkup, layoutRich, plainText, colorOf } from "../scripts/game/richtext.js";
+import project from "../factoria.json";
+import atlas from "../data/atlas.json";
 import { effectsMarkup, signedMarkup, orderGoodsMarkup } from "../scripts/game/trade_text.js";
 
-const measure = (s) => s.length * 10;
-const lay = (markup, maxWidth = 400) => layoutRich(parseMarkup(markup).tokens, { maxWidth, fontSize: 20, measure });
-
-test("markup: bold, colours, pictures, a literal bracket and line breaks", () => {
-  const { tokens, errors } = parseMarkup("A [b]fair[/b] [c:good]deal[/c] [icon:wood] [[ok]\nnext");
-  expect(errors).toEqual([]);
-  expect(tokens.filter((t) => t.kind === "icon")).toEqual([{ kind: "icon", name: "wood" }]);
-  expect(tokens.find((t) => t.kind === "text" && t.text === "fair").bold).toBe(true);
-  expect(tokens.find((t) => t.kind === "text" && t.text === "deal").color).toBe("good");
-  expect(tokens.some((t) => t.kind === "br")).toBe(true);
-  expect(plainText("A [b]fair[/b] [icon:wood] [[x")).toBe("A fair [wood] [x");
+test("markup problems are reported with how to fix them, and the project's colours and icons are known", () => {
+  expect(ui.markupProblems("A [b]fair[/b] [c:good]deal[/c] [icon:wood] [[ok]")).toEqual([]);
+  expect(ui.markupProblems("hello [c:gren]world[/c]").join("\n")).toContain("gren");
+  expect(ui.markupProblems("[icon:wod]").join("\n")).toContain("wod");
+  expect(ui.markupProblems("[oops]").join("\n")).toContain("oops");
+  expect(ui.markupProblems("[b]open").join("\n")).toContain("[b]");
 });
 
-test("a typo in a tag is reported with its position and the text is kept visible", () => {
-  const bad = parseMarkup("hello [c:gren]world[/c] [oops] [b]open");
-  expect(bad.errors.join("\n")).toContain("unknown colour 'gren'");
-  expect(bad.errors.join("\n")).toContain("unknown tag [oops]");
-  expect(bad.errors.join("\n")).toContain("[b] is never closed");
-  expect(plainText("hello [c:gren]world[/c]")).toContain("world");
-  expect(colorOf("#ff0000")).toEqual([1, 0, 0, 1]);
-  expect(colorOf("nope")).toBe(null);
-});
-
-test("layout: lines break at spaces, never inside a word, and a number stays glued to its picture", () => {
-  const one = lay("one two three four", 120); // 12 characters per line
-  expect(one.lines).toBe(2);
-  expect(one.items.map((i) => i.text)).toEqual(["one two", "three four"]);
-  const glued = lay("aaaaaaaa +12[icon:wood]", 120);
-  // "+12" and the picture never part: they go to the next line together
-  const num = glued.items.find((i) => i.kind === "text" && i.text === "+12");
-  const icon = glued.items.find((i) => i.kind === "icon");
-  expect(icon.y).toBe(num.y + 3); // centred on the line: (27 - 21) / 2
-  expect(icon.x).toBe(num.x + num.w);
-  expect(glued.lines).toBe(2);
-  expect(lay("short", 400).height).toBe(27);
-  expect(lay("a\nb\nc").lines).toBe(3);
-});
-
-test("layout: CJK text breaks between characters, and a closing mark never starts a line", () => {
-  const cjk = lay("港口的船来了。港口的船走了。", 70); // 7 characters per line
-  expect(cjk.lines).toBeGreaterThan(1);
-  for (const item of cjk.items) expect("。、".includes(item.text[0])).toBe(false);
+test("the icons of factoria.json are the icon frames of the atlas", () => {
+  // data/atlas.json is made by assets/src/make_atlas.py; the `text.icons` of factoria.json point at the same pixels
+  const frames = Object.entries(atlas.frames).filter(([name]) => name.startsWith("icon."));
+  expect(frames.length).toBeGreaterThan(8);
+  for (const [name, frame] of frames) {
+    const icon = project.text.icons[name.slice(5)];
+    expect([name, icon && icon.texture]).toEqual([name, atlas.texture]);
+    expect([name, icon.region]).toEqual([name, frame.rect]);
+  }
+  expect(Object.keys(project.text.icons).length).toBe(frames.length);
 });
 
 test("effects text: signed amounts with the good's picture, reputation as a star, the next ship's delay", () => {
@@ -68,5 +46,5 @@ test("every event, story and trade text of the English table parses clean", () =
   };
   for (const root of ["event", "story", "trade"]) walk(en[root], root);
   expect(strings.length).toBeGreaterThan(100);
-  for (const [key, text] of strings) expect([key, parseMarkup(text).errors]).toEqual([key, []]);
+  for (const [key, text] of strings) expect([key, ui.markupProblems(text)]).toEqual([key, []]);
 });

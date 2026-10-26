@@ -157,6 +157,8 @@ struct Text {
     bool autoShrink = false;          // shrink the font (down to minFontSize) until the text fits maxWidth x maxHeight
     float minFontSize = 10.0f;        // autoShrink never goes under this font size (before ui.textScale)
     float maxTextScale = 0.0f;        // > 0: ui.textScale stops growing this text at this scale (screen space); 0 = no cap
+    bool markup = false;              // true: [b], [c:colour] and [icon:name] in `text` are tags (fa/scene/rich_text.h)
+    bool bold = false;                // true: the whole text is bold (the project's bold face, else emboldened by the engine)
     std::int32_t layer = 100;
     RenderSpace space = RenderSpace::World;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
@@ -314,6 +316,8 @@ struct Button : UiControl {
     bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Button() { size = {240, 56}; }
 };
 
@@ -324,6 +328,8 @@ struct Toggle : UiControl {
     bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits beside the box
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Toggle() { size = {240, 40}; }
 };
 
@@ -341,6 +347,8 @@ struct Slider : UiControl {
     bool autoSize = false;                    // grow to fit the label and value text (at least `size`), at the current ui.textScale
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits its zone
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Slider() { size = {320, 40}; }
 };
 
@@ -396,6 +404,8 @@ struct TouchButton : UiBox {
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
     float maxTextScale = 0.0f;                // > 0: ui.textScale stops growing the label at this scale; 0 = no cap
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Color textColor{1, 1, 1, 0.9f};
     bool touchOnly = true;
     bool pressed = false;                     // runtime: a finger holds it

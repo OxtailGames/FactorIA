@@ -81,8 +81,6 @@ export function layoutProblems({ ignore = [], only = "" } = {}) {
       const rb = b.rect;
       if (!(ra.x < rb.x + rb.w - 1 && rb.x < ra.x + ra.w - 1 && ra.y < rb.y + rb.h - 1 && rb.y < ra.y + ra.h - 1)) continue;
       if (up.has(b.e) || ancestors(b.e).has(a.e)) continue;
-      // RichView draws bold as the same text twice, one pixel apart: not an overlap
-      if (a.text === b.text && Math.abs(ra.x - rb.x) <= 1.5 && Math.abs(ra.y - rb.y) <= 1.5) continue;
       lines.push(`overlap ${a.id} "${a.text.slice(0, 30)}" with ${b.id} "${b.text.slice(0, 30)}"`);
     }
   }

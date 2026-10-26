@@ -221,19 +221,22 @@
       "severity": "minor",
       "title": "No rich text or inline icons in a Text or Button label",
       "missing": "A goods line such as '[wood icon] 12 / 40' or a cost with coloured missing items needs several colours and a sprite inside one line. A Text has one colour and no inline sprites, so every line is a pool of separate labels and icons laid out in rows. (P3) Event cards and orders (P5) need lines like '+40 [coin icon]  -4 [planks icon]' with green and red numbers and bold words that wrap with the text; Text has one colour, one font weight and no inline pictures.",
-      "workaround": "P3: rows of icon Sprite + Text children in a row-layout Panel (cost lines, tooltip lines each in one colour, goods table cells). P5: a small markup ([b], [c:..], [icon:..]) parsed and laid out with ui.measureText, line breaking included (CJK too), drawn as a pool of Text and Sprite entities per line piece; bold is the text drawn twice 1 px apart. About 400 lines of JS plus tests.",
+      "workaround": "Fixed in the engine (M31.8): Text.markup (and Button.markup) reads [b], [c:..] and [icon:name], the colours and icons are the `text` section of factoria.json, and the engine wraps and measures the runs (CJK too). The card and board lines of trade_ui.js are now one Text each; the 400-line markup parser, layout and entity pool (richtext.js, rich_view.js) were deleted. P3's cost and tooltip rows still use icon Sprite + Text children in a row-layout Panel (they work and are not text that wraps).",
       "workaroundFiles": [
+        "factoria.json",
         "scripts/game/ui_kit.js",
         "scripts/game/ui_hud.js",
-        "scripts/game/richtext.js",
-        "scripts/game/rich_view.js",
+        "scripts/game/trade_ui.js",
         "scripts/game/trade_text.js",
         "tests/rich_text.test.js"
       ],
       "suggestion": "Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine and drawn as one batch (or a runs: [{text, color} | {sprite}] field).",
       "effort": "large",
       "occurrences": 2,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-26 (M31.8): Text.markup, Button.markup and the project `text` section (colors, icons, fonts bold) exist. The glyphs of a line, whatever their colour or weight, are one draw call; each icon texture adds one batch."
+      ]
     },
     {
       "id": "FB-0011",
@@ -514,14 +517,15 @@
       "severity": "minor",
       "title": "No bold or font weight for Text",
       "missing": "Emphasis in a card body (a good's name, an amount) needs a heavier face; Text only has fontSize and color.",
-      "workaround": "Drawing the run twice with a 1 px offset (fake bold). It blurs at small sizes and doubles the entities.",
+      "workaround": "Fixed in the engine (M31.8): [b] in a Text with markup, and Text.bold, use the bold face a project lists next to a font (factoria.json text.fonts.<font>.bold); a font with none is emboldened by the engine, and `factoria validate` suggests adding a bold file. Tidewater Market has no bold font file in the repository, so it relies on the engine's emboldening.",
       "workaroundFiles": [
-        "scripts/game/rich_view.js"
+        "factoria.json",
+        "scripts/game/trade_ui.js"
       ],
       "suggestion": "A Text.weight or a bold font slot in the project font settings.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0032",

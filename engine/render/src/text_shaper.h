@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/scene/rich_text.h"
 #include "font_internal.h"
 
 namespace fa::render {
@@ -17,6 +18,8 @@ struct ShapedGlyph {
     std::uint32_t cluster = 0;  // index of the first code point it draws, in the decoded text (decode_text)
     float x = 0, y = 0;         // origin in pixels: x from the left end of the line, y up from the baseline
     float advance = 0;
+    int icon = -1;       // >= 0: not a glyph but the picture icons[icon] of the rich text (face is null), `advance` wide
+    bool synth = false;  // draw it emboldened by the engine (no bold face has this character)
 };
 
 struct ShapedLine {
@@ -36,5 +39,18 @@ struct ShapedText {
 // asked for only when a character needs them, so a fallback font nobody needs is never loaded.
 ShapedText shape_text(std::string_view text, int px, float maxWidth, std::size_t chainSize,
                       const std::function<FontFace*(std::size_t)>& chain);
+
+// Rich text (Text.markup, Text.bold) for the shaper. `attrs` has one entry per code point of the text; a code point whose
+// attr names an icon is shaped as a picture `iconAdvance[icon]` pixels wide (and as tall as the line).
+struct RichShaping {
+    const std::vector<MarkupAttr>* attrs = nullptr;
+    std::vector<float> iconAdvance;                 // pixels, by attr.icon
+    std::function<FontFace*(FontFace*)> boldFace;   // the bold face of a font, or null when the project gives it none
+    float syntheticExtra = 0.0f;                    // pixels a character emboldened by the engine is wider
+};
+
+// The same on code points already decoded (decode_text) and read as markup; `rich` may be null.
+ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
+                      const std::function<FontFace*(std::size_t)>& chain, const RichShaping* rich);
 
 }  // namespace fa::render

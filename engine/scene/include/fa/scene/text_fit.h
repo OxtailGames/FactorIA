@@ -18,9 +18,16 @@
 
 namespace fa {
 
+// How a text is read: Text.markup (tags are not characters) and Text.bold. Part of what a measurement depends on.
+struct TextStyle {
+    bool markup = false;
+    bool bold = false;
+    bool operator==(const TextStyle&) const = default;
+};
+
 // Size {w, h} of `text` laid out with `font` ("" = built-in) at the font size `px` (final pixels, no text scale applied),
-// wrapped at `wrap` (> 0). The renderer's layout, or approx_text_size without one.
-using TextExtent = std::function<Vec2(const std::string& text, const std::string& font, float px, float wrap)>;
+// wrapped at `wrap` (> 0), read as `style` says. The renderer's layout, or approx_text_size without one.
+using TextExtent = std::function<Vec2(const std::string& text, const std::string& font, float px, float wrap, TextStyle style)>;
 
 // The text scale that applies to a text with this cap: min(textScale, maxTextScale), or textScale when maxTextScale <= 0.
 float effective_text_scale(float textScale, float maxTextScale);
@@ -34,6 +41,7 @@ struct TextFitSpec {
     bool followsTextScale = true; // false: world-space Text, which ui.textScale does not touch
     float wrap = 0.0f;            // > 0 wraps lines at this width (design pixels)
     float boxW = 0.0f, boxH = 0.0f;  // the box the text must fit, 0 = that axis is not checked
+    TextStyle style;              // Text.markup / Text.bold of the text
 };
 
 struct TextFit {

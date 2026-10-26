@@ -896,6 +896,55 @@ constexpr const char* kSchemaText =
       }
     },
 )JSON"
+    R"JSON(    "text": {
+      "type": "object",
+      "description": "Rich text (docs/TEXT.md, \"Rich text\"): what a Text with `markup: true` (and the label of a Button, Toggle, Slider or TouchButton with it) can name, and the bold face of each font. `[c:good]` reads `colors.good`, `[icon:fish]` reads `icons.fish`, `[b]` and `bold: true` use `fonts.<font>.bold`. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "colors": {
+          "type": "object",
+          "description": "Named colours for `[c:name]`. A tag may also use a built-in colour name (\"red\") or #rgb / #rrggbb / #rrggbbaa without being declared. A run colour replaces the colour of the Text (its alpha still multiplies the Text's alpha). Example: {\"good\": \"#80dc80\", \"bad\": [1, 0.48, 0.42, 1]}. Names are letters, digits, '_', '-' and '.'.",
+          "additionalProperties": {
+            "description": "A colour: \"#rrggbb\", \"#rrggbbaa\", a colour name, or [r, g, b, a] with components 0 to 1."
+          }
+        },
+        "icons": {
+          "type": "object",
+          "description": "Pictures for `[icon:name]`: a rectangle of a project texture, drawn inline as tall as the line of text. Example: {\"fish\": {\"texture\": \"assets/atlas.png\", \"region\": [0, 0, 32, 32]}}.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One icon.",
+            "properties": {
+              "texture": {
+                "type": "string",
+                "description": "Project-relative path of the image the icon is a part of."
+              },
+              "region": {
+                "type": "array",
+                "description": "[x, y, width, height] in pixels of the texture, from its top-left corner (width and height at least 1). The icon is drawn as tall as the line and as wide as the region's proportions say.",
+                "items": { "type": "number" },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            }
+          }
+        },
+        "fonts": {
+          "type": "object",
+          "description": "The bold face of each font, keyed by the font as a Text names it: a project path such as \"assets/fonts/Body-Regular.ttf\", \"builtin:pixel\" or \"\" (the built-in font). `[b]` and `Text.bold` use it for the glyphs it has; a font with no entry (or a glyph its bold face lacks) is emboldened by the engine, which looks heavier but never as good as a drawn face. `factoria validate` suggests adding one for a font that markup or bold uses.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One font.",
+            "properties": {
+              "bold": {
+                "type": "string",
+                "description": "Project-relative path of the bold font file (.ttf or .otf)."
+              }
+            }
+          }
+        }
+      }
+    },
+)JSON"
     R"JSON(    "localization": {
       "type": "object",
       "description": "Languages of the game (docs/LOCALIZATION.md). Each language has a string table locales/<language>.json; Text.key and the widgets' key fields, `i18n.t(key, args)` in scripts and the i18n.* commands read them. Without this section localization is off and the game behaves as it always did. Headless runs (tests, the MCP server, `factoria call`) and the editor always use defaultLanguage; a game in its own window or an exported game starts in the language of the player's system that best matches `languages`, unless the environment variable FA_LANGUAGE names one. `factoria validate` reports every problem with how to fix it.",

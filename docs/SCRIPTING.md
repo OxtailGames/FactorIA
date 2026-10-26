@@ -728,11 +728,15 @@ A studio intro that any button skips: [MENUS.md](MENUS.md).
 - `ui.overflowed(entityOrId)` → `true` when the text of a `Text` with a box (`maxWidth` / `maxHeight`) or the label of a
   Button, Toggle, Slider or TouchButton still does not fit at the size it is drawn at (after `ui.textScale`,
   `maxTextScale` and `autoShrink`). See [TEXT.md](TEXT.md), "Text that fits".
-- `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight })` →
+- `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` →
   `{ width, height, fontSize }` laid out exactly like `Text` rendering
   (shaped, wrapped, with the fallback fonts). `space` is `"screen"` (default: HUD text and widget labels, measured at the
   size the player's text size option makes it) or `"world"`. Headless runs approximate (0.6 × fontSize per character,
-  times `ui.textScale` for `"screen"`) and warn once.
+  times `ui.textScale` for `"screen"`) and warn once. `markup` and `bold` are the `Text` fields of the same names
+  ([TEXT.md](TEXT.md), "Rich text").
+- `ui.markupProblems(text)` → `string[]`: what is wrong with the `[b]`, `[c:name]` and `[icon:name]` tags of `text`
+  (unknown tag, `[` without `]`, unclosed tag, a colour or icon the project's `text` section lacks), `[]` when clean.
+  A test can walk the strings of the game and fail with the list.
 - `ui.textScale` (get / set, 0.5 to 3, default 1) is the player's text size option: screen-space `Text` and the labels of
   Button, Toggle, Slider and TextField are drawn and measured at `fontSize * ui.textScale`; world-space `Text` is never
   scaled. A value outside the range throws. The engine does not save it (keep it in `storage`), and each test file starts
