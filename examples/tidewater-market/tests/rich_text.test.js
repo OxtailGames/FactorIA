@@ -50,7 +50,7 @@ test("layout: CJK text breaks between characters, and a closing mark never start
 });
 
 test("effects text: signed amounts with the good's picture, reputation as a star, the next ship's delay", () => {
-  const t = (key, args) => `${key}:${args && args.n}`;
+  const t = (key, args) => `${key}:${args && (args.count ?? args.n)}`;
   expect(signedMarkup("coins", -40)).toBe("[c:bad]-40[/c][icon:coin]");
   expect(signedMarkup("wood", 4)).toBe("[c:good]+4[/c][icon:wood]");
   expect(effectsMarkup({ delta: { coins: -20, fish: 5 }, reputation: 2, shipDelay: 2 }, t)).toBe(

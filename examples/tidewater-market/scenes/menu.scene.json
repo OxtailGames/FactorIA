@@ -58,6 +58,7 @@
               "text": "Tidewater Market",
               "key": "menu.title",
               "fontSize": 64,
+              "maxTextScale": 1.5,
               "space": "screen",
               "layer": 210
             }
@@ -73,7 +74,8 @@
               "fontSize": 22,
               "space": "screen",
               "layer": 210,
-              "maxWidth": 520
+              "maxWidth": 520,
+              "maxTextScale": 1.5
             }
           }
         },

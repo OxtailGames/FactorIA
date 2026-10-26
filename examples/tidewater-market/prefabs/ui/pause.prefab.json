@@ -33,7 +33,8 @@
                 "key": "pause.title",
                 "fontSize": 40,
                 "layer": 301,
-                "space": "screen"
+                "space": "screen",
+                "maxTextScale": 1.25
               }
             }
           },
@@ -45,7 +46,8 @@
                 "text": "Resume",
                 "key": "pause.resume",
                 "layer": 302,
-                "autoFocus": true
+                "autoFocus": true,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -56,7 +58,8 @@
                 "autoSize": true,
                 "text": "Options",
                 "key": "menu.options",
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -67,7 +70,8 @@
                 "autoSize": true,
                 "text": "Main menu",
                 "key": "pause.mainMenu",
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           }

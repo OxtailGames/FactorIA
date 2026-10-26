@@ -23,6 +23,11 @@ export const COLORS = {
   rule: [1, 1, 1, 0.14],
 };
 export const FONT = { title: 20, body: 16, small: 14 };
+/**
+ * The panels are laid out for a 1280 x 720 screen, so the text size option stops growing their texts at this scale (maxTextScale);
+ * a button that keeps its size also shrinks a label that still does not fit (autoShrink). A panel that has room for more passes its own cap.
+ */
+export const TEXT_CAP = 1.5;
 
 // ---- UI scale ------------------------------------------------------------------------------------------------------------------
 
@@ -96,7 +101,7 @@ export function label(id, parent, text, props = {}) {
   const { position = [0, 0, 0], ...rest } = props;
   const spec = {
     id,
-    components: { Transform: { position }, Text: { text, fontSize: FONT.body, space: "screen", layer: LAYER.panel + 5, color: COLORS.text, ...rest } },
+    components: { Transform: { position }, Text: { text, fontSize: FONT.body, space: "screen", layer: LAYER.panel + 5, color: COLORS.text, maxTextScale: TEXT_CAP, ...rest } },
   };
   const entity = world.spawn(spec, parent ? { parent } : undefined);
   if (rest.maxWidth) track(entity, "Text", { maxWidth: rest.maxWidth }); // the wrap width grows with the UI scale, like the boxes
@@ -108,7 +113,7 @@ export function button(id, parent, text, props = {}) {
   const { position = [0, 0, 0], ...rest } = props;
   const spec = {
     id,
-    components: { Transform: { position }, Button: { text, size: [120, 30], fontSize: FONT.body, layer: LAYER.panel + 5, color: COLORS.button, ...rest } },
+    components: { Transform: { position }, Button: { text, size: [120, 30], fontSize: FONT.body, layer: LAYER.panel + 5, color: COLORS.button, autoShrink: true, minFontSize: 8, maxTextScale: TEXT_CAP, ...rest } },
   };
   const entity = world.spawn(spec, parent ? { parent } : undefined);
   track(entity, "Button", { size: rest.size || [120, 30] });

@@ -30,9 +30,8 @@ import { Bot } from "./bot.js";
 import { SPEEDS } from "./clock.js";
 import { footprintCells, roadPath } from "./rules.js";
 import { cellToWorld, mapBounds } from "./iso.js";
-import { amountText, buildingName, dateText, reasonText, stepText } from "./format.js";
+import { amountText, buildingName, compactText, dateText, reasonText, stepText } from "./format.js";
 import { Hud } from "./ui_hud.js";
-import { formatCompact } from "./ui_model.js";
 
 const COLOR_BUTTON = [0.17, 0.21, 0.28, 1];
 const COLOR_BUTTON_ACTIVE = [0.33, 0.52, 0.72, 1];
@@ -170,7 +169,7 @@ export default class GameController extends Behaviour {
     this.speedButtons = [];
     SPEED_LABELS.forEach((label, i) => {
       const e = this.world.spawn(
-        { id: `speed_${i}`, components: { Button: { text: i18n.t(label), size: [50, 30], fontSize: 16, layer: 210, color: COLOR_BUTTON } } },
+        { id: `speed_${i}`, components: { Button: { text: i18n.t(label), size: [50, 30], fontSize: 16, layer: 210, color: COLOR_BUTTON, autoShrink: true, minFontSize: 8, maxTextScale: 1.5 } } },
         { parent: this.speedBar },
       );
       this.speedButtons.push(e);
@@ -214,13 +213,13 @@ export default class GameController extends Behaviour {
   /** Write the numbers into the bar; a Text is only touched when its string changed. */
   refreshHud(force = false) {
     const eco = this.state.economy;
-    const coins = formatCompact(eco.coins);
+    const coins = compactText(eco.coins);
     if (force || coins !== this.shown.coins) {
       this.shown.coins = coins;
       this.coinsText.get("Text").text = coins;
     }
     for (const id of Object.keys(this.goodTexts)) {
-      const n = formatCompact(Math.floor(eco.get(id)));
+      const n = compactText(Math.floor(eco.get(id)));
       if (force || n !== this.shown.goods[id]) {
         this.shown.goods[id] = n;
         this.goodTexts[id].get("Text").text = n;
@@ -232,8 +231,9 @@ export default class GameController extends Behaviour {
       this.dateTextEntity.get("Text").text = date;
     }
     const sum = this.state.sim.summary();
-    let pop = i18n.t("hud.popItem", { count: formatCompact(sum.population), housing: formatCompact(sum.housing) });
-    if (sum.hungry > 0) pop += `  ${i18n.t("ui.hungryShort", { count: formatCompact(sum.hungry) })}`;
+    let pop = i18n.t("hud.popItem", { count: compactText(sum.population), housing: compactText(sum.housing) });
+    this.popBase = pop; // fitTopBar falls back to this when the hungry count does not fit beside the date
+    if (sum.hungry > 0) pop += `  ${i18n.t("ui.hungryShort", { count: sum.hungry, shown: compactText(sum.hungry) })}`;
     if (force || pop !== this.shown.pop) {
       this.shown.pop = pop;
       this.popText.get("Text").text = pop;
@@ -264,6 +264,7 @@ export default class GameController extends Behaviour {
       }
     };
     ids.forEach((id) => show(id, true));
+    if (this.shown.pop && this.popText.get("Text").text !== this.shown.pop) this.popText.get("Text").text = this.shown.pop;
     ui.layout();
     const date = ui.rectOf(this.dateTextEntity);
     // the last item of the row: items other packages add after the villagers (reputation) come last
@@ -273,6 +274,11 @@ export default class GameController extends Behaviour {
     const right = () => ui.rectOf(lastItem).x + ui.rectOf(lastItem).w;
     for (let n = ids.length - 1; n >= 0 && right() > limit; n--) {
       show(ids[n], false);
+      ui.layout();
+    }
+    // with every good hidden the row can still be too long (a long language, a large text size, hundreds hungry): drop the hungry count
+    if (right() > limit && this.popBase && this.popText.get("Text").text !== this.popBase) {
+      this.popText.get("Text").text = this.popBase;
       ui.layout();
     }
   }
@@ -448,6 +454,7 @@ export default class GameController extends Behaviour {
     this.state.clock.advance(Math.min(dt, MAX_FRAME), MAX_STEPS_PER_FRAME);
     this.walkerView.update();
     this.soundscape.update(dt);
+    if (this.goalPanel) this.goalPanel.place();
 
     this.keys();
     const onUi = this.overUi(m);
@@ -678,7 +685,7 @@ export default class GameController extends Behaviour {
     const def = this.data.buildings[b.type];
     const rt = this.state.sim.rt.get(b.id);
     const name = buildingName(b.type);
-    if (rt && def.housing) return i18n.t("status.house", { name, c, r, count: rt.residents.length, cap: def.housing });
+    if (rt && def.housing) return i18n.t("status.house", { name, c, r, n: rt.residents.length, count: def.housing, cap: def.housing });
     if (rt && def.workers) {
       const state = rt.stall && def.recipes && def.recipes.length ? i18n.t(`sim.stall.${rt.stall}`) : i18n.t("sim.running");
       return i18n.t("status.work", { name, c, r, present: rt.present, workers: def.workers, state });

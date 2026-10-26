@@ -14,7 +14,7 @@ export const MIX_BUSES = ["master", "music", "ambience", "sfx", "ui"];
 /** The choices of the UI scale option (widget sizes: icons, buttons, rules, paddings). */
 export const UI_SCALES = [1, 1.25, 1.5];
 /** The choices of the text size option. */
-export const TEXT_SCALES = [1, 1.25, 1.5];
+export const TEXT_SCALES = [1, 1.25, 1.5, 2];
 
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
