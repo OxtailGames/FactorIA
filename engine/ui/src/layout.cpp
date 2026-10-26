@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "fa/core/log.h"
+#include "fa/scene/text_fit.h"
 #include "ui_internal.h"
 
 namespace fa {
@@ -154,7 +155,8 @@ Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
     if (t.maxWidth > 0 && label.x > t.maxWidth) label = label_extent(m, t.label, t.font, t.fontSize, t.maxWidth, t.maxTextScale);
     if (label.x <= 0) return design;
     const float h = std::max(design.y, std::ceil(label.y + 16.0f));
-    return {std::max(design.x, std::ceil(h + 16.0f + label.x)), h};  // 6 margin + (h - 12) box + 10 gap + label + 12 margin
+    const float side = ui_toggle_box_side(t, h, m.textScale);
+    return {std::max(design.x, std::ceil(side + 28.0f + label.x)), h};  // 6 margin + box + 10 gap + label + 12 margin
 }
 
 Vec2 fitted_size(const Slider& s, Vec2 design, const VisualMeasure& m) {

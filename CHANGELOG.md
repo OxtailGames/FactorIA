@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A wrapped text measures its widest line; a Toggle's box follows the font size
+
+- With a renderer a wrapped text was at least as wide as its `maxWidth`, so `ui.overflowed`, `ui.check_layout` and
+  `autoShrink` flagged and shrank a short label for nothing, while headless measured the widest line. Both measure the
+  widest line now, so a layout test and the window agree. A wrapped Text with a pivot or centre alignment is placed by that
+  width, so it can sit a little differently than before.
+- A Toggle's box is one line of its label high (`fontSize` at the player's text size, times 1.2, plus 4 px), no longer the
+  widget's height minus 12: a two-line label or a taller toggle keeps the same box. `Toggle.autoShrink` and `minFontSize`
+  fit the label into the room right of that box.
+
 Web, Android and iOS players are checked against the engine build
 
 - `factoria export` compared only a desktop player with its own build. It now compares the web player
@@ -12,13 +22,6 @@ Web, Android and iOS players are checked against the engine build
   A web export with no `--player` takes the player whose build matches, the checkout's `build/web-release` before the
   installed one. A script that imports an export the player lacks, or calls a method of the engine's objects it lacks,
   now gets an error naming the module and the missing export and saying the player may be older than the game's engine.
-
-Web exports download the game's code once
-
-- The page of a web export handed the downloaded wasm to the player through `Module.wasmBinary`, which Emscripten 6 no
-  longer reads, so the browser fetched the 8 MB file a second time on every load. It now uses `Module.instantiateWasm`:
-  one download, with the progress bar, and a plain error when the browser cannot compile it. Re-export a web game to get
-  the new page.
 
 A UI hit test, a virtual pointer, the consumed wheel and an empty focus
 
@@ -31,6 +34,13 @@ A UI hit test, a virtual pointer, the consumed wheel and an empty focus
   `ui.wheelConsumed` is true, so a camera that zooms with the wheel needs no check of its own.
 - `ui.focus(null)` holds until the next arrow / D-pad press: an open panel's `autoFocus` no longer takes the focus back
   on the next frame.
+
+Web exports download the game's code once
+
+- The page of a web export handed the downloaded wasm to the player through `Module.wasmBinary`, which Emscripten 6 no
+  longer reads, so the browser fetched the 8 MB file a second time on every load. It now uses `Module.instantiateWasm`:
+  one download, with the progress bar, and a plain error when the browser cannot compile it. Re-export a web game to get
+  the new page.
 
 Versions for the script API
 

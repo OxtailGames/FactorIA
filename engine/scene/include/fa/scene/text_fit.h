@@ -63,7 +63,13 @@ struct UiLabel {
     Rect zone;                    // where the label sits: Button margins, right of a Toggle's box, a Slider's label zone...
 };
 // nullopt for a widget without a label (Panel, ScrollList, TextField, TouchStick, Captions).
-std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r);
+// `textScale` is the player's text size: a Toggle's box follows the font size, so the label's zone depends on it.
+std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float textScale = 1.0f);
+
+// The side of a Toggle's check box in a widget `height` pixels high: one line of its label (the font size at the player's
+// text size, capped by maxTextScale, times 1.2, plus 4), never more than the height minus the 6 px margins. A wrapped label
+// or a taller widget does not make the box bigger.
+float ui_toggle_box_side(const Toggle& t, float height, float textScale);
 
 struct UiLabelFit {
     UiLabel label;

@@ -458,7 +458,9 @@ public:
     // wrapping at t.maxWidth local units; glyphs are rasterized at fontSize * pixelsPerUnit pixels (4..400). Quads and
     // size are in local units, y up, with t.pivot and t.align applied. t.fontSize is NOT read: the caller scales it
     // (screen-space Text and UI labels multiply it by the text scale).
-    TextLayout layout(const Text& t, float fontSize, float pixelsPerUnit);
+    // `tightBox`: the lines of a wrapped Text are aligned inside its widest line, not inside the maxWidth box (UI labels:
+    // their size is the box they are placed by).
+    TextLayout layout(const Text& t, float fontSize, float pixelsPerUnit, bool tightBox = false);
     // The fonts every Text falls back to after its own font; the built-in DejaVu Sans stays last. Project paths, or
     // "builtin:pixel". Takes effect on the next layout.
     void set_fallback_fonts(std::vector<std::string> fonts);

@@ -107,7 +107,7 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.maxWidth = maxWidth;
     t.align = align;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
-    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale), c.f.renderScale);
+    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale), c.f.renderScale, true);
 }
 
 // The font size of the label of widget `e` in rectangle `r`: autoShrink decides it from the laid-out size (fit_text, the same
@@ -283,8 +283,8 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
             text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, clip);
     } else if (kind == UiKind::Toggle) {
         const Toggle& t = *world.get<Toggle>(e);
-        const float side = std::max(0.0f, r.h - 12.0f);
-        const Rect box{r.x + 6, r.y + 6, side, side};
+        const float side = ui_toggle_box_side(t, r.h, c.f.textScale);
+        const Rect box{r.x + 6, r.y + (r.h - side) * 0.5f, side, side};
         fill(c, layer, box, with_alpha(t.textColor, 0.25f), c.clip);
         outline(c, layer, box, 2, t.textColor);
         if (t.value) fill(c, layer, Rect{box.x + 5, box.y + 5, std::max(0.0f, side - 10), std::max(0.0f, side - 10)}, t.accentColor, c.clip);
