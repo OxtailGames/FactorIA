@@ -966,8 +966,9 @@ export class Hud {
       }
     }
     if (this.overlay === "traffic" && this.overlayClock > 1) this.overlayDirty = true;
-    // the camera's wheel must not zoom the map under a panel, and the goods table scrolls with it
-    this.rig.wheelBlocked = this.over(m) || this.cardOpen();
+    // the camera's wheel does not zoom the map under a panel (the engine: ui.pointerOverUi, and a ScrollList keeps the wheel it
+    // scrolls with), nor behind the modal event card, which covers only part of the screen
+    this.rig.wheelBlocked = this.cardOpen();
     this.updateChipDrag(m);
     this.placeInspector();
     this.placeCentred();

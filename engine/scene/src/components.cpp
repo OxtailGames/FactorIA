@@ -1168,8 +1168,9 @@ void register_builtin_components(TypeRegistry& r) {
         auto list = r.add<ScrollList>("ScrollList",
                   "Scrolling container: its children are stacked in a column (aligned left, packed at the top) at "
                   "-scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED "
-                  "to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), "
-                  "and focusing a widget inside scrolls just enough to show it.",
+                  "to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) "
+                  "when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for "
+                  "the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.",
                   "UI");
         ui_box_fields(list)
             .field("spacing", &ScrollList::spacing, "Gap in design pixels between children.").range(0, 10000)

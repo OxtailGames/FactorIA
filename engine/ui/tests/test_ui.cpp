@@ -1514,3 +1514,140 @@ TEST_CASE("ui textfield: the web pastes on the paste event, not on the V key") {
     t.frame();
     CHECK(f.text == "hi");
 }
+
+// ------------------------------------------------------------------------------- hit test, pointer, wheel, focus --
+TEST_CASE("ui widget_at: the topmost widget, a Panel, nothing over empty space or a row a ScrollList clips") {
+    Ui t;
+    Entity panel = t.add<Panel>("panel", {10, 10}, {200, 100});
+    Entity under = t.button("under", {20, 20}, {60, 30}, panel);
+    Entity over = t.button("over", {50, 20}, {60, 30}, panel);  // made later: wins where they overlap
+    t.w.get<Button>(over)->layer = t.w.get<Button>(under)->layer;
+    auto at = [&](float x, float y) { return ui_widget_at(t.w, t.design, {x, y}); };
+    CHECK(at(30, 30) == under);
+    CHECK(at(60, 30) == over);
+    CHECK(at(100, 30) == over);
+    CHECK(at(150, 90) == panel);  // the Panel itself
+    CHECK(at(300, 170) == kNullEntity);
+    t.w.get<Button>(under)->layer = 500;  // a higher layer wins over a later entity
+    CHECK(at(60, 30) == under);
+    t.w.get<Button>(under)->interactable = false;  // still a widget
+    CHECK(at(30, 30) == under);
+    t.w.set_active(under, false);
+    CHECK(at(30, 30) == panel);
+    t.w.get<Panel>(panel)->color.a = 0.0f;  // a Panel that draws nothing is not hit
+    CHECK(at(150, 90) == kNullEntity);
+
+    Entity list = t.add<ScrollList>("list", {0, 120}, {100, 50});
+    ScrollList& sl = *t.w.get<ScrollList>(list);
+    sl.padding = {0, 0, 0, 0};
+    sl.spacing = 0;
+    std::vector<Entity> rows;
+    for (int i = 0; i < 4; ++i) rows.push_back(t.button(("row" + std::to_string(i)).c_str(), {0, 0}, {100, 20}, list));
+    t.ui.layout(t.w, t.design, {});
+    CHECK(at(50, 130) == rows[0]);
+    CHECK(at(50, 175) == kNullEntity);  // row 3 is at y 180 and below the list: clipped, and the list ends at 170
+    CHECK(at(50, 169) == rows[2]);
+    sl.scroll = 30;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(at(50, 125) == rows[1]);  // the part of row 0 above the list is clipped; row 1 spans 110..130 and shows from 120
+    CHECK(at(50, 100) == kNullEntity);
+}
+
+TEST_CASE("ui pointer: set_pointer hovers, presses and clicks like the mouse, until it is cleared") {
+    Ui t;
+    Entity a = t.button("a", {10, 10}), b = t.button("b", {150, 10});
+    t.in.on_mouse_move({20, 20});  // the real mouse is over a, but a virtual pointer takes over
+    t.ui.set_pointer({160, 20}, false);
+    t.frame();
+    CHECK(t.ui.hovered() == b);
+    CHECK(t.ui.pointer_over_ui());
+    CHECK(t.events().empty());
+    t.ui.set_pointer({160, 20}, true);
+    t.frame();
+    CHECK(t.ui.focused() == b);
+    CHECK(t.w.get<Button>(b)->pressed);
+    t.ui.set_pointer({160, 20}, false);
+    t.frame();
+    CHECK(t.events() == V{"ui.focus:b", "ui.click:b"});
+    // released away from the button: no click
+    t.ui.set_pointer({160, 20}, true);
+    t.frame();
+    t.ui.set_pointer({100, 100}, false);
+    t.frame();
+    CHECK(t.events() == V{});
+    CHECK(!t.ui.pointer_over_ui());
+    t.ui.clear_pointer();
+    t.frame();
+    CHECK(t.ui.hovered() == a);  // the mouse again
+    CHECK(t.ui.pointer_over_ui());
+    (void)a;
+}
+
+TEST_CASE("ui wheel: a list with more to show consumes it; a short list, a bare spot and the end of the range differ") {
+    Ui t;
+    Entity list = t.add<ScrollList>("list", {0, 0}, {100, 50});
+    ScrollList& sl = *t.w.get<ScrollList>(list);
+    sl.padding = {0, 0, 0, 0};
+    sl.spacing = 0;
+    for (int i = 0; i < 4; ++i) t.button(("i" + std::to_string(i)).c_str(), {0, 0}, {100, 20}, list);
+    Entity shortList = t.add<ScrollList>("short", {150, 0}, {100, 100});
+    t.w.get<ScrollList>(shortList)->padding = {0, 0, 0, 0};
+    t.button("only", {0, 0}, {100, 20}, shortList);
+    t.ui.layout(t.w, t.design, {});
+    t.in.on_mouse_move({50, 25});
+    t.in.on_mouse_wheel(-1);
+    t.frame();
+    CHECK(t.ui.wheel_consumed());
+    CHECK(sl.scroll > 0);
+    // the wheel is spent for the rest of this frame
+    t.in.on_mouse_wheel(-1);
+    t.in.on_mouse_move({50, 25});
+    float seen = -1;
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    seen = t.in.mouse_wheel();
+    CHECK(seen == 0.0f);
+    t.in.begin_frame();
+    // the end of the range: still consumed (the page must not zoom there)
+    sl.scroll = 30;
+    t.ui.layout(t.w, t.design, {});
+    t.in.on_mouse_wheel(-1);
+    t.frame();
+    CHECK(t.ui.wheel_consumed());
+    // a list that fits its content, empty space: the wheel passes through
+    t.in.on_mouse_move({200, 20});
+    t.in.on_mouse_wheel(-1);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    CHECK(!t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == -1.0f);
+    t.in.begin_frame();
+    t.in.on_mouse_move({300, 170});
+    t.in.on_mouse_wheel(-1);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    CHECK(!t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == -1.0f);
+    t.in.begin_frame();
+    t.frame();
+    CHECK(!t.ui.wheel_consumed());
+}
+
+TEST_CASE("ui focus: set_focus(null) holds over frames until a navigation press, which only wakes autoFocus") {
+    Ui t;
+    Entity a = t.button("a", {10, 10}), b = t.button("b", {10, 60});
+    t.w.get<Button>(a)->autoFocus = true;
+    t.frame();
+    CHECK(t.ui.focused() == a);
+    CHECK(t.ui.set_focus(t.w, kNullEntity));
+    t.frame(5);
+    CHECK(t.ui.focused() == kNullEntity);
+    CHECK(!t.w.get<Button>(a)->focused);
+    t.tap_key(Key::Down);  // wakes autoFocus: the press is spent on that
+    CHECK(t.ui.focused() == a);
+    t.tap_key(Key::Down);
+    CHECK(t.ui.focused() == b);
+    // a pointer press focuses and ends the hold too
+    t.ui.set_focus(t.w, kNullEntity);
+    t.frame(2);
+    CHECK(t.ui.focused() == kNullEntity);
+    t.click({20, 20});
+    CHECK(t.ui.focused() == a);
+}

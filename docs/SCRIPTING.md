@@ -733,7 +733,9 @@ entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the one
 - **ScrollList.** Lays its children out as a column and shows the part inside its rectangle: everything drawn by its
   descendants (widgets, `Text`, `Sprite`, `Shape2D`) is clipped to it, and hits outside it do nothing. The mouse wheel
   over it scrolls (`scrollSpeed` pixels per notch) and moving the focus to a child scrolls it into view. `scroll` is
-  the offset in pixels (scripts may write it; it is clamped).
+  the offset in pixels (scripts may write it; it is clamped). A list that has more content than it shows keeps the
+  wheel: `input.mouse.wheel` reads 0 for that frame and `ui.wheelConsumed` is true (see "Pointer, hit test and the
+  wheel" below), so a camera that zooms with the wheel needs no check of its own.
 
 **Focus and navigation.** A widget can have keyboard / gamepad focus when it is a Button, Toggle, Slider or TextField,
 active and `interactable`. Nothing takes focus by itself except one thing: when no widget is focused, the first
@@ -782,9 +784,20 @@ the press is released over the same widget; a Slider follows the pointer while p
 - `ui.layout()` runs the UI layout now, as every frame does: change a label, call it, then read `Button.size`,
   `Panel.size` or `ui.rectOf(...)`. `Panel.usingFallback` tells whether a panel is laid out with its `fallbackLayout`.
 - `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it throws, saying why, when
-  the entity is not a focusable widget, is inactive or has `interactable: false`. `ui.focused` and `ui.hovered`
+  the entity is not a focusable widget, is inactive or has `interactable: false`. `ui.focus(null)` holds: an open
+  panel's `autoFocus` does not take the focus back until the next `ui_up` / `ui_down` / `ui_left` / `ui_right` press
+  (that press only wakes `autoFocus`; it does not also move the new focus). `ui.focused` and `ui.hovered`
   are the focused widget and the one under the pointer (Entity or `null`): check `ui.hovered` so a click meant for a
   button does not also fire the gun.
+- **Pointer, hit test and the wheel.** `ui.widgetAt(x, y)` is the topmost visible widget at a screen point (design
+  pixels, y down) or `null`: a Button, Toggle, Slider, TextField, ScrollList, Panel (one that draws something: alpha 0
+  with no texture is skipped), a shown TouchStick / TouchButton. Topmost is the highest `layer`, then the entity made
+  last. What a ScrollList clips away at that point, an inactive widget and empty space give `null`; a widget with
+  `interactable: false` is returned (check the component). `ui.pointerOverUi` says the same for the pointer at this
+  frame's UI update: a game's own click or zoom skips when it is true. `ui.setPointer(x, y, { down })` replaces the
+  mouse for the UI from the next frame on (hover, press, Slider drag, click on release, the wheel's target) until
+  `ui.setPointer(null)`; use it for a gamepad cursor and in tests. `ui.wheelConsumed` is true on a frame whose wheel
+  scrolled a ScrollList (`input.mouse.wheel` reads 0 then).
 - The command `ui.state` returns what is on screen: every widget with its `id`, `kind`, `rect` `[x, y, w, h]`,
   `focused`, `hovered`, `pressed`, `interactable`, `visible` and `value` / `text`, in reading order. Use it to find what
   to click (`game.input` with `mouse.position`) or which widget has the focus.
