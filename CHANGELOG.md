@@ -11,7 +11,9 @@ Split screen: camera viewports
   and 3D lights, and `clear` per camera. Two or more cameras make a split screen (two or four players) or an inset. The UI and every
   `space: "screen"` item is drawn once over the whole screen; bloom and `colorFilter` run once with the lowest-`depth` camera's
   settings. A scene with a bad `viewport` fails to load, naming the entity and the field; a script that sets one live is clamped
-  with one warning. At most 8 cameras are drawn. A scene with one full-screen camera renders as before.
+  with one warning. At most 8 cameras are drawn. A scene with one full-screen camera renders as before. Before, only the
+  lowest-`depth` primary camera drew: a scene with a second active `primary: true` camera now draws it too, over the first; set
+  `primary: false` on a camera that must not draw.
 - Scripts: `camera.all`, `camera.at(point)`, `camera.screenRay(point, camera?)`, and `camera.worldToScreen(v, camera?)` /
   `camera.screenToWorld(v, depth?, camera?)` take an optional camera (without one, a screen point uses the camera under it, so a click
   picks what the player under the pointer sees). `input.mouse.world` and a touch's `world` use that camera. The audio listener
