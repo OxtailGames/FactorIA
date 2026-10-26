@@ -7,22 +7,24 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API, the Steam, Apple and
 Google Play backends, AdMob ads with consent, leaderboard periods on the stores and the Steam Deck's keyboard (M27); M16
 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22), M21
-(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26, M27 and M28 are done; M23
-has the Mac App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 has the video player
-and the navmesh's off-mesh links and walkable bodies (M27), the rest is not started (M10-M23 come from an external
-evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). M25, the second
-reference game (Clockwork Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055 came from the CI
-fix of its rope bridges), triaged 2026-10-22: one was fixed on the way (CC/FB-0033), two were already fixed before the
-report (CC/FB-0007, CC/FB-0022; their docs are added), two are duplicates, and 50 were open (11 major, 35
-minor, 4 nice-to-have, no blocker). M26's 23 packages fixed 49 of them (2026-10-24) and the game dropped their
-workarounds; M27 (2026-10-25) fixed the last one, CC/FB-0051 (playing a video), the parts of three left to M12 (the real
-ads, the stores' leaderboard periods, the Steam Deck's keyboard) and CC/FB-0056 (the navmesh over bridges and moving
-platforms), found by M26's close-out: no entry is open. What is left of M12 and M19 is ranked in their sections and
-waits for a game that asks for it. M28, the third reference game (Burrow Brigade: 2D, couch co-op, desktop and Steam
-first, 2026-10-25), reported 38 entries (14 major, 22 minor, 2 nice-to-have, no blocker), triaged 2026-10-25: one is
-a duplicate, two need docs only, and the open ones are the 21 packages of M29 (planned 2026-10-25), which also take most
-of what was left of M19 (tile pathfinding and behaviour trees, audio effects, networking, split screen) and M12's
-analytics and remote config.
+(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26, M27, M28 and M29 are
+done; M23 has the Mac App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 has the video
+player, the navmesh's off-mesh links and walkable bodies (M27), tile pathfinding, behaviour trees, bus effects,
+`http.fetch` and split screen (M29), the rest is not started (M10-M23 come from an external evaluation of v0.1.4,
+re-triaged 2026-10-16: what it still takes to ship a game to the stores). M25, the second reference game (Clockwork
+Courier: 3D, mobile first, 2026-10-22), reported 55 entries (FB-0053-FB-0055 came from the CI fix of its rope bridges),
+triaged 2026-10-22: one was fixed on the way (CC/FB-0033), two were already fixed before the report (CC/FB-0007,
+CC/FB-0022; their docs are added), two are duplicates, and 50 were open (11 major, 35 minor, 4 nice-to-have, no
+blocker). M26's 23 packages fixed 49 of them (2026-10-24) and the game dropped their workarounds; M27 (2026-10-25) fixed
+the last one, CC/FB-0051 (playing a video), the parts of three left to M12 (the real ads, the stores' leaderboard
+periods, the Steam Deck's keyboard) and CC/FB-0056 (the navmesh over bridges and moving platforms), found by M26's
+close-out: no entry is open. What is left of M12 and M19 is ranked in their sections and waits for a game that asks for
+it. M28, the third reference game (Burrow Brigade: 2D, couch co-op, desktop and Steam first, 2026-10-25), reported 38
+entries (14 major, 22 minor, 2 nice-to-have, no blocker), triaged 2026-10-25: one is a duplicate, two need docs only,
+and the open ones became the 21 packages of M29 (built 2026-10-26), which also took most of what was left of M19 (tile
+pathfinding and behaviour trees, audio effects, networking, split screen) and M12's analytics and remote config. M29
+fixed the entries and the game dropped the workarounds that no longer had a reason; the few it keeps on purpose are
+under M29, "Left open".
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
@@ -541,9 +543,14 @@ compares against a count that has no 2D lights, so it watches nothing. BB/FB-002
 BB/FB-0031 (`optional: true` exists since `ce8b98c`, but `platform.add_backend steam` does not write it), BB/FB-0019
 (`ui.layout()` is documented, but the lost click is silent) and BB/FB-0005 (the Controls tab already hides the actions a
 game lacks). Verifying BB/FB-0012 found a bug no game reported: a scene that loads with the same music as the one before
-plays nothing while `state().audio.music` says it plays (M29.7). The open entries are the 21 packages of M29 below; one
+plays nothing while `state().audio.music` says it plays (M29.7). The open entries became the 21 packages of M29 below; one
 part of BB/FB-0036 (Thai without marked boundaries) and parts of BB/FB-0015 and BB/FB-0018 stay out (M29's last
 paragraph).
+
+Re-triage 2026-10-26, after M29 (the `m29/*` PRs; each package's commit is in ROADMAP_DONE.md): the 21 packages are
+built and the entries of Burrow Brigade have a `Fixed in <commit>` note (the `m29/bookkeeping` branch). Burrow Brigade
+dropped its light pool and `activeLights` helper, its own A* and behaviour tree, its whole-array tile writes, its binding
+table, its transport seam and its stdout recordings; what it keeps on purpose is under M29, "Left open".
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK, clockwork-courier = CC,
@@ -632,6 +639,21 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   converted at import, never played. An opaque `Video` skips its background and blending, and plain textured quads use
   a shader without the glyph, shape and light branches. A `navWalkable` body is left out of the static bake and
   re-marked where it is; off-mesh links are `NavLink3D` entities, and a path lists where it takes them.
+- M29 (2026-10-26): every active `primary: true` camera draws into its `Camera.viewport`, in ascending `depth`, up to 8;
+  bloom and `colorFilter` run once with the lowest-depth camera's settings and the UI is drawn once over the whole screen
+  (a scene with a second primary camera that used to be ignored now draws it: `primary: false` turns one off). 2D lights
+  add up in a light buffer (up to 256 per frame, 32 of them casting tile shadows, which are traced on the CPU), while a
+  lit visual with a normal map, and a perspective camera, keep the per-pixel loop over the first 16. `analytics` and
+  `remoteConfig` are script modules on `http.fetch`, not services: no analytics event is kept or sent before consent, and
+  a game names its servers in `network.hosts`. `input.player(i)` gives each of up to four players their own actions from
+  a pad or a key scheme (`input.schemes`); players do not read the mouse or touch. The tile A* (`nav.findTilePath`) and
+  the `bt` module are deterministic. `window.setMode` takes `"windowed"`, `"borderless"` and `"fullscreen"`, which look
+  the same on Windows and Linux. `game.click` throws, naming the widget, when it is inactive, has no area or is scrolled
+  out of its `ScrollList`, instead of clicking nowhere. A scene load restarts its music unless `audio.music(path,
+  {persist: true})` keeps it; bus effects and volumes stay across scene loads. A daily leaderboard without `day` is the
+  local date's, and a game that wants one board worldwide passes `game.today().utc.iso`. Wrapped Thai breaks only at
+  marked boundaries (U+200B). `assets.synth_sound` levels to -18 LUFS. A cloud save has no conflict signal: a game keeps
+  a revision counter in the saved value.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -827,9 +849,9 @@ Play Console app, a build on a testing track, license testers and a phone with G
 API, no cloud project number, so an app distributed outside Play cannot get tokens). Apple's App Attest is not an
 `integrity` backend yet.
 
-Left open (the next M12 packages): Epic Online Services and GOG Galaxy, analytics and remote config, push
+Left open (the next M12 packages): Epic Online Services and GOG Galaxy, push
 notifications and deep links, the Android stores outside Play (ads with consent and the GDPR/COPPA screen are done in
-M27.1-M27.2). `PlatformServices` keeps no receipts or entitlement cache: a
+M27.1-M27.2; analytics and remote config in M29.21). `PlatformServices` keeps no receipts or entitlement cache: a
 backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
 Cloud saves take JSON values only (no binary blobs, no conflict resolution beyond "last write wins" in the fake).
@@ -837,10 +859,10 @@ Cloud saves take JSON values only (no binary blobs, no conflict resolution beyon
 Next M12 packages, ranked 2026-10-22 with Clockwork Courier's entries: 1. ads with consent on M26.9's API and fake:
 Google UMP and AdMob, Apple ATT and the GDPR/COPPA screen (CC/FB-0028); 2. leaderboard periods on Steam, Game Center and
 Play Games (CC/FB-0030); 3. the Steam Deck's keyboard with Steamworks (CC/FB-0020; M26.17 makes the in-game one);
-4. analytics and remote config (after M19's networking); 5. push notifications and deep links; 6. Epic Online Services
-and GOG Galaxy; 7. the Android stores outside Play. A game asked for the first three only: they are M27.1-M27.4, done
-2026-10-25. The other four wait for a game that asks for them. Burrow Brigade asked for the fourth (BB/FB-0020):
-analytics and remote config are M29.21, on M29.20's `http.fetch`.
+4. ~~analytics and remote config~~ (done in M29.21, on M29.20's networking); 5. push notifications and deep links;
+6. Epic Online Services and GOG Galaxy; 7. the Android stores outside Play. A game asked for the first three only: they
+are M27.1-M27.4, done 2026-10-25. The other four wait for a game that asks for them. Burrow Brigade asked for the
+fourth (BB/FB-0020), done in M29.21 on M29.20's `http.fetch`; the remaining three wait.
 
 ## M13. Store-ready desktop export (M-L, high) — DONE (PRs #65, #66, #67, #68 and the `m13/sign` PR)
 
@@ -960,15 +982,17 @@ Left open:
 
 Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14, F-16, F-18, H-07 and U-08.
 
-- Networking: `http.fetch` (a Promise) and WebSocket in JS on every platform; real-time multiplayer later.
+- Networking: ~~`http.fetch` (a Promise) in JS on every platform~~ (done in M29.20); WebSocket in JS; real-time
+  multiplayer later.
 - Saves: slots with their menu (on M10), a version field with a migration hook, optional encryption, cloud through
   M12's `platform`.
-- Pathfinding: grid A* on a Tilemap, ~~a navmesh for 3D (done in M26.10)~~, ~~off-mesh links and walkable moving
-  platforms on `NavMesh3D`~~ (CC/FB-0056, done in M27.6), a behaviour-tree helper module.
+- Pathfinding: ~~grid A* on a Tilemap~~ (done in M29.11), ~~a navmesh for 3D (done in M26.10)~~, ~~off-mesh links and
+  walkable moving platforms on `NavMesh3D`~~ (CC/FB-0056, done in M27.6), ~~a behaviour-tree helper module~~ (done in
+  M29.11).
 - ~~Video: a video player component for logos and cut-scenes~~ (CC/FB-0051, done in M27.5 with pl_mpeg).
 - ~~`scene.loadAsync` with progress~~ (done as `scene.preload`, M26.7).
-- Split screen: a viewport rectangle on Camera (four gamepads already work).
-- Audio: effects on the buses (low-pass, reverb), ducking and snapshots.
+- ~~Split screen: a viewport rectangle on Camera~~ (done in M29.19).
+- ~~Audio: effects on the buses (low-pass, reverb), ducking and snapshots~~ (done in M29.16).
 
 Acceptance criteria: each item ships with its doctest or JS test and its docs, like any command or component.
 
@@ -980,7 +1004,7 @@ config need it); 5. audio effects, ducking and snapshots; 6. grid A* on a Tilema
 can share M26.10's search); 7. split screen. A game asked for the first two only: they are M27.5 and M27.6, done
 2026-10-25. The other five wait for a game that asks for them. Burrow Brigade asked for four of them: networking's
 `http.fetch` (M29.20; WebSocket waits), audio effects (M29.16), grid A* and the behaviour tree (M29.11) and split screen
-(M29.19). Save slots wait.
+(M29.19), all done in M29 on 2026-10-26. Save slots and WebSocket wait.
 
 ## M20. Editor and tooling (L, medium-high) — DONE (PRs #134-#142, the `m20/debugger` and `m20/finish` PRs)
 
@@ -1187,270 +1211,65 @@ Left open:
   online features ran against the game's fake server only, and no Steam Deck was tried.
 - The Russian and Thai texts (game and store) were not read by a native speaker.
 
-## M29. Found by the third reference game (S-L each, high; 37 Burrow Brigade entries)
-
-Planned 2026-10-25, against `c7e6ef6`, from the triage above: 21 packages, ranked by points (occurrences x severity
-weight) and size. Each ships with its doctest or JS test, its docs and the `"unreleased"` rows in
-`tools/common/api_since.json` for the API it adds. When one merges, its entries get a `Fixed in <commit>` note in the
-bookkeeping PR at the end, and Burrow Brigade drops the workaround it no longer needs (its `activeLights` helper, its own
-A* and behaviour tree, its whole-array tile writes, its stdout recordings).
-Order of work: three builds at once at most, a rolling pool; a package starts when the packages it comes after have
-merged. Packages that only share a file run at once and the later one merges `origin/main` before its PR; packages that
-change the same function or the same shader wait for each other (the "after" lines). First M29.1, M29.2 and M29.3;
-then M29.4, M29.5 and M29.7; then the rest in order, as their "after" packages merge.
-
-### M29.1 Light2D in the stats and the perf budget, a better choice of 16 (S) — BB/FB-0009, 0028, 0008 (part)
-
-- `gather_lights` (scene2d.cpp) counts the 2D lights it keeps and drops: `RenderStats` gets `lights2d` and
-  `lights2dDropped`, `renderStats()` and `game.render_stats` show them, and `perf.measure`'s `lights` (and so the
-  `maxLights` budget) is the most 2D plus 3D lights of any frame: a budget that watched nothing now watches them.
-- The 16 kept lights are the ones that light the view: directional lights first, then point lights whose radius reaches
-  the camera's visible rectangle, ranked by how much of their radius is inside it and their intensity; a light entirely
-  outside the view is never kept over one inside. More than 16 in view logs one warning per scene naming the count.
-- `game.render_stats`' description, PERFORMANCE.md and the Light2D docs say what is counted and how the 16 are chosen.
-
-Acceptance: render doctests: 20 lights give `lights2d` 16 and `lights2dDropped` 4, and the dropped ones are the
-off-screen ones; `perf.measure` of a scene with 3 Light2D reports `lights` 3. Burrow Brigade's perf baselines get its
-real light count, and its `perf.check` passes.
-
-### M29.2 The time of day in `game.today()` and a daily leaderboard by date (S) — BB/FB-0017, 0021
-
-- `CalendarDate` (and `game.today()`) gets `hour`, `minute` and `second` next to `utcOffsetMinutes`, and a `utc` field
-  with the UTC date. The date advances during play (the runner reads it again every minute and on focus or resume,
-  not only at start), with a `dayChanged` event when the local date changes; replays record and play back the date
-  fields, and `game.testSetDate` takes the new ones.
-- `leaderboard.submit` and `entries` take `{day: "YYYY-MM-DD"}` on a daily board (a UTC day), and the fake keys the board
-  by it; Game Center and Play Games answer `unsupported` for a day that is not the current one.
-- SCRIPTING.md (dates) and PLATFORM.md (leaderboard periods) follow.
-
-Acceptance: script tests: `game.today()` has the time and moves across midnight in a test that advances the clock
-(with `dayChanged` once); a daily board read with yesterday's `day` returns yesterday's scores in the fake. A replay
-recorded at 23:59 plays back on the same date.
-
-### M29.3 Thai line breaks at marked boundaries and the sara am check (S) — BB/FB-0036 (part), 0037
-
-- `can_break_between` (text_shaper.cpp) breaks after U+200B ZERO WIDTH SPACE (which is not drawn) and after the UAX #14
-  BA spaces (U+1680, U+2000-U+2006, U+2008-U+200A, U+205F) and the hyphen, so Thai, Khmer, Lao and Burmese text whose
-  translator marks word boundaries with U+200B wraps there.
-- `FontCoverage::missing` expands the composed vowels before checking: U+0E33 needs U+0E4D and U+0E32, U+0EB3 needs
-  U+0ECD and U+0EB2. `localization validate` and the runtime missing-glyph warning name them.
-- TEXT.md and LOCALIZATION.md: how to mark Thai boundaries; breaking unmarked Thai needs a dictionary and is not done.
-
-Acceptance: text doctests: a Thai line with U+200B wraps at it and never inside a word, and draws no glyph for it; a
-font without U+0E4D is reported missing for a string with U+0E33.
-
-### M29.4 The clipboard and the window-close event (M) — BB/FB-0016, 0023
-
-- `clipboard.read()` (a Promise) and `clipboard.write(text)`, with `supports("clipboard")`, on Windows, macOS, Linux and
-  the web (`enable_clipboard` in the app descriptor; the web reads only inside a paste gesture). A focused `TextField`
-  pastes with Ctrl+V (Cmd+V on macOS) and copies its text with Ctrl/Cmd+C. Headless runs and tests have an in-memory
-  clipboard; a replay records what a read returned. Mobile answers `unsupported` for now.
-- `game.on("quit", fn)`: the window's close button, Cmd+Q and Alt+F4 raise it (desktop only; `QuitRequested` is no longer
-  dropped by the runner); a handler may call `event.cancel()` to keep the window open, and `game.quit()` closes it.
-- SCRIPTING.md (clipboard, app events) and UI.md (`TextField`).
-
-Acceptance: script tests: write then read gives the text back; a TextField pastes with Ctrl+V; a requested quit raises
-`quit` once and a cancelled one keeps running. Replays of a paste are deterministic.
-
-### M29.5 Steam from one Mac: optional plugin, exports, app 480, capsules (M) — BB/FB-0031, 0032, 0033, 0034
-
-- A plugin that cannot load its library logs a warning, not an ERROR; `platform.add_backend steam` and
-  `project.new_plugin` write `optional: true` (already supported since `ce8b98c`).
-- `project.export` takes `allowMissingPlugins` (like `allowPlayerMismatch`): a target whose plugin build is missing is
-  exported without it, and the export lists what it left out.
-- The player-build fingerprint check says what to do when the installed player predates fingerprints (0.2.0): install a
-  newer player or pass `allowPlayerMismatch`; EXPORTING.md stops pointing in a circle.
-- `publish.steam` accepts app 480 in a dry run (a warning that Spacewar is Valve's test app), still refused for a real
-  upload.
-- `assets.draw_capsules` takes `logoAnchor` and `safeArea` (per capsule, with defaults), and `focus` also moves the logo
-  when the aspect ratios already match.
-
-Acceptance: tooling tests: an export with a missing optional plugin build passes with `allowMissingPlugins` and lists
-it, and fails without it; a dry run with app 480 passes with a warning; a capsule with `logoAnchor` puts the logo inside
-its safe area. A run with a declared Steam plugin and no Valve library logs no ERROR.
-
-### M29.6 Test runner and `ui.check_layout` (M) — BB/FB-0019, 0024, 0038, 0035
-
-After M29.2 (both edit `factoria.js`'s test helpers).
-- `game.click` on a widget of a panel opened in the same frame lays the UI out first (`posArg` runs the layout), and a
-  click on a widget that is not laid out or not visible throws, naming it, instead of doing nothing.
-- `game.tapKey(key)` presses and releases a key over one frame; the docs show `game.tapKey("Enter")` submitting a
-  `TextField`.
-- `ui.check_layout` intersects each widget's rectangle with its `ScrollList`'s clip, so a row half inside is checked on
-  its visible part and a row fully outside is skipped, and takes `steps` per scene (clicks, keys, frames) run before the
-  checks.
-- SCRIPTING.md's tests section shows `fa.call("fs.write", {path, content})` to save a recording from a test.
-
-Acceptance: JS tests for the click after `open()` and the error, and for `tapKey`; `ui_check_layout_test.cpp` cases for
-a half-visible row and for `steps` that open a panel.
-
-### M29.7 Music: the scene-load bug, voice volume, synced layers, synth loudness (M) — BB/FB-0012, 0025, 0007
-
-- The bug: `Audio::stop_all` leaves `sceneMusic` set, so a scene that loads with the same `settings.music` as the one
-  before plays nothing while `state().audio.music` says it is playing. Loading a scene now starts its music again, and
-  `audio.music(path, {persist: true})` keeps a track playing across scene loads.
-- SCRIPTING.md, AI_GUIDE §9.7 and the SceneSettings docs say a scene load stops sounds and music unless persisted.
-- `audio.setVoiceVolume(id, volume, fade?)` changes a playing voice's volume (the mixer already fades).
-- `audio.musicLayers({name: path, ...}, opts)` starts several tracks on the same sample, and `audio.setLayer(name, volume,
-  fade?)` mixes them; `stopMusic` stops them all and the play log names the layer.
-- `assets.synth_sound` normalizes its presets to the loudness the validator accepts (-18 LUFS, the measurement in
-  `fa/audio/analysis.h`) instead of peaking at -3 dBFS.
-
-Acceptance: audio doctests: two scenes with the same music play it after the load; layers stay sample-aligned; a voice's
-volume fades. A synth preset passes `factoria validate`'s loudness check.
-
-### M29.8 Menu kit: optional shop and age gate, a Controls tab from the actions (M) — BB/FB-0004, 0005
-
-- `main-menu` no longer requires `shop` and `ageGate`: the main menu shows the shop button and asks the age only when
-  those parts are in (its script imports them only then), and `project.add_menu_kit` adds them only when asked.
-- The options screen's Controls tab lists `input.actions()` without the `ui_*` ones, labelled with `i18n.t` (the action's
-  name when no key exists); the `Options.actions` property the docs promise is declared, to pick and order them.
-- MENUS.md follows.
-
-Acceptance: `menu_kit_test.cpp`: a kit without shop and age gate validates and runs; a game with `dig` and `place`
-actions sees them in Controls and can rebind them.
-
-### M29.9 Gamepad connect events, a stable pad id and Steam Deck detection (M) — BB/FB-0014, 0022
-
-- `game.on("gamepadConnected" | "gamepadDisconnected", fn)` with the pad's slot and a stable `id` (its name, vendor and
-  product, and a serial or path where the backend has one), on the five backends (Windows, Linux, Apple, Android, web);
-  a pad that comes back gets its old slot when it is free.
-- `game.device.steamDeck` and `game.device.handheld` (the Steam plugin's `IsSteamRunningOnSteamDeck`, the `SteamDeck`
-  environment variable otherwise); `game.setDevice` in tests takes them.
-- INPUT docs and AI_GUIDE (which wrongly says the web has no pads).
-
-Acceptance: input doctests: connect, disconnect and reconnect raise the events and keep the slot; script tests with a
-test device that is a Steam Deck.
-
-### M29.10 Tilemap: tileset margin and spacing, `setTile` without rewriting the array (M) — BB/FB-0002, 0003
-
-- `Tilemap.margin` and `Tilemap.spacing` (pixels), used by the 2D renderer (also for the normal map), the tileset tile
-  count, `factoria validate` and the level commands.
-- `tilemap.setTile(x, y, id)` and `getTile(x, y)` (script) and a `tilemap.set_tile` command change one tile in place;
-  the renderer stops copying the grid every frame, and 2D physics rebuilds only the colliders of the changed tiles.
-- LEVELS docs and the component reference.
-
-Acceptance: render doctests for a tileset with margin 1 and spacing 2; physics doctests: `setTile` opens a hole a body
-falls through on the next step; a scripted 1 000 tile writes cost less than one whole-array write each.
-
-### M29.11 Tile pathfinding and a behaviour-tree module (M) — BB/FB-0010, 0011
-
-After M29.10 (it reads tiles through M29.10's API).
-- `nav.findTilePath(tilemap | {width, height, cost}, from, to, {costs, diagonals, maxNodes, closest})`: A* on a
-  Tilemap's cells (solid tiles block, `costs` per tile id), on the pattern of M26.10's search, with the
-  `nav.find_tile_path` command; deterministic, and `closest` returns the nearest reachable cell.
-- `import { bt } from "factoria"`: `Tree`, `sequence`, `selector`, `condition`, `action`, `wait`, `cooldown`,
-  `inverter`, `succeeder` and `SUCCESS`, `FAILURE`, `RUNNING`, in plain JS like `tween`, ticked by a script.
-- NAVIGATION.md and a SCRIPTING.md section on AI.
-
-Acceptance: physics doctests (a path around walls, diagonals off, `closest`, the same path twice); JS tests for each
-node type. Burrow Brigade's moles move onto both and drop their copies; their tests pass.
-
-### M29.12 `input.record` and starting a scene with props (M) — BB/FB-0030
-
-- The input recorder moves from the editor into the runtime, records gamepads too, and is a command: `input.record`
-  `{action: "start" | "stop"}` (stop returns the replay JSON `factoria run --input` plays).
-- `scene.load(path, {props})` and `factoria run --props <json>` (and `run.start`'s `props`) hand values to the scene's
-  scripts at start (`game.sceneProps()`).
-- SCRIPTING.md and DEBUGGING.md.
-
-Acceptance: runtime tests: a recorded keyboard and pad session replays to the same state hash; a scene started with
-props sees them in its first `start()`.
-
-### M29.13 The exported player takes an input replay, dumps its state and takes a screenshot (M) — BB/FB-0029
-
-After M29.12.
-- The exported player accepts `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` (with `--frames`),
-  through the same `HeadlessRunOptions` as `factoria run`, so a shipped build can be checked by script.
-- EXPORTING.md: checking an exported build.
-
-Acceptance: a tooling test runs an exported desktop build with a replay and compares its state dump and screenshot with
-`factoria run`'s.
-
-### M29.14 Light2D on a light buffer: shadows from solid tiles and no 16-light cap (L) — BB/FB-0001, 0008 (the rest)
-
-After M29.1 and M29.10.
-- 2D lights render into a light buffer (one pass per light, or tiled), so a scene has as many as its budget allows;
-  `Light2D.castShadows` and `Tilemap.occludesLight` make solid tiles cast shadows (a shadow mask per light built from
-  the occluding tiles).
-- Shaders regenerated for every backend; PERFORMANCE.md gives the cost per light.
-
-Acceptance: render tests: a light behind a wall of tiles leaves the far side dark; 64 lights all light the scene; the
-perf budgets of the 2D examples pass on the CI runners.
-
-### M29.15 Per-player actions (L) — BB/FB-0006
-
-After M29.8 and M29.9.
-- `input.player(i)` gives a player their own actions bound to their pad (or keyboard half), with `pressed`, `held`,
-  `axis` like the global ones, and rebinds saved per player; the kit's Controls tab rebinds a chosen player.
-- INPUT docs.
-
-Acceptance: input doctests: two pads drive two players' `move` independently; a rebind of player 2 leaves player 1's.
-Burrow Brigade drives its four diggers with it.
-
-### M29.16 Bus effects, ducking and snapshots (L) — BB/FB-0026
-
-After M29.7.
-- The mixer sums each bus before the master, with volume ramps; `audio.bus(name).lowpass(hz)`, `.reverb(mix)` and
-  `.duck(byBus, amount, attack, release)`, and `audio.snapshot(name, {fade})` from the catalog, with commands.
-- AUDIO docs.
-
-Acceptance: audio doctests: a low-pass removes a high tone; a ducked bus drops while the other plays and recovers; a
-snapshot fades in its time. The mix stays deterministic.
-
-### M29.17 Monitor choice and window modes (M) — BB/FB-0027
-
-After M29.4 (both touch the window host).
-- `window.monitors()`, `window.setMonitor(i)` and `window.setMode("windowed" | "borderless" | "fullscreen")` on Windows,
-  macOS and Linux; the options screen offers them.
-- SCRIPTING.md (window).
-
-Acceptance: platform tests through the headless window host; a manual check per desktop OS listed in the docs.
-
-### M29.18 Steam Remote Play guests and `cloud.stat` (L) — BB/FB-0015, 0018
-
-After M29.2 and M29.5.
-- A `remotePlay` service: `remotePlay.sessions()` and `remotePlay` connect and disconnect events (Steam's
-  `SteamRemotePlay`), the fake for tests; a guest's input arrives as the pads Steam gives it.
-- `cloud.stat(key)` returns its size and modified time (Steam `GetFileTimestamp`, Play's snapshot metadata; Apple
-  returns null for the time).
-
-Acceptance: `steam_plugin_*` tests against the mock for sessions and timestamps; fake tests for both APIs.
-
-### M29.19 Split screen: camera viewports (L) — BB/FB-0013
-
-After M29.14.
-- `Camera.viewport` (a normalized rectangle) and a render loop per camera, in depth order: each draws its view into its
-  rectangle with its own lights, and `screenToWorld` takes the camera; the contradictory Camera docs are fixed.
-- RENDERING docs and a split-screen recipe.
-
-Acceptance: render tests: two cameras draw two halves; four cameras in quarters; picking under the mouse picks the
-right camera. Burrow Brigade gets a split-screen option for far-apart players.
-
-### M29.20 `http.fetch` on every platform (L) — BB/FB-0020 (part)
-
-- `http.fetch(url, {method, headers, body, timeout})` (a Promise of status, headers, text and JSON) on Windows (WinHTTP),
-  macOS and iOS (NSURLSession), Linux (libcurl, loaded when present), Android (HttpURLConnection, the `INTERNET`
-  permission when a game uses it) and the web (fetch). Tests and headless runs get a fake that answers what
-  `game.platform.respond` gives it, and never touch the network.
-- LEGAL.md and MOBILE.md stop saying games have no network; a NETWORKING doc.
-
-Acceptance: script tests against the fake; a desktop doctest against a local test server; the Android and web builds
-in CI.
-
-### M29.21 Analytics with consent and remote config (M) — BB/FB-0020 (the rest)
-
-After M29.20.
-- `analytics.event(name, props)` batched and sent through `http` only after the player consents (the ads consent, or the
-  kit's privacy toggle), to an endpoint the catalog names; `remoteConfig.get(key, default)` fetched at start and cached,
-  with the fake for tests.
-- PLATFORM.md and LEGAL.md (what is sent and when).
-
-Acceptance: fake tests: no event leaves before consent, a batch after it; remote config falls back to the cache offline.
-
-Out of M29: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary like ICU's, L), a cloud conflict event
-(each store resolves it its own way), mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling
-plugins from the Mac, and WebSocket.
+## M29. Found by the third reference game (S-L each, high; 37 Burrow Brigade entries) — DONE (the `m29/*` PRs)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M29 (M29.1-M29.21). The engine gained what Burrow Brigade asked for: Light2D in
+the stats and the perf budget, a light buffer with no 16-light cap and tile shadows, split-screen cameras, per-player
+actions (`input.player(i)`), gamepad events and the Steam Deck flag, monitor choice and window modes, tile pathfinding and
+behaviour trees, tilemap margin and spacing with `setTile`, bus effects, ducking and snapshots, layered music and the
+scene-load music fix, `http.fetch` on every platform with analytics and remote config on it, Remote Play guests and
+`cloud.stat`, the clipboard and the quit event, the time of day in `game.today()` and daily boards by date, Thai breaks at
+marked boundaries, a test runner that lays the UI out and throws for a hidden widget, `input.record` and scene props, the
+exported player's `--input`, `--dump-state` and `--screenshot`, and a Steam export from one Mac. Burrow Brigade dropped
+its `activeLights` helper and light pool, its own A* and behaviour tree, its whole-array tile writes, its binding table,
+its transport seam for news, balance and analytics, its daily-board skip and its stdout recordings. Its entries carry
+their `Fixed in` notes in the `m29/bookkeeping` PR; the workarounds it keeps on purpose are listed below.
+
+Left open:
+- Workarounds Burrow Brigade keeps on purpose (their "Fixed in" notes say why): the music layers and bus effects are
+  still its own emulation (BB/FB-0025, BB/FB-0026: moving to `musicLayers`, filters and reverb means re-rendering the
+  one-bar loops and listening); the store scenes are generated and the bot replays kept (BB/FB-0030); the capsules were
+  not redrawn (BB/FB-0034); the exported builds were not checked by hand (BB/FB-0029, BB/FB-0033); the cloud revision
+  counter stays because Apple has no modified time (BB/FB-0018); unmarked Thai needs a dictionary (BB/FB-0036).
+- Out of M29, as planned: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary), a cloud conflict event,
+  mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling plugins from the Mac, and WebSocket.
+- M29.1: the light budget it reports against is M29.14's 256 per frame, not 16 (its test expects 17 lights kept).
+- M29.2: the Burrow Brigade daily dig uses `game.today().utc`; Game Center and Play Games take only the local or UTC today.
+- M29.5: the capsule focus is the worker's reading of the spec.
+- M29.6: `game.click` now throws for a hidden or unlaid-out widget: a test that clicked one by mistake fails.
+- M29.7: layers of unequal length drift.
+- M29.8: the kit has an unused `platform` import.
+- M29.9: the non-Apple pad backends are untested here; `SteamDeck=1` is Steam's unofficial variable.
+- M29.10: slice limits, floor fragmentation, a 4096-edit cap, the `tileDims` native.
+- M29.11: `nav.tileVersion` does not count replacing `tiles` as a whole; no `parallel` or `repeat` nodes.
+- M29.12: no wheel, locked mouse or text in the replay; props are not in the replay.
+- M29.13: the player has no `--props`; screenshots may differ across GPUs.
+- M29.14: only Metal ran (the GL, GLES, D3D11 and WGSL shader headers compile but were not run); a visual with a normal
+  map and a perspective camera keep the per-pixel loop over 16 lights; the Linux and Windows draw-call baselines (+1) are
+  assumed, not measured; no `api_since` row for `lights2dShadowed`; the costs in PERFORMANCE.md come from one Mac.
+- M29.15: players do not read the mouse or touch; no doctest of `input.schemes` parsing in project.cpp (the input doctests
+  and Burrow's tests cover it).
+- M29.16: effects persist across scene loads; attack and release are time constants; the CPU costs are estimates; only
+  macOS tested.
+- M29.17: no manual check on any OS; the Windows and Linux code is not compiled here; borderless and full screen are the
+  same on Windows and Linux; macOS borderless is untested.
+- M29.18: only the Steam mock is tested (no real Steam, Google Play or iCloud); the Windows, Linux, Android and Swift code
+  is not compiled here; no mapping of a session to a pad and no conflict event.
+- M29.19: only Metal ran; screen-space `lit` visuals get only ambient light in a frame with several cameras; the editor's
+  outlines and gizmos project through the first camera only; no `api_since` rows for the new script functions (the file
+  lists components and commands only).
+- M29.20: the other platforms are not compiled here; Win32 disables cookies and automatic authentication; Android sends
+  PATCH as POST with an override header and plain `http://localhost` does not work there; CORS applies on the web; the
+  translated docs are not updated; no `api_since` rows; requests still in flight when a recording stops are not recorded.
+- M29.21: Burrow's server URLs are placeholders (`burrow-brigade.example`, explained in its README); the iOS export's
+  analytics privacy entry is untested; retries on network errors, 408, 429 and 5xx with backoff.
+- Clockwork Courier's tests `rooftops_3` and `market_3 > the expert shortcut wins too` are close to their 60 s limit and
+  time out when the machine is loaded (they did on `main` too).
+
+Next: no feature is planned. The next milestone is whatever the next reference game or the store accounts ask for; what
+is left of M12 (push notifications, deep links, Epic and GOG, the Android stores outside Play), M19 (save slots, WebSocket)
+and M23 (consoles) waits for a game that needs it. The manual checks that need real stores, devices and operating
+systems (M8, M9, M12, the lists above) need hardware this machine does not have.
 
 ## Out of scope: Roblox
 

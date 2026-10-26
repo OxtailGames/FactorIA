@@ -1627,6 +1627,422 @@ keyboard-only and gamepad-only tests drive the menus; the three exports are made
 is a by-hand check, ROADMAP.md); the busiest floor stays under its draw-call and light budgets in a headless run;
 `factoria feedback collect` includes the game.
 
+## M29. Found by the third reference game — DONE (the `m29/*` PRs)
+
+Planned 2026-10-25, against `c7e6ef6`, from the triage above: 21 packages, ranked by points (occurrences x severity
+weight) and size. Each ships with its doctest or JS test, its docs and the `"unreleased"` rows in
+`tools/common/api_since.json` for the API it adds. When one merges, its entries get a `Fixed in <commit>` note in the
+bookkeeping PR at the end, and Burrow Brigade drops the workaround it no longer needs (its `activeLights` helper, its own
+A* and behaviour tree, its whole-array tile writes, its stdout recordings).
+Order of work: three builds at once at most, a rolling pool; a package starts when the packages it comes after have
+merged. Packages that only share a file run at once and the later one merges `origin/main` before its PR; packages that
+change the same function or the same shader wait for each other (the "after" lines). First M29.1, M29.2 and M29.3;
+then M29.4, M29.5 and M29.7; then the rest in order, as their "after" packages merge.
+
+### M29.1 Light2D in the stats and the perf budget, a better choice of 16 (S) — BB/FB-0009, 0028, 0008 (part)
+
+Done (branch `m29/light2d-stats`, `bef8abf1`): `RenderStats` has `lights2d` and `lights2dDropped` (`renderStats()`,
+`game.render_stats`), and `perf.measure`'s `lights`, so the `maxLights` budget, counts the most 2D plus 3D lights of any
+frame. The kept lights are the ones that light the view: directional first, then point lights whose radius reaches the
+camera's rectangle, more of their radius in view first, then the brighter; one warning per scene when more are in view
+than the budget. As planned; the budget is 256 since M29.14's light buffer, not 16 (that package changed this package's
+test to expect 17 lights).
+
+- `gather_lights` (scene2d.cpp) counts the 2D lights it keeps and drops: `RenderStats` gets `lights2d` and
+  `lights2dDropped`, `renderStats()` and `game.render_stats` show them, and `perf.measure`'s `lights` (and so the
+  `maxLights` budget) is the most 2D plus 3D lights of any frame: a budget that watched nothing now watches them.
+- The 16 kept lights are the ones that light the view: directional lights first, then point lights whose radius reaches
+  the camera's visible rectangle, ranked by how much of their radius is inside it and their intensity; a light entirely
+  outside the view is never kept over one inside. More than 16 in view logs one warning per scene naming the count.
+- `game.render_stats`' description, PERFORMANCE.md and the Light2D docs say what is counted and how the 16 are chosen.
+
+Acceptance: render doctests: 20 lights give `lights2d` 16 and `lights2dDropped` 4, and the dropped ones are the
+off-screen ones; `perf.measure` of a scene with 3 Light2D reports `lights` 3. Burrow Brigade's perf baselines get its
+real light count, and its `perf.check` passes.
+
+### M29.2 The time of day in `game.today()` and a daily leaderboard by date (S) — BB/FB-0017, 0021
+
+Done (branch `m29/dates`, `120550c2`): `game.today()` has `hour`, `minute`, `second` and `utc: {year, month, day, iso}`;
+a built game reads the clock again about once a minute and on focus or resume, `game.on("dayChanged")` runs once per
+local day change, and `game.setDate`, `--date` and replay files take the time (and `game.setDate(iso,
+{utcOffsetMinutes})` the zone). `leaderboard.submit` and `entries` take `{day}`; the fake and Steam keep every day, Game
+Center and Play Games answer `unsupported` for a day that is neither the local nor the UTC today (the plan said "not the
+current one"). A second commit (`4596f528`) says in the docs that a daily board without `day` is the local date's and
+that `game.today().utc.iso` gives one board worldwide.
+
+- `CalendarDate` (and `game.today()`) gets `hour`, `minute` and `second` next to `utcOffsetMinutes`, and a `utc` field
+  with the UTC date. The date advances during play (the runner reads it again every minute and on focus or resume,
+  not only at start), with a `dayChanged` event when the local date changes; replays record and play back the date
+  fields, and `game.testSetDate` takes the new ones.
+- `leaderboard.submit` and `entries` take `{day: "YYYY-MM-DD"}` on a daily board (a UTC day), and the fake keys the board
+  by it; Game Center and Play Games answer `unsupported` for a day that is not the current one.
+- SCRIPTING.md (dates) and PLATFORM.md (leaderboard periods) follow.
+
+Acceptance: script tests: `game.today()` has the time and moves across midnight in a test that advances the clock
+(with `dayChanged` once); a daily board read with yesterday's `day` returns yesterday's scores in the fake. A replay
+recorded at 23:59 plays back on the same date.
+
+### M29.3 Thai line breaks at marked boundaries and the sara am check (S) — BB/FB-0036 (part), 0037
+
+Done (branch `m29/thai`, `2690d768`): A wrapped line breaks after U+200B (never drawn), the UAX #14 spaces and a hyphen
+(`-` unless a digit follows, U+2010); `FontCoverage::missing`, `localization validate` and the runtime missing-glyph
+warning check U+0E33 and U+0EB3 as the parts HarfBuzz decomposes them into (U+0E4D U+0E32, U+0ECD U+0EB2). TEXT.md and
+LOCALIZATION.md say how to mark the boundaries; unmarked Thai, Khmer, Lao and Burmese still need a dictionary and are
+not broken. As planned.
+
+- `can_break_between` (text_shaper.cpp) breaks after U+200B ZERO WIDTH SPACE (which is not drawn) and after the UAX #14
+  BA spaces (U+1680, U+2000-U+2006, U+2008-U+200A, U+205F) and the hyphen, so Thai, Khmer, Lao and Burmese text whose
+  translator marks word boundaries with U+200B wraps there.
+- `FontCoverage::missing` expands the composed vowels before checking: U+0E33 needs U+0E4D and U+0E32, U+0EB3 needs
+  U+0ECD and U+0EB2. `localization validate` and the runtime missing-glyph warning name them.
+- TEXT.md and LOCALIZATION.md: how to mark Thai boundaries; breaking unmarked Thai needs a dictionary and is not done.
+
+Acceptance: text doctests: a Thai line with U+200B wraps at it and never inside a word, and draws no glyph for it; a
+font without U+0E4D is reported missing for a string with U+0E33.
+
+### M29.4 The clipboard and the window-close event (M) — BB/FB-0016, 0023
+
+Done (branch `m29/clipboard-quit`, `d025e515`): `clipboard.read()` (a Promise) and `clipboard.write(text)` on Windows,
+macOS, Linux and the web (`window.supports("clipboard")`), an in-memory clipboard in headless runs and tests (a replay's
+`"clipboard"` entry sets it), and Ctrl/Cmd+V and Ctrl/Cmd+C in a focused `TextField`; phones answer `unsupported`.
+`game.on("quit", fn)` is raised by the close button, Cmd+Q and Alt+F4, `event.cancel()` keeps the game running,
+`game.quit()` closes without asking again, and the test helper `game.closeWindow()` raises it. As planned, except that a
+replay sets the clipboard at its start instead of recording each read.
+
+- `clipboard.read()` (a Promise) and `clipboard.write(text)`, with `supports("clipboard")`, on Windows, macOS, Linux and
+  the web (`enable_clipboard` in the app descriptor; the web reads only inside a paste gesture). A focused `TextField`
+  pastes with Ctrl+V (Cmd+V on macOS) and copies its text with Ctrl/Cmd+C. Headless runs and tests have an in-memory
+  clipboard; a replay records what a read returned. Mobile answers `unsupported` for now.
+- `game.on("quit", fn)`: the window's close button, Cmd+Q and Alt+F4 raise it (desktop only; `QuitRequested` is no longer
+  dropped by the runner); a handler may call `event.cancel()` to keep the window open, and `game.quit()` closes it.
+- SCRIPTING.md (clipboard, app events) and UI.md (`TextField`).
+
+Acceptance: script tests: write then read gives the text back; a TextField pastes with Ctrl+V; a requested quit raises
+`quit` once and a cancelled one keeps running. Replays of a paste are deterministic.
+
+### M29.5 Steam from one Mac: optional plugin, exports, app 480, capsules (M) — BB/FB-0031, 0032, 0033, 0034
+
+Done (branch `m29/steam-mac`, `f96d04d3`): The Steam plugin logs a warning, not an ERROR, without Valve's library, and
+`project.new_plugin` (so `platform.add_backend`) writes `optional: true`; `project.export` takes `allowMissingPlugins`
+(the result lists `pluginsLeftOut`); a player with no build fingerprint gets its own error; `publish.steam` accepts app
+480 in a dry run with a warning; `assets.draw_capsules` takes `safeArea` and `logoAnchor`, and `focus` moves the logo
+when the key art already has the capsule's proportions. Two follow-up commits fix a command description and regenerate
+the reference. As planned.
+
+- A plugin that cannot load its library logs a warning, not an ERROR; `platform.add_backend steam` and
+  `project.new_plugin` write `optional: true` (already supported since `ce8b98c`).
+- `project.export` takes `allowMissingPlugins` (like `allowPlayerMismatch`): a target whose plugin build is missing is
+  exported without it, and the export lists what it left out.
+- The player-build fingerprint check says what to do when the installed player predates fingerprints (0.2.0): install a
+  newer player or pass `allowPlayerMismatch`; EXPORTING.md stops pointing in a circle.
+- `publish.steam` accepts app 480 in a dry run (a warning that Spacewar is Valve's test app), still refused for a real
+  upload.
+- `assets.draw_capsules` takes `logoAnchor` and `safeArea` (per capsule, with defaults), and `focus` also moves the logo
+  when the aspect ratios already match.
+
+Acceptance: tooling tests: an export with a missing optional plugin build passes with `allowMissingPlugins` and lists
+it, and fails without it; a dry run with app 480 passes with a warning; a capsule with `logoAnchor` puts the logo inside
+its safe area. A run with a declared Steam plugin and no Valve library logs no ERROR.
+
+### M29.6 Test runner and `ui.check_layout` (M) — BB/FB-0019, 0024, 0038, 0035
+
+Done (branch `m29/test-runner`, `edb178ec`): `game.click` (and `mouseMove`, `touch`, `touchStart`, `touchMove` with a
+widget) lays the UI out first and throws, naming the widget and why, for a widget that is inactive, has no area or is
+scrolled out of its `ScrollList`; `game.tapKey(key)` presses and releases a key over one frame; `ui.check_layout` judges
+a widget by the part its `ScrollList` shows and takes `steps` per scene; SCRIPTING.md shows `fa.call("fs.write", ...)`.
+The throw broke one Clockwork Courier test (it clicked a hidden second ad button), which commit `73ac6212` now expects
+to throw. As planned.
+
+After M29.2 (both edit `factoria.js`'s test helpers).
+- `game.click` on a widget of a panel opened in the same frame lays the UI out first (`posArg` runs the layout), and a
+  click on a widget that is not laid out or not visible throws, naming it, instead of doing nothing.
+- `game.tapKey(key)` presses and releases a key over one frame; the docs show `game.tapKey("Enter")` submitting a
+  `TextField`.
+- `ui.check_layout` intersects each widget's rectangle with its `ScrollList`'s clip, so a row half inside is checked on
+  its visible part and a row fully outside is skipped, and takes `steps` per scene (clicks, keys, frames) run before the
+  checks.
+- SCRIPTING.md's tests section shows `fa.call("fs.write", {path, content})` to save a recording from a test.
+
+Acceptance: JS tests for the click after `open()` and the error, and for `tapKey`; `ui_check_layout_test.cpp` cases for
+a half-visible row and for `steps` that open a panel.
+
+### M29.7 Music: the scene-load bug, voice volume, synced layers, synth loudness (M) — BB/FB-0012, 0025, 0007
+
+Done (branch `m29/music`, `291f4b98`): A scene load restarts the new scene's music (the same track included),
+`audio.music(path, {persist: true})` keeps a track across loads, `audio.setVoiceVolume(id, volume, fade?)`,
+`audio.musicLayers({name: path}, opts)` and `audio.setLayer(name, level, fade?)` (stems start on the same sample, loop,
+are never evicted, and the play log has a `layer` field), and `assets.synth_sound` levels every preset to about -18 LUFS
+with a peak under -1 dBFS (the bytes of every seed change). The docs say a scene load stops sounds and music unless
+persisted. As planned.
+
+- The bug: `Audio::stop_all` leaves `sceneMusic` set, so a scene that loads with the same `settings.music` as the one
+  before plays nothing while `state().audio.music` says it is playing. Loading a scene now starts its music again, and
+  `audio.music(path, {persist: true})` keeps a track playing across scene loads.
+- SCRIPTING.md, AI_GUIDE §9.7 and the SceneSettings docs say a scene load stops sounds and music unless persisted.
+- `audio.setVoiceVolume(id, volume, fade?)` changes a playing voice's volume (the mixer already fades).
+- `audio.musicLayers({name: path, ...}, opts)` starts several tracks on the same sample, and `audio.setLayer(name, volume,
+  fade?)` mixes them; `stopMusic` stops them all and the play log names the layer.
+- `assets.synth_sound` normalizes its presets to the loudness the validator accepts (-18 LUFS, the measurement in
+  `fa/audio/analysis.h`) instead of peaking at -3 dBFS.
+
+Acceptance: audio doctests: two scenes with the same music play it after the load; layers stay sample-aligned; a voice's
+volume fades. A synth preset passes `factoria validate`'s loudness check.
+
+### M29.8 Menu kit: optional shop and age gate, a Controls tab from the actions (M) — BB/FB-0004, 0005
+
+Done (branch `m29/menu-kit`, `2af58d1d`): `project.add_menu_kit {"parts": ["main-menu"]}` writes a main menu without the
+shop button, the shop panel and the age gate (and without their scripts); no `parts` still adds everything. The options
+screen's Controls tab lists `input.actions()` except the `ui_*` ones, labelled with `options.action.<action>` (the
+action's name when there is no string), and the Script's `actions` property picks and orders them. As planned.
+
+- `main-menu` no longer requires `shop` and `ageGate`: the main menu shows the shop button and asks the age only when
+  those parts are in (its script imports them only then), and `project.add_menu_kit` adds them only when asked.
+- The options screen's Controls tab lists `input.actions()` without the `ui_*` ones, labelled with `i18n.t` (the action's
+  name when no key exists); the `Options.actions` property the docs promise is declared, to pick and order them.
+- MENUS.md follows.
+
+Acceptance: `menu_kit_test.cpp`: a kit without shop and age gate validates and runs; a game with `dig` and `place`
+actions sees them in Controls and can rebind them.
+
+### M29.9 Gamepad connect events, a stable pad id and Steam Deck detection (M) — BB/FB-0014, 0022
+
+Done (branch `m29/gamepads`, `fe840536`): `game.on("gamepadConnected" | "gamepadDisconnected", fn)` gives `{slot, id,
+name, type}` (`input.gamepad(i).id` and `.name` too) on Windows, Linux, macOS, iOS, Android and the web, and a pad that
+returns gets its old slot when it is free; tests use `game.gamepad(i).connect({...})`. `game.device.steamDeck` and
+`handheld` come from the Steam plugin through plugin API version 4 (`set_device_fact`; commit `e4b614cc` makes the
+engine read it when the entry point returns), else the `SteamDeck=1` environment variable; `game.setDevice` takes both.
+The plan did not mention the plugin API bump. On Windows the id comes from the XInput slot, so it does not tell two pads
+apart across slots.
+
+- `game.on("gamepadConnected" | "gamepadDisconnected", fn)` with the pad's slot and a stable `id` (its name, vendor and
+  product, and a serial or path where the backend has one), on the five backends (Windows, Linux, Apple, Android, web);
+  a pad that comes back gets its old slot when it is free.
+- `game.device.steamDeck` and `game.device.handheld` (the Steam plugin's `IsSteamRunningOnSteamDeck`, the `SteamDeck`
+  environment variable otherwise); `game.setDevice` in tests takes them.
+- INPUT docs and AI_GUIDE (which wrongly says the web has no pads).
+
+Acceptance: input doctests: connect, disconnect and reconnect raise the events and keep the slot; script tests with a
+test device that is a Steam Deck.
+
+### M29.10 Tilemap: tileset margin and spacing, `setTile` without rewriting the array (M) — BB/FB-0002, 0003
+
+Done (branch `m29/tilemap`, `390af568`): `Tilemap.margin` and `Tilemap.spacing` (pixels) are read by the 2D renderer
+(also the normal map), the tile count, `factoria validate` and the level commands; `entity.tilemap.setTile(col, row,
+id)` and `getTile(col, row)` and the command `tilemap.set_tile` change one tile in place, the renderer reads the grid
+without a copy per frame and 2D physics rebuilds only the changed colliders (a whole-array write still works, caught by
+a hash). A second commit (`97678e80`) makes `entity.tilemap` width and height native reads instead of copying the tiles
+to the script. The plan called the script call `tilemap.setTile(x, y, id)`; it is a method of `entity.tilemap`.
+`assets.slice_sheet` does not take margin or spacing.
+
+- `Tilemap.margin` and `Tilemap.spacing` (pixels), used by the 2D renderer (also for the normal map), the tileset tile
+  count, `factoria validate` and the level commands.
+- `tilemap.setTile(x, y, id)` and `getTile(x, y)` (script) and a `tilemap.set_tile` command change one tile in place;
+  the renderer stops copying the grid every frame, and 2D physics rebuilds only the colliders of the changed tiles.
+- LEVELS docs and the component reference.
+
+Acceptance: render doctests for a tileset with margin 1 and spacing 2; physics doctests: `setTile` opens a hole a body
+falls through on the next step; a scripted 1 000 tile writes cost less than one whole-array write each.
+
+### M29.11 Tile pathfinding and a behaviour-tree module (M) — BB/FB-0010, 0011
+
+Done (branch `m29/tile-nav-bt`, `23c2aae8`): `nav.findTilePath(map, from, to, {costs, diagonals, maxNodes, closest,
+allowBlockedGoal})` and the command `nav.find_tile_path` run a deterministic A* over a Tilemap or a `{width, height,
+cost}` grid and return `cells` and world `points` (diagonals never cut corners); `nav.tileVersion(tilemap)` counts
+`setTile` writes so a script can tell a kept path is stale. `import { bt } from "factoria"` has `Tree`, `sequence`,
+`selector`, `condition`, `action`, `wait`, `cooldown`, `inverter`, `succeeder` and the three results; Burrow Brigade's
+moles use both and dropped their copies. Commit `a018f4fb` makes a wrong option type a script error instead of an
+exception through QuickJS. Beyond the plan: `allowBlockedGoal`, `tileVersion` and an enemies recipe (AI guide 9.27).
+
+After M29.10 (it reads tiles through M29.10's API).
+- `nav.findTilePath(tilemap | {width, height, cost}, from, to, {costs, diagonals, maxNodes, closest})`: A* on a
+  Tilemap's cells (solid tiles block, `costs` per tile id), on the pattern of M26.10's search, with the
+  `nav.find_tile_path` command; deterministic, and `closest` returns the nearest reachable cell.
+- `import { bt } from "factoria"`: `Tree`, `sequence`, `selector`, `condition`, `action`, `wait`, `cooldown`,
+  `inverter`, `succeeder` and `SUCCESS`, `FAILURE`, `RUNNING`, in plain JS like `tween`, ticked by a script.
+- NAVIGATION.md and a SCRIPTING.md section on AI.
+
+Acceptance: physics doctests (a path around walls, diagonals off, `closest`, the same path twice); JS tests for each
+node type. Burrow Brigade's moles move onto both and drop their copies; their tests pass.
+
+### M29.12 `input.record` and starting a scene with props (M) — BB/FB-0030
+
+Done (branch `m29/input-record`, `21ce220b`): The input recorder moved from the editor into the engine and records keys,
+mouse, touches, Back and gamepads; `input.record {action: "start" | "stop", path?}` returns the replay `factoria run
+--input` plays. `scene.load(path, props)`, `game.load`, `game.loadJson`, the `scene.load` command's `props`, `factoria
+run --props JSON|FILE` and `game.sceneProps()` hand values to the scene's first start (a reload keeps them). Not
+recorded: the mouse wheel, locked-mouse movement and typed text. The plan also listed `run.start`'s `props`; the
+CHANGELOG does not mention it and it was not checked.
+
+- The input recorder moves from the editor into the runtime, records gamepads too, and is a command: `input.record`
+  `{action: "start" | "stop"}` (stop returns the replay JSON `factoria run --input` plays).
+- `scene.load(path, {props})` and `factoria run --props <json>` (and `run.start`'s `props`) hand values to the scene's
+  scripts at start (`game.sceneProps()`).
+- SCRIPTING.md and DEBUGGING.md.
+
+Acceptance: runtime tests: a recorded keyboard and pad session replays to the same state hash; a scene started with
+props sees them in its first `start()`.
+
+### M29.13 The exported player takes an input replay, dumps its state and takes a screenshot (M) — BB/FB-0029
+
+Done (branch `m29/player-replay`, `78e12e7a`): The exported player takes `--input <replay>`, `--dump-state <file>` and
+`--screenshot <file>` with `--frames N`, headless through the same code as `factoria run --headless`; exit code 2 for a
+missing replay, an unwritable output or a missing `--frames`. The new test `cli_player_replay` compares the state dump
+and the screenshot with `factoria run`'s, and EXPORTING.md has "Checking an exported build". As planned.
+
+After M29.12.
+- The exported player accepts `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` (with `--frames`),
+  through the same `HeadlessRunOptions` as `factoria run`, so a shipped build can be checked by script.
+- EXPORTING.md: checking an exported build.
+
+Acceptance: a tooling test runs an exported desktop build with a replay and compares its state dump and screenshot with
+`factoria run`'s.
+
+### M29.14 Light2D on a light buffer: shadows from solid tiles and no 16-light cap (L) — BB/FB-0001, 0008 (the rest)
+
+Done (branch `m29/light-buffer`, `0d306a3c`): Point lights are added up in a light buffer (one draw call, RGBA16F or
+RGBA8 at half range) that lit sprites, tiles and shapes read, and a frame keeps up to 256 lights;
+`SceneSettings.lightScale` sizes the buffer and `FA_LIGHT_FORMAT` picks its format. `Light2D.castShadows` and
+`Tilemap.occludesLight` make solid tiles cast shadows: differing from the plan's shadow mask, the shadows are traced on
+the CPU per light (1024 rays) and looked up on the GPU, for at most 32 lights per frame (new stat `lights2dShadowed`). A
+lit visual with a normal map, and a perspective camera, still shade per pixel with the first 16 lights. A scene with lit
+visuals adds one draw call (Burrow's baselines went from 10 to 11), and PERFORMANCE.md has the cost per light.
+
+After M29.1 and M29.10.
+- 2D lights render into a light buffer (one pass per light, or tiled), so a scene has as many as its budget allows;
+  `Light2D.castShadows` and `Tilemap.occludesLight` make solid tiles cast shadows (a shadow mask per light built from
+  the occluding tiles).
+- Shaders regenerated for every backend; PERFORMANCE.md gives the cost per light.
+
+Acceptance: render tests: a light behind a wall of tiles leaves the far side dark; 64 lights all light the scene; the
+perf budgets of the 2D examples pass on the CI runners.
+
+### M29.15 Per-player actions (L) — BB/FB-0006
+
+Done (branch `m29/player-actions`, `4f6d6b63`): `input.player(i)` (0..3) gives each person their own `down`, `pressed`,
+`released`, `value`, `axis` and `vector` from the devices assigned with `use({pad, padId, keys})`, key schemes (`"all"`,
+`"left"`, `"right"` or `input.schemes` in `factoria.json`) and bindings of their own (`rebind`, `reset`, `export`,
+`import`); the menu kit's options screen gets a Player button when its `players` property is above one, and Burrow
+Brigade's four diggers use it. Three commits: the engine (`4f6d6b63`), the natives and `factoria.json` (`3f2862d2`) and
+docs, schema, typings and the game (`099f3d15`); the last also fixed an invalid embedded project schema and regenerated
+`schemas/project.schema.json`. Players do not read the mouse or touch, which the global actions still do.
+
+After M29.8 and M29.9.
+- `input.player(i)` gives a player their own actions bound to their pad (or keyboard half), with `pressed`, `held`,
+  `axis` like the global ones, and rebinds saved per player; the kit's Controls tab rebinds a chosen player.
+- INPUT docs.
+
+Acceptance: input doctests: two pads drive two players' `move` independently; a rebind of player 2 leaves player 1's.
+Burrow Brigade drives its four diggers with it.
+
+### M29.16 Bus effects, ducking and snapshots (L) — BB/FB-0026
+
+Done (branch `m29/bus-fx`, `44c0bc69`): Every bus is mixed into its own buffer before the master:
+`audio.bus(name).lowpass(hz)`, `.reverb(mix)`, `.duck(byBus, amount, attack, release)` and `.unduck()` (`lowpass`,
+`reverb` and `volume` take `{fade}`), `audio.snapshot(name, {fade})` from `audio.snapshots` in `factoria.json`
+(validated), and the commands `audio.bus` and `audio.snapshot`. A volume change ramps over about 10 ms instead of
+jumping. Effects stay across scene loads. As planned.
+
+After M29.7.
+- The mixer sums each bus before the master, with volume ramps; `audio.bus(name).lowpass(hz)`, `.reverb(mix)` and
+  `.duck(byBus, amount, attack, release)`, and `audio.snapshot(name, {fade})` from the catalog, with commands.
+- AUDIO docs.
+
+Acceptance: audio doctests: a low-pass removes a high tone; a ducked bus drops while the other plays and recovers; a
+snapshot fades in its time. The mix stays deterministic.
+
+### M29.17 Monitor choice and window modes (M) — BB/FB-0027
+
+Done (branch `m29/window-modes`, `7156bfaf`): `window.monitors()`, `window.monitor`, `window.setMonitor(i)`,
+`window.setMode("windowed" | "borderless" | "fullscreen")`, `window.mode` and `window.supports("borderless" |
+"monitors")`; on Windows and Linux full screen is a frameless window over the monitor, so `"fullscreen"` and
+`"borderless"` look the same there, on macOS `"fullscreen"` is the native Space. The menu kit's options screen has a
+Window mode button and a Monitor button (only with several monitors) and `settings.js` saves `windowMode` and `monitor`,
+still reading the old `fullscreen`. The plan asked for a manual check per desktop OS; none was done.
+
+After M29.4 (both touch the window host).
+- `window.monitors()`, `window.setMonitor(i)` and `window.setMode("windowed" | "borderless" | "fullscreen")` on Windows,
+  macOS and Linux; the options screen offers them.
+- SCRIPTING.md (window).
+
+Acceptance: platform tests through the headless window host; a manual check per desktop OS listed in the docs.
+
+### M29.18 Steam Remote Play guests and `cloud.stat` (L) — BB/FB-0015, 0018
+
+Done (branch `m29/remote-play`, `cd8fb526`): A `remotePlay` platform service: `platform.remotePlay.sessions()` and
+`platform.on("remotePlay", ...)` with `{status, session}`, offered by the Steam plugin when the library has
+`ISteamRemotePlay`, and a fake (`game.platform.remotePlayConnect` and `remotePlayDisconnect`, with their commands).
+`platform.cloud.stat(key)` returns `{exists: false}` or `{exists: true, size, modified}` (Unix seconds, `null` on
+Apple); the fake's time is a counter set by `cloudClock`. A guest's controls arrive as one more pad and the engine does
+not say which one; commit `4800aad6` regenerates the reference after the merge with M29.20. Checked against the Steam
+mock only.
+
+After M29.2 and M29.5.
+- A `remotePlay` service: `remotePlay.sessions()` and `remotePlay` connect and disconnect events (Steam's
+  `SteamRemotePlay`), the fake for tests; a guest's input arrives as the pads Steam gives it.
+- `cloud.stat(key)` returns its size and modified time (Steam `GetFileTimestamp`, Play's snapshot metadata; Apple
+  returns null for the time).
+
+Acceptance: `steam_plugin_*` tests against the mock for sessions and timestamps; fake tests for both APIs.
+
+### M29.19 Split screen: camera viewports (L) — BB/FB-0013
+
+Done (branch `m29/split-screen`, `f8ddc3e9`): `Camera.viewport` is `[x, y, width, height]` (0 to 1, top-left origin);
+every active `primary: true` camera now draws in ascending `depth` with its own scissor, culling, 2D and 3D lights and
+`clear`, up to 8; bloom and `colorFilter` run once with the lowest-depth camera's settings and the UI once over the
+whole screen. Scripts get `camera.all`, `camera.at(point)`, `camera.screenRay` and an optional camera for
+`worldToScreen` and `screenToWorld`; `input.mouse.world` uses the camera under the pointer. Beyond the plan: a second
+primary camera that used to be ignored now draws (commit `ae68b5de` says so in the CHANGELOG). Burrow Brigade has
+Options > Video > "Split screen when players part"; AI guide recipe 9.29.
+
+After M29.14.
+- `Camera.viewport` (a normalized rectangle) and a render loop per camera, in depth order: each draws its view into its
+  rectangle with its own lights, and `screenToWorld` takes the camera; the contradictory Camera docs are fixed.
+- RENDERING docs and a split-screen recipe.
+
+Acceptance: render tests: two cameras draw two halves; four cameras in quarters; picking under the mouse picks the
+right camera. Burrow Brigade gets a split-screen option for far-apart players.
+
+### M29.20 `http.fetch` on every platform (L) — BB/FB-0020 (part)
+
+Done (branch `m29/http-fetch`, `94047d90`): `import { http } from "factoria"`: `http.fetch(url, {method, headers, body,
+timeout})` returns a Promise of `{status, ok, headers, text, json()}` on WinHTTP, `NSURLSession`, libcurl (loaded on
+first use), `HttpURLConnection` and the browser's `fetch`; a game declares its servers in `factoria.json`
+`network.hosts`, which `factoria validate` checks and the Android export turns into the `INTERNET` permission. Tests and
+headless runs get a fake scripted by `game.platform.respond`, and an input recording keeps the answers (commit
+`123c5f14`). New NETWORKING.md; LEGAL.md and MOBILE.md no longer say games have no network. Beyond the plan: the host
+list and its checks.
+
+- `http.fetch(url, {method, headers, body, timeout})` (a Promise of status, headers, text and JSON) on Windows (WinHTTP),
+  macOS and iOS (NSURLSession), Linux (libcurl, loaded when present), Android (HttpURLConnection, the `INTERNET`
+  permission when a game uses it) and the web (fetch). Tests and headless runs get a fake that answers what
+  `game.platform.respond` gives it, and never touch the network.
+- LEGAL.md and MOBILE.md stop saying games have no network; a NETWORKING doc.
+
+Acceptance: script tests against the fake; a desktop doctest against a local test server; the Android and web builds
+in CI.
+
+### M29.21 Analytics with consent and remote config (M) — BB/FB-0020 (the rest)
+
+Done (branch `m29/analytics`, `1c0beff9`): `analytics.event(name, props)` queues events and sends batches to the
+`endpoint` of the `"analytics"` section of `factoria.json` only after `analytics.setConsent(true)` (or
+`consentFromAds`); a quit waits at most 3 s for the last batch, and a failed send is retried at most 3 times per event.
+`remoteConfig.get(key, fallback)` reads the `"remoteConfig"` section's JSON, caches it in `storage` and checks each
+value against its fallback's type. Both are script modules on `http.fetch` (no new command), `factoria validate` checks
+the sections, the iOS export adds the analytics privacy entry, and the menu kit has an `analyticsConsent` part and an
+Options switch. The plan had the endpoint in "the catalog"; it is in `factoria.json`.
+
+After M29.20.
+- `analytics.event(name, props)` batched and sent through `http` only after the player consents (the ads consent, or the
+  kit's privacy toggle), to an endpoint the catalog names; `remoteConfig.get(key, default)` fetched at start and cached,
+  with the fake for tests.
+- PLATFORM.md and LEGAL.md (what is sent and when).
+
+Acceptance: fake tests: no event leaves before consent, a batch after it; remote config falls back to the cache offline.
+
+Out of M29: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary like ICU's, L), a cloud conflict event
+(each store resolves it its own way), mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling
+plugins from the Mac, and WebSocket.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
