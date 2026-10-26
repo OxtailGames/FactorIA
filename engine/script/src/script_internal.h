@@ -26,6 +26,13 @@ namespace fa {
 Json platform_answer_json(const PlatformAnswer& answer);
 
 // RAII holder for a JSValue (strict ownership).
+// The engine's JS object classes (nav.createGrid / nav.flowField handles, debugger frames). QuickJS hands class ids out
+// from a per-runtime counter while these live in globals, so every runtime reserves all of them, in this order, right
+// after JS_NewRuntime (reserve_class_ids): each runtime's counter starts at the same id, so the ids match everywhere.
+extern JSClassID g_navHandleClass;
+extern JSClassID g_debugFrameClass;
+void reserve_class_ids(JSRuntime* rt);
+
 class JsVal {
 public:
     JsVal() = default;
