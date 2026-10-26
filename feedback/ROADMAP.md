@@ -7,8 +7,8 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 2026-10-22): no entry is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API, the Steam, Apple and
 Google Play backends, AdMob ads with consent, leaderboard periods on the stores and the Steam Deck's keyboard (M27); M16
 (mobile store-ready), M17 (web export), M18 (animation and production 3D), M20 (editor and tooling, 2026-10-22), M21
-(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26, M27, M28 and M29 are
-done; M23 has the Mac App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 has the video
+(docs and material for shipping), M22 (production quality and legal, 2026-10-21), M24, M25, M26, M27, M28, M29 and M30
+are done; M23 has the Mac App Store and the Microsoft Store (MSIX) done, its consoles part is not started; M19 has the video
 player, the navmesh's off-mesh links and walkable bodies (M27), tile pathfinding, behaviour trees, bus effects,
 `http.fetch` and split screen (M29), the rest is not started (M10-M23 come from an external evaluation of v0.1.4,
 re-triaged 2026-10-16: what it still takes to ship a game to the stores). M25, the second reference game (Clockwork
@@ -25,16 +25,545 @@ and the open ones became the 21 packages of M29 (built 2026-10-26), which also t
 pathfinding and behaviour trees, audio effects, networking, split screen) and M12's analytics and remote config. M29
 fixed them all (2026-10-26): no entry is open. The game dropped the workarounds that no longer had a reason; the few it
 keeps on purpose are under M29, "Left open".
-M30, a fourth reference game (a management game played with the mouse, web and desktop first), is in progress: it
-is how save slots, a dense mouse UI and the web as the main target get ranked.
+M30, the fourth reference game (Tidewater Market: a management game played with the mouse, web and desktop first,
+2026-10-26), reported 52 entries: one was fixed on the way (TM/FB-0070, the web page downloaded the wasm twice), one
+was withdrawn (TM/FB-0015), one is a duplicate, and 49 are open (9 major, 27 minor, 13 nice-to-have, no blocker),
+ranked below. Their triage is the next milestone.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade examples/tidewater-market --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-0 entries from 7 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+49 entries from 8 project(s), 48 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-_No open feedback entries._
+## 1. Web export does not check the web player against the engine build
+
+- **Category:** platform
+- **Severity:** major (score 8)
+- **Total occurrences:** 2
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0050
+- **Suggestion:** Apply the same fingerprint check to the web (and mobile) players, and print the missing API when a script fails to import or call something the player lacks.
+- **Workarounds seen:**
+  - Build the web player from the checkout (cmake --preset web-release; cmake --build --preset web-release) and export with --player build/web-release/player. With it the game runs in the browser and new game, build, save, reload, continue works (SHIPPING.md, "Web").
+
+## 2. No rich text or inline icons in a Text or Button label
+
+- **Category:** ui
+- **Severity:** minor (score 6)
+- **Total occurrences:** 3
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0010, Tidewater Market/FB-0011
+- **Suggestion:** Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine and drawn as one batch (or a runs: [{text, color} | {sprite}] field).
+- **Workarounds seen:**
+  - P3: rows of icon Sprite + Text children in a row-layout Panel (cost lines, tooltip lines each in one colour, goods table cells). P5: a small markup ([b], [c:..], [icon:..]) parsed and laid out with ui.measureText, line breaking included (CJK too), drawn as a pool of Text and Sprite entities per line piece; bold is the text drawn twice 1 px apart. About 400 lines of JS plus tests.
+  - An item is a column Panel holding a Sprite and a Button whose label is the name and cost; the Sprite does not take clicks, so a click on the icon does nothing unless the Panel forwards it (Panel hover is not a click target).
+
+## 3. No UI hit test or virtual cursor API for gamepads
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0043
+- **Suggestion:** ui.widgetAt(x, y) returning the topmost visible, unclipped widget, and ui.setPointer(x, y) that drives hover and click like a mouse.
+- **Workarounds seen:**
+  - scripts/game/pointer.js scans the widgets itself with ui.rectOf, tests the clipping of ScrollLists by hand and focuses the widget under the cursor so the submit action presses it.
+
+## 4. No UI scale, only a text scale
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0042
+- **Suggestion:** A ui.scale (or a Canvas scale) that multiplies sizes, offsets and fonts of every screen-space widget, with text scale on top.
+- **Workarounds seen:**
+  - ui_kit.js keeps a registry of the widgets it creates and rescales their sizes, fonts, paddings and label widths itself when the scale changes; the HUD places panels from the scaled sizes.
+
+## 5. No chart or graph widget
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0009
+- **Suggestion:** A Chart component (values array, kind bar/line, colour, axis min/max auto) drawn by the UI layer, with hover reporting the sample under the pointer.
+- **Workarounds seen:**
+  - Charts are rectangles built in a pool in ui_hud.js (bars scaled to the maximum, a baseline rule, axis labels as Text). Position maths in the Hud, data in the Recorder (ui_model.js).
+
+## 6. No drag and drop between widgets and the world
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0008
+- **Suggestion:** Button.draggable plus ui.onDrag(start|over|drop) events carrying the source entity and screen position, and a ui.dragging flag that input consumers can read.
+- **Workarounds seen:**
+  - ui_hud.js watches ui.hovered on the press, starts after a 6 px slop, draws a follow-the-pointer chip Panel, asks the model (canDropWorker) while the mouse moves to colour the target, and swallows the click the release would otherwise produce on the chip or map.
+
+## 7. No tooltip: a widget cannot show a hint after the pointer rests on it
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0007
+- **Suggestion:** A Tooltip field on Panel/Button (text key or `tooltip: {title, lines}`), with `ui.tooltipDelay`, placement inside the window and a setting to turn it off for touch.
+- **Workarounds seen:**
+  - Tooltips class in ui_kit.js: a pool of Text lines in a fitted column Panel, a rest timer, a slop in pixels, placement flipped near the screen edges, and a fallback function for what is not a widget. Every widget's hint is a function that returns the text, so it is as fresh as the numbers it names.
+
+## 8. No way to get players for a development build
+
+- **Category:** platform
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0051
+- **Suggestion:** Let setup players fetch the latest release or CI artifact for a development build, and document the emcc setup next to the web export.
+- **Workarounds seen:**
+  - Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused. Later the orchestrator built the web player with the emsdk in ~/emsdk (Emscripten 6.0.10, the CI version); Windows and Linux are still refused.
+
+## 9. The mouse wheel reaches the game under a UI panel: no way to say the UI consumed it
+
+- **Category:** input
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0013
+- **Suggestion:** input.wheelConsumed / ui.consumedWheel: true when the pointer is over a scrolling widget, or input.wheel() returning 0 over a widget that handles it.
+- **Workarounds seen:**
+  - camera_rig.js has a wheelBlocked field the Hud sets each frame from the rectangles of the open panels (this.over(mouse)). Every script that reads the wheel must remember to check it.
+
+## 10. nav.findTilePath costs the size of the grid on every call, no reusable grid or flow field
+
+- **Category:** performance
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0006
+- **Suggestion:** nav.createGrid({width, height, cost}) returning a handle that findTilePath(grid, from, to) reuses (update cells with grid.setCost(col, row, cost)), and nav.flowField(grid, goals) returning a distance field that nav.stepToward(field, col, row) reads in O(1).
+- **Workarounds seen:**
+  - scripts/game/roadnet.js keeps one distance field (BFS) per goal building, cached until the roads change, and walkers descend it one cell at a time. 75 ticks of 600 walkers cost 442 ms with the fields and 5978 ms through nav.findTilePath on a 60x60 map (tests/stress.test.js compares both; scripts/game/nav_backend.js is the plug-in that uses the engine's finder).
+
+## 11. A Toggle's box and its autoSize do not follow maxTextScale
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0064
+- **Suggestion:** Let a Toggle with maxWidth wrap by default when its label is longer, or make autoSize honour a maximum width.
+- **Workarounds seen:**
+  - The three toggles of the Access tab have short labels; the explanation moved to the note under them, which wraps. Options panels have fixed sizes that were enlarged for the 1.5 cap.
+
+## 12. A fit Panel in a column has no minimum width: a rule spacer is the only way to widen it
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0017
+- **Suggestion:** Panel.minSize (and maxSize) that also apply when fit is true.
+- **Workarounds seen:**
+  - rule() in ui_kit.js (a 2 px high Panel of the right width); used by the inspector and the right column.
+
+## 13. Atlas grows as pictures are added, and the frame table is hand kept
+
+- **Category:** rendering-2d
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0034
+- **Suggestion:** An atlas.pack command that packs a folder of images and writes the frame table the Sprite region field can use.
+- **Workarounds seen:**
+  - make_atlas.py (Python) builds the PNG and the rect/pivot table; the game reads frame rects from data/atlas.json.
+
+## 14. Children of a hidden Panel still report active = true
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0016
+- **Suggestion:** Mention activeInHierarchy under Entity.active in the scripting docs, or make ui.rectOf return null for entities hidden by a parent.
+- **Workarounds seen:**
+  - ui_kit.js isActive and the tests' shown() use activeInHierarchy.
+
+## 15. Export packs the whole project folder unless export.exclude is set
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0052
+- **Suggestion:** Print the largest folders that went into the pak, and warn when a folder named store/, screenshots/ or src/ is packed.
+- **Workarounds seen:**
+  - export.exclude: ["store/**", "assets/src/**"] in factoria.json; the pak is 3.5 MB.
+
+## 16. Large saves: storage is one file, no size query, no compression, the write runs inside a frame
+
+- **Category:** performance
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0022
+- **Suggestion:** storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.
+- **Workarounds seen:**
+  - Save format v2 packs terrain as run lengths and road runs as one array each; saves are written at the end of the frame, never inside a clock step, and an unchanged town is not autosaved.
+
+## 17. No bold or font weight for Text
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0031
+- **Suggestion:** A Text.weight or a bold font slot in the project font settings.
+- **Workarounds seen:**
+  - Drawing the run twice with a 1 px offset (fake bold). It blurs at small sizes and doubles the entities.
+
+## 18. No choice or dialogue card system
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0033
+- **Suggestion:** A documented modal 'card' widget in the menu kit: title, wrapped body, N choice buttons with a detail line.
+- **Workarounds seen:**
+  - trade_ui.js builds the card from a Panel prefab plus buttons spawned per choice and holds the clock at speed 0 while a card is open.
+
+## 19. No documented hide or close signal on the web for an autosave
+
+- **Category:** docs
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0021
+- **Suggestion:** Document which of blur / suspend / quit each platform raises (web: visibilitychange and pagehide), and raise suspend on a hidden tab and quit on pagehide in the web runtime.
+- **Workarounds seen:**
+  - scripts/save_controller.js saves on blur, suspend and quit, and the autosaver also writes at the end of every season and every 120 s of play when the town changed, so a tab closed without any signal loses at most that.
+
+## 20. No isometric tilemap or picking helpers
+
+- **Category:** rendering-2d
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0001
+- **Suggestion:** An optional Tilemap projection 'isometric' (tile 100x50) with cellAt(worldPoint) and cellToWorld(c, r), drawn as one batched mesh instead of one entity per cell; document the sprite draw order inside a layer in the sprites section.
+- **Workarounds seen:**
+  - scripts/game/iso.js (cell <-> world, rounding in the iso axes), scripts/game/map_view.js (one entity per cell and object, same layer so lower y draws on top, one atlas so the whole map is about 20 draw calls), tests/camera_picking.test.js checks the picking at zooms 0.4 to 2.5 against camera.screenToWorld.
+
+## 21. No modifier chords: an action binds to one key only
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0012
+- **Suggestion:** Bindings like "Ctrl+Z" and input.down("Shift") as modifier state in action bindings.
+- **Workarounds seen:**
+  - Plain Z and Y keys, and the buttons; Shift and Ctrl are not used by the game.
+
+## 22. No node to run pure JS modules outside factoria test
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0004
+- **Suggestion:** factoria eval <file.js> or script.eval on a module path that runs a pure module headless without loading a scene, or documenting that factoria test FILE --filter is the quick way.
+- **Workarounds seen:**
+  - Everything pure is tested through factoria test (tests/map_generation.test.js, rules.test.js) and previewed through the project tool project.map_preview.
+
+## 23. No screenshot of the running game as a texture, for a save slot picture
+
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0020
+- **Suggestion:** render.captureTexture({width, height}) returning a texture id a Sprite or Image can use (and storage-friendly PNG bytes), or a Sprite field that takes a data URL.
+- **Workarounds seen:**
+  - scripts/game/thumbnail.js saves a top-down map of at most 48 x 48 cells (one colour per cell, run-length text, about 0.3 KB) and the slot screen draws it as coloured Panel quads in layout rows.
+
+## 24. No strategy camera helper (edge pan, wheel zoom to cursor, bounds)
+
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0002
+- **Suggestion:** A documented recipe or a built-in CameraRig behaviour with panSpeed, edgePan, zoomMin/zoomMax, bounds from entity.bounds().
+- **Workarounds seen:**
+  - scripts/game/camera_math.js (pure: zoomAt, clampView, screenToWorld) and scripts/game/camera_rig.js (the behaviour), both tested.
+
+## 25. No voice count, no end-of-voice event, setVoiceVolume not in the audio log
+
+- **Category:** audio
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0045
+- **Suggestion:** audio.activeVoices(), an onEnded callback, and setVoiceVolume entries in the audio log.
+- **Workarounds seen:**
+  - soundmix.js keeps its own voice list with end times from the clip lengths and sends volumes through a wrapper that tests can read.
+
+## 26. Only four audio buses
+
+- **Category:** audio
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0041
+- **Suggestion:** Let a project declare extra buses in factoria.json (audio.buses) with a parent, or add an ambience bus.
+- **Workarounds seen:**
+  - Ambience is a game-level virtual bus: beds play on sfx and are multiplied by settings.live().ambience (scripts/game/soundmix.js).
+
+## 27. Positional audio ignores the camera zoom
+
+- **Category:** audio
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0040
+- **Suggestion:** A listener height or zoom factor for 2D audio (audio.setListener({position, zoom})) that scales the falloff distance.
+- **Workarounds seen:**
+  - scripts/game/soundscape.js reads the camera view itself, counts the buildings in it and sets the volume of each bed and work sound by hand.
+
+## 28. Script-built rich text and absolute layouts need their own text-size cap
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0065
+- **Suggestion:** An event when ui.textScale changes (ui.on("textScale")), and layout containers that stack Texts of different heights without a script.
+- **Workarounds seen:**
+  - RichView now caps the scale it uses (RICH_CAP 1.25), scales the line height and icons with it, and the card and board rebuild when ui.textScale or the language changes (an onUpdate check, since there is no event for the text size).
+
+## 29. Shape2D line with a positive size.y draws upwards in screen space
+
+- **Category:** rendering-2d
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0014
+- **Suggestion:** Document it next to Shape2D.size, or make screen-space shapes +Y down like everything else in space: "screen".
+- **Workarounds seen:**
+  - Charts use rectangles with pivot [0,1] and never lines; a first version with lines had bars drawn in the wrong place.
+
+## 30. Web player audio uses the deprecated ScriptProcessorNode
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0054
+- **Suggestion:** Move the sokol_audio web backend to an AudioWorklet.
+- **Workarounds seen:**
+  - None; it still plays.
+
+## 31. autoFocus takes the focus back when a script clears it
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0044
+- **Suggestion:** Honour an explicit ui.focus(null) until the next navigation input, or a ui.autoFocus = false switch.
+- **Workarounds seen:**
+  - A 2 px invisible sink button off the screen takes the focus while the cursor is over nothing (pad_cursor.js, pointer.js).
+
+## 32. feedback collect merges different gaps whose titles share a few words
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0072
+- **Suggestion:** Weigh the `missing` text and the category more than shared short words of the title, or let an entry list ids it must never merge with ("distinctFrom": ["FB-0011"]), and print the merged groups with their scores so a triage can check them.
+- **Workarounds seen:**
+  - None: the ranked list in feedback/ROADMAP.md shows both ids under one heading; the triage reads both entries.
+
+## 33. rng.create state cannot be read or set, so a saved game cannot resume its random stream
+
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0032
+- **Suggestion:** rng.state getter and setter (a number) on generators from rng.create, documented as stable like the algorithm.
+- **Workarounds seen:**
+  - My own mulberry32 Rng with a public 32-bit state (same algorithm as the engine's), three separate streams so a new draw in one does not shift the others.
+
+## 34. ui.overflowed flags a short autoSize + maxWidth Toggle or Button
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0060
+- **Suggestion:** Measure the wrapped label by its widest line, or document that maxWidth + box + margins must fit the design size.
+- **Workarounds seen:**
+  - Toggles in the options screen use maxWidth 440 in a 560 px design size, which leaves room for the box and margins at the 1.5 text cap; found by trial at 200% text.
+
+## 35. ui.state and i18n.state are not reachable from scripts and tests
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0063
+- **Suggestion:** Expose ui.check_layout() (the problems of the current frame) and i18n.state to scripts, or let a test call any command.
+- **Workarounds seen:**
+  - tests/layout_helper.js walks world.entities(), takes the rectangle of each text and label with ui.rectOf, asks ui.overflowed and finds overlaps itself; the key parity test imports the locale JSON files and compares them.
+
+## 36. A Behaviour field named 'on' silently breaks the behaviour
+
+- **Category:** scripting
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0036
+- **Suggestion:** Validate script classes: warn when an instance field shadows a Behaviour method (on, emit, get...).
+- **Workarounds seen:**
+  - Renamed the field to tradeOn.
+
+## 37. A perf file holds one scene, and the example test checks one file
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0056
+- **Suggestion:** Let a perf file list several scenes (scenes: [{scene, budgets}]) or let the CMake loop pick up every <example>*.perf.json.
+- **Workarounds seen:**
+  - tests/perf/tidewater-market.perf.json checks the stress scene (the heaviest); -title and -game files are checked by hand.
+
+## 38. A trailer needs a custom director script and a long recording
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0055
+- **Suggestion:** A Timeline or Cutscene component (camera keys, text cards, fades) and a progress line for --record-video.
+- **Workarounds seen:**
+  - store/trailer/trailer.js and make_trailer.py.
+
+## 39. Button font size is fixed, not fitted: long localised labels overflow
+
+- **Category:** ui
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0018
+- **Suggestion:** Button.fitText: 'shrink' with a minimum font size.
+- **Workarounds seen:**
+  - maxWidth on item buttons plus the tests that assert the build bar stays inside 1280x720 (tests/ui_mouse.test.js).
+
+## 40. Children of a screen-space Panel with layout none are placed from the panel's top-left, which the UI docs do not say
+
+- **Category:** ui
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0035
+- **Suggestion:** One sentence plus an example in the guide's screen-space section: children of a Panel are offset from its corner.
+- **Workarounds seen:**
+  - Child positions are relative to the panel (prefab children at [24,16] etc.).
+
+## 41. Export gives no compressed size or load-time estimate for the web
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0053
+- **Suggestion:** Print raw and gzip sizes per file at the end of a web export, and the time budget of a download at a few connection speeds.
+- **Workarounds seen:**
+  - A small script gzipped each file: total 10.9 MB raw, 5.7 MB gzip. Load time was read from the browser pane.
+
+## 42. Menu kit loading screen writes an English string over a localised Text
+
+- **Category:** docs
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0005
+- **Suggestion:** Ship the kit's loading.js with i18n.t and a 'loading.progress' string with a {percent} placeholder, and a Text without key.
+- **Workarounds seen:**
+  - scripts/loading.js builds the line with i18n.t('loading.progress', {percent}) (locales/en.json) and the Text in the scene has no key.
+
+## 43. No command that builds a CJK font subset from the locale strings
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0062
+- **Suggestion:** A command like assets.subset_font {source, locales} that does the same, so a game needs no Python.
+- **Workarounds seen:**
+  - assets/fonts/make_subset.py (fontTools: pins the variable font to wght 400, keeps the characters of locales/*.json plus punctuation and Latin) builds a 340 KB Noto Sans SC subset; factoria validate is the check that fails on a missing glyph. fontTools is needed only to run the script, not by the game.
+
+## 44. No grammatical gender, case or agreement in the string tables
+
+- **Category:** docs
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0061
+- **Suggestion:** Let a string carry a gender tag ("name.gender": "f") and select forms with it, like plural entries do with count; or document the recommended phrasing for languages with gender.
+- **Workarounds seen:**
+  - Names are chosen so that no agreement is needed (ship names are nouns: Brisa, Brise), and sentences are phrased around the noun ("Edificio: {name}" style) instead of using articles. Anything else has to be written as a whole sentence per name.
+
+## 45. No undo/redo or data-table validation helpers for game state
+
+- **Category:** scripting
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0003
+- **Suggestion:** Document a recipe for validating data tables in a project tool (file, pointer, hint, did-you-mean), and offer a did-you-mean helper to scripts so each game does not write its own; optionally a small history helper.
+- **Workarounds seen:**
+  - scripts/game/state.js (transactions with exact deltas, undo and redo refuse and emit action.rejected), scripts/game/data.js (validateTables with file, JSON pointer, hint and didYouMean) and the project tool project.validate_data.
+
+## 46. The fake store reports stats.add as stats.get plus stats.set
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0037
+- **Suggestion:** Log the call the script made (stats.add) and the nested ones apart, or document the mapping in the platform test section.
+- **Workarounds seen:**
+  - Assert fake.stats.<id> and the 'stats.set' call.
+
+## 47. Web export does not use the game icon in the browser tab
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0071
+- **Suggestion:** Write the game's icon as a small favicon.png in the web export and link it from index.html instead of data:,.
+- **Workarounds seen:**
+  - None in the game; a host can edit index.html to link an icon placed next to it.
+
+## 48. game.press on a held action clicks the same focused widget only once
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Tidewater Market
+- **Entries:** Tidewater Market/FB-0046
+- **Suggestion:** Document it, or make game.press release the action at the end of the step like tapKey.
+- **Workarounds seen:**
+  - Tests use pad.tap("A") or game.tapKey("Enter").
 
 # Next engine milestones
 
@@ -881,82 +1410,8 @@ Left open:
 Next: no feature is planned. The next milestone is whatever the next reference game or the store accounts ask for; what
 is left of M12 (push notifications, deep links, Epic and GOG, the Android stores outside Play), M19 (save slots, WebSocket)
 and M23 (consoles) waits for a game that needs it. The manual checks that need real stores, devices and operating
-systems (M8, M9, M12, the lists above) need hardware this machine does not have. M30 below is a fourth reference game
-that asks for some of them.
-
-## M30. A fourth reference game: management with the mouse, web and desktop first (L, high) — in progress (the `m30/reference-game` PR)
-
-Planned 2026-10-26 against `9feccf2` (the top of the unpushed M29 stack: GitHub suspended the account that day, so the
-branch starts from `m29/leftovers`). No example game has an open entry. Lantern Keep is a 2D platformer, Clockwork
-Courier a 3D phone game and Burrow Brigade a 2D couch co-op game for pads: none is played with the mouse first, none has
-a screen full of panels, lists and tooltips, hundreds of agents at once, sessions of hours with saves that must survive
-a game update, or the browser as its main target. **Tidewater Market** (`examples/tidewater-market`, ids `TM/FB-n`) is
-that game: a calm management game in a harbour town seen on an isometric grid. The player lays out roads, stalls,
-workshops and warehouses; villagers walk the roads and carry goods along production chains (fish to the smokehouse,
-wheat to the mill and the bakery, wool to the weaver), ships come in with orders to fill, the seasons change what grows
-and sells, and event cards ask for a choice. Time runs at pause, x1, x2 and x4. A game lasts one to three hours, in three
-save slots with an autosave. Mouse and keyboard first (a gamepad drives a cursor); the web (itch.io) and the desktop
-(Steam: Windows, Linux, macOS).
-
-Built like the other three: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public
-commands, no engine change. The game asks on purpose for what the engine may not have; each gap gets its workaround and
-an `ENGINE_FEEDBACK.json` entry, and those entries rank what comes next:
-- an isometric grid: tiles and buildings drawn in iso, depth sorting of tall buildings and walkers, picking the tile
-  under the mouse;
-- a strategy camera: pan by dragging and at the screen edges, zoom on the wheel towards the cursor, bounds;
-- a dense mouse UI: drag to lay out roads and areas, drag and drop between panels, tooltips, an inspector, tables and
-  lists that scroll and sort, charts of production over time, notifications, right-click to cancel, keyboard shortcuts;
-- scale: 500 or more walkers finding paths on a map of about 10,000 tiles at x4 speed, with the render and CPU budgets
-  measured there;
-- data-driven content (buildings, recipes, goods, events in JSON tables, validated), undo and redo of building;
-- save slots with a version and a migration hook (M19): the game changes its save format during the milestone and
-  migrates the old saves, autosaves on a timer and when the browser tab closes or is hidden, cloud saves;
-- the web as the main target: load time and download size, the browser's full screen, saves in the browser, the
-  itch.io page; the desktop build too;
-- rich text in event cards and tooltips (colours, icons inline with text), numbers and dates formatted per language;
-- English, Spanish, French and Simplified Chinese (a CJK font subset; a language whose lines break between any two
-  characters).
-
-Assets are CC0 only, imported with `assets.import` and recorded in `assets.json` (isometric tiles and buildings, UI and
-sounds from Kenney's packs; P1 and P2 choose them).
-
-Packages, in this order: P1, P2, then P3-P5 at once, then P6, then P7 and P8 at once.
-- **P1 map, camera and building (L)**: the isometric map (water, sand, grass, forest, rock) from a seed, the camera, the
-  tile under the mouse, laying out roads by dragging, placing, rotating and demolishing buildings with costs and rules,
-  undo and redo, the data tables (buildings, goods, recipes) and their validation, the title screen and the flow (title,
-  game), the HUD's top bar (money, goods, date), a test map, and the contracts the other packages build on (the map, the
-  building catalogue, the economy's state, game events, the clock).
-- **P2 villagers and the economy (L)**: houses and villagers, walkers on the roads finding paths to work and back,
-  carriers moving goods between buildings and warehouses, the production chains, the clock with pause and x1/x2/x4, the
-  seasons, the money (wages, upkeep, sales), music per season, and a bot that grows a town from a fixed seed over a year
-  of game time with the same result every run.
-- **P3 the interface (M)**: the build menu by category, the inspector of a building or villager, tooltips everywhere,
-  the goods table (sortable, scrolling), charts of production and money over time, notifications, overlays (desirability,
-  coverage, traffic), drag and drop of workers and goods between panels, keyboard shortcuts.
-- **P4 progress and saves (M)**: three save slots with names, play time and a thumbnail, autosave, a versioned format
-  (v1 first, then v2 with the migration of v1 saves, fixtures of both in the tests), saves in the browser and on the
-  desktop, cloud saves, the scenario goals (three maps, each with goals) and a sandbox.
-- **P5 ships and events (M)**: ships that arrive with orders and deadlines, the harbour and its trade, event cards with a
-  choice and rich text, a story across the three scenarios, achievements and stats on the fake store.
-- **P6 sound, options and accessibility (M)**: ambience that follows the camera (sea, market, wind), the sounds of
-  buildings and walkers, the display options (UI scale, window modes), key rebinding, a gamepad cursor, colour-blind
-  readable overlays, reduced motion, hold-free controls.
-- **P7 shipping (M)**: the icon, key art and itch.io and Steam capsules, store texts, store screenshots and a trailer
-  rebuilt by scripts, the web export for itch.io (its size and load time measured), the Windows, Linux and macOS exports,
-  render and perf budgets on the busiest town, `SHIPPING.md`.
-- **P8 languages (M)**: Spanish, French and Simplified Chinese (a Noto Sans SC subset; numbers, money and dates per
-  language), every screen at 100 % and 200 % text.
-
-Acceptance criteria:
-- ctest (`example_tidewater-market_*`) runs the bot that grows a town over a year from a fixed seed and pins its state's
-  hash; one seed gives the same map everywhere.
-- Mouse-only and keyboard-only tests drive building, the panels and the menus; a test drives drag and drop.
-- A v1 save fixture loads in the v2 game; a save in each slot round-trips.
-- The web export is made and runs in the browser pane; the Windows, Linux and macOS exports are made and the macOS one
-  starts on this Mac.
-- The busiest town (500 walkers or more) stays under its draw-call budget in a headless run.
-- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
-  next milestone.
+systems (M8, M9, M12, the lists above) need hardware this machine does not have. M30, the fourth reference game, is
+done (ROADMAP_DONE.md): its 49 open entries, ranked at the top of this file, are what to triage next.
 
 ## Out of scope: Roblox
 

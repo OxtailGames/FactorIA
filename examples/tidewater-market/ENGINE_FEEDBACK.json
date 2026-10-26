@@ -143,181 +143,6 @@
       "status": "open"
     },
     {
-      "id": "FB-0030",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "ui",
-      "severity": "minor",
-      "title": "No rich text in Text (inline icons, colours, bold)",
-      "missing": "Event cards and orders need lines like '+40 [coin icon]  -4 [planks icon]' with green/red numbers and bold words that wrap with the text. Text has one colour and one font, and no inline pictures.",
-      "workaround": "A small markup (parse, layout with ui.measureText, line breaking incl. CJK) and a pool of Text and Sprite entities per line piece; bold is the same text drawn twice 1 px apart. About 400 lines of JS plus tests.",
-      "workaroundFiles": [
-        "scripts/game/richtext.js",
-        "scripts/game/rich_view.js",
-        "scripts/game/trade_text.js",
-        "tests/rich_text.test.js"
-      ],
-      "suggestion": "Text.markup: true with [b], [c:..], [icon:atlasFrame] and wrapping handled by the engine, drawn as one batch.",
-      "effort": "large",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0031",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "ui",
-      "severity": "minor",
-      "title": "No bold or font weight for Text",
-      "missing": "Emphasis in a card body (a good's name, an amount) needs a heavier face; Text only has fontSize and color.",
-      "workaround": "Drawing the run twice with a 1 px offset (fake bold). It blurs at small sizes and doubles the entities.",
-      "workaroundFiles": [
-        "scripts/game/rich_view.js"
-      ],
-      "suggestion": "A Text.weight or a bold font slot in the project font settings.",
-      "effort": "medium",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0032",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "scripting",
-      "severity": "minor",
-      "title": "rng.create state cannot be read or set, so a saved game cannot resume its random stream",
-      "missing": "A seeded stream (ships, events) must continue exactly after loading a save. rng.create(seed) has no state getter/setter; rng.seed(n) restarts from the beginning, and the world rng is shared with everything else.",
-      "workaround": "My own mulberry32 Rng with a public 32-bit state (same algorithm as the engine's), three separate streams so a new draw in one does not shift the others.",
-      "workaroundFiles": [
-        "scripts/game/rng.js",
-        "tests/trade.test.js"
-      ],
-      "suggestion": "rng.state getter and setter (a number) on generators from rng.create, documented as stable like the algorithm.",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0033",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "ui",
-      "severity": "minor",
-      "title": "No choice or dialogue card system",
-      "missing": "Event cards with 2-3 choices, a result stage, modal behaviour and keyboard/mouse focus are common in management games. Everything (layout, buttons disabled when unaffordable, pausing the clock, result stage) is hand written.",
-      "workaround": "trade_ui.js builds the card from a Panel prefab plus buttons spawned per choice and holds the clock at speed 0 while a card is open.",
-      "workaroundFiles": [
-        "scripts/game/trade_ui.js",
-        "prefabs/ui/event_card.prefab.json"
-      ],
-      "suggestion": "A documented modal 'card' widget in the menu kit: title, wrapped body, N choice buttons with a detail line.",
-      "effort": "medium",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0034",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "rendering-2d",
-      "severity": "minor",
-      "title": "Atlas grows as pictures are added, and the frame table is hand kept",
-      "missing": "Adding the pier, star and three ship classes with four headings each took the atlas from 2048x1024 to 2048x2048 (107 frames). There is no packer, so make_atlas.py lays the frames out and writes data/atlas.json by hand.",
-      "workaround": "make_atlas.py (Python) builds the PNG and the rect/pivot table; the game reads frame rects from data/atlas.json.",
-      "workaroundFiles": [
-        "assets/src/make_atlas.py",
-        "data/atlas.json"
-      ],
-      "suggestion": "An atlas.pack command that packs a folder of images and writes the frame table the Sprite region field can use.",
-      "effort": "medium",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0035",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "ui",
-      "severity": "nice-to-have",
-      "title": "Children of a screen-space Panel with layout none are placed from the panel's top-left, which the UI docs do not say",
-      "missing": "I first placed card children with absolute screen positions and they came out shifted by the panel position. Moving the panel moves its children, which is good, but I found it only by a screenshot.",
-      "workaround": "Child positions are relative to the panel (prefab children at [24,16] etc.).",
-      "workaroundFiles": [
-        "prefabs/ui/order_board.prefab.json",
-        "prefabs/ui/event_card.prefab.json"
-      ],
-      "suggestion": "One sentence plus an example in the guide's screen-space section: children of a Panel are offset from its corner.",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0036",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "scripting",
-      "severity": "nice-to-have",
-      "title": "A Behaviour field named 'on' silently breaks the behaviour",
-      "missing": "I named a field 'on' (a flag) and the class's own Behaviour.on method was replaced, so event subscriptions failed with no error naming the cause.",
-      "workaround": "Renamed the field to tradeOn.",
-      "workaroundFiles": [
-        "scripts/game/trade_ui.js"
-      ],
-      "suggestion": "Validate script classes: warn when an instance field shadows a Behaviour method (on, emit, get...).",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
-      "id": "FB-0037",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "worker-tidewater-p5",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "tooling",
-      "severity": "nice-to-have",
-      "title": "The fake store reports stats.add as stats.get plus stats.set",
-      "missing": "A test that wants to assert a stat was counted has to know the fake implements add as get + set; the call log does not show a 'stats.add' call.",
-      "workaround": "Assert fake.stats.<id> and the 'stats.set' call.",
-      "workaroundFiles": [
-        "tests/trade_ui.test.js"
-      ],
-      "suggestion": "Log the call the script made (stats.add) and the nested ones apart, or document the mapping in the platform test section.",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
       "id": "FB-0007",
       "date": "2026-10-26",
       "reporter": {
@@ -395,15 +220,19 @@
       "category": "ui",
       "severity": "minor",
       "title": "No rich text or inline icons in a Text or Button label",
-      "missing": "A goods line such as '[wood icon] 12 / 40' or a cost with coloured missing items needs several colours and a sprite inside one line. A Text has one colour and no inline sprites, so every line is a pool of separate labels and icons laid out in rows.",
-      "workaround": "Rows of icon Sprite + Text children in a row-layout Panel (cost lines, tooltip lines each in one colour, goods table cells).",
+      "missing": "A goods line such as '[wood icon] 12 / 40' or a cost with coloured missing items needs several colours and a sprite inside one line. A Text has one colour and no inline sprites, so every line is a pool of separate labels and icons laid out in rows. (P3) Event cards and orders (P5) need lines like '+40 [coin icon]  -4 [planks icon]' with green and red numbers and bold words that wrap with the text; Text has one colour, one font weight and no inline pictures.",
+      "workaround": "P3: rows of icon Sprite + Text children in a row-layout Panel (cost lines, tooltip lines each in one colour, goods table cells). P5: a small markup ([b], [c:..], [icon:..]) parsed and laid out with ui.measureText, line breaking included (CJK too), drawn as a pool of Text and Sprite entities per line piece; bold is the text drawn twice 1 px apart. About 400 lines of JS plus tests.",
       "workaroundFiles": [
         "scripts/game/ui_kit.js",
-        "scripts/game/ui_hud.js"
+        "scripts/game/ui_hud.js",
+        "scripts/game/richtext.js",
+        "scripts/game/rich_view.js",
+        "scripts/game/trade_text.js",
+        "tests/rich_text.test.js"
       ],
-      "suggestion": "Text markup such as `{color:red}` and `{icon:atlas.frame}` or a `runs: [{text,color}|{sprite}]` field.",
-      "effort": "small",
-      "occurrences": 1,
+      "suggestion": "Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine and drawn as one batch (or a runs: [{text, color} | {sprite}] field).",
+      "effort": "large",
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -643,6 +472,184 @@
       ],
       "suggestion": "storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.",
       "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No rich text in Text (inline icons, colours, bold)",
+      "missing": "Event cards and orders need lines like '+40 [coin icon]  -4 [planks icon]' with green/red numbers and bold words that wrap with the text. Text has one colour and one font, and no inline pictures.",
+      "workaround": "A small markup (parse, layout with ui.measureText, line breaking incl. CJK) and a pool of Text and Sprite entities per line piece; bold is the same text drawn twice 1 px apart. About 400 lines of JS plus tests.",
+      "workaroundFiles": [
+        "scripts/game/richtext.js",
+        "scripts/game/rich_view.js",
+        "scripts/game/trade_text.js",
+        "tests/rich_text.test.js"
+      ],
+      "suggestion": "Text.markup: true with [b], [c:..], [icon:atlasFrame] and wrapping handled by the engine, drawn as one batch.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "duplicate",
+      "notes": [
+        "2026-10-26 (M30 close-out): duplicate of FB-0010, the same gap met by P5's event cards; its occurrence, workaround and files were merged there."
+      ]
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No bold or font weight for Text",
+      "missing": "Emphasis in a card body (a good's name, an amount) needs a heavier face; Text only has fontSize and color.",
+      "workaround": "Drawing the run twice with a 1 px offset (fake bold). It blurs at small sizes and doubles the entities.",
+      "workaroundFiles": [
+        "scripts/game/rich_view.js"
+      ],
+      "suggestion": "A Text.weight or a bold font slot in the project font settings.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "rng.create state cannot be read or set, so a saved game cannot resume its random stream",
+      "missing": "A seeded stream (ships, events) must continue exactly after loading a save. rng.create(seed) has no state getter/setter; rng.seed(n) restarts from the beginning, and the world rng is shared with everything else.",
+      "workaround": "My own mulberry32 Rng with a public 32-bit state (same algorithm as the engine's), three separate streams so a new draw in one does not shift the others.",
+      "workaroundFiles": [
+        "scripts/game/rng.js",
+        "tests/trade.test.js"
+      ],
+      "suggestion": "rng.state getter and setter (a number) on generators from rng.create, documented as stable like the algorithm.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No choice or dialogue card system",
+      "missing": "Event cards with 2-3 choices, a result stage, modal behaviour and keyboard/mouse focus are common in management games. Everything (layout, buttons disabled when unaffordable, pausing the clock, result stage) is hand written.",
+      "workaround": "trade_ui.js builds the card from a Panel prefab plus buttons spawned per choice and holds the clock at speed 0 while a card is open.",
+      "workaroundFiles": [
+        "scripts/game/trade_ui.js",
+        "prefabs/ui/event_card.prefab.json"
+      ],
+      "suggestion": "A documented modal 'card' widget in the menu kit: title, wrapped body, N choice buttons with a detail line.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Atlas grows as pictures are added, and the frame table is hand kept",
+      "missing": "Adding the pier, star and three ship classes with four headings each took the atlas from 2048x1024 to 2048x2048 (107 frames). There is no packer, so make_atlas.py lays the frames out and writes data/atlas.json by hand.",
+      "workaround": "make_atlas.py (Python) builds the PNG and the rect/pivot table; the game reads frame rects from data/atlas.json.",
+      "workaroundFiles": [
+        "assets/src/make_atlas.py",
+        "data/atlas.json"
+      ],
+      "suggestion": "An atlas.pack command that packs a folder of images and writes the frame table the Sprite region field can use.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Children of a screen-space Panel with layout none are placed from the panel's top-left, which the UI docs do not say",
+      "missing": "I first placed card children with absolute screen positions and they came out shifted by the panel position. Moving the panel moves its children, which is good, but I found it only by a screenshot.",
+      "workaround": "Child positions are relative to the panel (prefab children at [24,16] etc.).",
+      "workaroundFiles": [
+        "prefabs/ui/order_board.prefab.json",
+        "prefabs/ui/event_card.prefab.json"
+      ],
+      "suggestion": "One sentence plus an example in the guide's screen-space section: children of a Panel are offset from its corner.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "A Behaviour field named 'on' silently breaks the behaviour",
+      "missing": "I named a field 'on' (a flag) and the class's own Behaviour.on method was replaced, so event subscriptions failed with no error naming the cause.",
+      "workaround": "Renamed the field to tradeOn.",
+      "workaroundFiles": [
+        "scripts/game/trade_ui.js"
+      ],
+      "suggestion": "Validate script classes: warn when an instance field shadows a Behaviour method (on, emit, get...).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "The fake store reports stats.add as stats.get plus stats.set",
+      "missing": "A test that wants to assert a stat was counted has to know the fake implements add as get + set; the call log does not show a 'stats.add' call.",
+      "workaround": "Assert fake.stats.<id> and the 'stats.set' call.",
+      "workaroundFiles": [
+        "tests/trade_ui.test.js"
+      ],
+      "suggestion": "Log the call the script made (stats.add) and the nested ones apart, or document the mapping in the platform test section.",
+      "effort": "small",
       "occurrences": 1,
       "status": "open"
     },
@@ -942,46 +949,6 @@
       "status": "open"
     },
     {
-      "id": "FB-0070",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "orchestrator-m30",
-        "model": "claude-opus-5-5"
-      },
-      "category": "platform",
-      "severity": "major",
-      "title": "Web page downloaded the 8 MB wasm twice",
-      "missing": "platforms/web/shell.html downloads factoria_player.wasm itself (for the progress bar) and passed it as Module.wasmBinary, which Emscripten 6 no longer reads. The runtime then fetched the wasm again: every load of every web game cost 3 MB of gzip twice and the progress bar ended before the real download.",
-      "workaround": "Fixed in the engine while testing the export: the page hands its copy to the player through Module.instantiateWasm, which Emscripten still reads. The server log shows one GET of the wasm per load.",
-      "workaroundFiles": [
-        "SHIPPING.md"
-      ],
-      "suggestion": "A test that exports a game, serves it and counts the requests per file, so the next Emscripten update cannot bring this back.",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "fixed-in-engine"
-    },
-    {
-      "id": "FB-0071",
-      "date": "2026-10-26",
-      "reporter": {
-        "kind": "ai",
-        "agent": "orchestrator-m30",
-        "model": "claude-opus-5-5"
-      },
-      "category": "tooling",
-      "severity": "nice-to-have",
-      "title": "Web export does not use the game icon in the browser tab",
-      "missing": "The game has an icon (assets/icon.png, used by the macOS export), but the web page declares an empty icon (<link rel=\"icon\" href=\"data:,\">, so that hosts without a favicon log no 404), and the browser tab shows a blank icon. (The /favicon.ico 404s in the local server log came from the app's browser pane, which asks for it anyway; the page itself requests none.)",
-      "workaround": "None in the game; a host can edit index.html to link an icon placed next to it.",
-      "workaroundFiles": [],
-      "suggestion": "Write the game's icon as a small favicon.png in the web export and link it from index.html instead of data:,.",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "open"
-    },
-    {
       "id": "FB-0060",
       "date": "2026-10-26",
       "reporter": {
@@ -1109,6 +1076,65 @@
         "scripts/game/trade_ui.js"
       ],
       "suggestion": "An event when ui.textScale changes (ui.on(\"textScale\")), and layout containers that stack Texts of different heights without a script.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0070",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "Web page downloaded the 8 MB wasm twice",
+      "missing": "platforms/web/shell.html downloads factoria_player.wasm itself (for the progress bar) and passed it as Module.wasmBinary, which Emscripten 6 no longer reads. The runtime then fetched the wasm again: every load of every web game cost 3 MB of gzip twice and the progress bar ended before the real download.",
+      "workaround": "Fixed in the engine while testing the export: the page hands its copy to the player through Module.instantiateWasm, which Emscripten still reads. The server log shows one GET of the wasm per load.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "A test that exports a game, serves it and counts the requests per file, so the next Emscripten update cannot bring this back.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine"
+    },
+    {
+      "id": "FB-0071",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Web export does not use the game icon in the browser tab",
+      "missing": "The game has an icon (assets/icon.png, used by the macOS export), but the web page declares an empty icon (<link rel=\"icon\" href=\"data:,\">, so that hosts without a favicon log no 404), and the browser tab shows a blank icon. (The /favicon.ico 404s in the local server log came from the app's browser pane, which asks for it anyway; the page itself requests none.)",
+      "workaround": "None in the game; a host can edit index.html to link an icon placed next to it.",
+      "workaroundFiles": [],
+      "suggestion": "Write the game's icon as a small favicon.png in the web export and link it from index.html instead of data:,.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0072",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "feedback collect merges different gaps whose titles share a few words",
+      "missing": "`factoria feedback collect` ranks FB-0010 ('No rich text or inline icons in a Text or Button label') and FB-0011 ('Buttons are text only: no icon or icon plus text button') as one gap: the titles share 'no', 'icon', 'text' and 'button', and the title similarity (tools/common/src/feedback.cpp) passes the merge threshold. They are different features (styled runs inside a label; a Button that draws a sprite). The ranked list then under-counts distinct gaps and hides one of them behind the other's suggestion, and there is no way to say 'these two are not the same'.",
+      "workaround": "None: the ranked list in feedback/ROADMAP.md shows both ids under one heading; the triage reads both entries.",
+      "workaroundFiles": [],
+      "suggestion": "Weigh the `missing` text and the category more than shared short words of the title, or let an entry list ids it must never merge with (\"distinctFrom\": [\"FB-0011\"]), and print the merged groups with their scores so a triage can check them.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"

@@ -2043,6 +2043,60 @@ Out of M29: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary li
 (each store resolves it its own way), mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling
 plugins from the Mac, and WebSocket.
 
+## M30. A fourth reference game: management with the mouse, web and desktop first — DONE (the `m30/reference-game` PR)
+
+Lantern Keep is a 2D platformer, Clockwork Courier a 3D phone game and Burrow Brigade a 2D couch co-op game for pads:
+none was played with the mouse first, had a screen full of panels, lists and tooltips, hundreds of agents at once,
+sessions of hours with saves that must survive a game update, or the browser as its main target. **Tidewater Market**
+(`examples/tidewater-market`, its README and `SHIPPING.md`; feedback ids `TM/FB-n`) is that game: a calm management game
+in a harbour town on an isometric grid, with roads, workshops, warehouses, villagers who walk to work and carry goods
+along production chains, ships with orders, seasons and event cards, at pause, x1, x2 and x4. It was built like the
+other three, by game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public commands,
+with no engine change, in eight packages (planned 2026-10-26 against `9feccf2`, the top of the unpushed M29 stack):
+
+- P1 map, camera and building: the isometric map from a seed, the strategy camera (drag, screen edges, wheel zoom towards
+  the cursor, bounds), the cell under the mouse, roads laid by dragging, placing, rotating and demolishing with costs and
+  rules, undo and redo, the data tables and their validation (`project.validate_data`), the title screen, the HUD.
+- P2 villagers and the economy: houses and villagers, walkers on the roads, carriers between buildings and warehouses,
+  the production chains, the clock and its speeds, the seasons and their music, wages, upkeep and sales, a bot that grows
+  a town over a year from a fixed seed, and the stress scene (640 villagers).
+- P3 the interface: the build menu, the inspector, tooltips, the goods table (sorted, scrolling), charts of production and
+  money, notifications, overlays, drag and drop of workers, keyboard shortcuts and help.
+- P4 progress and saves: three slots with autosave, a thumbnail and play time, save format v2 with the migration of v1
+  saves (fixtures of both), cloud copies, four scenarios with goals and a win screen.
+- P5 ships and events: the pier and its ships, orders with deadlines, the order board, event cards with a choice in rich
+  text, a story per scenario, achievements and stats on the fake store.
+- P6 sound, options and accessibility: ambience that follows the camera, building and walker sounds under a voice cap, UI
+  sounds, five buses, the options screen (UI sizes, window, key rebinding, colour-blind safe signals, reduced motion,
+  hold-free controls) and a gamepad cursor.
+- P7 shipping: the icon, key art, capsules, store texts, six screenshots and a trailer rebuilt by scripts from the game's
+  own renders, the web export (12.2 MB, 6.1 MB zipped; played in the browser pane: new game, build, save, reload,
+  continue) and the macOS export, perf budgets for the title, the game and the stress town.
+- P8 languages: Spanish, French and Simplified Chinese (a 1190-character Noto Sans SC subset as a fallback font), one
+  formatting module for numbers, amounts, lists and dates, a language choice that applies at once, every screen laid out
+  at 100 % and 200 % text in every language.
+
+Assets are CC0 (Kenney's Isometric Roads, RPG Audio, Impact Sounds and Interface Sounds, cut and extended by
+`assets/src/make_atlas.py`; music and ambience from the project's own scripts) plus the OFL Noto Sans SC subset, all in
+`assets.json`. `factoria test` runs 252 tests; ctest runs the game as `example_tidewater-market_*` (validate, test,
+perf). Playing the web export found an engine bug, fixed on the way: the page downloaded the 8 MB wasm twice
+(`platforms/web/shell.html` now uses `instantiateWasm`, TM/FB-0070); it also found that the game's map tooltip stayed
+over the pause menu (fixed in the game).
+
+It reported 52 entries: one fixed on the way, one withdrawn, one duplicate, and 49 open (9 major, 27 minor, 13
+nice-to-have), none a blocker (the ranked list in [ROADMAP.md](ROADMAP.md)). The biggest are a dense mouse UI (no
+tooltips, drag and drop between widgets, charts, rich text or icon buttons; the wheel reaches the map under a panel; no UI
+scale, only a text scale; no UI hit test or virtual cursor for a gamepad), tile pathfinding that costs the whole grid on
+every call, and a web export that does not check its player against the engine build and has no players for a
+development build. Their triage is the next milestone.
+
+Acceptance: the bot grows a town over a year from a fixed seed and a test pins its hash; mouse-only, keyboard-only and
+gamepad tests drive building, the panels and the menus, and a test drives drag and drop; a v1 save fixture loads in the
+v2 game and every slot round-trips; the web export runs in the browser pane and the macOS export starts on this Mac (the
+Windows and Linux exports were refused: no player of this development build here, TM/FB-0051; left open in
+`SHIPPING.md`); the stress town (640 villagers, about 600 walking at once) stays under its draw-call budget headless;
+`factoria feedback collect` includes the game.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

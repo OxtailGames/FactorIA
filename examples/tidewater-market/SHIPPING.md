@@ -1,4 +1,4 @@
-# Shipping Tidewater Market (P7)
+# Shipping Tidewater Market (P7, languages from P8)
 
 Version 0.1.0 (`factoria.json` `version`). It is a reference game: nothing here has been uploaded to a store.
 
@@ -140,19 +140,19 @@ Done: [x]. Not done or not checked: [ ] with the reason.
 - [x] Controls can be rebound and reset (`tests/options.test.js`).
 - [x] Saves: versioned (v2), migration from v1 with fixtures of both (`tests/fixtures/`), three slots, a Damaged state (`scripts/ui/slots_screen.js`, `tests/save.test.js`, `tests/save_store.test.js`).
 - [x] Progress is written after meaningful events and as autosaves, not only on exit.
-- [ ] Every language has the same keys and every screen fits at 100 % and 200 % in every language: only English exists (`locales/en.json`); translations are P8. The screens were checked at 200 % text in English (`tests/ui_layout.test.js`, `tests/options.test.js`).
+- [x] Every language has the same keys and every screen fits at 100 % and 200 % in every language: English, Spanish, French and Simplified Chinese (P8; `tests/languages.test.js` compares keys, placeholders and markup, `tests/languages_layout.test.js` lays out every screen at both sizes in each language).
 - [x] Text size, reduced motion and colour-blind safe signals are options; the signals do not depend on colour alone. There is no assist mode or shake: they do not apply to a management game.
 - [ ] Achievements and stats are declared and do nothing harmful when there is no store (`scripts/game/achievements.js`; the tests that touch them are in `tests/trade_ui.test.js`, there is no test of the no-store case). Steam achievements need the Steam backend: not added (by hand).
 - [x] Credits screen; `FACTORIA_NOTICES.txt` ships in every export; asset provenance is recorded in `assets.json`.
 - [ ] A way for a player to send `log.txt` and the `crashes` folder: the game has no button for it. The files are in the save folder; say so on the store page.
-- [x] `factoria validate`: 0 errors, 0 warnings (one note: the git-ignored trailer scene is hand-formatted). `factoria test`: 232 passed, 0 failed.
-- [x] Screenshots of the menu, a level and the overlay were looked at (the six store screenshots) in English. Not at 200 % text and not in a second language (only English).
+- [x] `factoria validate`: 0 errors, 0 warnings (one note: the git-ignored trailer scene is hand-formatted). `factoria test`: 252 passed, 0 failed.
+- [x] Screenshots of the menu, a level and the overlay were looked at: the six store screenshots in English, and the menu, the options and the game in Chinese at 200 % text (P8). The overlays were looked at in greyscale and with a deuteranopia simulation.
 
 ## What is left for a real release
 
 - Export Windows and Linux with players of this build (the web export was played with one, see "Web").
 - Replace the placeholder URLs and e-mail in `store/en/urls.txt`; write the real privacy policy page.
-- Translations (P8), a log/crash send button, a Steam app id and the Steamworks backend for achievements and cloud saves.
+- A log/crash send button, a Steam app id and the Steamworks backend for achievements and cloud saves.
 - Sign and notarize the macOS app (`factoria call sign.macos`), sign the Windows exe; fill each store's forms by hand (`docs/PUBLISHING.md`).
 - Redo the trailer pass described above and record it again.
 - Measure a Release build and add the baselines of the CI runners (Linux, Windows) to the three perf files.
