@@ -1204,6 +1204,19 @@
     return Promise.reject(e);
   }
 
+  // audio.play(path, { onEnded }): voice id -> callback. The engine reports the ends (tickVoices, once per fixed step); a scene load
+  // forgets them: the sounds were cut with the scene that asked.
+  const voiceEnded = new Map();
+  function tickVoices() {
+    if (voiceEnded.size === 0) return;
+    for (const id of N.audioTakeEnded()) {
+      const fn = voiceEnded.get(id);
+      if (!fn) continue;
+      voiceEnded.delete(id);
+      try { fn(id); } catch (err) { N.reportError(err, "", "audio.play onEnded"); }
+    }
+  }
+
   const audio = {
     // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
     // text, or a localization key that follows a language change) shows on the Captions component while the sound plays and goes
@@ -1220,9 +1233,15 @@
         throw new Error(`audio.play(path, { ${o.speaker !== undefined ? "speaker" : "captionSeconds"} }) has no caption to apply it to: add caption: "text" or captionKey: "your.key" (a localization key, docs/TEXT.md, "Captions")`);
       if (hasCaption && o.loop && o.captionSeconds === undefined)
         throw new Error(`audio.play(${inspect(path)}, { loop: true, caption }): a looping sound never ends, so its caption would never go. Add captionSeconds: 5 (how long it shows), or play the sound without a caption`);
-      return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0);
+      if (o.onEnded !== undefined && typeof o.onEnded !== "function")
+        throw new Error(`audio.play(path, { onEnded }): onEnded must be a function, e.g. { onEnded: (id) => console.log("done", id) }, but got ${inspect(o.onEnded)}`);
+      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded);
+      if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
+      return id;
     },
-    stop: (id) => N.audioStop(id), stopAll: () => N.audioStopAll(),
+    // activeVoices() -> [{ id, path, bus, volume, pitch, pan, loop, music, source }], oldest first: the sounds that play now.
+    activeVoices: () => N.audioActiveVoices(),
+    stop: (id) => N.audioStop(id), stopAll: () => { voiceEnded.clear(); N.audioStopAll(); },
     // music(path, { volume, fade, persist }): looping music on the "music" bus. A scene load stops it unless persist is true.
     music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0); },
     // musicLayers({ name: path }, { volume, fade, persist, levels }) -> true when every layer started. All layers start on the
@@ -1251,7 +1270,7 @@
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
     getVolume: (bus) => N.audioGetVolume(bus),
-    // Bus effects (docs/SCRIPTING.md, "Audio buses"). audio.bus("music") is a handle on the bus "sfx", "music", "ui" or "master";
+    // Bus effects (docs/SCRIPTING.md, "Audio buses"). audio.bus("music") is a handle on the bus "sfx", "music", "ui", "master" or a bus of factoria.json "audio"."buses";
     // its methods return the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. Each takes an optional { fade }
     // (seconds): the value slides instead of jumping. Ducking has no fade (it follows the other bus on its own).
     //   .lowpass(hz, { fade })    12 dB per octave low-pass at hz (20..20000); 0 or null = off.
@@ -1261,7 +1280,7 @@
     //   .volume(v, { fade })      the bus volume, like audio.setVolume (the player's volume; snapshots scale on top of it).
     //   .state()                  { volume, snapshotVolume, lowpass, reverb, duck } as they are now.
     bus(name) {
-      if (typeof name !== "string") throw new Error(`audio.bus(name): name is "sfx", "music", "ui" or "master", but got ${inspect(name)}`);
+      if (typeof name !== "string") throw new Error(`audio.bus(name): name is "sfx", "music", "ui", "master" or a project bus, but got ${inspect(name)}`);
       const bus = name.toLowerCase();
       N.audioBusState(bus);  // throws for an unknown bus, with a did-you-mean
       const fadeOf = (fn, o) => {
@@ -1285,7 +1304,7 @@
         duck(by, amount = 0.5, attack = 0.05, release = 0.5) {
           if (by === null || by === undefined) { N.audioBusDuck(bus, "", 0, 0, 0); return handle; }
           if (typeof by !== "string")
-            throw new Error(`audio.bus(${inspect(name)}).duck(byBus, amount, attack, release): byBus is the bus that ducks this one ("sfx", "music" or "ui"), e.g. audio.bus("music").duck("sfx", 0.5), but got ${inspect(by)}. Pass null to switch ducking off.`);
+            throw new Error(`audio.bus(${inspect(name)}).duck(byBus, amount, attack, release): byBus is the bus that ducks this one (any bus but the master: "sfx", "music", "ui" or a project bus), e.g. audio.bus("music").duck("sfx", 0.5), but got ${inspect(by)}. Pass null to switch ducking off.`);
           N.audioBusDuck(bus, by.toLowerCase(), num("duck", amount, "amount"), num("duck", attack, "attack"), num("duck", release, "release"));
           return handle;
         },
@@ -2798,7 +2817,7 @@
       const want = path instanceof RegExp ? path : String(path).replace(/^\.\//, "");
       const pathOk = (p) => (want instanceof RegExp ? p.search(want) >= 0 : p === want || p.endsWith("/" + want));
       const source = o.source instanceof Entity ? o.source.id : o.source;
-      const hits = received.filter((x) => x.ok !== false && pathOk(x.path) && (o.bus === undefined || x.bus === o.bus) &&
+      const hits = received.filter((x) => x.kind !== "setVoiceVolume" && x.ok !== false && pathOk(x.path) && (o.bus === undefined || x.bus === o.bus) &&
         (source === undefined || x.source === source));
       const pass = o.times === undefined ? hits.length > 0 : hits.length === o.times;
       let expectedText = `a play of ${want instanceof RegExp ? want : JSON.stringify(want)}`;
@@ -2807,6 +2826,7 @@
       if (source !== undefined) expectedText += ` from entity "${source}"`;
       const groups = new Map();
       for (const x of received) {
+        if (x.kind === "setVoiceVolume") continue;
         const key = x.path + (x.ok === false ? " (FAILED TO LOAD: see the audio error in the log)" : ` [${x.bus}]`);
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(x.frame);
@@ -3331,14 +3351,14 @@
   }
 
   function resetScene() {
-    timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
+    voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
   }
 
   return {
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
-    tick: (dt) => { timers.tick(dt); tickTweens(dt); },
+    tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

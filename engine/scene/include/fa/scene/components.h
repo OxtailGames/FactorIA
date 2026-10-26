@@ -728,6 +728,7 @@ struct AudioSource {
 // the primary camera is used.
 struct AudioListener {
     float volume = 1.0f;
+    float zoom = 1.0f;                // scales the distance positional sounds are heard at (AudioSource.range * zoom)
 };
 
 // ------------------------------------------------------------- scripting ---

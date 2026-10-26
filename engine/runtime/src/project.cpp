@@ -776,8 +776,22 @@ constexpr const char* kSchemaText =
 )JSON"
     R"JSON(    "audio": {
       "type": "object",
-      "description": "The mixer (docs/SCRIPTING.md, \"Audio buses\"). `snapshots` is the catalog audio.snapshot(name, { fade }) and the audio.snapshot command read. `factoria validate` reports every problem with how to fix it.",
+      "description": "The mixer (docs/SCRIPTING.md, \"Audio buses\"). `buses` declares the project's own buses; `snapshots` is the catalog audio.snapshot(name, { fade }) and the audio.snapshot command read. `factoria validate` reports every problem with how to fix it.",
       "properties": {
+        "buses": {
+          "type": "object",
+          "description": "The project's own mixer buses, by name, each with a parent. Beside the built-in \"sfx\", \"music\", \"ui\" and \"master\". A bus is mixed with its effects and volume and then summed into its parent. Example: {\"ambience\": {\"parent\": \"sfx\"}}. Names are lowercase letters, digits, '_' or '-'.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One bus.",
+            "properties": {
+              "parent": {
+                "type": "string",
+                "description": "The bus this one is summed into: \"sfx\", \"music\", \"ui\", \"master\" (default) or another bus of this list."
+              }
+            }
+          }
+        },
         "snapshots": {
           "type": "object",
           "description": "Named sets of bus settings. Applying one moves every bus to the snapshot's state: a bus it does not list goes back to neutral (volume scale 1, no low-pass, no reverb, no ducking), so a snapshot is the whole picture and `\"normal\": {}` is the way back. The volumes the player set (audio.setVolume) are not touched. Example: {\"underwater\": {\"fade\": 0.8, \"buses\": {\"sfx\": {\"lowpass\": 600, \"reverb\": 0.3}, \"music\": {\"volume\": 0.5, \"lowpass\": 400}}}, \"normal\": {}}.",
@@ -793,7 +807,7 @@ constexpr const char* kSchemaText =
               },
               "buses": {
                 "type": "object",
-                "description": "Settings by bus name: \"sfx\", \"music\", \"ui\" or \"master\".",
+                "description": "Settings by bus name: \"sfx\", \"music\", \"ui\", \"master\" or a bus of audio.buses.",
                 "additionalProperties": {
                   "type": "object",
                   "description": "What the snapshot sets on one bus.",

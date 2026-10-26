@@ -99,16 +99,18 @@ void Engine::Impl::apply_project_settings() {
     // logged here and `factoria validate` lists them all.
     AudioSettingsParse audioSettings = parse_audio_settings(project.raw.is_object() && project.raw.contains("audio") ? project.raw["audio"] : Json());
     if (audioSettings.ok()) {
+        audio.set_buses(audioSettings.buses);
         audio.set_snapshots(std::move(audioSettings.snapshots));
     } else {
         const AudioIssue& first = audioSettings.issues.front();
-        const std::string problem = "audio: the snapshot catalog is ignored: factoria.json#" + first.pointer + ": " + first.message +
+        const std::string problem = "audio: the buses and the snapshot catalog are ignored: factoria.json#" + first.pointer + ": " + first.message +
                                     " (hint: " + first.hint + ")" +
                                     (audioSettings.issues.size() > 1 ? " and " + std::to_string(audioSettings.issues.size() - 1) +
                                                                            " more (`factoria validate` lists them all)"
                                                                      : std::string());
         FA_WARN("audio", "{}", problem.substr(7));
         startupProblems.push_back(problem);
+        audio.set_buses({});
         audio.set_snapshots(AudioSnapshots{});
     }
     // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).

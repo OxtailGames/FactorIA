@@ -665,7 +665,7 @@
       "severity": "minor",
       "title": "Positional audio ignores the camera zoom",
       "missing": "Ambience that follows a zoomable top-down camera needs the distance heard to depend on what is in view. audio.play with a position attenuates by world distance to the listener only, so zooming out does not bring far sounds closer.",
-      "workaround": "scripts/game/soundscape.js reads the camera view itself, counts the buildings in it and sets the volume of each bed and work sound by hand.",
+      "workaround": "The engine now has AudioListener.zoom, which scales the falloff of AudioSource sounds. The soundscape still works from screen positions: it plays its sounds with audio.play (not AudioSource) and also weights them by distance from the middle of the screen.",
       "workaroundFiles": [
         "scripts/game/soundscape.js",
         "scripts/game/sfx.js"
@@ -687,15 +687,16 @@
       "severity": "minor",
       "title": "Only four audio buses",
       "missing": "The game wants master, music, ambience, effects and UI volumes. The engine has four buses, so there is no ambience bus.",
-      "workaround": "Ambience is a game-level virtual bus: beds play on sfx and are multiplied by settings.live().ambience (scripts/game/soundmix.js).",
+      "workaround": "factoria.json declares \"audio\": { \"buses\": { \"ambience\": { \"parent\": \"sfx\" } } }; the beds play on it and the options slider is audio.setVolume(\"ambience\", v).",
       "workaroundFiles": [
-        "scripts/game/soundmix.js",
-        "scripts/settings.js"
+        "factoria.json",
+        "scripts/settings.js",
+        "scripts/game/soundscape.js"
       ],
       "suggestion": "Let a project declare extra buses in factoria.json (audio.buses) with a parent, or add an ambience bus.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0042",
@@ -775,7 +776,7 @@
       "severity": "minor",
       "title": "No voice count, no end-of-voice event, setVoiceVolume not in the audio log",
       "missing": "A voice cap for building sounds needs to know how many voices play. There is no audio.voices count and no event when a voice ends; a volume change through setVoiceVolume does not show in game.audioLog(), so tests cannot assert that a bed followed the camera.",
-      "workaround": "soundmix.js keeps its own voice list with end times from the clip lengths and sends volumes through a wrapper that tests can read.",
+      "workaround": "VoiceBook asks audio.activeVoices() which voices still play; tests/sound.test.js reads the setVoiceVolume entries of game.audioLog() and audio.play onEnded.",
       "workaroundFiles": [
         "scripts/game/soundmix.js",
         "tests/sound.test.js"
@@ -783,7 +784,7 @@
       "suggestion": "audio.activeVoices(), an onEnded callback, and setVoiceVolume entries in the audio log.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0046",

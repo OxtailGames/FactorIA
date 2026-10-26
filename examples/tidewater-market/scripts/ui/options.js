@@ -134,12 +134,11 @@ export default class Options extends Behaviour {
 
   // ------------------------------------------------------------------------------------------------------------ audio
   setupAudio() {
-    for (const bus of settings.MIX_BUSES) {
+    for (const bus of settings.BUSES) {
       world.find(`${bus}_volume`).get("Slider").value = this.s.volume[bus];
       ui.on("change", `${bus}_volume`, (e) => {
         this.s.volume[bus] = e.value;
-        // "ambience" is the game's own bus: the engine has four (master, music, sfx, ui); the soundscape reads settings.live().ambience
-        if (settings.BUSES.includes(bus)) audio.setVolume(bus, e.value);
+        audio.setVolume(bus, e.value); // "ambience" is the game's own bus (factoria.json "audio"."buses")
         settings.save(this.s);
       });
     }

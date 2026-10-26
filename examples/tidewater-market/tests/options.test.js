@@ -60,10 +60,10 @@ test("options: what the player chose is saved and in effect after a restart", ()
   expect(audio.getVolume("music")).toBeCloseTo(0.35);
   expect(audio.getVolume("sfx")).toBeCloseTo(0.7);
   expect(audio.getVolume("ui")).toBeCloseTo(0.55);
+  expect(audio.getVolume("ambience")).toBeCloseTo(0.45);
   expect(ui.textScale).toBeCloseTo(1.25);
   expect(currentUiScale()).toBeCloseTo(1.5);
   const live = settings.live();
-  expect(live.ambience).toBeCloseTo(0.45);
   expect(live.safeColors).toBe(true);
   expect(live.reducedMotion).toBe(true);
   expect(live.holdFree).toBe(true);

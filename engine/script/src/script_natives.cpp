@@ -2011,6 +2011,7 @@ NATIVE(audioPlay) {
     pp.loop = arg_bool(ctx, argc, argv, 4, false);
     std::string bus = arg_str(ctx, argc, argv, 5);
     if (!bus.empty()) pp.bus = bus;
+    pp.notifyEnd = arg_bool(ctx, argc, argv, 10, false);
     const VoiceId voice = I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s.
@@ -2035,6 +2036,16 @@ NATIVE(audioStop) {
     I->host->audio().stop(voice);
     I->host->captions().remove_voice(voice);
     return JS_UNDEFINED;
+}
+NATIVE(audioActiveVoices) {  // () -> [{ id, path, bus, volume, pitch, pan, loop, music, source }], oldest first
+    SETUP;
+    return I->from_json(I->host->audio().active_voices());
+}
+NATIVE(audioTakeEnded) {  // () -> ids of the voices played with onEnded that ended since the last call
+    SETUP;
+    Json ids = Json::array();
+    for (const VoiceId id : I->host->audio().take_ended_voices()) ids.push_back(id);
+    return I->from_json(ids);
 }
 NATIVE(audioStopAll) {
     SETUP;
@@ -2114,13 +2125,18 @@ NATIVE(audioStopMusic) {
     I->host->audio().stop_music(static_cast<float>(arg_num(ctx, argc, argv, 0, 0.5)));
     return JS_UNDEFINED;
 }
+// "unknown audio bus 'x'. Did you mean ...? The buses are ...": the buses of the project included.
+static JSValue throw_unknown_bus(JSContext* ctx, const Audio& a, const std::string& bus) {
+    const std::vector<std::string> names = a.bus_names();
+    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, names) + " The buses are " + join(names, ", ") +
+                              " (a project declares its own in factoria.json \"audio\".\"buses\").");
+}
 NATIVE(audioVolume) {
     SETUP;
     std::string bus = to_lower(arg_str(ctx, argc, argv, 0));
     float v = static_cast<float>(arg_num(ctx, argc, argv, 1, 1));
-    if (bus == "master") I->host->audio().set_master_volume(v);
-    else if (bus == "sfx" || bus == "music" || bus == "ui") I->host->audio().set_bus_volume(bus, v);
-    else return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    if (I->host->audio().bus_volume(bus) < 0) return throw_unknown_bus(ctx, I->host->audio(), bus);
+    I->host->audio().set_bus_volume(bus, v);
     return JS_UNDEFINED;
 }
 
@@ -2128,7 +2144,7 @@ NATIVE(audioGetVolume) {
     SETUP;
     const std::string bus = to_lower(arg_str(ctx, argc, argv, 0));
     const float v = I->host->audio().bus_volume(bus);
-    if (v < 0) return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    if (v < 0) return throw_unknown_bus(ctx, I->host->audio(), bus);
     return JS_NewFloat64(ctx, v);
 }
 
@@ -2149,7 +2165,7 @@ NATIVE(audioBusVolume) {  // (bus, volume, fade)
     SETUP;
     const std::string bus = arg_str(ctx, argc, argv, 0);
     Audio& a = I->host->audio();
-    if (a.bus_volume(bus) < 0) return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    if (a.bus_volume(bus) < 0) return throw_unknown_bus(ctx, a, bus);
     a.set_bus_volume(bus, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
     return JS_UNDEFINED;
 }
@@ -2180,8 +2196,7 @@ NATIVE(audioBusState) {  // (bus) -> { volume, snapshotVolume, lowpass, reverb, 
     const std::string bus = arg_str(ctx, argc, argv, 0);
     const Json s = I->host->audio().bus_state(bus);
     if (!s.is_null()) return I->from_json(s);
-    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, std::vector<std::string>{"master", "sfx", "music", "ui"}) +
-                              " Use \"master\", \"sfx\", \"music\" or \"ui\".");
+    return throw_unknown_bus(ctx, I->host->audio(), bus);
 }
 NATIVE(audioSnapshot) {  // (name, fade): fade < 0 = the snapshot's own
     SETUP;
@@ -3067,7 +3082,7 @@ const Reg kRegs[] = {
     R(inPlayerLastPressed, 1), R(inPlayerData, 2), R(inKeySchemes, 1),
     R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(inTestRun, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
-    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
+    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),

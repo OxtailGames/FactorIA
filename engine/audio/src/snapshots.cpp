@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <map>
 
 #include "fa/core/strings.h"
 
@@ -11,11 +12,101 @@ namespace fa {
 
 namespace {
 
-const std::vector<std::string> kBuses = {"sfx", "music", "ui", "master"};
-const std::vector<std::string> kDuckSources = {"sfx", "music", "ui"};
+const std::vector<std::string> kBuiltinBuses = {"sfx", "music", "ui", "master"};
+constexpr std::size_t kMaxProjectBuses = 32;
+
+bool valid_bus_name(const std::string& n) {
+    if (n.empty() || !(n[0] >= 'a' && n[0] <= 'z')) return false;
+    for (char c : n)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return false;
+    return true;
+}
 
 struct Reader {
     AudioSettingsParse& r;
+    std::vector<std::string> kBuses = kBuiltinBuses;  // the built-in buses and the project's, master last of the built-ins
+    std::vector<std::string> kDuckSources = {"sfx", "music", "ui"};  // every bus but the master
+
+    std::string bus_list() const {
+        std::string list;
+        for (const std::string& n : kBuses) list += (list.empty() ? "\"" : ", \"") + n + "\"";
+        return list;
+    }
+
+    // "buses": {"ambience": {"parent": "sfx"}}. Fills r.buses (parents before children is not required) and the name lists.
+    void buses(const Json& value) {
+        if (!value.is_object()) {
+            issue("/buses", "expected an object mapping bus names to {\"parent\": ...}, got " + describe_json_value(value),
+                  "Example: \"buses\": {\"ambience\": {\"parent\": \"sfx\"}}");
+            return;
+        }
+        if (value.size() > kMaxProjectBuses)
+            issue("/buses", "a project declares at most " + std::to_string(kMaxProjectBuses) + " buses, got " + std::to_string(value.size()),
+                  "Merge buses that are always set together.");
+        // The names first, so a parent may be declared after its child.
+        std::vector<std::string> declared;
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            const std::string where = "/buses/" + it.key();
+            if (std::find(kBuiltinBuses.begin(), kBuiltinBuses.end(), it.key()) != kBuiltinBuses.end()) {
+                issue(where, "\"" + it.key() + "\" is a built-in bus, it cannot be declared again",
+                      "Pick another name, or drop the entry: \"sfx\", \"music\", \"ui\" and \"master\" always exist.");
+                continue;
+            }
+            if (!valid_bus_name(it.key())) {
+                std::string lower = to_lower(it.key());
+                issue(where, "\"" + it.key() + "\" is not a bus name",
+                      "A bus name starts with a lowercase letter and then has lowercase letters, digits, '_' or '-' (audio.setVolume "
+                      "lowercases names)" + (valid_bus_name(lower) ? ", for example \"" + lower + "\"." : "."));
+                continue;
+            }
+            declared.push_back(it.key());
+        }
+        std::vector<std::string> known = kBuiltinBuses;
+        known.insert(known.end(), declared.begin(), declared.end());
+        std::map<std::string, std::string> parentOf;
+        for (const std::string& name : declared) {
+            const Json& def = value[name];
+            const std::string where = "/buses/" + name;
+            std::string parent = "master";
+            if (def.is_object()) {
+                unknown_keys(def, {"parent"}, where);
+                auto p = def.find("parent");
+                if (p != def.end() && !p->is_null()) {
+                    if (!p->is_string()) {
+                        issue(where + "/parent", "expected the name of a bus, got " + describe_json_value(*p),
+                              "Example: {\"parent\": \"sfx\"}; leave it out for \"master\".");
+                    } else if (std::find(known.begin(), known.end(), p->get<std::string>()) == known.end()) {
+                        issue(where + "/parent", "\"" + p->get<std::string>() + "\" is not a bus. " + did_you_mean(p->get<std::string>(), known),
+                              "The parent is \"sfx\", \"music\", \"ui\", \"master\" or a bus declared in \"buses\".");
+                    } else if (p->get<std::string>() == name) {
+                        issue(where + "/parent", "the bus \"" + name + "\" cannot be its own parent", "Name another bus, or leave it out for \"master\".");
+                    } else {
+                        parent = p->get<std::string>();
+                    }
+                }
+            } else if (!def.is_null()) {
+                issue(where, "expected an object like {\"parent\": \"sfx\"}, got " + describe_json_value(def),
+                      "An empty object {} is a bus under the master.");
+            }
+            parentOf[name] = parent;
+        }
+        // A parent chain must reach a built-in bus.
+        for (const std::string& name : declared) {
+            std::string at = name;
+            std::size_t steps = 0;
+            while (parentOf.count(at) && steps <= declared.size()) { at = parentOf[at]; ++steps; }
+            if (parentOf.count(at)) {
+                issue("/buses/" + name + "/parent", "the parents of \"" + name + "\" loop back on themselves",
+                      "Every chain of parents must end at \"sfx\", \"music\", \"ui\" or \"master\".");
+                break;
+            }
+        }
+        for (const std::string& name : declared) {
+            r.buses.push_back({name, parentOf[name]});
+            kBuses.push_back(name);
+            kDuckSources.push_back(name);
+        }
+    }
 
     void issue(const std::string& pointer, const std::string& message, const std::string& hint) {
         r.issues.push_back({"/audio" + pointer, message, hint});
@@ -59,13 +150,13 @@ struct Reader {
         auto by = value.find("by");
         if (by == value.end()) {
             issue(pointer + "/by", "missing: the bus that ducks this one",
-                  "Add \"by\": \"sfx\" (or \"music\", \"ui\"): this bus gets quieter while that one plays.");
+                  "Add \"by\": \"sfx\" (or \"music\", \"ui\" or a bus of \"buses\"): this bus gets quieter while that one plays.");
             return;
         }
         if (!by->is_string() || std::find(kDuckSources.begin(), kDuckSources.end(), by->get<std::string>()) == kDuckSources.end()) {
             const std::string got = by->is_string() ? by->get<std::string>() : describe_json_value(*by);
             issue(pointer + "/by", "\"" + got + "\" is not a bus that can duck another. " + did_you_mean(got, kDuckSources),
-                  "Use \"sfx\", \"music\" or \"ui\".");
+                  "Use a bus other than the master: " + bus_list() + ".");
             return;
         }
         d.by = by->get<std::string>();
@@ -100,7 +191,7 @@ struct Reader {
         }
         number(value, "reverb", pointer, 0.0, 1.0, "The wet mix: 0 = no reverb, 0.3 = a touch of room, 1 = all wet.", into.reverb);
         if (auto d = value.find("duck"); d != value.end() && !d->is_null()) {
-            if (name == "master") issue(pointer + "/duck", "the master cannot be ducked", "Duck \"sfx\", \"music\" or \"ui\".");
+            if (name == "master") issue(pointer + "/duck", "the master cannot be ducked", "Duck any other bus.");
             else duck(*d, pointer + "/duck", name, into);
         }
     }
@@ -125,7 +216,7 @@ struct Reader {
             const std::string where = pointer + "/buses/" + it.key();
             if (std::find(kBuses.begin(), kBuses.end(), it.key()) == kBuses.end()) {
                 issue(where, "\"" + it.key() + "\" is not an audio bus. " + did_you_mean(it.key(), kBuses),
-                      "The buses are \"sfx\", \"music\", \"ui\" and \"master\".");
+                      "The buses are " + bus_list() + ".");
                 continue;
             }
             bus(it.value(), where, it.key(), into.buses[it.key()]);
@@ -140,12 +231,13 @@ AudioSettingsParse parse_audio_settings(const Json& section) {
     if (section.is_null()) return r;
     Reader in{r};
     if (!section.is_object()) {
-        in.issue("", "expected an object like {\"snapshots\": {...}}, got " + describe_json_value(section),
+        in.issue("", "expected an object like {\"buses\": {...}, \"snapshots\": {...}}, got " + describe_json_value(section),
                  "The audio section holds the mixer snapshots: \"audio\": {\"snapshots\": {\"underwater\": {\"buses\": "
                  "{\"music\": {\"lowpass\": 600}}}}}.");
         return r;
     }
-    in.unknown_keys(section, {"snapshots"}, "");
+    in.unknown_keys(section, {"buses", "snapshots"}, "");
+    if (auto b = section.find("buses"); b != section.end() && !b->is_null()) in.buses(*b);
     auto snaps = section.find("snapshots");
     if (snaps == section.end() || snaps->is_null()) return r;
     if (!snaps->is_object()) {
