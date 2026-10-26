@@ -167,6 +167,9 @@ Advice for phones, tablets and the web (fill-rate bound GPUs):
 ## The engine's examples
 
 Each example has a ctest, `example_<name>_perf`, comparing a 300-frame run with `tools/cli/tests/perf/<name>.perf.json`.
+An example whose scenes cost differently may add `<name>-<suffix>.perf.json` files (each with its own `scene`): every
+`<name>.perf.json` and `<name>-*.perf.json` becomes the ctest `example_<file name>_perf` (not `<name>*`, which would catch
+another example with the same prefix).
 `perf_regression_detected` proves that the check fails: it uses a baseline lowered far below what the game costs and
 expects `perf_budget_exceeded`. After a change that makes an example heavier on purpose, refresh its entry on each runner
 with `factoria call perf.baseline` (see the file's `runners`) in the same PR.
