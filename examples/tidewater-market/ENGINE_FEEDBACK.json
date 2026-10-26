@@ -141,6 +141,268 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No tooltip: a widget cannot show a hint after the pointer rests on it",
+      "missing": "A management game explains every button, number and menu item. The UI has hover state (ui.hovered) but no tooltip widget, no hover delay and no placement that keeps a popup on screen; ui.hovered is also not set for things that are not widgets (a building under the pointer on the map).",
+      "workaround": "Tooltips class in ui_kit.js: a pool of Text lines in a fitted column Panel, a rest timer, a slop in pixels, placement flipped near the screen edges, and a fallback function for what is not a widget. Every widget's hint is a function that returns the text, so it is as fresh as the numbers it names.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js",
+        "tests/ui_mouse.test.js"
+      ],
+      "suggestion": "A Tooltip field on Panel/Button (text key or `tooltip: {title, lines}`), with `ui.tooltipDelay`, placement inside the window and a setting to turn it off for touch.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No drag and drop between widgets and the world",
+      "missing": "Moving a villager to a workplace is naturally a drag from the inspector onto the map. Widgets only click; there is no drag source, drop target or drag payload, and no way to tell the map that the press started on the UI.",
+      "workaround": "ui_hud.js watches ui.hovered on the press, starts after a 6 px slop, draws a follow-the-pointer chip Panel, asks the model (canDropWorker) while the mouse moves to colour the target, and swallows the click the release would otherwise produce on the chip or map.",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js",
+        "tests/ui_dragdrop.test.js"
+      ],
+      "suggestion": "Button.draggable plus ui.onDrag(start|over|drop) events carrying the source entity and screen position, and a ui.dragging flag that input consumers can read.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No chart or graph widget",
+      "missing": "The charts panel shows coins, one good's stock and what was made per day over the last days. There is no line/bar chart component; every bar has to be a Shape2D with a hand-computed size.",
+      "workaround": "Charts are rectangles built in a pool in ui_hud.js (bars scaled to the maximum, a baseline rule, axis labels as Text). Position maths in the Hud, data in the Recorder (ui_model.js).",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js",
+        "scripts/game/ui_model.js"
+      ],
+      "suggestion": "A Chart component (values array, kind bar/line, colour, axis min/max auto) drawn by the UI layer, with hover reporting the sample under the pointer.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No rich text or inline icons in a Text or Button label",
+      "missing": "A goods line such as '[wood icon] 12 / 40' or a cost with coloured missing items needs several colours and a sprite inside one line. A Text has one colour and no inline sprites, so every line is a pool of separate labels and icons laid out in rows.",
+      "workaround": "Rows of icon Sprite + Text children in a row-layout Panel (cost lines, tooltip lines each in one colour, goods table cells).",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Text markup such as `{color:red}` and `{icon:atlas.frame}` or a `runs: [{text,color}|{sprite}]` field.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Buttons are text only: no icon or icon plus text button",
+      "missing": "The build menu wants an icon above a name and cost on every item. A Button draws a label only.",
+      "workaround": "An item is a column Panel holding a Sprite and a Button whose label is the name and cost; the Sprite does not take clicks, so a click on the icon does nothing unless the Panel forwards it (Panel hover is not a click target).",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Button.icon (sprite region) with iconPosition left/top, drawn inside the hit area.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No modifier chords: an action binds to one key only",
+      "missing": "Ctrl+Z / Ctrl+Y for undo and redo, Shift+click to place several are the habits of players of this genre. An input action takes a list of single bindings.",
+      "workaround": "Plain Z and Y keys, and the buttons; Shift and Ctrl are not used by the game.",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/game/game_controller.js"
+      ],
+      "suggestion": "Bindings like \"Ctrl+Z\" and input.down(\"Shift\") as modifier state in action bindings.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "major",
+      "title": "The mouse wheel reaches the game under a UI panel: no way to say the UI consumed it",
+      "missing": "A scrolling goods table must scroll with the wheel and not zoom the map under it. input exposes the wheel as a value with no consumer, and ScrollList does not report that it used the delta.",
+      "workaround": "camera_rig.js has a wheelBlocked field the Hud sets each frame from the rectangles of the open panels (this.over(mouse)). Every script that reads the wheel must remember to check it.",
+      "workaroundFiles": [
+        "scripts/game/camera_rig.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "input.wheelConsumed / ui.consumedWheel: true when the pointer is over a scrolling widget, or input.wheel() returning 0 over a widget that handles it.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Shape2D line with a positive size.y draws upwards in screen space",
+      "missing": "Screen-space layout is +Y down everywhere (Panel, Text, Sprite), but a Shape2D line's size.y grows up, so a chart bar or rule placed from its top-left corner appears mirrored vertically. A rectangle with pivot [0,1] behaves as expected.",
+      "workaround": "Charts use rectangles with pivot [0,1] and never lines; a first version with lines had bars drawn in the wrong place.",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Document it next to Shape2D.size, or make screen-space shapes +Y down like everything else in space: \"screen\".",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.setAccessibility does not change ui.textScale in tests",
+      "missing": "A test of the layout at 150 % text wants to flip the player's text size as the options screen does. game.setAccessibility({textScale}) had no effect on ui.textScale in a test, so the test sets ui.textScale directly (and restores it).",
+      "workaround": "tests/ui_layout.test.js assigns ui.textScale itself.",
+      "workaroundFiles": [
+        "tests/ui_layout.test.js"
+      ],
+      "suggestion": "Make setAccessibility drive ui.textScale as the docs imply, or say in the docs that tests set ui.textScale.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Children of a hidden Panel still report active = true",
+      "missing": "entity.active on a child is its own flag: after hiding the panel, the child's active stays true, so a script that asks 'is this shown' gets the wrong answer, and game.click on it throws only in the test API. activeInHierarchy exists but is easy to miss.",
+      "workaround": "ui_kit.js isActive and the tests' shown() use activeInHierarchy.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "tests/ui_helper.js"
+      ],
+      "suggestion": "Mention activeInHierarchy under Entity.active in the scripting docs, or make ui.rectOf return null for entities hidden by a parent.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A fit Panel in a column has no minimum width: a rule spacer is the only way to widen it",
+      "missing": "A right-hand column of buttons (fit: true) should be as wide as its widest child but also never narrower than the inspector above. Panel has size or fit, no minSize, so a thin invisible Panel with a fixed width is placed in the column.",
+      "workaround": "rule() in ui_kit.js (a 2 px high Panel of the right width); used by the inspector and the right column.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Panel.minSize (and maxSize) that also apply when fit is true.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Button font size is fixed, not fitted: long localised labels overflow",
+      "missing": "Item labels such as 'Smoked fish' with a cost must stay on two lines in a 108 px button. autoSize widens the button and maxWidth wraps it, but there is no shrink-to-fit, so every label length has to be checked by hand when a language is added.",
+      "workaround": "maxWidth on item buttons plus the tests that assert the build bar stays inside 1280x720 (tests/ui_mouse.test.js).",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js",
+        "tests/ui_mouse.test.js"
+      ],
+      "suggestion": "Button.fitText: 'shrink' with a minimum font size.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

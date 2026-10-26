@@ -75,7 +75,8 @@ export default class CameraRig extends Behaviour {
 
     // zoom towards the cursor with the wheel
     const wheel = mouse.wheel;
-    if (wheel !== 0) this.view = zoomAt(v, zoomStep(v.zoom, wheel), m.x, m.y);
+    // (not while the pointer is over a panel of the Hud: the wheel scrolls its lists, see ui_hud.js)
+    if (wheel !== 0 && !this.wheelBlocked) this.view = zoomAt(v, zoomStep(v.zoom, wheel), m.x, m.y);
     // zoom around the centre with the keys
     const keyZoom = input.axis("zoom_out", "zoom_in");
     if (keyZoom !== 0) this.view = zoomAt(this.view, this.view.zoom * Math.pow(this.keyZoomRate, keyZoom * dt), DESIGN.width / 2, DESIGN.height / 2);

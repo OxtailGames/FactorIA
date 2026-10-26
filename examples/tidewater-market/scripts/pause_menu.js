@@ -40,7 +40,19 @@ export default class PauseMenu extends Behaviour {
       return;
     }
     // The pause key opens the menu, and inside it goes back one panel like ui_cancel (from the pause panel: resume).
-    if (input.pressed("pause") && !MenuStack.busy) game.paused ? this.back() : this.pause();
+    // In a level with an interface to put away (tidewater's game controller), Escape first closes the newest panel, tool or
+    // selection and only opens the menu when there is nothing to close; P and gamepad Start always open it.
+    if (input.pressed("pause") && !MenuStack.busy) {
+      if (game.paused) this.back();
+      else if (!(input.pressed("escape") && this.putAway())) this.pause();
+    }
+  }
+
+  /** Ask the game controller (when the level has one) to put away what the player opened. @returns {boolean} it did */
+  putAway() {
+    const ctl = world.find("controller");
+    const b = ctl && ctl.behaviour;
+    return !!(b && typeof b.escape === "function" && b.escape());
   }
 
   pause() {

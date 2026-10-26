@@ -74,7 +74,7 @@
           "components": {
             "Text": {
               "text": "",
-              "fontSize": 22,
+              "fontSize": 18,
               "space": "screen",
               "layer": 210
             }
@@ -87,11 +87,11 @@
       "name": "Date",
       "components": {
         "Transform": {
-          "position": [-16, 10, 0]
+          "position": [-228, 10, 0]
         },
         "Text": {
           "text": "",
-          "fontSize": 22,
+          "fontSize": 20,
           "space": "screen",
           "anchor": [1, 0],
           "pivot": [1, 1],
@@ -104,7 +104,7 @@
       "name": "Clock speed",
       "components": {
         "Transform": {
-          "position": [-210, 6, 0]
+          "position": [-8, 6, 0]
         },
         "Panel": {
           "anchor": [1, 0],
