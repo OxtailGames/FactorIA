@@ -15,15 +15,13 @@ using Dbg = ScriptDebugger::Impl;
 
 namespace {
 
-JSClassID g_frameClass = 0;
-
 Dbg* dbg_of(JSContext* ctx) {
     auto* s = static_cast<ScriptSystem::Impl*>(JS_GetContextOpaque(ctx));
     return s && s->debugger ? &s->debugger->impl() : nullptr;
 }
 
 void frame_finalizer(JSRuntime* rt, JSValue val) {
-    auto* r = static_cast<DebugFrameRec*>(JS_GetOpaque(val, g_frameClass));
+    auto* r = static_cast<DebugFrameRec*>(JS_GetOpaque(val, g_debugFrameClass));
     if (!r) return;
     auto* d = static_cast<Dbg*>(r->dbg);
     if (d && r->mid > 0 && static_cast<size_t>(r->mid) < d->modules.size() &&
@@ -35,7 +33,7 @@ void frame_finalizer(JSRuntime* rt, JSValue val) {
 }
 
 void frame_mark(JSRuntime* rt, JSValueConst val, JS_MarkFunc* mark) {
-    auto* r = static_cast<DebugFrameRec*>(JS_GetOpaque(val, g_frameClass));
+    auto* r = static_cast<DebugFrameRec*>(JS_GetOpaque(val, g_debugFrameClass));
     if (!r) return;
     JS_MarkValue(rt, r->closure, mark);
     JS_MarkValue(rt, r->modClosure, mark);
@@ -101,8 +99,8 @@ const char kEvalWrapper[] = "(function(__fa_code){ with (globalThis.factoria) { 
 }  // namespace
 
 DebugFrameRec* debug_frame_of(JSValueConst v) {
-    if (g_frameClass == 0 || !JS_IsObject(v)) return nullptr;
-    return static_cast<DebugFrameRec*>(JS_GetOpaque(v, g_frameClass));
+    if (g_debugFrameClass == 0 || !JS_IsObject(v)) return nullptr;
+    return static_cast<DebugFrameRec*>(JS_GetOpaque(v, g_debugFrameClass));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -168,7 +166,7 @@ int Dbg::module_of_caller() {
 namespace {
 
 JSValue new_frame(JSContext* ctx, DebugFrameRec* r) {
-    JSValue obj = JS_NewObjectClass(ctx, static_cast<int>(g_frameClass));
+    JSValue obj = JS_NewObjectClass(ctx, static_cast<int>(g_debugFrameClass));
     if (JS_IsException(obj)) {
         JS_FreeValue(ctx, r->closure);
         JS_FreeValue(ctx, r->modClosure);
@@ -270,13 +268,12 @@ void Dbg::attach(ScriptSystem::Impl& system) {
     sys = &system;
     ctx = system.ctx;
     JSRuntime* rt = JS_GetRuntime(ctx);
-    JS_NewClassID(rt, &g_frameClass);
-    if (!JS_IsRegisteredClass(rt, g_frameClass)) {
+    if (!JS_IsRegisteredClass(rt, g_debugFrameClass)) {
         JSClassDef def{};
         def.class_name = "FaDebugFrame";
         def.finalizer = frame_finalizer;
         def.gc_mark = frame_mark;
-        JS_NewClass(rt, g_frameClass, &def);
+        JS_NewClass(rt, g_debugFrameClass, &def);
     }
     JSValue obj = JS_NewObject(ctx);
     struct Reg {

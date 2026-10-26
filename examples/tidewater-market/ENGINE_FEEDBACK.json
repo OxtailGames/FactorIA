@@ -140,7 +140,7 @@
       "suggestion": "nav.createGrid({width, height, cost}) returning a handle that findTilePath(grid, from, to) reuses (update cells with grid.setCost(col, row, cost)), and nav.flowField(grid, goals) returning a distance field that nav.stepToward(field, col, row) reads in O(1).",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0007",

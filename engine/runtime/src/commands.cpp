@@ -1267,7 +1267,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] "
            "(cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} "
            "or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. "
-           "Deterministic. Scripts: nav.findTilePath(map, from, to, opts). Example: nav.find_tile_path "
+           "Deterministic. Scripts: nav.findTilePath(map, from, to, opts); a script that asks many times on one map keeps it with "
+           "nav.createGrid (the command is stateless: it reads the map you give it on every call). nav.flow_field is the "
+           "one-to-many form. Example: nav.find_tile_path "
            "{\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3],\"diagonals\":true}",
            parse_schema(R"({"type":"object","required":["from","to"],"properties":{
                "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
@@ -1282,6 +1284,30 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            true, "physics"},
           [&I](const Json& a) {
               auto r = nav_tile_query(I.world, a);
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              return r.value();
+          });
+
+    I.commands.add({"nav.flow_field",
+           "Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells.",
+           "The cost of the cheapest route from every cell to the nearest goal, with the same rules as nav.find_tile_path "
+           "(entering a cell costs its cost, 4-way or diagonals=true, no corner cutting, null or negative blocks). A blocked goal "
+           "is entered at cost 1. Pass `tilemap` or `grid` like nav.find_tile_path, `goals` [[col,row],...] and optionally "
+           "`from`. Result {width, height, distance: [width*height numbers, row-major, row 0 = top; null where no goal can be "
+           "reached]} and, with `from`: {reachable, cost, next: [col,row] | null (the cell to walk to; null at a goal or when "
+           "unreachable), path: [[col,row]...] (from `from` to the goal it reaches)}. Deterministic. Scripts: "
+           "nav.flowField(grid, goals) keeps the field and answers field.stepToward(col, row) in O(1). Example: nav.flow_field "
+           "{\"tilemap\":\"ground\",\"goals\":[[9,4]],\"from\":[0,0]}",
+           parse_schema(R"({"type":"object","required":["goals"],"properties":{
+               "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
+               "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number | [w,h]}."},
+               "goals":{"type":"array","items":{"type":"array","items":{"type":"number"}},"description":"Goal cells [[col,row],...]; at least one."},
+               "from":{"type":"array","items":{"type":"number"},"description":"A cell to read the next step and the path for."},
+               "costs":{"type":"object","description":"Tilemap only: cost of entering a cell by tile index, {\"3\": 2.5, \"7\": null}; null or negative blocks."},
+               "diagonals":{"type":"boolean","description":"Allow 8-way steps (no corner cutting). Default false."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto r = nav_flow_query(I.world, a);
               if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
               return r.value();
           });

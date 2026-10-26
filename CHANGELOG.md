@@ -4,6 +4,21 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Tile paths on a reusable grid, and flow fields
+
+- `nav.createGrid({ width, height, cost?, origin?, cellSize? })` keeps a cost grid in the engine. `nav.findTilePath(grid,
+  from, to)` takes it instead of the `{ width, height, cost }` array, with the same options and the same paths, but a call
+  no longer converts the whole array and sweeps it for its cheapest cell, so a short route stops costing the size of the
+  map. `grid.setCost(col, row, cost)` changes one cell (`getCost`, `setCosts`, `version` and `findPath` are there too).
+  The array form works as before.
+- `nav.flowField(grid, goals, { diagonals })` searches once from one or more goal cells: `field.stepToward(col, row)` gives
+  the next cell toward the nearest goal in O(1), `field.distance(col, row)` the cost and `field.pathFrom(col, row)` the
+  whole way. A field made before `grid.setCost` is rebuilt the next time it is asked.
+- The `nav.flow_field` command is the stateless form (distances for the whole map, plus the next step and the path from a
+  cell). In a debug build, 600 walkers on a 60 x 60 map for 75 ticks cost about 228 s with the array form, 8.2 s with the
+  kept grid and 0.16 s with flow fields (a benchmark test prints it). Docs: NAVIGATION.md, PERFORMANCE.md.
+- Tidewater Market's own distance fields are now `nav.flowField` over a `nav.createGrid` (TM/FB-0006).
+
 Players for a development build
 
 - `factoria setup webplayer` (and `setup.install {component: "webplayer"}`) builds the web player from the engine checkout

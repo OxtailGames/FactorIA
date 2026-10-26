@@ -2,15 +2,18 @@
 // The road network as the walkers see it (pure): which cells are road, where each building can be entered, and routes along
 // the roads.
 //
-// Routes are found with a distance FIELD per goal: one breadth-first search from the goal's access cells over the road
-// cells gives every road cell its distance to the goal, and a route is read off by stepping to the neighbour with the smaller
-// distance. Many walkers heading for the same building share one field, so 500 walkers cost a few searches, not 500
-// (docs/ARCHITECTURE-like numbers are in README.md, "Walkers"). A field stays valid until the roads change (`version`).
+// Routes are found with a flow field per goal (the engine's nav.flowField over a grid kept by nav.createGrid): one search from
+// the goal's access cells over the road cells gives every road cell its distance to the goal, and a route is read off by
+// stepping to the neighbour with the smaller distance. Many walkers heading for the same building share one field, so 500
+// walkers cost a few searches, not 500 (the numbers are in README.md, "Stress scene"). Each road placed or removed is one
+// `grid.setCost`; a field the roads outlived is rebuilt by the engine when it is next asked, and a goal's field is made
+// anew when its access cells may have changed (`version`).
 //
-// A single-pair A* backend (the engine's nav.findTilePath, see scripts/game/nav_backend.js) can be plugged in with
-// `setFinder` to compare costs; the stress scene measures both.
+// A single-pair A* backend (the engine's nav.findTilePath on the same grid, see scripts/game/nav_backend.js) can be plugged
+// in with `setFinder` to compare costs; the stress test checks both.
 import { footprintCells } from "./rules.js";
 import { DIRS } from "./iso.js";
+import { nav } from "factoria";
 
 /** @typedef {(road: Uint8Array, width: number, height: number, from: number, to: number) => number[] | null} Finder */
 
@@ -24,16 +27,17 @@ export class RoadNet {
     this.road = new Uint8Array(this.width * this.height);
     /** Counts every change of the road cells; a cached field is valid only for the version it was made at. */
     this.version = 0;
-    /** @type {Map<number, { version: number, dist: Int16Array }>} goal building id (> 0) or cell (-index - 1) -> field */
+    /** The roads as the engine's cost grid: 1 on a road, blocked elsewhere; `road` mirrors it for the callers that read cells. */
+    this.grid = nav.createGrid({ width: this.width, height: this.height, cost: new Array(this.width * this.height).fill(Infinity) });
+    /** @type {Map<number, { version: number, field: import("factoria").NavFlowField | null }>} goal building id (> 0) or cell (-index - 1) -> field */
     this.fields = new Map();
     /** @type {Map<number, { version: number, cells: number[] }>} */
     this.access = new Map();
-    this.queue = new Int32Array(this.width * this.height);
     /** @type {Finder | null} */
     this.finder = null;
     /** Searches run so far (the stress report prints it). */
     this.searches = 0;
-    for (const b of state.buildings.values()) if (this.isRoadType(b.type)) this.road[b.y * this.width + b.x] = 1;
+    for (const b of state.buildings.values()) if (this.isRoadType(b.type)) this.setRoad(b.y * this.width + b.x, 1);
     const ev = state.events;
     ev.on("building.placed", (e) => this.changed(e.building, 1));
     ev.on("building.removed", (e) => this.changed(e.building, 0));
@@ -45,8 +49,14 @@ export class RoadNet {
 
   changed(b, value) {
     if (!this.isRoadType(b.type)) return;
-    this.road[b.y * this.width + b.x] = value;
+    this.setRoad(b.y * this.width + b.x, value);
     this.version++;
+  }
+
+  setRoad(index, value) {
+    this.road[index] = value;
+    const c = index % this.width;
+    this.grid.setCost(c, (index - c) / this.width, value ? 1 : Infinity);
   }
 
   index(c, r) {
@@ -81,65 +91,44 @@ export class RoadNet {
     return list;
   }
 
-  /** The distance field to a building (or to a cell with `cellField`): -1 where the goal cannot be reached. @returns {Int16Array} */
+  /** The flow field to a building (or to a cell with `cellField`), null when the goal has no road cell to enter by. */
   field(b) {
     return this.fieldFor(b.id, () => this.accessCells(b));
   }
 
-  /** The distance field to one road cell. */
+  /** The flow field to one road cell. */
   cellField(index) {
     return this.fieldFor(-index - 1, () => (this.road[index] ? [index] : []));
   }
 
   fieldFor(key, sources) {
     const hit = this.fields.get(key);
-    if (hit && hit.version === this.version) return hit.dist;
+    if (hit && hit.version === this.version) return hit.field;
     if (this.fields.size > 600) this.fields.clear();
-    const dist = new Int16Array(this.width * this.height).fill(-1);
-    const q = this.queue;
-    let head = 0;
-    let tail = 0;
-    for (const i of sources()) {
-      dist[i] = 0;
-      q[tail++] = i;
-    }
     const w = this.width;
-    const h = this.height;
-    while (head < tail) {
-      const i = q[head++];
-      const c = i % w;
-      const r = (i - c) / w;
-      const d = dist[i] + 1;
-      if (c + 1 < w && this.road[i + 1] && dist[i + 1] < 0) { dist[i + 1] = d; q[tail++] = i + 1; }
-      if (r + 1 < h && this.road[i + w] && dist[i + w] < 0) { dist[i + w] = d; q[tail++] = i + w; }
-      if (c > 0 && this.road[i - 1] && dist[i - 1] < 0) { dist[i - 1] = d; q[tail++] = i - 1; }
-      if (r > 0 && this.road[i - w] && dist[i - w] < 0) { dist[i - w] = d; q[tail++] = i - w; }
-    }
+    const goals = sources().map((i) => ({ col: i % w, row: Math.floor(i / w) }));
+    // no goal cell (a building with no road next to it): nothing reaches it
+    const field = goals.length ? nav.flowField(this.grid, goals) : null;
     this.searches++;
-    this.fields.set(key, { version: this.version, dist });
-    return dist;
+    this.fields.set(key, { version: this.version, field });
+    return field;
+  }
+
+  /** Distance (cells) from a road cell to the goal of a field, or -1 when it cannot be reached. */
+  fieldDistance(field, index) {
+    if (!field) return -1;
+    const w = this.width;
+    const c = index % w;
+    const d = field.distance(c, (index - c) / w);
+    return d === Infinity ? -1 : d;
   }
 
   /** Walk down a field from a cell to the goal. @returns {number[]} cells, the start and an access cell of the goal included */
-  descend(dist, start) {
-    const path = [start];
+  descend(field, start) {
+    if (!field) return [start];
     const w = this.width;
-    let cur = start;
-    let guard = this.width * this.height;
-    while (dist[cur] > 0 && guard-- > 0) {
-      const want = dist[cur] - 1;
-      const c = cur % w;
-      const r = (cur - c) / w;
-      let next = -1;
-      if (c + 1 < w && dist[cur + 1] === want) next = cur + 1;
-      else if (r + 1 < this.height && dist[cur + w] === want) next = cur + w;
-      else if (c > 0 && dist[cur - 1] === want) next = cur - 1;
-      else if (r > 0 && dist[cur - w] === want) next = cur - w;
-      if (next < 0) return path; // cannot happen on a field made by fieldFor
-      path.push(next);
-      cur = next;
-    }
-    return path;
+    const c = start % w;
+    return field.pathFrom(c, (start - c) / w).map((cell) => cell.row * w + cell.col);
   }
 
   /**
@@ -150,17 +139,17 @@ export class RoadNet {
   routeFrom(starts, goal) {
     if (!starts.length) return null;
     if (this.finder) return this.routeWithFinder(starts, goal);
-    const dist = this.field(goal);
+    const field = this.field(goal);
     let best = -1;
     let bestD = 32767;
     for (const s of starts) {
-      const d = dist[s];
+      const d = this.fieldDistance(field, s);
       if (d >= 0 && d < bestD) {
         bestD = d;
         best = s;
       }
     }
-    return best < 0 ? null : this.descend(dist, best);
+    return best < 0 ? null : this.descend(field, best);
   }
 
   /**
@@ -178,8 +167,8 @@ export class RoadNet {
   routeCells(from, to) {
     if (!this.road[from] || !this.road[to]) return null;
     if (this.finder) return this.finder(this.road, this.width, this.height, from, to);
-    const dist = this.cellField(to);
-    return dist[from] < 0 ? null : this.descend(dist, from);
+    const field = this.cellField(to);
+    return this.fieldDistance(field, from) < 0 ? null : this.descend(field, from);
   }
 
   routeWithFinder(starts, goal) {
@@ -205,10 +194,10 @@ export class RoadNet {
 
   /** Road distance (cells) between two buildings' doors, or -1. */
   distance(from, to) {
-    const dist = this.field(to);
+    const field = this.field(to);
     let best = -1;
     for (const s of this.accessCells(from)) {
-      const d = dist[s];
+      const d = this.fieldDistance(field, s);
       if (d >= 0 && (best < 0 || d < best)) best = d;
     }
     return best;

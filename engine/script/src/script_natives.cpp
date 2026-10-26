@@ -2334,6 +2334,164 @@ NATIVE(navFindTilePath) {  // ({ tilemap | grid, from, to, costs?, diagonals?, m
     if (!r.ok()) return throw_err(ctx, r.error().to_string());
     return I->from_json(r.value());
 }
+// ---- reusable tile grids and flow fields (nav.createGrid / nav.flowField in factoria.js) ----------------------------
+// One JS object class holds either a cost grid or a flow field (which keeps its grid alive). The finalizer frees them, so a
+// script never has to release anything.
+struct NavHandle {
+    std::shared_ptr<NavCostGrid> grid;
+    std::shared_ptr<NavFlowField> field;
+};
+void nav_handle_finalizer(JSRuntime*, JSValue val) { delete static_cast<NavHandle*>(JS_GetOpaque(val, g_navHandleClass)); }
+
+NavHandle* nav_handle(JSContext* ctx, JSValueConst v, bool wantField, JSValue* exc) {
+    auto* h = static_cast<NavHandle*>(JS_GetOpaque(v, g_navHandleClass));
+    if (!h || (wantField ? !h->field : !h->grid))
+        *exc = throw_err(ctx, wantField ? "expected a flow field made by nav.flowField" : "expected a grid made by nav.createGrid");
+    return wantField ? (h && h->field ? h : nullptr) : (h && h->grid ? h : nullptr);
+}
+
+// A cost from a script: a finite number >= 0 is a cost, anything else (null, undefined, Infinity, negative) blocks.
+float nav_cost_arg(JSContext* ctx, JSValueConst v) {
+    if (!JS_IsNumber(v)) return -1.0f;
+    double d = 0;
+    JS_ToFloat64(ctx, &d, v);
+    return (std::isfinite(d) && d >= 0.0) ? static_cast<float>(d) : -1.0f;
+}
+
+JSValue nav_new_handle(JSContext* ctx, NavHandle* h) {
+    JSValue obj = JS_NewObjectClass(ctx, static_cast<int>(g_navHandleClass));
+    if (JS_IsException(obj)) {
+        delete h;
+        return obj;
+    }
+    JS_SetOpaque(obj, h);
+    return obj;
+}
+
+NATIVE(navGridNew) {  // (width, height, costs | undefined, originX, originY, cellW, cellH) -> grid handle
+    SETUP;
+    const int w = static_cast<int>(arg_num(ctx, argc, argv, 0)), h = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    if (w <= 0 || h <= 0) return throw_err(ctx, "nav.createGrid: width and height must be at least 1");
+    auto g = std::make_shared<NavCostGrid>(w, h, Vec2{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))},
+                                           Vec2{static_cast<float>(arg_num(ctx, argc, argv, 5, 1)), static_cast<float>(arg_num(ctx, argc, argv, 6, 1))});
+    if (argc > 2 && JS_IsObject(argv[2])) {
+        std::vector<float> costs(static_cast<std::size_t>(w) * static_cast<std::size_t>(h));
+        for (std::size_t i = 0; i < costs.size(); ++i) {
+            JSValue v = JS_GetPropertyUint32(ctx, argv[2], static_cast<uint32_t>(i));
+            costs[i] = nav_cost_arg(ctx, v);
+            JS_FreeValue(ctx, v);
+        }
+        g->assign(costs);
+    }
+    return nav_new_handle(ctx, new NavHandle{std::move(g), nullptr});
+}
+NATIVE(navGridSet) {  // (grid, col, row, cost) -> false when the cell is off the map
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    return JS_NewBool(ctx, h->grid->set_cost(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))),
+                                             static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))),
+                                             nav_cost_arg(ctx, argc > 3 ? argv[3] : JS_UNDEFINED)));
+}
+NATIVE(navGridFill) {  // (grid, costs) replaces every cost
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    std::vector<float> costs(static_cast<std::size_t>(h->grid->width()) * static_cast<std::size_t>(h->grid->height()));
+    for (std::size_t i = 0; i < costs.size(); ++i) {
+        JSValue v = JS_GetPropertyUint32(ctx, argv[1], static_cast<uint32_t>(i));
+        costs[i] = nav_cost_arg(ctx, v);
+        JS_FreeValue(ctx, v);
+    }
+    h->grid->assign(costs);
+    return JS_UNDEFINED;
+}
+NATIVE(navGridGet) {  // (grid, col, row) -> the cost, -1 for a blocked cell or one off the map
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    return float_to_js(ctx, h->grid->cost(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
+}
+NATIVE(navGridVersion) {  // (grid | field) -> [version of the grid, rebuilds of the field (0 for a grid)]
+    SETUP;
+    auto* h = static_cast<NavHandle*>(JS_GetOpaque(argc > 0 ? argv[0] : JS_UNDEFINED, g_navHandleClass));
+    if (!h) return throw_err(ctx, "expected a grid made by nav.createGrid or a field made by nav.flowField");
+    const NavCostGrid& g = h->field ? h->field->cost_grid() : *h->grid;
+    return array_of(ctx, {static_cast<double>(g.version()), static_cast<double>(h->field ? h->field->rebuilds() : 0)});
+}
+NATIVE(navGridPath) {  // (grid, from [c,r], to [c,r], opts) -> the nav.findTilePath result
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    auto cell = [&](int i) {
+        JSValue c = JS_GetPropertyUint32(ctx, argv[i], 0), r = JS_GetPropertyUint32(ctx, argv[i], 1);
+        double dc = 0, dr = 0;
+        JS_ToFloat64(ctx, &dc, c);
+        JS_ToFloat64(ctx, &dr, r);
+        JS_FreeValue(ctx, c);
+        JS_FreeValue(ctx, r);
+        return std::make_pair(static_cast<int>(std::floor(dc)), static_cast<int>(std::floor(dr)));
+    };
+    auto r = nav_tile_run(h->grid->grid(), nullptr, I->to_json(argc > 3 ? argv[3] : JS_UNDEFINED), cell(1), cell(2));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
+NATIVE(navFlowNew) {  // (grid, goals [c0, r0, c1, r1, ...], diagonals) -> flow field handle
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    std::vector<std::pair<int, int>> goals;
+    uint32_t n = 0;
+    JSValue len = JS_GetPropertyStr(ctx, argv[1], "length");
+    JS_ToUint32(ctx, &n, len);
+    JS_FreeValue(ctx, len);
+    for (uint32_t i = 0; i + 1 < n; i += 2) {
+        JSValue c = JS_GetPropertyUint32(ctx, argv[1], i), r = JS_GetPropertyUint32(ctx, argv[1], i + 1);
+        double dc = 0, dr = 0;
+        JS_ToFloat64(ctx, &dc, c);
+        JS_ToFloat64(ctx, &dr, r);
+        JS_FreeValue(ctx, c);
+        JS_FreeValue(ctx, r);
+        goals.push_back({static_cast<int>(std::floor(dc)), static_cast<int>(std::floor(dr))});
+    }
+    auto f = std::make_shared<NavFlowField>(h->grid, std::move(goals), arg_bool(ctx, argc, argv, 2));
+    return nav_new_handle(ctx, new NavHandle{h->grid, std::move(f)});
+}
+NATIVE(navFlowDist) {  // (field, col, row) -> cost to the nearest goal, Infinity when none can be reached
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
+    if (!h) return exc;
+    return float_to_js(ctx, h->field->distance(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
+}
+NATIVE(navFlowStep) {  // (field, col, row) -> [col, row] of the next cell, or null
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
+    if (!h) return exc;
+    int nc = 0, nr = 0;
+    if (!h->field->step_toward(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))), nc, nr)) return JS_NULL;
+    return array_of(ctx, {static_cast<double>(nc), static_cast<double>(nr)});
+}
+NATIVE(navFlowPath) {  // (field, col, row) -> [c0, r0, c1, r1, ...] from the cell to its goal, [] when none can be reached
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
+    if (!h) return exc;
+    const auto cells = h->field->path_from(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))));
+    JSValue a = JS_NewArray(ctx);
+    uint32_t i = 0;
+    for (const auto& c : cells) {
+        JS_SetPropertyUint32(ctx, a, i++, JS_NewInt32(ctx, c.first));
+        JS_SetPropertyUint32(ctx, a, i++, JS_NewInt32(ctx, c.second));
+    }
+    return a;
+}
 NATIVE(tileVersion) {  // (entity) -> change counter of this Tilemap's tiles (setTile and whole replacements)
     SETUP;
     ENTITY(e, 0);
@@ -3115,7 +3273,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
@@ -3126,6 +3284,13 @@ const Reg kRegs[] = {
 }  // namespace
 
 void Impl::install_natives(JSValue N) {
+    JSRuntime* rt = JS_GetRuntime(ctx);
+    if (!JS_IsRegisteredClass(rt, g_navHandleClass)) {
+        JSClassDef def{};
+        def.class_name = "FaNavHandle";
+        def.finalizer = nav_handle_finalizer;
+        JS_NewClass(rt, g_navHandleClass, &def);
+    }
     for (const Reg& r : kRegs) JS_SetPropertyStr(ctx, N, r.name, JS_NewCFunction(ctx, r.fn, r.name, r.argc));
 }
 
