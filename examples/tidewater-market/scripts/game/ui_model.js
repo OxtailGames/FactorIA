@@ -482,7 +482,7 @@ export const SHORTCUTS = [
   { keys: "Z, Y", action: "undo" },
   { keys: "G", action: "goods" },
   { keys: "T", action: "charts" },
-  { keys: "O", action: "overlay" },
+  { keys: "M", action: "overlay" },
   { keys: "N", action: "notice" },
   { keys: "F1", action: "help" },
   { keys: "Space, 1 - 4", action: "speed" },

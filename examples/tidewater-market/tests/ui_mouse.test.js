@@ -254,7 +254,7 @@ test("notifications: a building with no road is reported, stacks without repeati
   const slot = [0, 1, 2, 3, 4].find((i) => shown(`notice_${i}`) && textOf(`notice_${i}`).includes("Sawmill"));
   const r = ui.rectOf(`notice_${slot}`);
   expect(r.x).toBeLessThan(40);
-  expect(r.y).toBeGreaterThanOrEqual(44);
+  expect(r.y).toBeGreaterThanOrEqual(84); // below the top bar and the Orders button
   // click: the camera goes to the building and it is selected
   const [wx, wy] = cellToWorld(9, 6);
   rig.setView(0, 0, 1);

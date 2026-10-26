@@ -224,7 +224,8 @@ export default class GameController extends Behaviour {
    * until the row fits. Only redone when a text or the text size changed.
    */
   fitTopBar(force = false) {
-    const sig = `${ui.textScale}|${this.shown.coins}|${this.shown.pop}|${Object.values(this.shown.goods).join(",")}`;
+    const rep = this.world.find("rep_text");
+    const sig = `${ui.textScale}|${this.shown.coins}|${this.shown.pop}|${rep ? rep.get("Text").text : ""}|${Object.values(this.shown.goods).join(",")}`;
     if (!force && sig === this.fitSignature) return;
     this.fitSignature = sig;
     const ids = Object.keys(this.goodTexts);
@@ -237,10 +238,12 @@ export default class GameController extends Behaviour {
     ids.forEach((id) => show(id, true));
     ui.layout();
     const date = ui.rectOf(this.dateTextEntity);
-    const pop = ui.rectOf(this.popText);
-    if (!date || !pop) return;
+    // the last item of the row: items other packages add after the villagers (reputation) come last
+    const lastItem = this.world.find("rep_text") || this.popText;
+    if (!date || !ui.rectOf(lastItem)) return;
     const limit = date.x - 12;
-    for (let n = ids.length - 1; n >= 0 && ui.rectOf(this.popText).x + ui.rectOf(this.popText).w > limit; n--) {
+    const right = () => ui.rectOf(lastItem).x + ui.rectOf(lastItem).w;
+    for (let n = ids.length - 1; n >= 0 && right() > limit; n--) {
       show(ids[n], false);
       ui.layout();
     }

@@ -277,7 +277,24 @@ def draw_smokehouse(cv, rot):
     facing_door(cv, rot, w, h, col=(52, 36, 28, 255), z1=20, width=0.2)
 
 
+def draw_pier(cv, rot):
+    """A plank walkway on posts with a bollard and a crate, the berth of the ships (P5)."""
+    w, h = cv.w, cv.h
+    cv.flat(0.0, 0.0, w, h, 5, (170, 128, 84, 255), 0)
+    n = 8
+    for k in range(n):
+        if w >= h:
+            cv.flat(k / n * w + 0.02, 0.06, (k + 1) / n * w - 0.02, h - 0.06, 6, (200, 158, 108, 255) if k % 2 == 0 else (182, 140, 94, 255), 0.5 + k * 0.01)
+        else:
+            cv.flat(0.06, k / n * h + 0.02, w - 0.06, (k + 1) / n * h - 0.02, 6, (200, 158, 108, 255) if k % 2 == 0 else (182, 140, 94, 255), 0.5 + k * 0.01)
+    for (uu, vv) in [(0.1, 0.1), (w - 0.1, 0.1), (0.1, h - 0.1), (w - 0.1, h - 0.1)]:
+        cv.box(uu - 0.06, vv - 0.06, uu + 0.06, vv + 0.06, 0, 16, (96, 66, 44, 255), outline=False)
+    cv.box(w / 2 - 0.1, h / 2 - 0.1, w / 2 + 0.1, h / 2 + 0.1, 6, 20, (70, 60, 56, 255))
+    cv.box(0.2, 0.2, 0.5, 0.5 if h > 0.6 else h - 0.2, 6, 20, (146, 100, 62, 255))
+
+
 BUILDERS = {
+    "pier": draw_pier,
     "house": draw_house, "farm": draw_farm, "fisher_dock": draw_dock, "lumber_camp": draw_lumber, "quarry": draw_quarry,
     "sawmill": draw_sawmill, "mill": draw_mill, "bakery": draw_bakery, "smokehouse": draw_smokehouse,
     "workshop": draw_workshop, "warehouse": draw_warehouse, "market": draw_market,
@@ -286,9 +303,9 @@ BUILDERS = {
 # by the data validator (it fails when a building has no frames here).
 SIZES = {"house": (1, 1), "farm": (2, 2), "fisher_dock": (2, 1), "lumber_camp": (2, 2), "quarry": (2, 2),
          "sawmill": (2, 2), "mill": (2, 2), "bakery": (2, 2), "smokehouse": (2, 2), "workshop": (2, 2), "warehouse": (3, 2),
-         "market": (3, 2)}
+         "market": (3, 2), "pier": (3, 1)}
 HEIGHTS = {"house": 52, "farm": 44, "fisher_dock": 50, "lumber_camp": 40, "quarry": 54, "sawmill": 46, "bakery": 80,
-           "workshop": 84, "warehouse": 70, "market": 56, "mill": 100, "smokehouse": 96}
+           "workshop": 84, "warehouse": 70, "market": 56, "mill": 100, "smokehouse": 96, "pier": 24}
 
 
 def draw_building(bid, rot):
@@ -354,7 +371,67 @@ def icon(name):
     elif name == "tools":
         d.line(q(6, 22, 20, 8), fill=(120, 84, 52, 255), width=3 * SS)
         d.rectangle(q(15, 3, 25, 11), fill=(140, 140, 150, 255), outline=(80, 80, 90, 255), width=SS)
+    elif name == "star":
+        import math
+        pts = []
+        for k in range(10):
+            r = 12 if k % 2 == 0 else 5.2
+            a = -math.pi / 2 + k * math.pi / 5
+            pts.append((14 + r * math.cos(a), 14.5 + r * math.sin(a)))
+        d.polygon(q(*[v for pt in pts for v in pt]), fill=(240, 196, 60, 255), outline=(170, 120, 20, 255))
+    elif name == "ship":
+        d.polygon(q(3, 17, 25, 17, 21, 24, 7, 24), fill=(140, 96, 60, 255), outline=(90, 58, 34, 255))
+        d.line(q(14, 17, 14, 4), fill=(90, 58, 34, 255), width=2 * SS)
+        d.polygon(q(15, 5, 24, 15, 15, 15), fill=(240, 236, 220, 255), outline=(170, 160, 140, 255))
     return im.resize((s, s), Image.LANCZOS)
+
+
+# ---- ships (P5) -------------------------------------------------------------------------------------------------
+# A ship is 140 x 96 px, pivot at the bottom middle (the waterline centre). heading 0..3 as the walkers: 0 = +c (sails towards
+# the lower right), 1 = +r (lower left), 2 = -c, 3 = -r. The three classes differ in size, hull and sail colours.
+SHIP_CLASSES = {
+    # name: (length in cells, hull colour, sail colour, masts)
+    "skiff": (0.9, (150, 106, 68, 255), (236, 230, 210, 255), 1),
+    "cog": (1.3, (118, 80, 52, 255), (222, 214, 190, 255), 2),
+    "carrack": (1.7, (96, 62, 44, 255), (190, 60, 56, 255), 3),
+}
+
+
+def ship(cls, heading):
+    length, hull, sail, masts = SHIP_CLASSES[cls]
+    W, H = 140, 96
+    im = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    ax = {0: (1, 1), 1: (-1, 1), 2: (-1, -1), 3: (1, -1)}[heading]  # screen direction of the keel (x, y) before scaling
+    ox, oy = W / 2, H - 22
+
+    def pt(u, v, z):  # u along the keel (cells), v across (cells), z up in px
+        # the cross axis is the other iso axis: keel (a, b) -> cross (-a, b)
+        cx, cy = -ax[0] * 50, ax[1] * 25
+        kx, ky = ax[0] * 50, ax[1] * 25
+        return ((ox + kx * u + cx * v) * SS, (oy + ky * u + cy * v - z) * SS)
+
+    half = length / 2
+    wd = 0.2
+    # shadow on the water
+    d.polygon([pt(-half - 0.1, -wd - 0.05, 0), pt(half + 0.2, -wd - 0.05, 0), pt(half + 0.2, wd + 0.05, 0), pt(-half - 0.1, wd + 0.05, 0)], fill=(10, 40, 70, 70))
+    # hull: bottom outline, then the two sides and the deck
+    bow = (half + 0.25, 0, 7)
+    deck = [pt(-half, -wd, 8), pt(half, -wd, 8), pt(*bow), pt(half, wd, 8), pt(-half, wd, 8)]
+    side_a = [pt(-half, wd, 8), pt(half, wd, 8), pt(half - 0.15, wd * 0.5, 0), pt(-half + 0.1, wd * 0.6, 0)]
+    side_b = [pt(-half, -wd, 8), pt(half, -wd, 8), pt(half - 0.15, -wd * 0.5, 0), pt(-half + 0.1, -wd * 0.6, 0)]
+    for poly, k in ((side_a, 0.72), (side_b, 0.9)):
+        d.polygon(poly, fill=shade(hull, k), outline=shade(hull, 0.5))
+    d.polygon(deck, fill=shade(hull, 1.25), outline=shade(hull, 0.5))
+    # masts and sails (the sail is a quad across the ship)
+    for m in range(masts):
+        u = (m - (masts - 1) / 2) * (length * 0.55 / max(1, masts - 1) if masts > 1 else 0)
+        top = 44 if cls != "skiff" else 38
+        d.line([pt(u, 0, 8), pt(u, 0, top + 6)], fill=shade(hull, 0.5), width=2 * SS)
+        sw = 0.28 if masts > 1 else 0.3
+        quad = [pt(u, -sw, top), pt(u, sw, top), pt(u + 0.05, sw, 16), pt(u + 0.05, -sw, 16)]
+        d.polygon(quad, fill=sail, outline=shade(sail, 0.6))
+    return im.resize((W, H), Image.LANCZOS)
 
 
 # ---- walkers ----------------------------------------------------------------------------------------------------
@@ -432,6 +509,7 @@ ROAD_PIECE = {
 }
 WALKER_KINDS = ["villager", "carrier"]
 GOODS = ["fish", "grain", "wood", "stone", "planks", "bread", "tools", "flour", "smoked_fish", "pop"]
+EXTRA_ICONS = ["star", "ship"]
 
 
 def main():
@@ -457,8 +535,11 @@ def main():
         for rot in range(4):
             im, w, h = draw_building(bid, rot)
             add("building.%s.%d" % (bid, rot), im, (w / (w + h), 0.0))
-    for g in GOODS + ["coin"]:
+    for g in GOODS + ["coin"] + EXTRA_ICONS:
         add("icon." + g, icon(g), (0.5, 0.5))
+    for cls in SHIP_CLASSES:
+        for heading in range(4):
+            add("ship.%s.%d" % (cls, heading), ship(cls, heading), (0.5, 22 / 96))
     for kind in WALKER_KINDS:
         for direction in range(4):
             add("walker.%s.%d" % (kind, direction), walker(kind, direction), (0.5, 0.0))

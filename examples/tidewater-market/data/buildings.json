@@ -14,6 +14,7 @@
     "smokehouse":  { "kind": "building", "category": "production",     "size": [2, 2], "cost": { "coins": 90, "planks": 4 },          "terrain": ["sand", "grass"], "workers": 2, "upkeep": 1, "jobPriority": 3, "recipes": ["smoke_fish"] },
     "workshop":    { "kind": "building", "category": "production",     "size": [2, 2], "cost": { "coins": 160, "planks": 6, "stone": 4 }, "terrain": ["sand", "grass"], "workers": 3, "upkeep": 2, "jobPriority": 5, "recipes": ["make_tools"] },
     "warehouse":   { "kind": "building", "category": "storage",        "size": [3, 2], "cost": { "coins": 150, "planks": 8 },         "terrain": ["sand", "grass"], "requireRoad": "frontage", "storage": 400, "workers": 3, "upkeep": 2, "jobPriority": 1 },
-    "market":      { "kind": "building", "category": "trade",          "size": [3, 2], "cost": { "coins": 200, "planks": 10 },        "terrain": ["sand", "grass"], "requireRoad": "frontage", "workers": 2, "upkeep": 2, "jobPriority": 0 }
+    "market":      { "kind": "building", "category": "trade",          "size": [3, 2], "cost": { "coins": 200, "planks": 10 },        "terrain": ["sand", "grass"], "requireRoad": "frontage", "workers": 2, "upkeep": 2, "jobPriority": 0 },
+    "pier":        { "kind": "building", "category": "trade",          "size": [3, 1], "cost": { "coins": 120, "planks": 6 },        "terrain": ["sand", "grass"], "nearWater": true, "upkeep": 1 }
   }
 }

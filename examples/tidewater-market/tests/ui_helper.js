@@ -50,8 +50,9 @@ export function centreOf(id) {
  * `seconds` game seconds; the camera looks at the middle of the town. The clock is paused so the numbers stay put while a test
  * clicks around (a test that needs time to pass sets the speed again or runs the clock itself).
  */
-export function townScene({ seconds = 30, parts } = {}) {
-  game.load("scenes/game.scene.json", { testMap: true });
+export function townScene({ seconds = 30, parts, trade = false } = {}) {
+  // trade: true starts the ships and events too (their Orders button and reputation item join the top bar)
+  game.load("scenes/game.scene.json", trade ? { testMap: true, trade: true, scenario: "sandbox", music: false } : { testMap: true });
   game.step(3);
   const ctl = game.find("controller").behaviour;
   const rig = game.find("camera").behaviour;

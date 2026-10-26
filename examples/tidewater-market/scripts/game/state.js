@@ -13,6 +13,7 @@ import { Events } from "./events.js";
 import { Economy, negate, refundOf } from "./economy.js";
 import { Clock } from "./clock.js";
 import { Simulation } from "./sim.js";
+import { Trade } from "./trade.js";
 import { GameMap } from "./map.js";
 import { generateMap, mapFromRows } from "./mapgen.js";
 import { checkPlacement, footprintCells, isRoad, originFor, roadMask, roadPath, sizeAt } from "./rules.js";
@@ -45,6 +46,8 @@ export class GameState {
     this.testMap = !!options.testMap;
     /** The town's life: villagers, walkers, production, carriers, wages (scripts/game/sim.js). It runs on clock.tick. */
     this.sim = new Simulation(this);
+    /** Ships, orders, reputation, event cards, story and achievement progress (scripts/game/trade.js, P5). Off until `trade.start()`. */
+    this.trade = new Trade(this);
   }
 
   // ---- queries -----------------------------------------------------------------------------------------------------

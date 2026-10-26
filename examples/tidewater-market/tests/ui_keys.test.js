@@ -29,12 +29,12 @@ test("keys open and close the panels; F1 shows the help; Esc closes the newest t
   expect(game.find("charts_panel").active).toBe(true);
   key("F1");
   expect(game.find("help_panel").active).toBe(true);
-  key("O");
+  key("M");
   expect(hud.overlay).toBe("desirability");
-  key("O");
-  key("O");
-  key("O");
-  key("O");
+  key("M");
+  key("M");
+  key("M");
+  key("M");
   expect(hud.overlay).toBe(null);
   // Esc closes in reverse order of opening: help, charts, goods, and only then the build bar
   escape();
