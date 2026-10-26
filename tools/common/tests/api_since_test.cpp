@@ -29,7 +29,7 @@ const std::string kFile = "tools/common/api_since.json";
 Json read_since_file() {
     const std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / kFile);
     Json j = Json::parse(text, nullptr, false);
-    REQUIRE_MESSAGE(j.is_object(), kFile << " must be a JSON object {\"components\": {...}, \"commands\": {...}}.");
+    REQUIRE_MESSAGE(j.is_object(), kFile << " must be a JSON object {\"components\": {...}, \"commands\": {...}, \"script\": {...}}.");
     return j;
 }
 
@@ -73,6 +73,14 @@ void with_command_registry(Fn fn) {
     fs::set_project_root(savedRoot);
 }
 
+std::set<std::string> script_names() {
+    std::set<std::string> out;
+    with_command_registry([&](Engine& e) {
+        for (const std::string& k : e.scripts().script_api_keys()) out.insert(k);
+    });
+    return out;
+}
+
 std::set<std::string> command_names() {
     std::set<std::string> out;
     with_command_registry([&](Engine& e) {
@@ -102,6 +110,11 @@ TEST_CASE("api_since: every component, field and command has an entry") {
     const Json file = read_since_file();
     const std::string comps = missing_lines(file, "components", component_names());
     const std::string cmds = missing_lines(file, "commands", command_names());
+    const std::string scripts = missing_lines(file, "script", script_names());
+    CHECK_MESSAGE(scripts.empty(), "Add these lines to \"script\" in " << kFile << " (a new script export or member is not in any release yet; "
+                                   "keys: the name of an export of the \"factoria\" module, \"Type.member\" for a member, \"test:\" in front for the "
+                                   "\"factoria:test\" module):\n"
+                                                                              << scripts);
     CHECK_MESSAGE(comps.empty(), "Add these lines to \"components\" in " << kFile << " (a new thing is not in any release yet):\n"
                                                                           << comps);
     CHECK_MESSAGE(cmds.empty(), "Add these lines to \"commands\" in " << kFile << " (a new thing is not in any release yet):\n"
@@ -112,6 +125,8 @@ TEST_CASE("api_since: no entry names something that no longer exists") {
     const Json file = read_since_file();
     const std::string comps = stale_lines(file, "components", component_names());
     const std::string cmds = stale_lines(file, "commands", command_names());
+    const std::string scripts = stale_lines(file, "script", script_names());
+    CHECK_MESSAGE(scripts.empty(), "Remove these entries from \"script\" in " << kFile << " (the script export or member is gone):\n" << scripts);
     CHECK_MESSAGE(comps.empty(), "Remove these entries from \"components\" in " << kFile << " (the component or field is gone):\n"
                                                                                 << comps);
     CHECK_MESSAGE(cmds.empty(), "Remove these entries from \"commands\" in " << kFile << " (the command is gone):\n" << cmds);
@@ -120,7 +135,7 @@ TEST_CASE("api_since: no entry names something that no longer exists") {
 TEST_CASE("api_since: values are \"unreleased\" or a version x.y.z") {
     const Json file = read_since_file();
     const std::regex version(R"(\d+\.\d+\.\d+)");
-    for (const char* section : {"components", "commands"}) {
+    for (const char* section : {"components", "commands", "script"}) {
         const bool hasSection = file.contains(section) && file[section].is_object();
         REQUIRE_MESSAGE(hasSection, kFile << " needs a \"" << section << "\" object.");
         for (auto it = file[section].begin(); it != file[section].end(); ++it) {
@@ -137,12 +152,12 @@ TEST_CASE("api_since: nothing is unreleased once CHANGELOG.md has no Unreleased 
     if (changelog.find("## Unreleased") != std::string::npos) return;  // on main after the last release: marks are right
     const Json file = read_since_file();
     std::string left;
-    for (const char* section : {"components", "commands"})
+    for (const char* section : {"components", "commands", "script"})
         for (auto it = file[section].begin(); it != file[section].end(); ++it)
             if (it->is_string() && it->get<std::string>() == "unreleased") left += std::string("    ") + section + " / " + it.key() + "\n";
     CHECK_MESSAGE(left.empty(), "CHANGELOG.md has no \"## Unreleased\" section, so this is a release: a release renames \"## Unreleased\" to "
                                 "\"## <version>\". Replace every \"unreleased\" in "
-                                    << kFile << " with that version and regenerate docs/COMPONENTS.md and docs/reference/ (factoria call docs.write_reference '{\"out\":\"docs\"}') and the typings of the examples (factoria api --dts --project examples/<name>). Still unreleased:\n"
+                                    << kFile << " with that version and regenerate docs/COMPONENTS.md (its script part too) and docs/reference/ (factoria call docs.write_reference '{\"out\":\"docs\"}') and the typings of the examples (factoria api --dts --project examples/<name>). Still unreleased:\n"
                                     << left);
 }
 

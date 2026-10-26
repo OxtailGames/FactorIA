@@ -346,10 +346,15 @@ public:
     std::vector<std::string> check_hooks(std::string_view modulePath);
 
     Json api_manifest() const;               // machine-readable API (modules, classes, functions, docs)
-    // Contents of types/factoria.d.ts. `since` (optional) maps "Component" or "Component.field" to the version that
-    // added it ("0.1.3", "unreleased", or "" for nothing to say); non-empty answers become a JSDoc @since tag.
-    using SinceFn = std::function<std::string(const std::string&)>;
+    // Contents of types/factoria.d.ts. `since` (optional) maps (section, key) to the version that added the thing:
+    // section "components" with "Component" or "Component.field", section "script" with a key of script_api_keys()
+    // ("0.1.3", "unreleased", or "" for nothing to say); non-empty answers become a JSDoc @since tag.
+    using SinceFn = std::function<std::string(const std::string& section, const std::string& key)>;
     std::string typescript_declarations(const SinceFn& since = {}) const;
+    // Every key the "script" section of tools/common/api_since.json needs, sorted: the name of each export of the
+    // "factoria" module (functions, consts, classes, interfaces, aliases), "Type.member" for each member and static
+    // of a class or interface, and the same with a "test:" prefix for the "factoria:test" module.
+    std::vector<std::string> script_api_keys() const;
     Json stats() const;                      // behaviours alive, modules loaded, memory
     // time.scale as scripts set it (game.paused sets 0): the engine scales physics steps, particles and sprite
     // animators by it, so 0 freezes gameplay while the UI and runWhilePaused behaviours keep running.
