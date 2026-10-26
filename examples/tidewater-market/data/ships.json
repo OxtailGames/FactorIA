@@ -1,0 +1,31 @@
+{
+  "$comment": "Ships and orders (scripts/game/trade.js). A ship sails in over water to a pier, docks, shows ONE order (goods the town hands over for coins), waits until its deadline and leaves; a filled order pays and raises the reputation, a missed one lowers it. Days are game days (data/economy.json calendar: 10 per season). schedule: firstShipDays = days after the game starts (or after the first pier) before the first ship is sent; gapDays [min, max] between two ships; orderDays [min, max] = days a ship waits at the pier. reputation: start, max, filled / missed = the change, earlyBonus = extra when the order is filled with at least half of its days left. sailSpeed = cells per game second on the water. classes: minReputation to be sent, weight in the random pick, wants = per good [min, max] amount, goods = [min, max] kinds of good in one order, premium = multiplier on the goods' base prices (the reward, rounded to 5). The ship's name is one of the locale strings ship.name.0 .. ship.name.<nameCount - 1>.",
+  "format": "tidewater.ships/1",
+  "schedule": { "firstShipDays": 3, "gapDays": [4, 6], "orderDays": [6, 9], "retryDays": 1 },
+  "reputation": { "start": 0, "max": 100, "filled": 2, "missed": -3, "earlyBonus": 1 },
+  "sailSpeed": 1.8,
+  "nameCount": 8,
+  "classes": {
+    "skiff": {
+      "minReputation": 0,
+      "weight": 4,
+      "goods": [1, 1],
+      "premium": 1.25,
+      "wants": { "fish": [6, 12], "wood": [8, 16], "grain": [10, 20], "stone": [4, 8] }
+    },
+    "cog": {
+      "minReputation": 10,
+      "weight": 3,
+      "goods": [1, 2],
+      "premium": 1.4,
+      "wants": { "planks": [6, 12], "bread": [6, 12], "flour": [8, 16], "smoked_fish": [4, 8], "fish": [10, 18], "stone": [6, 12] }
+    },
+    "carrack": {
+      "minReputation": 30,
+      "weight": 3,
+      "goods": [2, 3],
+      "premium": 1.6,
+      "wants": { "tools": [3, 6], "smoked_fish": [8, 14], "bread": [10, 18], "planks": [10, 18], "stone": [10, 16] }
+    }
+  }
+}

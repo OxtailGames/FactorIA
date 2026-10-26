@@ -184,6 +184,15 @@
       }
     },
     {
+      "id": "trade_ui",
+      "name": "Trade: ships, order board, event cards",
+      "components": {
+        "Script": {
+          "path": "scripts/game/trade_ui.js"
+        }
+      }
+    },
+    {
       "id": "pause_menu",
       "name": "Pause menu",
       "components": {
