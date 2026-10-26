@@ -828,12 +828,14 @@ Left open:
 - M29.8: the kit has an unused `platform` import.
 - M29.9: the non-Apple pad backends are untested here; `SteamDeck=1` is Steam's unofficial variable.
 - M29.10: slice limits, floor fragmentation, a 4096-edit cap, the `tileDims` native.
-- M29.11: `nav.tileVersion` does not count replacing `tiles` as a whole; no `parallel` or `repeat` nodes.
+- M29.11: `nav.tileVersion` hashes the whole map on each call (O(tiles)) to see replacements of `tiles`; the first call
+  only takes the baseline.
 - M29.12: no wheel, locked mouse or text in the replay; props are not in the replay.
 - M29.13: the player has no `--props`; screenshots may differ across GPUs.
-- M29.14: only Metal ran (the GL, GLES, D3D11 and WGSL shader headers compile but were not run); a visual with a normal
-  map and a perspective camera keep the per-pixel loop over 16 lights; the Linux and Windows draw-call baselines (+1) are
-  assumed, not measured; no `api_since` row for `lights2dShadowed`; the costs in PERFORMANCE.md come from one Mac.
+- M29.14: only Metal and WebGL2 ran (the GL, D3D11 and WGSL shader headers compile but were not run); a visual with a
+  normal map and a perspective camera keep the per-pixel loop over 16 lights; the Linux and Windows draw-call baselines
+  (+1) are assumed, not measured; `lights2dShadowed` has no `api_since` row of its own (it is a key of what
+  `renderStats()` returns); the costs in PERFORMANCE.md come from one Mac.
 - M29.15: players do not read the mouse or touch; no doctest of `input.schemes` parsing in project.cpp (the input doctests
   and Burrow's tests cover it).
 - M29.16: effects persist across scene loads; attack and release are time constants; the CPU costs are estimates; only
@@ -843,13 +845,12 @@ Left open:
   Linux; macOS borderless covers the notch (a 16:9 game is letterboxed clear of it, a 16:10 one would draw under it).
 - M29.18: only the Steam mock is tested (no real Steam, Google Play or iCloud); the Windows, Linux, Android and Swift code
   is not compiled here; no mapping of a session to a pad and no conflict event.
-- M29.19: only Metal ran; screen-space `lit` visuals get only ambient light in a frame with several cameras; the editor's
-  outlines and gizmos project through the first camera only; no `api_since` rows for the new script functions (the file
-  lists components and commands only). Burrow Brigade's HUD is screen space, so in a top/bottom split its top-left text
-  covers a miner standing at the top-left of the upper view.
+- M29.19: only Metal and WebGL2 ran; screen-space `lit` visuals get only ambient light in a frame with several cameras;
+  the editor's outlines and gizmos project through the first camera only. Burrow Brigade's HUD is screen space, so in a
+  top/bottom split its top-left text covers a miner standing at the top-left of the upper view.
 - M29.20: the other platforms are not compiled here; Win32 disables cookies and automatic authentication; Android sends
   PATCH as POST with an override header and plain `http://localhost` does not work there; CORS applies on the web; the
-  translated docs are not updated; no `api_since` rows; requests still in flight when a recording stops are not recorded.
+  translated docs are not updated; requests still in flight when a recording stops are not recorded.
 - M29.21: Burrow's server URLs are placeholders (`burrow-brigade.example`, explained in its README); the iOS export's
   analytics privacy entry is untested; retries on network errors, 408, 429 and 5xx with backoff.
 - Manual checks on macOS (2026-10-26, MacBook Air M5, the `m29/player-size` build, one built-in display):
@@ -867,6 +868,11 @@ Left open:
   - M29.19 split screen, windowed on Metal with two players and the option on: together, one camera with the full
     viewport; parted across, two side-by-side views with the dark gap, each following its miner; parted down, two views
     one above the other, the higher miner on top. Each view stays inside the mine.
+- Web check in the browser pane (2026-10-26, Emscripten 6.0.10, the `m29/player-size` player): a scene with 40 point
+  lights (half with `castShadows`), a light-blocking Tilemap and two cameras side by side draws on WebGL2 as on Metal,
+  with no console errors. Burrow Brigade's web export gets through the title, the slot choice and the join; the mine is
+  lit by the miner's lamp and a torch can be placed. Not done: two players in a split screen on the web (needs a pad or a
+  second keyboard player). The wasm is 8.0 MB, 3.0 MB with gzip (6.8 MB and 2.7 MB in v0.2.0).
 - Clockwork Courier's tests `rooftops_3` and `market_3 > the expert shortcut wins too` are close to their 60 s limit and
   time out when the machine is loaded (they did on `main` too).
 

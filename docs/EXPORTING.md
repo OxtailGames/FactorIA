@@ -163,7 +163,7 @@ not run and allocates nothing. The linker drops the functions and data that noth
 | Player | Size |
 |---|---|
 | macOS arm64, Release, without symbols | 9.1 MB (10.2 MB before `-dead_strip`) |
-| Web, `factoria_player.wasm` (v0.2.0) | 6.8 MB, 2.7 MB with gzip |
+| Web, `factoria_player.wasm`, Emscripten 6.0.10 | 8.0 MB, 3.0 MB with gzip (6.8 MB and 2.7 MB in v0.2.0) |
 | Windows x64 (v0.2.0) | 8.1 MB |
 | Linux x86_64 (v0.2.0, before `--gc-sections`) | 13 MB |
 

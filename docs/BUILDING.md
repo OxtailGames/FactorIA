@@ -249,7 +249,7 @@ cmake --build --preset web-release         # build/web-release/player/factoria_p
 ```
 
 The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
-and the game's `game.pak`; docs/EXPORTING.md). A release build is about 6.5 MB of wasm (about 2.5 MB gzipped, which is what
+and the game's `game.pak`; docs/EXPORTING.md). A release build is about 8 MB of wasm (about 3 MB gzipped, which is what
 a web server sends) and 150 KB of JS. To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
 and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, saved as `index.html`) in one
 folder, serve it (`python -m http.server`; no special headers, the player uses no threads) and open it in a browser. To
