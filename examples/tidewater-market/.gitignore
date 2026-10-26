@@ -2,3 +2,9 @@
 build/
 node_modules/
 .DS_Store
+# Written by store/make_store_images.py and store/trailer/make_trailer.py (SHIPPING.md)
+store/screenshots/
+store/capsules/
+store/trailer/scenes/
+*.avi
+*.mp4
