@@ -527,6 +527,8 @@ A screen-space panel uses the same fields. A Shape2D rectangle is centred on its
 }
 ```
 
+Children of a Panel are placed from the parent's `Transform.position`: a child's screen position is that position plus the child's own `position` and the point named by the child's own `anchor`. The parent's `anchor` and `pivot` only place the parent's rectangle; they do not move its children, so a Panel with `anchor: [0.5, 0.5]` and `Transform.position` `[0, 0]` has its children at the top-left corner of the screen unless a layout (`layout: "column"`...) or the children's own anchors place them. In a Shape2D with `space: "screen"`, a `line`'s `size.y` points UP (a line `[100, 40]` goes 100 px right and 40 px up) while Panels, Texts and Sprites grow downwards. A chart bar is a rectangle with `pivot: [0, 1]` that hangs from its position: `size: [w, h]` is w to the right and h down.
+
 Text that changes at runtime is written from a behaviour, for example `this.entity.get("Text").text = "Coins: " + n;`. Check the screenshot: a clipped label usually means the wrong pivot.
 
 ### 9.5 Collisions, triggers and one-way platforms

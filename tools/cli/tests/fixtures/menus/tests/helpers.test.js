@@ -119,3 +119,55 @@ test("the rectangle of a HUD Text is in ui.rectOf and ui.state", () => {
   expect(entry.rect).toEqual([r.x, r.y, r.w, r.h]);
   expect(fa.call("ui.state").widgets.some((w) => w.id === "world_text")).toBe(false);
 });
+
+test("ui.rectOf is null for a widget hidden by its parent, like ui.state", () => {
+  game.platform.reset();
+  game.loadJson({
+    format: "factoria.scene/1",
+    entities: [
+      { id: "camera", components: { Transform: { position: [640, 360, 0] }, Camera: {} } },
+      { id: "box", components: { Transform: { position: [100, 100, 0] }, Panel: { size: [300, 200] } } },
+      {
+        id: "inner",
+        components: { Transform: { position: [10, 10, 0] }, Button: { text: "Hi", size: [100, 30] } },
+      },
+    ],
+  });
+  game.find("inner").setParent("box");
+  game.step(2);
+  expect(ui.rectOf("inner")).not.toBeNull();
+  game.find("box").active = false;
+  game.step(1);
+  expect(game.find("inner").active).toBe(true); // the child keeps its own flag
+  expect(game.find("inner").activeInHierarchy).toBe(false);
+  expect(ui.rectOf("inner")).toBeNull();
+  expect(ui.rectOf("box")).toBeNull();
+  expect(fa.call("ui.state").widgets.some((w) => w.id === "inner")).toBe(false);
+  game.find("box").active = true;
+  game.step(1);
+  expect(ui.rectOf("inner")).not.toBeNull();
+});
+
+test("game.tap(ui_submit) clicks the focused widget; a held game.press clicks once", () => {
+  game.platform.reset();
+  game.loadJson({
+    format: "factoria.scene/1",
+    entities: [
+      { id: "camera", components: { Transform: { position: [640, 360, 0] }, Camera: {} } },
+      { id: "go", components: { Transform: { position: [100, 100, 0] }, Button: { text: "Go", size: [100, 30] } } },
+    ],
+  });
+  game.step(2);
+  let clicks = 0;
+  const off = ui.on("click", () => clicks++);
+  ui.focus("go");
+  game.tap("ui_submit");
+  expect(clicks).toBe(1);
+  game.press("ui_submit");
+  game.step(3);
+  game.press("ui_submit");
+  game.step(3);
+  expect(clicks).toBe(2); // the held action clicked once; pressing it again pressed nothing
+  game.release("ui_submit");
+  off();
+});

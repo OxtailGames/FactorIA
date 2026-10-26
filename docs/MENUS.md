@@ -336,6 +336,23 @@ What the command does, file by file; do it by hand when you want to see each fil
   `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
   uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
 
+## Pressing the focused widget in a test
+
+`game.tap("ui_submit")` presses the focused widget, like Enter, Space or the pad's A: it holds the action for one frame,
+steps, releases it and steps again, so the widget gets one click (`ui.focus("play_button")` first to choose it).
+`game.press("ui_submit")` holds the action until `game.release("ui_submit")`; the UI reacts to the frame the action goes
+down, so pressing it again while it is still held presses nothing. Use `tap` for a click and `press`/`release` only to test a
+hold; after a `press`, `release` it before the next one.
+
+```js
+ui.focus("play_button");
+game.tap("ui_submit");          // one click on Play
+game.press("ui_submit");        // clicks the focused widget once, now held...
+game.step(3);
+game.press("ui_submit");        // ...so this presses nothing
+game.release("ui_submit");
+```
+
 ## A gamepad cursor over the menus (and the game)
 
 A game played mostly with the mouse that also supports a pad moves a cursor with a stick. The UI needs no scan of the
