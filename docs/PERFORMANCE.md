@@ -164,6 +164,22 @@ Advice for phones, tablets and the web (fill-rate bound GPUs):
   2. Where the GPU cannot render to either, the engine shades per pixel with the first 16 lights, as it did before the
   light buffer. `FA_LIGHT_FORMAT=rgba16f|rgba8|none` forces one of them, to try it.
 
+## Path finding on tile maps
+
+`nav.findTilePath` with a `{ width, height, cost }` array converts the whole array on every call (to JSON, to a float
+array, and a sweep for the cheapest cell), so one call costs about the size of the map however short the route. Two
+tools change that (NAVIGATION.md, "Reusable grids and flow fields"):
+
+- `nav.createGrid` keeps the cost grid natively: a call no longer converts or sweeps, and `grid.setCost` changes a cell.
+- `nav.flowField(grid, goals)` searches once from the goals; each walker's next step, `field.stepToward(col, row)`, is a
+  table lookup. Walkers heading for the same few goals share one field. After `grid.setCost` the next question redoes the
+  search (one pass over the grid), so a field is worth keeping while the grid changes less often than walkers ask.
+
+Measured by the benchmark test in `engine/script/tests/test_nav_tiles_script.cpp` (600 walkers on a 60 x 60 map with walls,
+75 ticks, each walker asking for its next step toward one of 6 goals every tick; a Debug build on an Apple M5): the array form about 228 000 ms (measured for 3 ticks and scaled; the test prints it), the kept
+grid about 8 200 ms, the flow fields about 160 ms. Tidewater Market, whose roads leave few open cells, measured 5 978 ms for the array form
+against 442 ms for its own distance fields before the engine had these; it now uses `nav.flowField`.
+
 ## The engine's examples
 
 Each example has a ctest, `example_<name>_perf`, comparing a 300-frame run with `tools/cli/tests/perf/<name>.perf.json`.

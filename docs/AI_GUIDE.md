@@ -1459,7 +1459,9 @@ if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(
 
 A behaviour tree (`bt`, SCRIPTING.md "AI: behaviour trees") picks WHAT the enemy does; `nav.findTilePath` (NAVIGATION.md,
 section 7) says WHERE to step on a tile map. Search again only when the goal's cell changed or the map did
-(`nav.tileVersion(map)`, which also counts a whole `tiles` replacement), not every frame. `bt.parallel` runs
+(`nav.tileVersion(map)`, which also counts a whole `tiles` replacement), not every frame. Many enemies heading for the same
+place (a crowd chasing the player, walkers going to a building) share one `nav.flowField(grid, goals)` over a grid from
+`nav.createGrid`: `field.stepToward(col, row)` is the next cell in O(1), and `grid.setCost` keeps the grid current. `bt.parallel` runs
 several children at once (move and shoot) and `bt.repeat(child, times?)` repeats one (SCRIPTING.md).
 
 ```js

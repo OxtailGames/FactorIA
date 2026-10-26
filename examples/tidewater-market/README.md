@@ -61,7 +61,7 @@ the ground cell behind it, not the building.
 | Path | What |
 |---|---|
 | `data/*.json` | The tables (and `ships`, `events`, `story` for P5, below): `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
-| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (distance fields on the roads), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (the engine's `rng.create` streams with a weighted pick), `trade_data` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's path finder as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board and the cards), `achievements` (the store bridge), `music_director`, `title_backdrop` |
+| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (the roads as an engine `nav.createGrid` and one `nav.flowField` per goal), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (the engine's `rng.create` streams with a weighted pick), `trade_data` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's single-pair path finder on the roads' grid as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board and the cards), `achievements` (the store bridge), `music_director`, `title_backdrop` |
 | `scenes/` | `menu` (title), `loading`, `game`, `stress` (the game scene with a 640-villager town built at start: `perf.measure` with `{"scene": "scenes/stress.scene.json"}`) |
 | `locales/en.json` | Every text the player sees. Nothing is hard-coded in a script |
 | `assets/atlas.png` | One 2048 x 2048 atlas with every picture the map draws (one atlas is one draw call). `assets/src/make_atlas.py` builds it from the Kenney CC0 images in `assets/src/kenney/` plus placeholder art drawn in the script; `assets.json` has the provenance |
@@ -154,12 +154,12 @@ Villagers hold no money: the wage is a cost of the town, paid at the start of ea
 
 **Walkers (`sim.walkers`, `sim.net`).** `walkers.start(id, kind, fromBuilding, goalBuilding, speed)` makes a walker follow a
 list of road cells (cells per game second: `walkSpeed.villager` 2.4, `walkSpeed.carrier` 2.0); `x, y, px, py` are fractional
-cells (`walker_view` draws at `px + (x - px) * clock.alpha`). Roads are `RoadNet` (`roadnet.js`): one breadth-first distance
-field per goal building, cached until `net.version` (any road change) moves. A walker re-checks its way every step: a road
+cells (`walker_view` draws at `px + (x - px) * clock.alpha`). Roads are `RoadNet` (`roadnet.js`): a `nav.createGrid` with one `grid.setCost` per road placed or removed, and one
+`nav.flowField` per goal building (the engine does the search and `field.pathFrom` gives the route), cached until `net.version` (any road change) moves. A walker re-checks its way every step: a road
 cut under it sends it round by another way from where it stands, with no way it waits `patienceSeconds` 15 and gives up
 (`walkers.gaveUp` counts them; the villager is put back inside its home, and a carrier's errand is dropped). Plug-in: `net.setFinder(fn)` replaces the fields with a
 single-pair path finder `fn(road, width, height, fromCell, toCell) -> cells | null` (`nav_backend.js` wraps the engine's
-`nav.findTilePath`; slower for crowds, see "Stress scene").
+`nav.findTilePath` on `net.grid`; slower for crowds, see "Stress scene").
 
 **Production.** A building with `recipes` and `workers` runs the first recipe whose inputs are in its inbox and whose outputs
 fit its outbox. Progress per step is `dt * (present / workers) * seasonRate * productionRate` (3.5, halved by
@@ -223,8 +223,10 @@ About 600 villagers are on the roads at once in the morning (`tests/stress.test.
 `factoria call --project . perf.measure '{"scene": "scenes/stress.scene.json", "frames": 450}'` measured, in a DEBUG build on
 an Apple M5 (Metal): `cpuMsAvg` 29.8, `cpuMsP95` 30.0, `cpuMsMax` 1325 (the frames that build the town), `drawCalls` 27,
 `entities` 4682, `peakMemoryMB` 91.4. These are not budgets: P7 sets them on a release build and the CI runners.
-Walker routes: the distance fields cost 442 ms for 75 steps of 600 walkers against 5978 ms through `nav.findTilePath` on the
-same 60 x 60 map (see FB-0006 in `ENGINE_FEEDBACK.json`), which is why the game uses the fields.
+Walker routes: the game's own distance fields cost 442 ms for 75 steps of 600 walkers against 5978 ms through `nav.findTilePath`
+with the road array on the same 60 x 60 map (FB-0006 in `ENGINE_FEEDBACK.json`). That report became `nav.createGrid` and
+`nav.flowField`, which the game now uses; the engine's benchmark (`engine/script/tests/test_nav_tiles_script.cpp`) compares the
+array form, the kept grid and the flow field.
 
 ## Saves and scenarios (P4)
 

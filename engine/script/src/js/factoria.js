@@ -2500,7 +2500,108 @@
   };
 
   // ---- nav: path finding on the baked NavMesh3D (docs/NAVIGATION.md) ----
+  // A grid kept natively (nav.createGrid) and flow fields over it (nav.flowField); docs/NAVIGATION.md, "Reusable grids".
+  const navCellArgs = (label, a, b) => {
+    let c = a, r = b;
+    if (b === undefined && a && typeof a === "object") { if (Array.isArray(a)) { c = a[0]; r = a[1]; } else { c = a.col; r = a.row; } }
+    if (!Number.isFinite(c) || !Number.isFinite(r))
+      throw new Error(`${label}: expected a cell (col, row) of two numbers, or { col, row }, but got ${inspect(a)}${b === undefined ? "" : ", " + inspect(b)}`);
+    return [Math.floor(c), Math.floor(r)];
+  };
+  const navPathResult = (r) => {
+    const out = { found: r.found, complete: r.complete, cells: r.cells.map((c) => ({ col: c[0], row: c[1] })),
+                  points: r.points.map((p) => new Vec2(p[0], p[1])), cost: r.cost, length: r.length };
+    if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
+    return out;
+  };
+  const navTileOpts = (o) => {
+    const args = {};
+    if (o) for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+    return args;
+  };
+  class NavGrid {
+    constructor(h, width, height) {
+      Object.defineProperty(this, "$h", { value: h });
+      Object.defineProperty(this, "width", { value: width, enumerable: true });
+      Object.defineProperty(this, "height", { value: height, enumerable: true });
+    }
+    get version() { return N.navGridVersion(this.$h)[0]; }
+    setCost(col, row, cost) {
+      const [c, r] = navCellArgs("grid.setCost(col, row, cost)", col, row);
+      if (c < 0 || r < 0 || c >= this.width || r >= this.height)
+        throw new Error(`grid.setCost(col, row, cost): cell (${c}, ${r}) is outside the ${this.width} x ${this.height} grid (cells are 0-based, row 0 = top)`);
+      if (cost !== null && typeof cost !== "number") throw new Error(`grid.setCost(col, row, cost): cost must be a number >= 0 (Infinity or null blocks the cell), but got ${inspect(cost)}`);
+      N.navGridSet(this.$h, c, r, cost);
+    }
+    getCost(col, row) {
+      const [c, r] = navCellArgs("grid.getCost(col, row)", col, row);
+      if (c < 0 || r < 0 || c >= this.width || r >= this.height)
+        throw new Error(`grid.getCost(col, row): cell (${c}, ${r}) is outside the ${this.width} x ${this.height} grid (cells are 0-based, row 0 = top)`);
+      const v = N.navGridGet(this.$h, c, r);
+      return v < 0 ? Infinity : v;
+    }
+    setCosts(cost) {
+      if (!cost || cost.length !== this.width * this.height)
+        throw new Error(`grid.setCosts(cost): expected ${this.width * this.height} numbers (${this.width} x ${this.height}, row-major), but got ${cost && cost.length !== undefined ? cost.length + " entries" : inspect(cost)}`);
+      N.navGridFill(this.$h, cost);
+    }
+    findPath(from, to, o) { return nav.findTilePath(this, from, to, o); }
+  }
+  class NavFlowField {
+    constructor(h, grid, goals, diagonals) {
+      Object.defineProperty(this, "$h", { value: h });
+      Object.defineProperty(this, "grid", { value: grid, enumerable: true });
+      Object.defineProperty(this, "goals", { value: goals, enumerable: true });
+      Object.defineProperty(this, "diagonals", { value: diagonals, enumerable: true });
+    }
+    get rebuilds() { return N.navGridVersion(this.$h)[1]; }
+    distance(col, row) {
+      const [c, r] = navCellArgs("field.distance(col, row)", col, row);
+      return N.navFlowDist(this.$h, c, r);
+    }
+    stepToward(col, row) {
+      const [c, r] = navCellArgs("field.stepToward(col, row)", col, row);
+      const n = N.navFlowStep(this.$h, c, r);
+      return n ? { col: n[0], row: n[1] } : null;
+    }
+    pathFrom(col, row) {
+      const [c, r] = navCellArgs("field.pathFrom(col, row)", col, row);
+      const flat = N.navFlowPath(this.$h, c, r);
+      const out = new Array(flat.length >> 1);
+      for (let i = 0; i < out.length; i++) out[i] = { col: flat[2 * i], row: flat[2 * i + 1] };
+      return out;
+    }
+  }
   const nav = {
+    // createGrid({ width, height, cost?, origin?, cellSize? }): the cost grid kept natively; see NavGrid.
+    createGrid(o) {
+      const label = "nav.createGrid({ width, height, cost })";
+      if (!o || typeof o !== "object" || !Number.isInteger(o.width) || !Number.isInteger(o.height) || o.width < 1 || o.height < 1)
+        throw new Error(`${label}: width and height must be whole numbers >= 1, but got ${inspect(o)}`);
+      if (o.cost !== undefined && (!o.cost || typeof o.cost.length !== "number" || o.cost.length !== o.width * o.height))
+        throw new Error(`${label}: cost must hold width * height = ${o.width * o.height} numbers (row-major, row 0 = top), but got ${o.cost && o.cost.length !== undefined ? o.cost.length + " entries" : inspect(o.cost)}`);
+      const origin = o.origin !== undefined ? vecArr(o.origin, 2, `${label} origin`) : [0, 0];
+      const cs = o.cellSize === undefined ? [1, 1] : typeof o.cellSize === "number" ? [o.cellSize, o.cellSize] : vecArr(o.cellSize, 2, `${label} cellSize`);
+      return new NavGrid(N.navGridNew(o.width, o.height, o.cost, origin[0], origin[1], cs[0], cs[1]), o.width, o.height);
+    },
+    // flowField(grid, goals, { diagonals }): the cost to the nearest goal from every cell; see NavFlowField.
+    flowField(grid, goals, o) {
+      const label = "nav.flowField(grid, goals)";
+      if (!(grid instanceof NavGrid)) throw new Error(`${label}: \`grid\` must come from nav.createGrid, but got ${inspect(grid)}`);
+      if (Array.isArray(goals) && goals.length === 0) throw new Error(`${label}: pass at least one goal cell, e.g. nav.flowField(grid, [{ col: 3, row: 2 }])`);
+      const list = Array.isArray(goals) && goals.length > 0 && (typeof goals[0] === "object") ? goals : [goals];
+      const flat = [], cells = [];
+      for (const g of list) {
+        const [c, r] = navCellArgs(`${label} goal`, g);
+        if (c < 0 || r < 0 || c >= grid.width || r >= grid.height)
+          throw new Error(`${label}: goal (${c}, ${r}) is outside the ${grid.width} x ${grid.height} grid (cells are 0-based, row 0 = top)`);
+        flat.push(c, r);
+        cells.push({ col: c, row: r });
+      }
+      if (cells.length === 0) throw new Error(`${label}: pass at least one goal cell, e.g. nav.flowField(grid, [{ col: 3, row: 2 }])`);
+      const diagonals = !!(o && o.diagonals);
+      return new NavFlowField(N.navFlowNew(grid.$h, flat, diagonals), grid, cells, diagonals);
+    },
     // findPath(from, to, { radius, snap, closest, mesh }): { found, points: Vec3[], length, complete, mesh } or
     // { found: false, reason, message, hint, nearest?, nearestDistance? }. Never throws for "no route".
     findPath(from, to, o) {
@@ -2530,6 +2631,7 @@
         return [a[0], a[1]];
       };
       const args = { from: cell(from, "from"), to: cell(to, "to") };
+      if (map instanceof NavGrid) return navPathResult(N.navGridPath(map.$h, args.from, args.to, navTileOpts(o)));
       if (typeof map === "string") args.tilemap = map;
       else if (map instanceof Entity) args.tilemap = map.id;
       else if (map && typeof map === "object" && Array.isArray(map.cost)) {
@@ -2538,7 +2640,7 @@
         args.grid = { width: map.width, height: map.height, cost };
         if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
         if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
-      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id) or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id), a grid made by nav.createGrid, or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
       if (o) {
         for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
         if (o.costs !== undefined) {
@@ -2547,11 +2649,7 @@
           args.costs = costs;
         }
       }
-      const r = N.navFindTilePath(args);
-      const out = { found: r.found, complete: r.complete, cells: r.cells.map((c) => ({ col: c[0], row: c[1] })),
-                    points: r.points.map((p) => new Vec2(p[0], p[1])), cost: r.cost, length: r.length };
-      if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
-      return out;
+      return navPathResult(N.navFindTilePath(args));
     },
     // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles change (setTile, tilemap.set_tile or a write
     // that replaces `tiles`); compare it with the value you saw when you searched to know a path is stale.
