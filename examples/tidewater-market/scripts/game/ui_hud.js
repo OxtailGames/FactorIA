@@ -308,7 +308,7 @@ export class Hud {
 
   buildNoticeStack() {
     this.noticeRoot = panel("notices", null, {
-      anchor: [0, 0], pivot: [0, 1], position: [8, 52, 0], layout: "column", fit: true, spacing: 3, padding: [0, 0, 0, 0], color: CLEAR, align: "start", layer: LAYER.notice,
+      anchor: [0, 0], pivot: [0, 1], position: [8, 90, 0], layout: "column", fit: true, spacing: 3, padding: [0, 0, 0, 0], color: CLEAR, align: "start", layer: LAYER.notice,
     });
     this.noticeButtons = [];
     for (let i = 0; i < NOTICE_SLOTS; i++) {
@@ -847,7 +847,7 @@ export class Hud {
     tips.add(rb.btn_redo, () => ({ title: i18n.t("hud.redo"), lines: [{ text: t("tip.redo") }, { text: key("Y"), color: COLORS.gold }] }));
     tips.add(rb.btn_goods, () => ({ title: t("btn.goods"), lines: [{ text: t("tip.goods") }, { text: key("G"), color: COLORS.gold }] }));
     tips.add(rb.btn_charts, () => ({ title: t("btn.charts"), lines: [{ text: t("tip.charts") }, { text: key("T"), color: COLORS.gold }] }));
-    tips.add(rb.btn_overlay, () => ({ title: t("btn.overlayTitle"), lines: [{ text: t("tip.overlay") }, { text: key("O"), color: COLORS.gold }] }));
+    tips.add(rb.btn_overlay, () => ({ title: t("btn.overlayTitle"), lines: [{ text: t("tip.overlay") }, { text: key("M"), color: COLORS.gold }] }));
     tips.add(rb.btn_help, () => ({ title: t("btn.help"), lines: [{ text: t("tip.help") }, { text: key("F1"), color: COLORS.gold }] }));
     for (const c of this.cats) tips.add(this.tabButtons[c.id], () => ({ title: t(`cat.${c.id}`), lines: [{ text: t(`cat.hint.${c.id}`) }] }));
     for (const type of Object.keys(this.itemButtons)) {
@@ -946,9 +946,9 @@ export class Hud {
     }
     if (this.overlay === "traffic" && this.overlayClock > 1) this.overlayDirty = true;
     // the camera's wheel must not zoom the map under a panel, and the goods table scrolls with it
-    this.rig.wheelBlocked = this.over(m);
+    this.rig.wheelBlocked = this.over(m) || this.cardOpen();
     this.updateChipDrag(m);
-    this.tooltips.update(dt, m, !!(this.chipDrag && this.chipDrag.active) || input.down("primary"));
+    this.tooltips.update(dt, m, !!(this.chipDrag && this.chipDrag.active) || input.down("primary") || this.cardOpen());
   }
 
   updateChipDrag(m) {
@@ -994,8 +994,14 @@ export class Hud {
 
   // ---- keys -----------------------------------------------------------------------------------------------------------------------------------------
 
+  /** An event card is modal (the trade UI): the interface keys, tooltips and the wheel wait until it is answered. */
+  cardOpen() {
+    return !!(this.state.trade && this.state.trade.card);
+  }
+
   keys() {
     const ctl = this.ctl;
+    if (this.cardOpen()) return;
     if (input.pressed("build_menu")) this.toggleBuild();
     if (input.pressed("goods_table")) this.toggle("goods");
     if (input.pressed("charts")) this.toggle("charts");

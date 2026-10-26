@@ -23,7 +23,7 @@ factoria call --project . project.validate_data               # check data/*.jso
 | P3 (interface) | The interface: build menu, inspector, tooltips, goods table, charts, notifications, overlays, worker drag and drop, shortcuts and help | done |
 | P3 | Prices, markets, trade | planned |
 | P4 | Population, housing, happiness | planned |
-| P5 | Contracts and goals | planned |
+| P5 | The pier and its ships, orders, the order board, event cards, a story per scenario, achievements and stats on the store | done |
 | P6 | Saving, loading, the shop menu | planned |
 | P7 | Finished art and sound under the same frame names | planned |
 | P8 | Translations (es, fr, zh-Hans), accessibility, polish | planned |
@@ -55,13 +55,13 @@ the ground cell behind it, not the building.
 
 | Path | What |
 |---|---|
-| `data/*.json` | The tables: `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
-| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (distance fields on the roads), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`. Engine-facing: `nav_backend` (the engine's path finder as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `music_director`, `title_backdrop` |
+| `data/*.json` | The tables (and `ships`, `events`, `story` for P5, below): `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
+| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (distance fields on the roads), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (a saveable random generator), `trade_data`, `richtext` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's path finder as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board and the cards), `rich_view`, `achievements` (the store bridge), `music_director`, `title_backdrop` |
 | `scenes/` | `menu` (title), `loading`, `game`, `stress` (the game scene with a 640-villager town built at start: `perf.measure` with `{"scene": "scenes/stress.scene.json"}`) |
 | `locales/en.json` | Every text the player sees. Nothing is hard-coded in a script |
-| `assets/atlas.png` | One 2048 x 1024 atlas with every picture the map draws (one atlas is one draw call). `assets/src/make_atlas.py` builds it from the Kenney CC0 images in `assets/src/kenney/` plus placeholder art drawn in the script; `assets.json` has the provenance |
+| `assets/atlas.png` | One 2048 x 2048 atlas with every picture the map draws (one atlas is one draw call). `assets/src/make_atlas.py` builds it from the Kenney CC0 images in `assets/src/kenney/` plus placeholder art drawn in the script; `assets.json` has the provenance |
 | `tools/` | `project.map_preview`, `project.validate_data`, `project.grow_town` (the bot grows a town from a seed and reports it) |
-| `tests/` | map generation, rules, data tables, camera and picking, the pause menu, the mouse-only flow from the title screen, the clock and seasons, the HUD speed control, the simulation (walkers, road cuts, carriers, chains, wages, sales), the bot's year, the stress town, and screenshots to look at (`.factoria/tmp/*.png`) |
+| `tests/` | map generation, rules, data tables, camera and picking, the pause menu, the mouse-only flow from the title screen, the clock and seasons, the HUD speed control, the simulation (walkers, road cuts, carriers, chains, wages, sales), the bot's year, the stress town, the trade (`trade`, `trade_ui`, `rich_text`) and screenshots to look at (`.factoria/tmp/*.png`) |
 
 ## Contracts for the next packages
 
@@ -236,12 +236,12 @@ drag and the top bar; everything else is the Hud's.
 | Goods table (G) | Every good: stock, made and used per game day, price. Click a header to sort, again to reverse; the wheel scrolls it and does not zoom the map |
 | Charts (T) | Bars over the last days: coins, the stock of one good (click the good name to cycle) or what was made |
 | Notifications | Up to five at the top left; the same message for the same building stacks as (xN); a click (or N for the newest) moves the camera there and selects the building |
-| Overlays (O, Map button) | Desirability, market coverage, warehouse reach, traffic; each tints the cells in view; the legend says what it shows |
+| Overlays (M, Map button) | Desirability, market coverage, warehouse reach, traffic; each tints the cells in view; the legend says what it shows |
 | Worker drag and drop | Press a villager chip in the inspector, drag onto a workplace on the map: the chip turns green or red (and says why); a drop moves the worker and pins the job (`people.reassign`) |
 | Help (F1) | Lists every shortcut (`SHORTCUTS` in `ui_model.js`) |
 
 Keys: B build menu, X or Delete demolish tool (Delete removes the selected building when there is one), R rotate (the selected
-building, free, one undo step; otherwise the next building to place), Z / Y undo and redo, G, T, O, N, F1 as above.
+building, free, one undo step; otherwise the next building to place), Z / Y undo and redo, G, T, M (overlays), N, F1 as above.
 **Escape** puts away the newest thing the player opened: a worker drag, then open panels (help, charts, goods), the drag in
 progress, the tool, the selection, the build bar, the overlay; only when none is left does it open the pause menu
 (`pause_menu.js` asks `controller.escape()` first). Right-click without moving does the same.
@@ -255,6 +255,10 @@ progress, the tool, the selection, the build bar, the overlay; only when none is
 - *An overlay:* `hud.addOverlay("id", { color: [r, g, b], field(state, hud) -> { values, cells } })`; the name and hint are `ui.overlay.<id>` and `ui.overlay.hint.<id>`. The Map button cycles through every registered overlay.
 - *A shortcut:* add the action to `factoria.json`, then `hud.onKey("action", fn)`.
 
+Next to the trade UI of P5: the overlays are on **M** (O is the order board); the notification stack starts below the Orders button;
+while an event card is open (it is modal) the interface keys, tooltips and the wheel wait; the top bar fitting also counts the
+reputation item.
+
 Other changes the interface made: `camera_rig.js` ignores the wheel while `rig.wheelBlocked` is true (the Hud sets it from the
 panel rectangles); the date and speed buttons moved a little so the bar has room; goods that do not fit left of the date are
 hidden from the end of the top bar (`fitTopBar` in `game_controller.js`; the goods table has them all). The simulation is only
@@ -264,6 +268,48 @@ buttons (known; the tests check 1280 x 720 at 100 %, and the top bar at 150 %).
 
 Tests: `ui_mouse.test.js` (mouse only), `ui_keys.test.js` (keyboard only), `ui_dragdrop.test.js`, `ui_layout.test.js`. Engine gaps
 found while building it are FB-0007 to FB-0018 in `ENGINE_FEEDBACK.json`.
+
+## Ships and events (P5)
+
+The trade is a plain object, `state.trade` (`scripts/game/trade.js`), driven by the game clock; `trade_ui.js` shows it. It is
+OFF unless the scene turns it on: `trade_ui` starts it in the game scene, except for `testMap` and `stress` (so the bot's
+hash and the older tests do not change). Scene props of `scenes/game.scene.json`: `scenario` (an id of `data/scenarios.json`,
+default `sandbox`) and `trade` (`true` forces it on, `false` off). **P3/P4 must pass `scenario` when they load the game scene.**
+
+**How to play it:** build a pier on a cell that touches water (`nearWater`). After a few days a ship sails in, docks and shows
+one order: goods for coins. The Orders button (top left, or key `O`) opens the board; "Fill order" takes the goods through
+`state.economy.apply` and pays. A ship whose deadline passes leaves and costs reputation; reputation unlocks bigger ships.
+Once per season an event card opens (day 3 of the season); story cards open on their own conditions. A card is modal: the
+clock waits at speed 0 and goes on at the old speed after Continue.
+
+**Data.** `data/ships.json` (schedule, reputation, ship classes with `minReputation`, `weight`, wanted goods and `premium`),
+`data/events.json` (per event: `weights` per season, `requires`, 2 or 3 `choices`; a choice is `effects`
+`{ delta, reputation, shipDelay }` or a gamble `outcomes: [{ weight, effects }]`), `data/story.json` (per scenario a list of
+cards with `when`: day, season, pier, ordersFilled, reputation, population, coins, built). The `$comment` of each file says
+every key. `project.validate_data` checks them against the goods, buildings and locale strings.
+
+**Add an event:** one entry in `data/events.json` and the strings `event.<id>.title`, `.body`, `.choice.<choiceId>`,
+`.result.<choiceId>` (or `.result.<choiceId>.<n>` per outcome) in `locales/en.json`, then `factoria call project.validate_data`.
+Every event needs a choice that costs nothing. Story cards use `story.<scenario>.<id>.*` and `story.<scenario>.name`.
+
+**Rich text** (`scripts/game/richtext.js`, drawn by `rich_view.js`): `[b]..[/b]` (drawn twice, there is no bold font),
+`[c:good|bad|gold|muted|sea|#rrggbb]..[/c]`, `[icon:wood]` (atlas frame `icon.<name>`), `[[` for a literal bracket, `\n`. A typo is
+reported with its position by `rich_text.test.js`, which parses every event, story and trade string.
+
+**Events on `state.events`:** `trade.ship.sent`, `trade.ship.docked`, `trade.order.filled`, `trade.order.missed`,
+`trade.ship.left`, `trade.reputation`, `trade.class.unlocked`, `trade.card`, `trade.choice`, `trade.card.closed`,
+`trade.story.finished`, `trade.achievement`, `trade.restored`.
+
+**Saving (for P4).** `state.trade.snapshot()` returns plain JSON (`v: 1`: scenario, enabled, startDay, reputation, ships,
+queue, the open card, history, story position, stats, unlocked achievements, and the state of its three random streams);
+`state.trade.restore(snap)` reads it back (it throws for another `v`, restarts the scenario, then overwrites everything and
+emits `trade.restored`, which makes the UI redraw). Restore after the buildings and the clock are restored. `trade.hash()` is
+a fingerprint for tests. The trade uses its own `Rng` (mulberry32, `scripts/game/rng.js`) because the state of `rng.create` cannot be read back (FB-0032).
+
+**Store.** `factoria.json` has a `platform` catalogue: achievements `first_ship`, `ten_orders`, `harbour_master`,
+`no_debt_year`, `story_first_harbour`, `story_river_mills`, `story_winter_trade`, and stats `ships_docked`, `orders_filled`,
+`orders_missed`, `events_resolved`, `coins_earned`, `stories_finished`. `achievements.js` forwards them; with no store
+(`platform.has` false or a refused call) the game plays on and the trade keeps its own `unlocked` list.
 
 ## Plug-in points
 

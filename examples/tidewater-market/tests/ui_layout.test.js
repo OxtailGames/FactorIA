@@ -5,11 +5,11 @@ import { ui } from "factoria";
 import { townScene, overlaps, cellAt, shown } from "./ui_helper.js";
 
 // hud_bar is the full-width strip; the date and the speed buttons sit on it, so it is checked through its items instead
-const BARS = ["hud_date", "speed_bar", "palette", "status_bar"];
+const BARS = ["hud_date", "speed_bar", "palette", "status_bar", "btn_orders"];
 
 /** The numbers of the top bar (coins, villagers, goods) must end before the date starts, and not run into each other. */
 function expectBarItems(state) {
-  const items = ["coins_text", "pop_text", ...state.data.goodIds.map((g) => `good_${g}_text`)].filter((id) => shown(id)); // goods that did not fit are hidden (ui_hud fitTopBar), the goods table has them
+  const items = ["coins_text", "pop_text", "rep_text", ...state.data.goodIds.map((g) => `good_${g}_text`)].filter((id) => shown(id)); // goods that did not fit are hidden (ui_hud fitTopBar), the goods table has them
   expect(items).toContain("coins_text");
   expect(items).toContain("pop_text");
   const rects = items.map((id) => ({ id, r: ui.rectOf(id) }));
@@ -41,7 +41,7 @@ function expectClear(ids) {
 }
 
 test("top bar, date, speed buttons, right column and status line do not overlap with huge numbers", () => {
-  const { state, hud, rig, ids } = townScene();
+  const { state, hud, rig, ids } = townScene({ trade: true });
   state.economy.apply(Object.fromEntries([["coins", 987000000], ...state.data.goodIds.map((g) => [g, 99999])]), "test");
   game.step(30);
   expectClear(BARS);
@@ -58,7 +58,7 @@ test("top bar, date, speed buttons, right column and status line do not overlap 
 });
 
 test("the same with the text size at 150 %", () => {
-  const { state } = townScene();
+  const { state } = townScene({ trade: true });
   state.economy.apply(Object.fromEntries([["coins", 987000000], ...state.data.goodIds.map((g) => [g, 99999])]), "test");
   const before = ui.textScale;
   ui.textScale = 1.5;
