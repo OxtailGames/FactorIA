@@ -10,7 +10,11 @@
 //   an overlay       hud.addOverlay("id", { color: [r, g, b], field(state, hud) -> { values: Float32Array, cells: number[] } })
 //                    the name and hint are the locale strings ui.overlay.<id> and ui.overlay.hint.<id>
 //   a shortcut       an action in factoria.json, then hud.onKey("action", () => ...)
+// P6: the pointer is scripts/game/pointer.js (mouse or gamepad cursor); the options of settings.live() change how the HUD looks and
+// behaves (safeColors: marks besides colours, reducedMotion: no fading, holdFree: click to carry a worker instead of dragging it).
 import { world, ui, input, i18n } from "factoria";
+import { pointer } from "./pointer.js";
+import { live } from "../settings.js";
 import { cellToWorld } from "./iso.js";
 import { COLORS as MAP_COLORS } from "./map_view.js";
 import { footprintCells } from "./rules.js";
@@ -38,6 +42,10 @@ const OVERLAY_BUDGET = 900;
 const COLUMN_WIDTHS = { name: 170, stock: 100, made: 100, used: 100, price: 90 };
 const ROW_H = 24;
 const ROWS_SHOWN = 7;
+/** The pip an overlay cell gets in the colour-blind safe mode (a white mark on any tint). */
+const PIP = [1, 1, 1, 0.9];
+/** Pixels between the bottom of the inspector and the bottom of the screen (the status line sits there). */
+const INSPECTOR_BOTTOM = 38;
 const SEV_COLORS = { warn: [0.62, 0.45, 0.12, 1], bad: [0.6, 0.2, 0.18, 1] };
 
 export class Hud {
@@ -416,6 +424,13 @@ export class Hud {
     this.refreshBar();
   }
 
+  /** The shoulder buttons: the next or the previous build category (the first press opens the build menu on the current one). */
+  stepCategory(step) {
+    if (!this.buildOpen) return this.setBuildOpen(true);
+    const ids = this.cats.map((c) => c.id);
+    this.setCategory(ids[(ids.indexOf(this.cat) + step + ids.length) % ids.length]);
+  }
+
   sortBy(column) {
     if (!GOODS_COLUMNS.includes(column)) return;
     if (this.sort.column === column) this.sort.dir = -this.sort.dir;
@@ -526,7 +541,7 @@ export class Hud {
   /** Put the camera over a cell, keeping the zoom. */
   jumpTo(cell) {
     const [x, y] = cellToWorld(cell[0], cell[1]);
-    this.rig.setView(x, y, this.rig.view.zoom);
+    this.rig.moveTo(x, y); // eased, or at once with the "reduced motion" option
   }
 
   /** Text lines for the inspector: [{ text, color }] (null = hidden) in the slots of `inspLines`. */
@@ -792,7 +807,9 @@ export class Hud {
     if (a.type) a.name = buildingName(a.type);
     if (a.good) a.goodName = i18n.t(`good.${a.good}`);
     if (a.reason) a.reasonText = i18n.t(`sim.leftReason.${a.reason}`);
-    return t(`notice.${n.key}`, a) + (n.count > 1 ? ` (x${n.count})` : "");
+    // colour-blind safe: the severity is also a mark in the text, not only the colour of the button
+    const mark = live().safeColors && (n.sev === "bad" || n.sev === "warn") ? `${t(`notice.mark.${n.sev}`)} ` : "";
+    return mark + t(`notice.${n.key}`, a) + (n.count > 1 ? ` (x${n.count})` : "");
   }
 
   refreshNotices() {
@@ -805,7 +822,7 @@ export class Hud {
       const bt = b.get("Button");
       const text = this.noticeText(n);
       if (bt.text !== text) bt.text = text;
-      const a = Notices.opacity(n);
+      const a = Notices.opacity(n, live().reducedMotion);
       const base = SEV_COLORS[n.sev] || SEV_COLORS.warn;
       bt.color = [base[0], base[1], base[2], 0.92 * a];
       bt.textColor = [1, 1, 1, a];
@@ -948,15 +965,71 @@ export class Hud {
     // the camera's wheel must not zoom the map under a panel, and the goods table scrolls with it
     this.rig.wheelBlocked = this.over(m) || this.cardOpen();
     this.updateChipDrag(m);
+    this.placeInspector();
+    this.placeCentred();
     this.tooltips.update(dt, m, !!(this.chipDrag && this.chipDrag.active) || input.down("primary") || this.cardOpen());
   }
 
+  /**
+   * Hold-free (option, or a gamepad in use): a click on a worker chip picks the worker up and the next click puts it down (on a
+   * building: it works there; anywhere else: nothing happens), instead of dragging it with the button held. `carry` marks that mode.
+   */
+  /**
+   * The inspector hangs from the bottom-right corner; when it is taller than the room under the right-hand column (large text or a
+   * large UI scale make both bigger) it stands left of the column instead of over it. Uses last frame's rectangles.
+   */
+  placeInspector() {
+    if (!this.isOpen("inspector")) return;
+    const r = ui.rectOf(this.inspRoot);
+    const c = ui.rectOf(this.column);
+    if (!r || !c) return;
+    const room = DESIGN.height - INSPECTOR_BOTTOM - (c.y + c.h) - 6;
+    const x = r.h > room ? -(c.w + 16) : -8;
+    // Over the build bar's width it stands on the bar instead of over it (the bar is wide at large text and interface sizes).
+    let y = -INSPECTOR_BOTTOM;
+    const b = this.isOpen("build") ? ui.rectOf(this.bar) : null;
+    if (b && r.x < b.x + b.w + 4) y = -(DESIGN.height - b.y + 6);
+    const pos = this.inspRoot.position;
+    if (pos.x !== x || pos.y !== y) this.inspRoot.position = [x, y, pos.z];
+  }
+
+  /**
+   * The goods table, the charts and the help are centred on the screen; when the interface size makes one wider than the room left
+   * of the right-hand column, it is moved left until it clears the column (it keeps 8 px from the screen's edge).
+   */
+  placeCentred() {
+    const c = ui.rectOf(this.column);
+    if (!c) return;
+    for (const name of ["goods", "charts", "help"]) {
+      if (!this.isOpen(name)) continue;
+      const root = this.panels.get(name).root;
+      const r = ui.rectOf(root);
+      if (!r) continue;
+      const room = c.x - 8;
+      const x = DESIGN.width / 2 + r.w / 2 <= room ? 0 : Math.max(room - r.w / 2 - DESIGN.width / 2, 8 + r.w / 2 - DESIGN.width / 2);
+      // and up, off the build menu (which is wide and tall at large sizes) when it would cover it
+      let y = 0;
+      const bar = this.isOpen("build") ? ui.rectOf(this.bar) : null;
+      if (bar) {
+        const flat = r.y + r.h - root.position.y; // the bottom edge with no offset (position y is down)
+        y = Math.min(0, bar.y - 6 - flat);
+      }
+      const pos = root.position;
+      if (Math.abs(pos.x - x) > 0.5 || Math.abs(pos.y - y) > 0.5) root.position = [x, y, pos.z];
+    }
+  }
+
   updateChipDrag(m) {
-    const hovered = ui.hovered;
+    const hovered = pointer.hovered();
+    const free = live().holdFree || pointer.pad;
     if (input.pressed("primary")) this.chipDragged = false; // a drop elsewhere than on the chip never clicks it; do not swallow the next click
+    let picked = false;
     if (input.pressed("primary") && hovered && hovered.id && hovered.id.startsWith("chip_")) {
       const vid = this.chipVillagers[Number(hovered.id.slice(5))];
-      if (vid) this.chipDrag = { villager: vid, startX: m.x, startY: m.y, active: false, over: 0 };
+      if (vid) {
+        this.chipDrag = { villager: vid, startX: m.x, startY: m.y, active: free, over: 0, carry: free };
+        picked = true;
+      }
     }
     const d = this.chipDrag;
     if (!d) return;
@@ -971,7 +1044,7 @@ export class Hud {
       this.chipText.get("Text").text = d.over && !d.verdict.ok ? t("drag.no", { reason: t(`drag.reason.${d.verdict.code}`) }) : t("drag.villager", { id: d.villager });
       this.chip.get("Panel").color = d.over && !d.verdict.ok ? [0.55, 0.2, 0.18, 0.95] : d.over ? [0.2, 0.5, 0.3, 0.95] : [0.2, 0.35, 0.55, 0.95];
     }
-    if (input.released("primary")) {
+    if (d.carry ? input.pressed("primary") && !picked : input.released("primary")) {
       if (d.active) {
         this.chipDragged = true;
         if (d.over && d.verdict && d.verdict.ok) {
@@ -992,6 +1065,11 @@ export class Hud {
     return !!(this.chipDrag && this.chipDrag.active);
   }
 
+  /** Is a worker being carried (hold-free)? The click that puts it down is not a click on the map. */
+  carrying() {
+    return !!(this.chipDrag && this.chipDrag.carry && this.chipDrag.active);
+  }
+
   // ---- keys -----------------------------------------------------------------------------------------------------------------------------------------
 
   /** An event card is modal (the trade UI): the interface keys, tooltips and the wheel wait until it is answered. */
@@ -1003,6 +1081,8 @@ export class Hud {
     const ctl = this.ctl;
     if (this.cardOpen()) return;
     if (input.pressed("build_menu")) this.toggleBuild();
+    if (input.pressed("cat_next")) this.stepCategory(1);
+    if (input.pressed("cat_prev")) this.stepCategory(-1);
     if (input.pressed("goods_table")) this.toggle("goods");
     if (input.pressed("charts")) this.toggle("charts");
     if (input.pressed("overlay")) this.cycleOverlay();
@@ -1087,13 +1167,18 @@ export class Hud {
     const [c0, r0, c1, r1] = this.visibleCells();
     let used = 0;
     const col = spec.color;
+    // colour-blind safe: the value is also a PATTERN, a white pip in the cell that grows by tier (low: dot, middle: small
+    // diamond, high: big diamond), so the overlays read in greyscale; two shapes per cell halve the cells in view
+    const pips = live().safeColors;
+    const budget = pips ? OVERLAY_BUDGET / 2 : OVERLAY_BUDGET;
     for (const i of cells) {
       const c = i % width;
       const r = (i - c) / width;
       if (c < c0 || c > c1 || r < r0 || r > r1) continue;
-      if (used++ >= OVERLAY_BUDGET) break;
+      if (used++ >= budget) break;
       const v = values[i];
       view.diamond(c, r, [col[0], col[1], col[2], 0.14 + 0.4 * v]);
+      if (pips) view.diamond(c, r, PIP, v >= 0.67, v >= 0.67 ? 0.7 : v >= 0.34 ? 0.4 : 0.18);
     }
   }
 

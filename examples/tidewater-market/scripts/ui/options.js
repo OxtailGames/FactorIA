@@ -1,14 +1,16 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
 // monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
-// (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// Audio (one slider per bus: master, music, ambience, effects, interface), Controls (rebinding every action of the game, a key
+// another action already has is refused and said; with `players` above 1, for the player you pick), Access (text size, interface size,
+// colour-blind safe signals, reduced motion, hold-free controls) and Language (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
 import * as settings from "../settings.js";
+import { setUiScale } from "../game/ui_kit.js";
 import { MenuStack } from "./menu_stack.js";
 
-const TABS = ["video", "audio", "controls", "language"];
+const TABS = ["video", "audio", "controls", "access", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
@@ -40,12 +42,14 @@ export default class Options extends Behaviour {
     this.setupVideo();
     this.setupAudio();
     this.setupControls();
+    this.setupAccess();
     this.setupLanguage();
     this.setupPrivacy();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
       this.refreshControls();
+      this.refreshAccess();
       this.refreshLanguage();
     });
   }
@@ -130,11 +134,12 @@ export default class Options extends Behaviour {
 
   // ------------------------------------------------------------------------------------------------------------ audio
   setupAudio() {
-    for (const bus of settings.BUSES) {
+    for (const bus of settings.MIX_BUSES) {
       world.find(`${bus}_volume`).get("Slider").value = this.s.volume[bus];
       ui.on("change", `${bus}_volume`, (e) => {
         this.s.volume[bus] = e.value;
-        audio.setVolume(bus, e.value);
+        // "ambience" is the game's own bus: the engine has four (master, music, sfx, ui); the soundscape reads settings.live().ambience
+        if (settings.BUSES.includes(bus)) audio.setVolume(bus, e.value);
         settings.save(this.s);
       });
     }
@@ -220,6 +225,55 @@ export default class Options extends Behaviour {
     }
   }
 
+  // ------------------------------------------------------------------------------------------------------ access
+  setupAccess() {
+    const s = this.s;
+    const next = (list, value) => list[(Math.max(0, list.indexOf(value)) + 1) % list.length];
+    ui.on("click", "text_scale", () => {
+      s.textScale = next(settings.TEXT_SCALES, s.textScale);
+      ui.textScale = s.textScale;
+      settings.save(s);
+      this.refreshAccess();
+    });
+    ui.on("click", "ui_scale", () => {
+      s.uiScale = next(settings.UI_SCALES, s.uiScale);
+      setUiScale(s.uiScale);
+      settings.save(s);
+      this.refreshAccess();
+    });
+    for (const [id, field] of [["safe_colors", "safeColors"], ["reduced_motion", "reducedMotion"], ["hold_free", "holdFree"]]) {
+      world.find(id).get("Toggle").value = !!s[field];
+      ui.on("change", id, (e) => {
+        s[field] = e.value;
+        settings.save(s); // settings.live() is what the game reads every frame
+      });
+    }
+    this.refreshAccess();
+  }
+
+  refreshAccess() {
+    const percent = (n) => Math.round(n * 100);
+    world.find("text_scale").get("Button").text = i18n.t("options.textScale", { value: percent(this.s.textScale) });
+    world.find("ui_scale").get("Button").text = i18n.t("options.uiScale", { value: percent(this.s.uiScale) });
+  }
+
+  /**
+   * Another action of the game (not a menu one, ui_*) that already uses `name`, or null. Keys the action has itself do not count.
+   * @param {string} action @param {string} name @returns {string | null}
+   */
+  conflict(action, name) {
+    for (const other of input.actions()) {
+      if (other === action || other.startsWith("ui_")) continue;
+      if (input.bindings(other).includes(name)) return other;
+    }
+    return null;
+  }
+
+  setNote(text) {
+    const note = world.find("controls_note");
+    if (note) note.get("Text").text = text;
+  }
+
   // ------------------------------------------------------------------------------------------------------- language
   setupLanguage() {
     ui.on("click", "language", () => {
@@ -289,6 +343,15 @@ export default class Options extends Behaviour {
         }
       }
     } else if (pressed !== "Escape") {
+      const clash = this.conflict(action, pressed);
+      if (clash) {
+        // Two actions on one key would fire together. Refuse, keep the old binding and say which action has the key.
+        this.setNote(i18n.t("options.conflict", { button: input.buttonName(pressed), other: this.actionLabel(clash), action: this.actionLabel(action) }));
+        this.refreshControls();
+        ui.focus(button);
+        return;
+      }
+      this.setNote("");
       // Replace the bindings of the device that was pressed and keep the other device's: rebinding the keyboard
       // does not take the gamepad's buttons away.
       const pad = (b) => b.startsWith("Gamepad");

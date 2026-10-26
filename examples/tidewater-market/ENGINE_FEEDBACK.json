@@ -502,16 +502,16 @@
       },
       "category": "tooling",
       "severity": "minor",
-      "title": "game.setAccessibility does not change ui.textScale in tests",
-      "missing": "A test of the layout at 150 % text wants to flip the player's text size as the options screen does. game.setAccessibility({textScale}) had no effect on ui.textScale in a test, so the test sets ui.textScale directly (and restores it).",
-      "workaround": "tests/ui_layout.test.js assigns ui.textScale itself.",
+      "title": "game.setAccessibility does not change ui.textScale in tests (withdrawn: documented behaviour)",
+      "missing": "Withdrawn in P6. docs/SCRIPTING.md and COMPONENTS.md say game.setAccessibility only pretends the SYSTEM settings (game.accessibility); 'The engine applies none of them'. ui.textScale is the game's own setting, so a test sets ui.textScale (or goes through the options screen). The entry was a misreading of the docs.",
+      "workaround": "Tests set ui.textScale directly, or click the text size button on the options screen (tests/options.test.js).",
       "workaroundFiles": [
         "tests/ui_layout.test.js"
       ],
-      "suggestion": "Make setAccessibility drive ui.textScale as the docs imply, or say in the docs that tests set ui.textScale.",
+      "suggestion": "None needed.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "wont-fix"
     },
     {
       "id": "FB-0016",
@@ -643,6 +643,159 @@
       ],
       "suggestion": "storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.",
       "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0040",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "Positional audio ignores the camera zoom",
+      "missing": "Ambience that follows a zoomable top-down camera needs the distance heard to depend on what is in view. audio.play with a position attenuates by world distance to the listener only, so zooming out does not bring far sounds closer.",
+      "workaround": "scripts/game/soundscape.js reads the camera view itself, counts the buildings in it and sets the volume of each bed and work sound by hand.",
+      "workaroundFiles": [
+        "scripts/game/soundscape.js",
+        "scripts/game/sfx.js"
+      ],
+      "suggestion": "A listener height or zoom factor for 2D audio (audio.setListener({position, zoom})) that scales the falloff distance.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0041",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "Only four audio buses",
+      "missing": "The game wants master, music, ambience, effects and UI volumes. The engine has four buses, so there is no ambience bus.",
+      "workaround": "Ambience is a game-level virtual bus: beds play on sfx and are multiplied by settings.live().ambience (scripts/game/soundmix.js).",
+      "workaroundFiles": [
+        "scripts/game/soundmix.js",
+        "scripts/settings.js"
+      ],
+      "suggestion": "Let a project declare extra buses in factoria.json (audio.buses) with a parent, or add an ambience bus.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0042",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No UI scale, only a text scale",
+      "missing": "The options screen needs an interface size that grows panels, buttons and spacing together. ui.textScale scales text only, so the layout breaks (overlaps, overflow) at large text and there is no way to enlarge the rest.",
+      "workaround": "ui_kit.js keeps a registry of the widgets it creates and rescales their sizes, fonts, paddings and label widths itself when the scale changes; the HUD places panels from the scaled sizes.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "A ui.scale (or a Canvas scale) that multiplies sizes, offsets and fonts of every screen-space widget, with text scale on top.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0043",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No UI hit test or virtual cursor API for gamepads",
+      "missing": "A gamepad cursor must know which widget is under a screen point, press it, and show a hover. There is no ui.widgetAt(x, y), no way to inject a pointer click on a widget, and no clip query for widgets inside a ScrollList.",
+      "workaround": "scripts/game/pointer.js scans the widgets itself with ui.rectOf, tests the clipping of ScrollLists by hand and focuses the widget under the cursor so the submit action presses it.",
+      "workaroundFiles": [
+        "scripts/game/pointer.js",
+        "scripts/ui/pad_cursor.js"
+      ],
+      "suggestion": "ui.widgetAt(x, y) returning the topmost visible, unclipped widget, and ui.setPointer(x, y) that drives hover and click like a mouse.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0044",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "autoFocus takes the focus back when a script clears it",
+      "missing": "With a virtual cursor over empty space the focus must rest on nothing. ui.focus(null) is undone by the autoFocus rule of an open panel on the next frame, which pulled the cursor back to the panel's first button.",
+      "workaround": "A 2 px invisible sink button off the screen takes the focus while the cursor is over nothing (pad_cursor.js, pointer.js).",
+      "workaroundFiles": [
+        "scripts/ui/pad_cursor.js",
+        "scripts/game/pointer.js"
+      ],
+      "suggestion": "Honour an explicit ui.focus(null) until the next navigation input, or a ui.autoFocus = false switch.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0045",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "No voice count, no end-of-voice event, setVoiceVolume not in the audio log",
+      "missing": "A voice cap for building sounds needs to know how many voices play. There is no audio.voices count and no event when a voice ends; a volume change through setVoiceVolume does not show in game.audioLog(), so tests cannot assert that a bed followed the camera.",
+      "workaround": "soundmix.js keeps its own voice list with end times from the clip lengths and sends volumes through a wrapper that tests can read.",
+      "workaroundFiles": [
+        "scripts/game/soundmix.js",
+        "tests/sound.test.js"
+      ],
+      "suggestion": "audio.activeVoices(), an onEnded callback, and setVoiceVolume entries in the audio log.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0046",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "game.press on a held action clicks the same focused widget only once",
+      "missing": "In a test, game.press(\"ui_submit\") twice on one focused widget pressed it only the first time; tapKey(\"Enter\") and gamepad.tap work. Surprising when scripting menu tests.",
+      "workaround": "Tests use pad.tap(\"A\") or game.tapKey(\"Enter\").",
+      "workaroundFiles": [
+        "tests/gamepad_game.test.js"
+      ],
+      "suggestion": "Document it, or make game.press release the action at the end of the step like tapKey.",
+      "effort": "small",
       "occurrences": 1,
       "status": "open"
     }

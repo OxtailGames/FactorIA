@@ -8,6 +8,7 @@ import { world } from "factoria";
 import { cellToWorld, footprintFront } from "./iso.js";
 import { hash01 } from "./mapgen.js";
 import { footprintCells, sizeAt } from "./rules.js";
+import { live } from "../settings.js";
 
 export const LAYER = { terrain: 0, road: 1, highlight: 3, object: 10, ghost: 12 };
 
@@ -173,8 +174,13 @@ export class MapView {
     this.poolUsed = 0;
   }
 
-  /** A diamond over a cell: filled with a colour, or an outline. */
-  diamond(c, r, color, outline = false) {
+  /**
+   * A diamond over a cell: filled with a colour, or an outline; `scale` shrinks it (a pip in the middle of the cell). With the
+   * colour-blind safe option the "cannot build here" and "will be demolished" colours get a mark of their own as well: a dot for
+   * invalid, a ring for demolish, so red and green are never the only difference.
+   */
+  diamond(c, r, color, outline = false, scale = 1) {
+
     let e = this.pool[this.poolUsed];
     if (!e) {
       e = world.spawn({
@@ -192,6 +198,10 @@ export class MapView {
     const s = e.get("Shape2D");
     s.color = color;
     s.filled = !outline;
+    s.size = [100 * scale, 50 * scale];
+    if (scale === 1 && (color === COLORS.invalid || color === COLORS.demolish) && live().safeColors) {
+      this.diamond(c, r, [1, 1, 1, 0.95], color === COLORS.demolish, color === COLORS.demolish ? 0.62 : 0.2);
+    }
     return e;
   }
 
