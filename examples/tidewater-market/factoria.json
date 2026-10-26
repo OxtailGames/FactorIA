@@ -5,53 +5,178 @@
   "version": "0.1.0",
   "engine": "0.2.0",
   "mainScene": "scenes/menu.scene.json",
-  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
-  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": false
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
   "input": {
     "actions": {
-      "primary": ["MouseLeft", "Touch", "GamepadA"],
-      "pan_drag": ["MouseRight"],
-      "pan_latch": ["MouseMiddle"],
-      "pan_left": ["A", "Left", "GamepadRightStickLeft"],
-      "pan_right": ["D", "Right", "GamepadRightStickRight"],
-      "pan_up": ["W", "Up", "GamepadRightStickUp"],
-      "pan_down": ["S", "Down", "GamepadRightStickDown"],
-      "zoom_in": ["PageUp", "GamepadRightTrigger"],
-      "zoom_out": ["PageDown", "GamepadLeftTrigger"],
-      "rotate": ["R", "GamepadY"],
-      "undo": ["Z"],
-      "redo": ["Y"],
-      "tool_cancel": ["Q", "GamepadB"],
-      "tool_demolish": ["X", "GamepadX"],
-      "tool_next": ["E"],
-      "tool_prev": ["C"],
-      "speed_pause": ["1"],
-      "speed_1": ["2"],
-      "speed_2": ["3"],
-      "speed_3": ["4"],
-      "pause_toggle": ["Space"],
-      "build_menu": ["B"],
-      "delete": ["Delete"],
-      "goods_table": ["G"],
-      "charts": ["T"],
-      "overlay": ["M"],
-      "notice_jump": ["N"],
-      "help": ["F1"],
-      "escape": ["Escape", "GamepadB"],
-      "order_board": ["O"],
-      "pause": ["Escape", "P", "GamepadStart", "GamepadB"],
-      "cursor_left": ["GamepadLeftStickLeft"],
-      "cursor_right": ["GamepadLeftStickRight"],
-      "cursor_up": ["GamepadLeftStickUp"],
-      "cursor_down": ["GamepadLeftStickDown"],
-      "cat_prev": ["GamepadLeftShoulder", "Home"],
-      "cat_next": ["GamepadRightShoulder", "End"],
-      "ui_up": ["Up", "GamepadDpadUp"],
-      "ui_down": ["Down", "GamepadDpadDown"],
-      "ui_left": ["Left", "GamepadDpadLeft"],
-      "ui_right": ["Right", "GamepadDpadRight"],
-      "ui_submit": ["Enter", "Space", "GamepadA"],
-      "ui_cancel": ["Escape", "GamepadB"]
+      "primary": [
+        "MouseLeft",
+        "Touch",
+        "GamepadA"
+      ],
+      "pan_drag": [
+        "MouseRight"
+      ],
+      "pan_latch": [
+        "MouseMiddle"
+      ],
+      "pan_left": [
+        "A",
+        "Left",
+        "GamepadRightStickLeft"
+      ],
+      "pan_right": [
+        "D",
+        "Right",
+        "GamepadRightStickRight"
+      ],
+      "pan_up": [
+        "W",
+        "Up",
+        "GamepadRightStickUp"
+      ],
+      "pan_down": [
+        "S",
+        "Down",
+        "GamepadRightStickDown"
+      ],
+      "zoom_in": [
+        "PageUp",
+        "GamepadRightTrigger"
+      ],
+      "zoom_out": [
+        "PageDown",
+        "GamepadLeftTrigger"
+      ],
+      "rotate": [
+        "R",
+        "GamepadY"
+      ],
+      "undo": [
+        "Z"
+      ],
+      "redo": [
+        "Y"
+      ],
+      "tool_cancel": [
+        "Q",
+        "GamepadB"
+      ],
+      "tool_demolish": [
+        "X",
+        "GamepadX"
+      ],
+      "tool_next": [
+        "E"
+      ],
+      "tool_prev": [
+        "C"
+      ],
+      "speed_pause": [
+        "1"
+      ],
+      "speed_1": [
+        "2"
+      ],
+      "speed_2": [
+        "3"
+      ],
+      "speed_3": [
+        "4"
+      ],
+      "pause_toggle": [
+        "Space"
+      ],
+      "build_menu": [
+        "B"
+      ],
+      "delete": [
+        "Delete"
+      ],
+      "goods_table": [
+        "G"
+      ],
+      "charts": [
+        "T"
+      ],
+      "overlay": [
+        "M"
+      ],
+      "notice_jump": [
+        "N"
+      ],
+      "help": [
+        "F1"
+      ],
+      "escape": [
+        "Escape",
+        "GamepadB"
+      ],
+      "order_board": [
+        "O"
+      ],
+      "pause": [
+        "Escape",
+        "P",
+        "GamepadStart",
+        "GamepadB"
+      ],
+      "cursor_left": [
+        "GamepadLeftStickLeft"
+      ],
+      "cursor_right": [
+        "GamepadLeftStickRight"
+      ],
+      "cursor_up": [
+        "GamepadLeftStickUp"
+      ],
+      "cursor_down": [
+        "GamepadLeftStickDown"
+      ],
+      "cat_prev": [
+        "GamepadLeftShoulder",
+        "Home"
+      ],
+      "cat_next": [
+        "GamepadRightShoulder",
+        "End"
+      ],
+      "ui_up": [
+        "Up",
+        "GamepadDpadUp"
+      ],
+      "ui_down": [
+        "Down",
+        "GamepadDpadDown"
+      ],
+      "ui_left": [
+        "Left",
+        "GamepadDpadLeft"
+      ],
+      "ui_right": [
+        "Right",
+        "GamepadDpadRight"
+      ],
+      "ui_submit": [
+        "Enter",
+        "Space",
+        "GamepadA"
+      ],
+      "ui_cancel": [
+        "Escape",
+        "GamepadB"
+      ]
     }
   },
   "platform": {
@@ -165,10 +290,23 @@
       }
     ]
   },
-  "platforms": ["web", "windows", "macos", "linux"],
+  "platforms": [
+    "web",
+    "windows",
+    "macos",
+    "linux"
+  ],
   "feedbackFile": "ENGINE_FEEDBACK.json",
   "localization": {
     "defaultLanguage": "en",
-    "languages": ["en"]
+    "languages": [
+      "en",
+      "es",
+      "fr",
+      "zh-Hans"
+    ],
+    "fallbackFonts": [
+      "assets/fonts/NotoSansSC-Regular-subset.ttf"
+    ]
   }
 }

@@ -16,16 +16,28 @@ import { footprintCells } from "./rules.js";
 
 // ---- numbers -----------------------------------------------------------------------------------------------------------------
 
-/** 0..9999 as it is, then 12.3k, 123k, 1.2M: at most 5 characters (with a sign 6). */
-export function formatCompact(n) {
+/**
+ * 0..9999 as it is, then 12.3k, 123k, 1.2M: at most 5 characters (with a sign 6). `style` lets a language change the units
+ * (`units`: [[size, suffix], ...] ascending) and the way a number is written (`number(x, decimals)`); format.js passes the
+ * player's language, the default is English.
+ * @param {number} n
+ * @param {{ units?: Array<[number, string]>, number?: (x: number, decimals: number) => string }} [style]
+ */
+export function formatCompact(n, style = {}) {
+  const units = style.units || [[1000, "k"], [1000000, "M"]];
+  const write = style.number || ((x, decimals) => String(Number(x.toFixed(decimals))));
   const sign = n < 0 ? "-" : "";
   const v = Math.abs(Math.round(n));
-  if (v < 10000) return sign + String(v);
-  const trim = (x, digits) => x.toFixed(digits).replace(/\.0+$/, "");
-  if (v < 100000) return `${sign}${trim(v / 1000, 1)}k`;
-  if (v < 1000000) return `${sign}${Math.round(v / 1000)}k`;
-  if (v < 100000000) return `${sign}${trim(v / 1000000, 1)}M`;
-  return `${sign}${Math.round(v / 1000000)}M`;
+  if (v < 10000 || v < units[0][0]) return sign + write(v, 0);
+  let i = units.length - 1;
+  while (i > 0 && v < units[i][0]) i--;
+  let scaled = v / units[i][0];
+  // 999,999 is "1M", not "1000k": rounding can carry into the next unit
+  while (i + 1 < units.length && Number(scaled.toFixed(scaled < 100 ? 1 : 0)) >= units[i + 1][0] / units[i][0]) {
+    scaled /= units[i + 1][0] / units[i][0];
+    i++;
+  }
+  return sign + write(scaled, scaled < 100 ? 1 : 0) + units[i][1];
 }
 
 // ---- the build menu ------------------------------------------------------------------------------------------------------------

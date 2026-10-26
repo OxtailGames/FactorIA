@@ -4,14 +4,14 @@
     "name": "Options",
     "components": {
       "Panel": {
-        "size": [760, 680],
+        "size": [760, 704],
         "anchor": [0.5, 0.5],
         "layer": 300,
         "layout": "column",
         "direction": "auto",
         "align": "start",
         "spacing": 16,
-        "padding": [24, 24, 24, 24]
+        "padding": [24, 14, 24, 14]
       },
       "Script": {
         "path": "scripts/ui/options.js",
@@ -33,7 +33,8 @@
             "key": "options.title",
             "fontSize": 40,
             "space": "screen",
-            "layer": 301
+            "layer": 301,
+            "maxTextScale": 1.25
           }
         }
       },
@@ -54,12 +55,15 @@
             "id": "tab_video",
             "components": {
               "Button": {
-                "autoSize": true,
+                "autoSize": false,
                 "text": "Video",
                 "key": "options.tab.video",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302,
-                "autoFocus": true
+                "autoFocus": true,
+                "maxTextScale": 1.3,
+                "autoShrink": true,
+                "minFontSize": 10
               }
             }
           },
@@ -67,11 +71,14 @@
             "id": "tab_audio",
             "components": {
               "Button": {
-                "autoSize": true,
+                "autoSize": false,
                 "text": "Audio",
                 "key": "options.tab.audio",
-                "size": [160, 48],
-                "layer": 302
+                "size": [136, 48],
+                "layer": 302,
+                "maxTextScale": 1.3,
+                "autoShrink": true,
+                "minFontSize": 10
               }
             }
           },
@@ -79,11 +86,14 @@
             "id": "tab_controls",
             "components": {
               "Button": {
-                "autoSize": true,
+                "autoSize": false,
                 "text": "Controls",
                 "key": "options.tab.controls",
-                "size": [160, 48],
-                "layer": 302
+                "size": [136, 48],
+                "layer": 302,
+                "maxTextScale": 1.3,
+                "autoShrink": true,
+                "minFontSize": 10
               }
             }
           },
@@ -91,11 +101,14 @@
             "id": "tab_access",
             "components": {
               "Button": {
-                "autoSize": true,
+                "autoSize": false,
                 "text": "Access",
                 "key": "options.tab.access",
-                "size": [160, 48],
-                "layer": 302
+                "size": [136, 48],
+                "layer": 302,
+                "maxTextScale": 1.3,
+                "autoShrink": true,
+                "minFontSize": 10
               }
             }
           },
@@ -103,11 +116,14 @@
             "id": "tab_language",
             "components": {
               "Button": {
-                "autoSize": true,
+                "autoSize": false,
                 "text": "Language",
                 "key": "options.tab.language",
-                "size": [160, 48],
-                "layer": 302
+                "size": [136, 48],
+                "layer": 302,
+                "maxTextScale": 1.3,
+                "autoShrink": true,
+                "minFontSize": 10
               }
             }
           }
@@ -117,7 +133,7 @@
         "id": "video_section",
         "components": {
           "Panel": {
-            "size": [712, 400],
+            "size": [712, 430],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -135,7 +151,8 @@
                 "text": "Window mode",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -147,7 +164,8 @@
                 "text": "Monitor",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -159,7 +177,8 @@
                 "text": "Window size",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -171,7 +190,9 @@
                 "label": "VSync",
                 "key": "options.vsync",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5,
+                "maxWidth": 440
               }
             }
           },
@@ -183,7 +204,8 @@
                 "text": "Frame cap",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -195,7 +217,8 @@
                 "text": "Color filter",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -210,7 +233,8 @@
                 "space": "screen",
                 "align": "start",
                 "maxWidth": 560,
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           }
@@ -220,11 +244,11 @@
         "id": "audio_section",
         "components": {
           "Panel": {
-            "size": [712, 340],
+            "size": [712, 450],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
-            "spacing": 12
+            "spacing": 6
           }
         },
         "children": [
@@ -236,7 +260,8 @@
                 "label": "Master",
                 "key": "options.volume.master",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -248,7 +273,8 @@
                 "label": "Music",
                 "key": "options.volume.music",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -260,7 +286,8 @@
                 "label": "Ambience",
                 "key": "options.volume.ambience",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -272,7 +299,8 @@
                 "label": "Effects",
                 "key": "options.volume.effects",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -284,7 +312,8 @@
                 "label": "Interface",
                 "key": "options.volume.interface",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -296,7 +325,9 @@
                 "label": "Read menus aloud",
                 "key": "options.readAloud",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5,
+                "maxWidth": 440
               }
             }
           },
@@ -309,7 +340,9 @@
                 "key": "options.subtitles",
                 "value": true,
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5,
+                "maxWidth": 440
               }
             }
           }
@@ -349,7 +382,8 @@
                 "key": "options.resetControls",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -362,7 +396,8 @@
                 "space": "screen",
                 "layer": 302,
                 "maxWidth": 640,
-                "color": [1, 0.55, 0.45, 1]
+                "color": [1, 0.55, 0.45, 1],
+                "maxTextScale": 1.5
               }
             }
           }
@@ -372,11 +407,11 @@
         "id": "access_section",
         "components": {
           "Panel": {
-            "size": [712, 340],
+            "size": [712, 450],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
-            "spacing": 12
+            "spacing": 6
           }
         },
         "children": [
@@ -388,7 +423,8 @@
                 "text": "Text size",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -400,7 +436,8 @@
                 "text": "Interface size",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "maxTextScale": 1.5
               }
             }
           },
@@ -413,7 +450,9 @@
                 "key": "options.safeColors",
                 "value": false,
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5,
+                "maxWidth": 440
               }
             }
           },
@@ -426,7 +465,9 @@
                 "key": "options.reducedMotion",
                 "value": false,
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5,
+                "maxWidth": 440
               }
             }
           },
@@ -439,7 +480,9 @@
                 "key": "options.holdFree",
                 "value": false,
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5,
+                "maxWidth": 440
               }
             }
           },
@@ -449,10 +492,11 @@
               "Text": {
                 "text": "Each change applies at once and is saved.",
                 "key": "options.accessNote",
-                "fontSize": 18,
+                "fontSize": 16,
                 "space": "screen",
                 "layer": 302,
-                "maxWidth": 640
+                "maxWidth": 640,
+                "maxTextScale": 1.25
               }
             }
           }
@@ -477,7 +521,8 @@
                 "autoSize": true,
                 "text": "Language: English",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "maxTextScale": 1.5
               }
             }
           }
@@ -492,7 +537,9 @@
             "label": "Share anonymous usage data",
             "key": "options.analytics",
             "size": [560, 44],
-            "layer": 302
+            "layer": 302,
+            "maxTextScale": 1.5,
+            "maxWidth": 440
           }
         }
       },
@@ -506,7 +553,8 @@
             "key": "options.privacyOptions",
             "size": [560, 44],
             "layer": 302,
-            "fontSize": 22
+            "fontSize": 22,
+            "maxTextScale": 1.5
           }
         }
       },
@@ -518,7 +566,8 @@
             "autoSize": true,
             "text": "Back",
             "key": "menu.back",
-            "layer": 302
+            "layer": 302,
+            "maxTextScale": 1.5
           }
         }
       }

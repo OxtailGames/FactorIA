@@ -178,7 +178,7 @@ export default class Options extends Behaviour {
     // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
     this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
     for (const action of this.actions) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302, autoShrink: true, minFontSize: 8, maxTextScale: 1.5 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };

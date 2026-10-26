@@ -798,6 +798,138 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0060",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "ui.overflowed flags a short autoSize + maxWidth Toggle or Button",
+      "missing": "A Toggle with autoSize and maxWidth is reported overflowed (ui.overflowed, ui.check_layout) even when its label is one short word like \"VSync\": the measured label width is maxWidth itself, so the widget counts as too wide unless maxWidth plus the box and margins (the box grows with the text size) is at most the design size. The documented 'wraps at maxWidth' does not say that the wrapped width is always the full maxWidth.",
+      "workaround": "Toggles in the options screen use maxWidth 440 in a 560 px design size, which leaves room for the box and margins at the 1.5 text cap; found by trial at 200% text.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "tests/languages_layout.test.js"
+      ],
+      "suggestion": "Measure the wrapped label by its widest line, or document that maxWidth + box + margins must fit the design size.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0061",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "No grammatical gender, case or agreement in the string tables",
+      "missing": "Spanish and French need the adjective and the article to agree with a data-driven noun (a ship called \"Ligera\" with \"Esquife\"; \"el/la/los/las {name}\"). A string table has plurals and number formats but nothing for gender, so a sentence built from a name taken from another table can be ungrammatical.",
+      "workaround": "Names are chosen so that no agreement is needed (ship names are nouns: Brisa, Brise), and sentences are phrased around the noun (\"Edificio: {name}\" style) instead of using articles. Anything else has to be written as a whole sentence per name.",
+      "workaroundFiles": [
+        "locales/es.json",
+        "locales/fr.json"
+      ],
+      "suggestion": "Let a string carry a gender tag (\"name.gender\": \"f\") and select forms with it, like plural entries do with count; or document the recommended phrasing for languages with gender.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0062",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "No command that builds a CJK font subset from the locale strings",
+      "missing": "Chinese needs a CJK font. The CJK fonts are 10-17 MB; shipping one whole is not reasonable for a small game, and the engine has the glyph check (factoria validate) but nothing that makes a smaller font to pass it.",
+      "workaround": "assets/fonts/make_subset.py (fontTools: pins the variable font to wght 400, keeps the characters of locales/*.json plus punctuation and Latin) builds a 340 KB Noto Sans SC subset; factoria validate is the check that fails on a missing glyph. fontTools is needed only to run the script, not by the game.",
+      "workaroundFiles": [
+        "assets/fonts/make_subset.py",
+        "assets/fonts/NotoSansSC-Regular-subset.ttf"
+      ],
+      "suggestion": "A command like assets.subset_font {source, locales} that does the same, so a game needs no Python.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0063",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "ui.state and i18n.state are not reachable from scripts and tests",
+      "missing": "A test cannot ask the engine for the overflow, overlap and off-screen problems of what is open, nor for the languages' missing keys: both are commands (ui.state, ui.check_layout, i18n.state), and a test script only has ui.rectOf, ui.overflowed and the i18n API.",
+      "workaround": "tests/layout_helper.js walks world.entities(), takes the rectangle of each text and label with ui.rectOf, asks ui.overflowed and finds overlaps itself; the key parity test imports the locale JSON files and compares them.",
+      "workaroundFiles": [
+        "tests/layout_helper.js",
+        "tests/languages.test.js"
+      ],
+      "suggestion": "Expose ui.check_layout() (the problems of the current frame) and i18n.state to scripts, or let a test call any command.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0064",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A Toggle's box and its autoSize do not follow maxTextScale",
+      "missing": "At 200% text a Toggle with a long label grows far beyond its design size (one of 1877 px in Spanish) and leaves the screen: autoSize makes room for the full label and a Toggle has no autoShrink while it grows. A Panel with a fixed size cannot hold it.",
+      "workaround": "The three toggles of the Access tab have short labels; the explanation moved to the note under them, which wraps. Options panels have fixed sizes that were enlarged for the 1.5 cap.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Let a Toggle with maxWidth wrap by default when its label is longer, or make autoSize honour a maximum width.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0065",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Script-built rich text and absolute layouts need their own text-size cap",
+      "missing": "Text.maxTextScale caps one Text, but the order board and the cards lay their text out with positions computed in a script (layoutRich): the lines, the icons and the buttons under them do not follow ui.textScale by themselves, so at 200% a card's title overlapped its first line and the row heights were wrong. RichView also used 1x line heights and icon sizes at any text size.",
+      "workaround": "RichView now caps the scale it uses (RICH_CAP 1.25), scales the line height and icons with it, and the card and board rebuild when ui.textScale or the language changes (an onUpdate check, since there is no event for the text size).",
+      "workaroundFiles": [
+        "scripts/game/rich_view.js",
+        "scripts/game/trade_ui.js"
+      ],
+      "suggestion": "An event when ui.textScale changes (ui.on(\"textScale\")), and layout containers that stack Texts of different heights without a script.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

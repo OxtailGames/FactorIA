@@ -29,7 +29,7 @@ test("a scenario game shows its goals under the top bar, with progress", () => {
   expect(game.find("goal_title").get("Text").text).toBe("Goals");
   expect(game.find("goal_row_folk").get("Text").text).toBe("Have 25 villagers: 0 / 25");
   expect(game.find("goal_row_fishers").get("Text").text).toBe("Make 120 fish in one season: 0 / 120");
-  expect(game.find("goal_row_savings").get("Text").text).toBe("Save 1000 coins: 1000 / 1000");
+  expect(game.find("goal_row_savings").get("Text").text).toBe("Save 1,000 coins: 1,000 / 1,000");
   expect(ctl.run.tracker.goals).toHaveLength(3);
   game.screenshot(".factoria/tmp/goal_panel.png");
 });

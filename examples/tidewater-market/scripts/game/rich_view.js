@@ -5,13 +5,19 @@
 import { world, ui } from "factoria";
 import { parseMarkup, layoutRich, colorOf } from "./richtext.js";
 
-/** The pixel width of a string at a font size; the engine measures (approximately when headless), cached by size and string. */
+/**
+ * How far the text size option (ui.textScale) grows the text of a RichView: a card or the order board is a fixed sheet of
+ * paper, so its text stops at 125 %, like Text.maxTextScale on any other heading. A line height and an icon follow the same scale.
+ */
+export const RICH_CAP = 1.25;
+
+/** The pixel width of a string at a font size and the text size now; the engine measures, cached by size, scale and string. */
 const widthCache = new Map();
-export function measureWidth(text, fontSize) {
-  const key = `${fontSize}|${text}`;
+export function measureWidth(text, fontSize, cap = RICH_CAP) {
+  const key = `${fontSize}|${cap}|${ui.textScale}|${text}`;
   let w = widthCache.get(key);
   if (w === undefined) {
-    w = text === "" ? 0 : ui.measureText(text, { fontSize, space: "screen" }).width;
+    w = text === "" ? 0 : ui.measureText(text, { fontSize, space: "screen", maxTextScale: cap }).width;
     if (widthCache.size > 4000) widthCache.clear();
     widthCache.set(key, w);
   }
@@ -19,11 +25,13 @@ export function measureWidth(text, fontSize) {
 }
 
 export class RichView {
-  /** @param {{ atlas: any, layer: number, parent?: any }} opts */
+  /** @param {{ atlas: any, layer: number, parent?: any, maxTextScale?: number }} opts */
   constructor(opts) {
     this.atlas = opts.atlas;
     this.layer = opts.layer;
     this.parent = opts.parent || null;
+    /** The text size option stops growing this block at this scale. */
+    this.cap = opts.maxTextScale || RICH_CAP;
     /** @type {any[]} */ this.texts = [];
     /** @type {any[]} */ this.icons = [];
     /** The last markup + box, so an unchanged block costs nothing. */
@@ -38,11 +46,17 @@ export class RichView {
    */
   set(markup, box) {
     const fontSize = box.fontSize || 20;
-    const key = `${markup}|${box.x}|${box.y}|${box.maxWidth}|${fontSize}|${box.lineHeight || 0}`;
+    const k = Math.min(ui.textScale, this.cap); // what the Text entities are drawn at: line height and icons follow it
+    const key = `${markup}|${box.x}|${box.y}|${box.maxWidth}|${fontSize}|${box.lineHeight || 0}|${k}`;
     if (key === this.key) return this.last;
     this.key = key;
     const { tokens } = parseMarkup(markup);
-    const laid = layoutRich(tokens, { maxWidth: box.maxWidth, fontSize, measure: (s) => measureWidth(s, fontSize), lineHeight: box.lineHeight });
+    const laid = layoutRich(tokens, {
+      maxWidth: box.maxWidth,
+      fontSize: fontSize * k,
+      measure: (s) => measureWidth(s, fontSize, this.cap),
+      lineHeight: box.lineHeight ? box.lineHeight * k : undefined,
+    });
     let nt = 0;
     let ni = 0;
     for (const it of laid.items) {
@@ -54,6 +68,7 @@ export class RichView {
           const t = e.get("Text");
           if (t.text !== it.text) t.text = it.text;
           t.fontSize = fontSize;
+          t.maxTextScale = this.cap;
           t.color = colorOf(it.color) || [1, 1, 1, 1];
           e.position = [box.x + it.x + p, box.y + it.y, 0];
           e.active = true;
