@@ -4,7 +4,7 @@
 //
 // One frame (the runtime calls update() right before scripts.update):
 //   layout -> focus rules (lost focus, autoFocus) -> keys / pad (navigation, submit, cancel, text) -> pointer
-//   (hover, press, drag, wheel) -> the runtime flags of the widgets (focused / hovered / pressed / caret).
+//   (hover, press, drag, wheel; the pointer is the mouse or set_pointer()) -> the runtime flags of the widgets (focused / hovered / pressed / caret).
 // Events go into world.events().game with the widget as source and `{id, ...}` as data: ui.click, ui.change {value},
 // ui.submit {value}, ui.focus, ui.cancel {id|null}. Scripts get them through world.on / Behaviour.onEvent / ui.on.
 //
@@ -35,6 +35,14 @@ Json ui_with_default_actions(const Json& actions);
 // Where `e` is on the screen, in design pixels (x, y = top-left, +Y down, the safe area included): a widget's rectangle, else
 // the box around its screen-space Text / Sprite / Shape2D (text sized through `measure`). nullopt for any other entity.
 std::optional<Rect> ui_screen_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {});
+
+// The topmost visible widget at the screen point `p` (design pixels), or kNullEntity: every active entity with a UiBox
+// counts, the interactable controls (Button, Toggle, Slider, TextField, also the ones with interactable false) and the
+// ones that only hold things (Panel, ScrollList, a TouchStick / TouchButton that is shown, Video). Left out: what a
+// ScrollList clips away at `p`, a Panel with a fully transparent colour and no texture (it draws nothing), a Captions
+// line, an inactive entity and a box with no area. Topmost is the highest `layer`, and among equal layers the entity made
+// last, as for the hover. Reads the rectangles the last layout wrote.
+Entity ui_widget_at(const World& world, Vec2 designSize, Vec2 p);
 
 // A TextField the player focused or left with a gamepad, for the platform's own keyboard (the runtime hands it to a native
 // plugin: fa_plugin.h, FaTextInput). `rect` is in design pixels; the runtime converts it to window pixels.
@@ -77,8 +85,26 @@ public:
     // waiting for it: the text is dropped.
     bool submit_text(World& world, const std::string& text);
 
+    // A virtual pointer for a gamepad cursor and for tests: from the next update() on, the UI takes the pointer's place
+    // and left button from here instead of from the mouse, so hover, press, drag of a Slider, click and the wheel's
+    // target work as with the mouse (a click is a `down` that goes true and then false). The real mouse is ignored until
+    // clear_pointer(). A scene load clears it.
+    void set_pointer(Vec2 position, bool down) {
+        pointerOn_ = true;
+        pointerPos_ = position;
+        pointerDown_ = down;
+    }
+    void clear_pointer() { pointerOn_ = false; }
+    bool has_pointer() const { return pointerOn_; }
+    // True when the pointer (the mouse, or the virtual one) is over ui_widget_at() something at the last update().
+    bool pointer_over_ui() const { return pointerOverUi_; }
+    // True when the wheel of the last update() scrolled a ScrollList under the pointer: Input::mouse_wheel() reads 0 for
+    // the rest of that frame, so scripts and the game do not also zoom or scroll with it.
+    bool wheel_consumed() const { return wheelConsumed_; }
+
     Entity focused() const { return focus_; }
-    // Gives focus to `e` (kNullEntity clears it) and emits ui.focus. Returns false, and changes nothing, when `e` cannot
+    // Gives focus to `e` (kNullEntity clears it, and the focus then stays empty: an open Panel's autoFocus does not take
+    // it back until the next ui_up / ui_down / ui_left / ui_right press) and emits ui.focus. Returns false, and changes nothing, when `e` cannot
     // take focus: not alive, not a Button / Toggle / Slider / TextField, inactive or not interactable.
     bool set_focus(World& world, Entity e);
     Entity hovered() const { return hover_; }
@@ -113,6 +139,9 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
+    bool focusCleared_ = false;   // set_focus(null) was called: autoFocus waits for a navigation press
+    bool pointerOn_ = false, pointerDown_ = false, pointerPrevDown_ = false, pointerOverUi_ = false, wheelConsumed_ = false;
+    Vec2 pointerPos_{};
     TextInputHandler textInput_;
     Clipboard* clipboard_ = nullptr;
     Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)

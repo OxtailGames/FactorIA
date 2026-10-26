@@ -664,7 +664,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 
 Since 0.1.6.
 
-Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), and focusing a widget inside scrolls just enough to show it.
+Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -3213,6 +3213,9 @@ declare module "factoria" {
      */
     readonly world: Vec3;
     readonly delta: Vec2;
+    /**
+     * Wheel notches turned this frame (positive = away from the player). It reads 0 on a frame where the wheel scrolled a ScrollList under the pointer (ui.wheelConsumed is true then): the UI runs before scripts and keeps that wheel for itself.
+     */
     readonly wheel: number;
     down(button?: "left" | "right" | "middle"): boolean;
     pressed(button?: "left" | "right" | "middle"): boolean;
@@ -4563,7 +4566,7 @@ declare module "factoria" {
      */
     on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void): () => void;
     /**
-     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
+     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
      * @since 0.1.6
      */
     focus(target: Entity | string | null): void;
@@ -4592,6 +4595,31 @@ declare module "factoria" {
      * @since 0.2.0
      */
     readonly speechAvailable: boolean;
+    /**
+     * The topmost visible widget at a screen point, in design pixels with y down (like ui.rectOf): a Button, Toggle, Slider, TextField, ScrollList, Panel that draws something (a fully transparent Panel with no texture is skipped), or a TouchStick / TouchButton that is shown. Topmost is the highest `layer`, then the entity made last. It is null over empty space, over an inactive widget and where a ScrollList clips the widget away (a row scrolled out of view). It includes widgets with interactable false, so check Button.interactable for a click target. Reads the last layout: call it after game.step or ui.layout(). Use it for a gamepad cursor and for "is the pointer over the UI" questions. Example: const w = ui.widgetAt(640, 360); if (w && w.has("Button")) console.log(w.id);
+     * @since unreleased
+     */
+    widgetAt(x: number, y: number): Entity | null;
+    /**
+     * A virtual pointer for a gamepad cursor and for tests: from the next UI update (the next frame) the UI takes the pointer position and left button from here instead of from the mouse, so ui.hovered, press, a Slider drag, click and the wheel's target work as with the mouse. A click is `down: true` for a frame, then `down: false` while the pointer is still over the same widget. The real mouse is ignored until setPointer(null). Do not also bind the same button to ui_submit while a widget is focused: both would click. A scene load gives the pointer back to the mouse. x, y in design pixels, y down.
+     * @since unreleased
+     */
+    setPointer(x: number, y: number, opts?: { down?: boolean }): void;
+    /**
+     * Gives the pointer back to the real mouse after a setPointer(x, y).
+     * @since unreleased
+     */
+    setPointer(none: null): void;
+    /**
+     * True when the pointer (the mouse, or the virtual one of setPointer) was over a visible widget or Panel at this frame's UI update (the UI runs before scripts, so it is current): the widgetAt(pointer) check. A game's own world click or camera zoom skips when it is true. A Panel that draws nothing (alpha 0, no texture) does not count.
+     * @since unreleased
+     */
+    readonly pointerOverUi: boolean;
+    /**
+     * True when the mouse wheel of this frame scrolled a ScrollList under the pointer, which has more content than it shows. input.mouse.wheel then reads 0 for the rest of the frame, so a camera that zooms with the wheel needs no check; a list that fits its content leaves the wheel alone. The UI runs before scripts, so the value is current in onUpdate.
+     * @since unreleased
+     */
+    readonly wheelConsumed: boolean;
     /**
      * The widget that has keyboard / gamepad focus, or null.
      * @since 0.1.6
@@ -8482,7 +8510,7 @@ declare module "factoria" {
     readonly caret: boolean;
   }
   /**
-   * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), and focusing a widget inside scrolls just enough to show it.
+   * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.
    * 
    * Category: UI
    * @since 0.1.6

@@ -225,6 +225,8 @@ public:
     Vec2 mouse_position() const { return mouse_; }
     Vec2 mouse_delta() const { return mouseDelta_; }
     float mouse_wheel() const { return wheel_; }
+    // The UI used this frame's wheel (it scrolled a ScrollList): mouse_wheel() reads 0 from now on, until the next frame.
+    void consume_mouse_wheel() { wheel_ = 0.0f; }
     const std::vector<Touch>& touches() const { return touches_; }
     const std::u32string& text_input() const { return text_; }  // typed characters this frame
     std::string text_utf8() const;  // the same, as UTF-8

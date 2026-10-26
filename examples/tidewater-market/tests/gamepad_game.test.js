@@ -149,3 +149,22 @@ function answerCards(pad, state) {
   }
   expect(state.trade.card).toBe(null);
 }
+
+test("the cursor over nothing leaves the focus empty, over a button it hovers and focuses it", () => {
+  game.platform.reset();
+  game.load(GAME, { testMap: true, trade: true, scenario: "sandbox", music: false, speed: 0 });
+  game.step(3);
+  const pad = game.gamepad(0);
+  pad.axis("LeftX", 0.6);
+  game.step(2);
+  pad.axis("LeftX", 0);
+  game.step(2);
+  expect(pointer.pad).toBe(true);
+  cursorTo(pad, centreOf("btn_build"), "btn_build");
+  expect(ui.hovered && ui.hovered.id).toBe("btn_build");
+  expect(ui.focused && ui.focused.id).toBe("btn_build");
+  cursorTo(pad, { x: 640, y: 300 }, "the map");
+  game.step(10);
+  expect(ui.widgetAt(640, 300)).toBe(null);
+  expect(ui.focused).toBe(null);
+});
