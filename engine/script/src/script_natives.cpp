@@ -2341,8 +2341,6 @@ struct NavHandle {
     std::shared_ptr<NavCostGrid> grid;
     std::shared_ptr<NavFlowField> field;
 };
-JSClassID g_navHandleClass = 0;
-
 void nav_handle_finalizer(JSRuntime*, JSValue val) { delete static_cast<NavHandle*>(JS_GetOpaque(val, g_navHandleClass)); }
 
 NavHandle* nav_handle(JSContext* ctx, JSValueConst v, bool wantField, JSValue* exc) {
@@ -3286,21 +3284,12 @@ const Reg kRegs[] = {
 }  // namespace
 
 void Impl::install_natives(JSValue N) {
-    {
-        JSRuntime* rt = JS_GetRuntime(ctx);
-        // Class ids come from a per-runtime counter but are stored in globals, so two classes allocated in different
-        // runtimes can collide (the debugger's frame class takes the first id of a fresh runtime). Skip that first id.
-        if (g_navHandleClass == 0) {
-            JSClassID skipped = 0;
-            JS_NewClassID(rt, &skipped);
-        }
-        JS_NewClassID(rt, &g_navHandleClass);
-        if (!JS_IsRegisteredClass(rt, g_navHandleClass)) {
-            JSClassDef def{};
-            def.class_name = "FaNavHandle";
-            def.finalizer = nav_handle_finalizer;
-            JS_NewClass(rt, g_navHandleClass, &def);
-        }
+    JSRuntime* rt = JS_GetRuntime(ctx);
+    if (!JS_IsRegisteredClass(rt, g_navHandleClass)) {
+        JSClassDef def{};
+        def.class_name = "FaNavHandle";
+        def.finalizer = nav_handle_finalizer;
+        JS_NewClass(rt, g_navHandleClass, &def);
     }
     for (const Reg& r : kRegs) JS_SetPropertyStr(ctx, N, r.name, JS_NewCFunction(ctx, r.fn, r.name, r.argc));
 }
