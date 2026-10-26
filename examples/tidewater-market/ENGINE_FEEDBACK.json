@@ -2,5 +2,122 @@
   "format": "factoria.feedback/1",
   "project": "Tidewater Market",
   "engineVersion": "0.2.0",
-  "entries": []
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "No isometric tilemap or picking helpers",
+      "missing": "Tilemap is orthogonal only, so a 40x40 isometric map is one Sprite entity per cell and per object (2655 entities with trees) and the cell-under-the-mouse maths (iso cell <-> world, diamond hit test) has to be written by hand and checked against camera.screenToWorld. The docs do not say how sprites of one layer are ordered (it is lower y on top, then creation order); I found it by experiment, and it is what makes depth sorting work.",
+      "workaround": "scripts/game/iso.js (cell <-> world, rounding in the iso axes), scripts/game/map_view.js (one entity per cell and object, same layer so lower y draws on top, one atlas so the whole map is about 20 draw calls), tests/camera_picking.test.js checks the picking at zooms 0.4 to 2.5 against camera.screenToWorld.",
+      "workaroundFiles": [
+        "scripts/game/iso.js",
+        "scripts/game/map_view.js",
+        "scripts/game/camera_math.js",
+        "tests/camera_picking.test.js"
+      ],
+      "suggestion": "An optional Tilemap projection 'isometric' (tile 100x50) with cellAt(worldPoint) and cellToWorld(c, r), drawn as one batched mesh instead of one entity per cell; document the sprite draw order inside a layer in the sprites section.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No strategy camera helper (edge pan, wheel zoom to cursor, bounds)",
+      "missing": "A mouse-driven management game needs drag pan, edge pan, wheel zoom towards the cursor and a clamp to the map. There is no helper or documented recipe; the follow camera of the guide does not cover it, and Camera.orthoSize has to be derived from the design height by hand.",
+      "workaround": "scripts/game/camera_math.js (pure: zoomAt, clampView, screenToWorld) and scripts/game/camera_rig.js (the behaviour), both tested.",
+      "workaroundFiles": [
+        "scripts/game/camera_math.js",
+        "scripts/game/camera_rig.js",
+        "tests/camera_picking.test.js"
+      ],
+      "suggestion": "A documented recipe or a built-in CameraRig behaviour with panSpeed, edgePan, zoomMin/zoomMax, bounds from entity.bounds().",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "No undo/redo or data-table validation helpers for game state",
+      "missing": "Undo/redo and drag-to-build are game features with no engine support or recipe: transactions, an undo limit, refusing an undo that no longer fits. Likewise a data table (data/*.json) imported by scripts is only checked by the game's own code, so a typo in a cross-reference (a recipe naming a good that does not exist) has no file/pointer/did-you-mean error unless the game writes it.",
+      "workaround": "scripts/game/state.js (transactions with exact deltas, undo and redo refuse and emit action.rejected), scripts/game/data.js (validateTables with file, JSON pointer, hint and didYouMean) and the project tool project.validate_data.",
+      "workaroundFiles": [
+        "scripts/game/state.js",
+        "scripts/game/data.js",
+        "tools/validate_data.js",
+        "tests/data_tables.test.js"
+      ],
+      "suggestion": "Document a recipe for validating data tables in a project tool (file, pointer, hint, did-you-mean), and offer a did-you-mean helper to scripts so each game does not write its own; optionally a small history helper.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No node to run pure JS modules outside factoria test",
+      "missing": "Game logic written as pure modules (no engine imports) cannot be run on its own: node is not part of the toolchain, and factoria test is the only runner, which starts the engine for every file. A quick check of a generator took a full test run.",
+      "workaround": "Everything pure is tested through factoria test (tests/map_generation.test.js, rules.test.js) and previewed through the project tool project.map_preview.",
+      "workaroundFiles": [
+        "tools/map_preview.js",
+        "tests/map_generation.test.js"
+      ],
+      "suggestion": "factoria eval <file.js> or script.eval on a module path that runs a pure module headless without loading a scene, or documenting that factoria test FILE --filter is the quick way.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Menu kit loading screen writes an English string over a localised Text",
+      "missing": "templates/menus/scripts/loading.js sets the Text to the hard-coded string `Loading... N%` every frame, while its scene gives that Text a key (loading.text). The progress line is therefore English in every language, and the key is only used until the first frame. The kit's own locale string cannot carry the percentage.",
+      "workaround": "scripts/loading.js builds the line with i18n.t('loading.progress', {percent}) (locales/en.json) and the Text in the scene has no key.",
+      "workaroundFiles": [
+        "scripts/loading.js",
+        "scenes/loading.scene.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Ship the kit's loading.js with i18n.t and a 'loading.progress' string with a {percent} placeholder, and a Text without key.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
 }

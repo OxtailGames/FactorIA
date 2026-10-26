@@ -1,0 +1,16 @@
+{
+  "$comment": "Starting state and global rules of the economy. refund = share of the cost handed back when a building or road is demolished (rounded down per item). calendar: the clock (scripts/game/clock.js) turns days into a date; secondsPerDay is what P2 uses to drive it.",
+  "format": "tidewater.economy/1",
+  "start": {
+    "coins": 1000,
+    "stock": { "wood": 60, "stone": 20, "planks": 10, "grain": 0, "fish": 0, "bread": 0, "tools": 0 }
+  },
+  "refund": 0.5,
+  "undoLimit": 100,
+  "calendar": {
+    "seasons": ["spring", "summer", "autumn", "winter"],
+    "daysPerSeason": 10,
+    "secondsPerDay": 6,
+    "startYear": 1
+  }
+}
