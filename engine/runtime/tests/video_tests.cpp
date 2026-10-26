@@ -140,8 +140,14 @@ TEST_CASE("run_headless: --record-video writes an AVI with every frame, the rend
     o.frames = 5;
     o.renderScale = 1.5;
     o.videoOutPath = (p.dir / "out" / "run.avi").generic_string();
+    std::vector<std::pair<int, int>> progress;
+    o.videoProgress = [&](int written, int total) { progress.push_back({written, total}); };
     Json report;
     REQUIRE_MESSAGE(run_headless(c, o, &report) == 0, report.dump());
+    REQUIRE(progress.size() == 5);  // one call per frame written, against the 5 asked for
+    CHECK(progress.front() == std::make_pair(1, 5));
+    CHECK(progress.back() == std::make_pair(5, 5));
+    o.videoProgress = nullptr;
     CHECK(report["videoFrames"] == 5);
     CHECK(report["videoAudio"] == true);
     AviInfo a = parse_avi(p.dir / "out" / "run.avi");

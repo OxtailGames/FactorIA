@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <map>
@@ -81,7 +82,7 @@ std::vector<std::string> title_tokens(std::string_view title) {
 
 struct SetStats {
     double jaccard = 0, overlap = 0;
-    size_t minSize = 0;
+    size_t minSize = 0, shared = 0;
 };
 
 SetStats set_stats(const std::vector<std::string>& a, const std::vector<std::string>& b) {
@@ -90,6 +91,7 @@ SetStats set_stats(const std::vector<std::string>& a, const std::vector<std::str
     if (sa.empty() || sb.empty()) return st;
     size_t inter = 0;
     for (const auto& t : sa) inter += sb.count(t);
+    st.shared = inter;
     st.jaccard = double(inter) / double(sa.size() + sb.size() - inter);
     st.minSize = std::min(sa.size(), sb.size());
     st.overlap = double(inter) / double(st.minSize);
@@ -114,8 +116,8 @@ double feedback_title_similarity(std::string_view a, std::string_view b) {
     for (const auto& t : tb) jb += t + " ";
     size_t maxLen = std::max(ja.size(), jb.size());
     double edit = 1.0 - double(edit_distance(ja, jb)) / double(maxLen);
-    // A short title fully contained in a longer one (>= 3 shared significant tokens) is the same gap, slightly damped.
-    double contained = st.minSize >= 3 ? 0.85 * st.overlap : 0.0;
+    // A short title fully contained in a longer one (>= 4 shared significant tokens: three shared words such as "icon text button" are common to different gaps) is the same gap, slightly damped.
+    double contained = st.shared >= 4 ? 0.85 * st.overlap : 0.0;
     return std::max({st.jaccard, edit, contained});
 }
 
@@ -126,8 +128,30 @@ double feedback_entry_similarity(const Json& a, const Json& b) {
     else if (!ca.empty() && category_family(ca) == category_family(cb)) score += 0.05;
     auto sa = title_tokens(a.value("suggestion", "")), sb = title_tokens(b.value("suggestion", ""));
     if (sa.size() >= 3 && sb.size() >= 3) score += 0.10 * set_stats(sa, sb).jaccard;
+    // What the report says is missing weighs in a little: two titles that share a few words but describe different
+    // things differ here.
+    auto ma = title_tokens(a.value("missing", "")), mb = title_tokens(b.value("missing", ""));
+    if (ma.size() >= 3 && mb.size() >= 3) score += 0.10 * set_stats(ma, mb).jaccard;
     return std::min(1.0, score);
 }
+
+namespace {
+
+// Whether `listed` (an entry's distinctFrom) names the other entry: by id for an entry of the same project, or as
+// "<project>/<id>" for one of another project.
+bool lists_distinct(const Json& listed, const std::string& otherProject, const std::string& otherId,
+                    const std::string& ownProject) {
+    if (!listed.is_object() || !listed.contains("distinctFrom") || !listed["distinctFrom"].is_array()) return false;
+    for (const auto& d : listed["distinctFrom"]) {
+        if (!d.is_string()) continue;
+        const std::string v = d.get<std::string>();
+        if (v == otherProject + "/" + otherId) return true;
+        if (v == otherId && otherProject == ownProject) return true;
+    }
+    return false;
+}
+
+}  // namespace
 
 // ------------------------------------------------------------- documents ----
 Json create_empty_feedback(std::string_view projectName, std::string_view engineVersion) {
@@ -331,6 +355,7 @@ namespace {
 struct Item {
     std::string project;
     Json entry;
+    double joinedScore = 1.0;  // similarity to the entry that pulled it into the group (1 for the first)
 };
 struct Cluster {
     std::string category;
@@ -405,7 +430,14 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             (void)title;
             Cluster* target = nullptr;
             double best = 0;
+            const std::string eid = e.value("id", "");
             for (auto& c : clusters) {
+                // An entry never joins a group that holds one it (or that one) lists in distinctFrom.
+                bool apart = false;
+                for (const auto& it : c.items)
+                    if (lists_distinct(e, it.project, it.entry.value("id", ""), project) ||
+                        lists_distinct(it.entry, project, eid, it.project)) { apart = true; break; }
+                if (apart) continue;
                 for (const auto& it : c.items) {
                     double s = feedback_entry_similarity(it.entry, e);
                     if (s >= opts.similarity && s > best) { best = s; target = &c; }
@@ -415,7 +447,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                 clusters.push_back({cat, {}});
                 target = &clusters.back();
             }
-            target->items.push_back({project, e});
+            target->items.push_back({project, e, target->items.empty() ? 1.0 : best});
         }
     }
 
@@ -450,7 +482,8 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             if (feedback_severity_weight(s) > maxW) { maxW = feedback_severity_weight(s); sev = s; }
             projs.insert(it.project);
             entryRefs.push_back(Json::object({{"project", it.project}, {"id", it.entry.value("id", "")},
-                                              {"severity", s}, {"status", status_of(it.entry)}, {"occurrences", o}}));
+                                              {"severity", s}, {"status", status_of(it.entry)}, {"occurrences", o},
+                                              {"similarity", std::round(it.joinedScore * 100.0) / 100.0}}));
             if (o > repOcc) { repOcc = o; rep = &it; }
             std::string sug = it.entry.value("suggestion", "");
             if (sug.size() > bestSuggestion.size()) bestSuggestion = sug;
@@ -515,6 +548,18 @@ std::string FeedbackReport::markdown() const {
             first = false;
         }
         o << "\n";
+        if (c["entries"].size() > 1) {
+            o << "- **Merged (similarity to the group):** ";
+            first = true;
+            for (const auto& e : c["entries"]) {
+                char buf[16];
+                std::snprintf(buf, sizeof buf, "%.2f", e.value("similarity", 1.0));
+                o << (first ? "" : ", ") << e["project"].get<std::string>() << "/" << e["id"].get<std::string>()
+                  << " " << buf;
+                first = false;
+            }
+            o << "\n";
+        }
         if (!c["bestSuggestion"].get<std::string>().empty())
             o << "- **Suggestion:** " << c["bestSuggestion"].get<std::string>() << "\n";
         if (!c["sampleWorkarounds"].empty()) {
