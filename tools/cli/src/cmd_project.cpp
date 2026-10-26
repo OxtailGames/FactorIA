@@ -223,6 +223,7 @@ Command make_export_command() {
                 << (r->mode.empty() ? "" : ", mode: " + r->mode) << (r->format.empty() ? "" : ", format: " + r->format) << ")\n";
         if (!r->artifact.empty()) ctx.out << "Built " << r->artifact << "\n";
         if (!r->materials.empty()) ctx.out << "Compiled the shaders of " << r->materials.size() << " material(s): " << fa::join(r->materials, ", ") << "\n";
+        for (const std::string& line : r->size_lines()) ctx.out << line << "\n";
         for (const auto& w : r->warnings) ctx.out << "warning: " << w << "\n";
         if (!r->nextSteps.empty()) ctx.out << "Next steps:\n";
         for (std::size_t i = 0; i < r->nextSteps.size(); ++i) ctx.out << "  " << (i + 1) << ". " << r->nextSteps[i] << "\n";

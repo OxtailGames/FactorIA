@@ -14,11 +14,11 @@
 //                     <out>/<slug>-android/<slug>[-debug].apk or .aab (ExportReport::artifact)
 //   ios             : <out>/<slug>-ios/{game/..., build_ios.sh, ...}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
-//   web             : <out>/<slug>-web/{index.html, factoria_player.js, factoria_player.wasm, game.pak, FACTORIA_NOTICES.txt} and,
+//   web             : <out>/<slug>-web/{index.html, favicon.png (from the icon), factoria_player.js, factoria_player.wasm, game.pak, FACTORIA_NOTICES.txt} and,
 //                     next to that folder, <out>/<slug>-web.zip with the same files and index.html at its root (what itch.io
 //                     takes as an HTML5 game; ExportReport::artifact, format "zip"). The game is always ONE game.pak (like a
 //                     desktop `release`), the page is platforms/web/shell.html (embedded in factoria) with {{title}},
-//                     {{wasmBytes}} and {{pakBytes}} filled in. The player is two Emscripten files found by --player, then
+//                     {{wasmBytes}}, {{pakBytes}} and {{favicon}} filled in. The player is two Emscripten files found by --player, then
 //                     <factoria dir>/web, then `factoria setup players --platforms web`, then a web build of the source;
 //                     ExportReport::mode says which ("explicit", "package", "installed" or "build").
 // Android and iOS have two modes (ExportReport::mode); docs/EXPORTING.md has the rule that picks one:
@@ -46,6 +46,7 @@
 // LICENSE, a data file of any kind: shipped, because a game may load them. Everything else the project holds is shipped.
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -108,6 +109,14 @@ struct ExportOptions {
                                 // programs are run (nullptr = this machine); only tests change it
 };
 
+// One row of the size report of an export (ExportReport::largestFolders, ExportReport::webFiles).
+struct ExportSize {
+    std::string name;                // a project folder ("assets/audio", "(top level)") or a file of the web export
+    std::uint64_t files = 0;         // folders: how many files; web files: 1
+    std::uint64_t bytes = 0;         // as shipped (after the asset steps)
+    std::uint64_t gzipBytes = 0;     // web files: about what a host that gzips sends; folders: 0
+};
+
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); web: where the player came from;
@@ -127,8 +136,15 @@ struct ExportReport {
                                            // shaders <material>.json.<slang>.shader for the platform's dialects
     std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the native plugins whose build for this platform was missing, so the
                                            // export does not hold them (a warning names each); empty otherwise
+    std::vector<ExportSize> largestFolders;  // the folders (at most two levels deep) that weigh most in what ships, biggest first (at most 5)
+    std::vector<ExportSize> webFiles;      // web export: every file of the zip with its raw and about-gzip size, biggest first; else empty
+    std::uint64_t webBytes = 0;            // web export: their total, raw
+    std::uint64_t webGzipBytes = 0;        // web export: their total, about gzip (the deflate size of the zip plus the 18 bytes of a gzip frame)
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems
+    // The size report as text lines (what `factoria export` prints): the largest folders and, for the web, the files and the download
+    // time of the gzip total at 1, 5, 20 and 100 Mbit/s. Empty when there is nothing to say.
+    std::vector<std::string> size_lines() const;
     Json to_json() const;
 };
 
