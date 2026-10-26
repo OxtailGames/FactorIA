@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Burrow Brigade drops the workarounds M29 made unnecessary
+
+- Burrow Brigade gives every torch, crystal and magma source its own Light2D (no pool of 16), writes fog and shift tiles with
+  `tilemap.setTile`, copies and pastes through the system clipboard, keys its daily dig and board by the UTC day with
+  `{day}`, and detects a Steam Deck with `game.device.steamDeck`. Its feedback entries are closed with what it kept and why.
+  Its perf baselines count the real lights (entities 144, lights 20, `maxLights` 24).
+
 The exported player checks a build
 
 - `factoria_player` (the exported game) takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` together

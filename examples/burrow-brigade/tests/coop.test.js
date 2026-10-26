@@ -462,7 +462,7 @@ describe("the camera", () => {
     expect(three.views.length).toBe(3);
   });
 
-  test("with the tether off, miners can part and the shift reports a split view; the fog and 16-light cap still hold", () => {
+  test("with the tether off, miners can part and the shift reports a split view; the fog still holds", () => {
     views.config.tether = false;
     try {
       const shift = playRows(WIDE, { players: 2, stratum: 1 });
@@ -470,7 +470,6 @@ describe("the camera", () => {
       game.step(90);
       expect(views.current.mode).toBe("split");
       expect(views.current.views.length).toBe(2);
-      expect(shift.lights.pool.length).toBeLessThanOrEqual(16);
     } finally {
       views.config.tether = true;
     }

@@ -84,20 +84,15 @@ describe("boards", () => {
     expect((await boards.top("best_run_cash")).map((r) => r.score)).toEqual([150]);
   });
 
-  test("a try that crossed midnight (its key a day before today) still posts; two days off: skipped and said so", async () => {
+  test("a try that crossed midnight UTC posts to the day it began on, not to today's board", async () => {
     run.mode = "daily";
-    run.dailyKey = "2026-10-24";
+    run.dailyKey = "2026-10-24"; // the clock says 2026-10-25 now
     shift({ banked: 90 });
     await boards.idle();
-    expect(submitted("daily_run_cash")).toEqual([90]);
-    startRun({ seed: 13 });
-    run.mode = "daily";
-    run.dailyKey = "2026-10-23";
-    shift({ banked: 70 });
-    await boards.idle();
-    expect(submitted("daily_run_cash")).toEqual([90]);
-    expect(boards.status().lastPost.daily).toEqual({ skipped: "otherDay" });
-    expect(submitted("best_run_cash")).toEqual([90, 70]);
+    expect((await boards.top("daily_run_cash")).map((r) => r.score)).toEqual([]); // today's board is still empty
+    expect(boards.status().lastPost.daily.best).toBe(90);
+    game.setDate("2026-10-24");
+    expect((await boards.top("daily_run_cash")).map((r) => r.score)).toEqual([90]);
   });
 
   test("a daily run without a valid dailyKey posts to the all-time board only", async () => {

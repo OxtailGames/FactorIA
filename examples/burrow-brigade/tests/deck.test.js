@@ -10,12 +10,15 @@ import { freshOnline, serveEvents, posts, shift } from "./helpers/online.js";
 describe("deck", () => {
   freshOnline();
 
-  test("isDeck is true only for a connected Steam Deck pad", () => {
-    game.gamepad(0).setType("xbox");
-    expect(deck.isDeck()).toBe(false);
+  test("isDeck follows game.device.steamDeck, not the type of the pad", () => {
+    game.setDevice({});
     game.gamepad(0).setType("steamdeck");
-    expect(deck.isDeck()).toBe(true);
+    expect(deck.isDeck()).toBe(false);
     game.gamepad(0).setType("xbox");
+    game.setDevice({ steamDeck: true });
+    expect(deck.isDeck()).toBe(true);
+    game.setDevice({});
+    expect(deck.isDeck()).toBe(false);
   });
 
   test("fit: 1280x800 keeps scale 1 with bars of 40 above and below; 1280x720 has none", () => {
@@ -25,10 +28,12 @@ describe("deck", () => {
   });
 
   test("the on-screen keyboard text: pad and Deck", () => {
+    game.setDevice({ steamDeck: true });
     game.gamepad(0).setType("steamdeck");
     const h = text_entry.hint();
     expect(h.key === "textEntry.deck" || h.kind === "keyboard" || h.kind === "touch").toBe(true);
     game.gamepad(0).setType("xbox");
+    game.setDevice({});
   });
 
   test("suspend pauses and sends nothing without consent; resume sends the presence again", async () => {
@@ -87,6 +92,22 @@ describe("text_entry.bind", () => {
     game.step(2);
     expect(field.get("TextField").text).toBe("ABXYZ7");
     expect(seen).toBe("ABXYZ7");
+    off();
+  });
+
+  test("Enter in the field calls onSubmit with the clean code", () => {
+    game.load("scenes/menu.scene.json");
+    game.step(3);
+    world.spawn({ id: "submit_field", components: { TextField: { text: "", placeholder: "Code", size: [300, 44] } } });
+    let sent = "";
+    const off = text_entry.bind("submit_field", { maxLength: 6, onSubmit: (c) => (sent = c) });
+    ui.focus("submit_field");
+    game.step(1);
+    game.typeText("ab-0o1xyz789");
+    game.step(1);
+    game.tapKey("Enter");
+    game.step(1);
+    expect(sent).toBe("ABXYZ7");
     off();
   });
 });
