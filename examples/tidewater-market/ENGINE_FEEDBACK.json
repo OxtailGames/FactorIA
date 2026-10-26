@@ -852,7 +852,11 @@
       "suggestion": "Let setup players fetch the latest release or CI artifact for a development build, and document the emcc setup next to the web export.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "engineIssue": "M31.11 (the web player and a fallback to the newest release only)",
+      "notes": [
+        "2026-10-26: M31.11: `factoria setup webplayer` builds the web player from the checkout (fetching Emscripten 6.0.10 when none is found) and `setup players` takes the newest release's players for a development build, with a fingerprint warning. Still open: Windows and Linux players from CI artifacts."
+      ]
     },
     {
       "id": "FB-0052",

@@ -236,7 +236,7 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 | `linux --format appimage` ([AppImage](#linux-appimage)) | `factoria setup appimage` (about 16 MB; Linux x86_64 only, so WSL on Windows) | in WSL, after setup | after setup (x86_64) | no |
 | `macos` `.app` | the macOS player, same sources. The ad hoc `codesign` runs only on a Mac; elsewhere the app is not signed | after setup | after setup | yes |
 | `macos` signed and notarized ([Signing and notarizing](#signing-and-notarizing-for-macos)) | `codesign`, `xcrun notarytool` and `stapler` (Xcode command-line tools), a Developer ID Application certificate (Apple Developer Program) and a notary profile. Notarization uploads to Apple | no | no | online (notarization) |
-| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
+| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB) or, on a development build ahead of the last release, `factoria setup webplayer` (builds it from the checkout), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
 | `android --format gradle` ([Android](#android)) | no JDK, no SDK. The project holds the Android libraries (prebuilt mode) or is generated from an engine checkout (source mode) | after setup (`players --platforms mobile`) or with a checkout: yes | same | same |
 | `android` apk / aab, **prebuilt** ([modes](#mobile-exports-prebuilt-or-source)) | a JDK 17+ (17 and 21 are tested; `factoria setup android` installs Temurin 21) and the Android SDK with `platforms;android-36` and `build-tools;35.0.0` (same command, about 500 MB, accepts the SDK license); the Android libraries as above. No NDK, no CMake. The first build downloads Gradle 8.14.3 and the Android Gradle plugin | after setup, then after one online build | same | same |
 | `android` apk / aab, **from source** | the same JDK and SDK, an engine checkout (`--engine-root` or `FACTORIA_ENGINE_DIR`), and NDK r27+ (`ndk;27.2.12479018`) and a CMake 3.24+: 3.31.6 in the SDK, else any other 3.24+ in the SDK, else one on this computer (the export points Gradle at it with `cmake.dir`). `factoria setup android` does not install the NDK or the CMake: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`. Compiles the engine for two ABIs (minutes) | after setup, then after one online build | same | same |
@@ -245,8 +245,10 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 | `ios` app (`build_ios.sh`) | a Mac with Xcode (from the App Store; `factoria setup xcode` checks it) and CMake 3.24+ (`factoria setup cmake` installs 3.31.6, about 75 MB); a device build also needs an Apple Team ID | no | no | yes |
 
 Uploading the result is a separate step: [Uploading to stores](#uploading-to-stores). What each `factoria setup` component
-installs, and where: [Setting up this computer](#setting-up-this-computer). A source build ahead of the last release cannot
-run `factoria setup players` (error `no_release`): build the player on that OS and pass `--player`.
+installs, and where: [Setting up this computer](#setting-up-this-computer). A source build ahead of the last release has no
+players of its own: `factoria setup players` takes the newest release's and says that their build fingerprint will not match
+(an export then needs `--allow-player-mismatch`); the web player can be built from the checkout with `factoria setup webplayer`
+([A development build](#a-development-build-players-from-the-checkout)). For the other OSes build the player on that OS and pass `--player`.
 
 ## Setting up this computer
 
@@ -260,6 +262,7 @@ factoria setup android                             # JDK 21 + Android SDK; shows
 factoria setup android --accept-licenses           # you have read the license and accept it (scripts)
 factoria setup players                             # the players of the other desktop OSes + the Android/iOS libraries, for this version
 factoria setup players --platforms windows,linux   # only these (windows, linux, macos, mobile, web)
+factoria setup webplayer                           # a development build: builds the web player from the engine checkout (Emscripten, preset web-release)
 factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
@@ -272,6 +275,7 @@ factoria setup ffmpeg                              # ffmpeg, so --record-video t
 | `android` | Eclipse Temurin JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmanager`), `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the Android SDK license | about 500 MB (0.9 GB on disk) | `--platform android` (APK/AAB through Gradle) |
 | `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (the Android and iOS libraries, from the macOS package, on any OS), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
 | `players` with `--platforms web` | `web/` (`factoria_player.js` + `factoria_player.wasm`), from the download of this machine's own OS. Every download has `web/` next to `factoria`, so this is only for a factoria without it | about 15-33 MB | `--platform web` ([Web](#web)) |
+| `webplayer` | the web player built from the engine checkout this factoria was built from (`cmake --preset web-release`), into `build/web-release/player/`, with the Emscripten SDK it finds or the pinned 6.0.10 fetched into the checkout's `.cache/emsdk`. `unsupported` for a factoria without its checkout (a download) | about 1 GB for Emscripten when none is found, then several minutes of build | `--platform web` of a development build ([A development build](#a-development-build-players-from-the-checkout)) |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
 | `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA. The factoria downloads carry the same file next to `factoria`, so this is for a factoria built from source, or when that copy is gone | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
@@ -287,6 +291,7 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
   android/user/         what Google's tools keep for themselves ($ANDROID_USER_HOME): about 4 MB (sdkmanager's package-list cache) with the pinned tools, about 250 MB if the fallback below applies
   players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/, web/ (only when asked for)
   tools/cmake/          CMake (CMake.app on macOS)
+  (the checkout)        build/web-release/player/ and .cache/emsdk/: what `setup webplayer` builds and fetches, inside the engine checkout, not here
   tools/appimage/       appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64 (Linux x86_64 only)
   tools/sokol-shdc/     <commit>/sokol-shdc[.exe] (folders of older commits are removed by the next install)
   export.json           machine settings: learns where the JDK and the SDK are (below)
@@ -536,12 +541,32 @@ bytes, so it checks the player of another OS too, and the web player (`factoria_
 from a checkout has no prebuilt player to check. A player from another
 build stops the export with an error that names both builds: it may lack the components or the script API the game uses, or
 fail to start. Fix it by building both from one checkout, or with `factoria setup players` when this `factoria` is the
-release those players belong to (for the web: `cmake --build --preset web-release`, or `factoria setup players --platforms web`;
+release those players belong to (for the web: `factoria setup webplayer`, or `factoria setup players --platforms web` on a release;
 for Android and iOS: `factoria setup players`, `--mobile-dir`, or `--engine-root` to compile the engine from a checkout).
 To bundle that player anyway, pass `--allow-player-mismatch` (the `export` command's
 `allowPlayerMismatch` argument): the export goes on and `warnings` says which builds differ. A `factoria` or a player built
 outside a git checkout carries `unknown` and is not compared. The same commit with `-dirty` on one side only is a warning,
 not an error; the fingerprint does not see which edits a `-dirty` build had, so rebuild both after editing the engine.
+
+#### A development build: players from the checkout
+
+A `factoria` built from a commit after the last release (its version has no release on GitHub) has no players to download:
+the players of any release carry another fingerprint. What each player needs:
+
+- **Web.** `factoria setup webplayer` builds it from the checkout `factoria` was built from: it looks for an Emscripten SDK
+  (`$EMSDK`, an `emcc` on `PATH`, the checkout's `.cache/emsdk`, `~/emsdk`), fetches the pinned one (Emscripten 6.0.10, the
+  version CI uses; about 1 GB, it needs Python 3.10+ and network access) into the checkout's `.cache/emsdk` when there is none,
+  and runs the `web-release` preset (CMake 3.24+ and Ninja on `PATH`) through a shell that loads the SDK's own environment. The
+  player lands in `build/web-release/player/`, which the web export prefers over an installed one, so the next
+  `factoria export --platform web` finds it with no flag. A first build takes several minutes; an up-to-date player is not built
+  again (`--force` does). Build `factoria` from the same commit: the fingerprint of an uncommitted checkout ends in `-dirty`
+  and the setup says when the two differ. By hand, the same is `source emsdk_env.sh; cmake --preset web-release; cmake --build
+  --preset web-release` ([BUILDING.md](BUILDING.md), "Web").
+- **Windows, Linux, macOS, Android and iOS.** `factoria setup players` does not fail: when `v<version>` has no release it takes
+  the players of the newest release, installs them under this version's folder and warns that their fingerprint will not
+  match this `factoria`. They run the game when the release is close enough, but an export that uses them stops on the
+  mismatch until you pass `--allow-player-mismatch` (`allowPlayerMismatch`). Only when even the newest release cannot be read
+  does it fail (`no_release`); then build the player on that OS (BUILDING.md) and pass `--player`.
 
 **A player with no fingerprint** is one from a release older than the check (v0.2.0 and earlier). `factoria setup players`
 installs the players of *this factoria's version*, so on a newer `factoria` built from source it would put the same old
@@ -969,6 +994,21 @@ limits the export checks and warns about: at most 1000 files, 500 MB unpacked, 2
 `factoria publish` does not push the web export yet; upload the zip by hand or run
 `butler push build/export/my-game-web.zip <user>/<game>:html5`.
 
+**Setting up Emscripten.** Only building the player yourself needs it (a download of FactorIA carries `web/`). The SDK is
+pinned to **6.0.10**, the version CI and the releases use (newer ones are likely fine, untested):
+
+```bash
+git clone https://github.com/emscripten-core/emsdk && cd emsdk
+./emsdk install 6.0.10 && ./emsdk activate 6.0.10     # emsdk.bat on Windows; needs Python 3.10+ (EMSDK_PYTHON names one)
+source ./emsdk_env.sh                                  # emsdk_env.bat on Windows: sets EMSDK and puts emcc on PATH
+cd <the engine checkout>
+cmake --preset web-release && cmake --build --preset web-release   # build/web-release/player/factoria_player.{js,wasm}
+```
+
+`factoria setup webplayer` does all of it, fetching the SDK into the checkout's `.cache/emsdk` when it finds none
+([A development build](#a-development-build-players-from-the-checkout)). It also needs CMake 3.24+ and Ninja. On a Mac the
+system Python is too old for `emsdk`: `brew install python@3.13` and `export EMSDK_PYTHON=$(brew --prefix python@3.13)/bin/python3.13`.
+
 **Where the player comes from.** The export looks, in this order, for a folder holding both `factoria_player.js` and
 `factoria_player.wasm`:
 
@@ -983,7 +1023,7 @@ Without `--player` the export looks at 2, then the checkout's build (4), then 3,
 fingerprint is this factoria's: a fresh `build/web-release` wins over an installed player of an older release. When none
 matches it takes the first one it found and stops on the mismatch, as for every player (see "The player must come from the
 same build as `factoria`" under Desktop; `--player` is checked too). The error names both builds and says to build the web
-player in the checkout (`cmake --build --preset web-release`), to run `factoria setup players --platforms web`, or to pass
+player in the checkout (`factoria setup webplayer`), to run `factoria setup players --platforms web` (a release), or to pass
 `--allow-player-mismatch`. If a player that lacks something still reaches the browser, the script error names the module and
 the missing export and says the player may be older than the game's engine.
 

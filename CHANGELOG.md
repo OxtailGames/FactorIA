@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Players for a development build
+
+- `factoria setup webplayer` (and `setup.install {component: "webplayer"}`) builds the web player from the engine checkout
+  `factoria` was built from: it uses an Emscripten SDK it finds (`$EMSDK`, `emcc` on `PATH`, the checkout's `.cache/emsdk`,
+  `~/emsdk`) or fetches the pinned 6.0.10 into `.cache/emsdk`, runs the `web-release` preset and leaves the player in
+  `build/web-release/player`, which `factoria export --platform web` prefers. An up-to-date player is not built again.
+- `factoria setup players` on a development build whose version has no release no longer stops: it takes the players of the
+  newest release, installs them under this version's folder and warns that their build fingerprint will not match, so an
+  export that uses them needs `allowPlayerMismatch` (`--allow-player-mismatch`).
+- docs/EXPORTING.md: the Emscripten setup under Web and "A development build: players from the checkout".
+
 The export's size report, and the web page's icon
 
 - Every export names the five folders that weigh most in what ships (`largestFolders` in `--json`) and warns when a `store/`,

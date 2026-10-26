@@ -80,6 +80,9 @@ void start_game() {
 }  // namespace
 
 int main() {
+    // Keeps the fingerprint marker in the wasm: `factoria setup webplayer` and the web export read it to see that this
+    // player and factoria come from the same commit.
+    fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     if (!fa::fs::exists(kWebPack)) {
         return web_error(std::string("error: ") + kWebPack + " is missing: the page must write the game pack there before "
                          "the player starts.\nhint: use the index.html that `factoria export --platform web` writes, next to "
