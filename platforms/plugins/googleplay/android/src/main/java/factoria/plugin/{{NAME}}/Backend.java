@@ -148,6 +148,7 @@ public final class Backend {
                 case "cloud.load": Games.load(r); break;
                 case "cloud.list": Games.list(r); break;
                 case "cloud.remove": Games.remove(r); break;
+                case "cloud.stat": Games.stat(r); break;
                 case "purchases.products": purchases.products(r); break;
                 case "purchases.buy": purchases.buy(r); break;
                 case "purchases.finish": purchases.finish(r); break;

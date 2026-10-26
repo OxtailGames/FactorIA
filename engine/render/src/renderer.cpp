@@ -17,6 +17,7 @@
 #include "render_internal.h"
 
 #include "shaders/blit.glsl.h"
+#include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
 #include "shaders/sky.glsl.h"
@@ -32,7 +33,7 @@ Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
                 {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
                 {"triangles", triangles}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
-                {"lights2d", lights2d}, {"lights2dDropped", lights2dDropped},
+                {"lights2d", lights2d}, {"lights2dDropped", lights2dDropped}, {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials}, {"materialFallbacks", materialFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
@@ -110,8 +111,23 @@ struct Renderer::Impl {
     RenderStats stats;
     CameraInfo lastCam;
     bool warnedNoLight = false;
-    bool warnedLights2d = false;      // the "more than 16 Light2D in view" warning, once per scene
-    std::string lights2dScene;        // the scene path warnedLights2d belongs to
+    bool warnedLights2d = false;      // the "more Light2D in view than the budget" warning, once per scene
+    bool warnedShadows2d = false;     // the "more shadow casters than the budget" warning, once per scene
+    std::string lights2dScene;        // the scene path warnedLights2d and warnedShadows2d belong to
+    // The 2D light buffer (light.glsl): the point lights of the frame added up, read by the lit visuals. Made when a frame
+    // needs it, at lightScale of the target's size; kept while the size and the format stay.
+    sg_image lightImg{};
+    sg_view lightAtt{}, lightTexView{};
+    int lightW = 0, lightH = 0;
+    sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
+    bool lightTargetFailed = false;
+    // The shadow rows of the lights with castShadows (light2d.cpp) as an image: the last two are kept (the older one may
+    // still be in use by a frame being recorded), and the image of the last frame is reused while its rows stay the same.
+    ShadowCache shadowCache;
+    sg_image shadowRowsImg[2]{};
+    sg_view shadowRowsView[2]{};
+    std::uint64_t shadowRowsKey[2]{};
+    int shadowRowsCurrent = 0;
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
@@ -122,6 +138,9 @@ struct Renderer::Impl {
     sg_image final_image() const { return filterActive ? filterImg : (gpu.sample_count() > 1 ? resolveImg : colorImg); }
     sg_view final_view() const { return filterActive ? filterTex : texView; }
     void create_shadow_targets();
+    bool ensure_light_target(float scale);
+    sg_view upload_shadow_rows(const Frame& fr);
+    void destroy_light_resources();
     CameraInfo build_camera(World& world);
     void render(World& world, float dt);
 };
@@ -231,6 +250,13 @@ void Renderer::Impl::create_targets(int w, int h) {
 
 void Renderer::Impl::destroy_targets() {
     bloom.release();
+    for (sg_view* v : {&lightAtt, &lightTexView}) {
+        if (v->id) sg_destroy_view(*v);
+        *v = {};
+    }
+    if (lightImg.id) sg_destroy_image(lightImg);
+    lightImg = {};
+    lightW = lightH = 0;
     filterActive = false;
     for (sg_view* v : {&filterAtt, &filterTex}) {
         if (v->id) sg_destroy_view(*v);
@@ -245,6 +271,90 @@ void Renderer::Impl::destroy_targets() {
     for (sg_image* i : {&colorImg, &resolveImg, &depthImg}) {
         if (i->id) sg_destroy_image(*i);
         *i = {};
+    }
+}
+
+// Makes (or keeps) the light buffer: `scale` times the size of the game target, in the format the GPU draws lights in.
+// False (and one logged error) when it cannot be created: lit visuals then use the per-pixel path.
+bool Renderer::Impl::ensure_light_target(float scale) {
+    if (lightTargetFailed) return false;
+    const int w = std::max(1, int(std::lround(double(physW) * double(scale))));
+    const int h = std::max(1, int(std::lround(double(physH) * double(scale))));
+    const sg_pixel_format fmt = gpu.light_format();
+    if (lightImg.id && lightW == w && lightH == h && lightImgFormat == fmt) return true;
+    for (sg_view* v : {&lightAtt, &lightTexView}) {
+        if (v->id) sg_destroy_view(*v);
+        *v = {};
+    }
+    if (lightImg.id) sg_destroy_image(lightImg);
+    lightImg = {};
+    sg_image_desc d{};
+    d.usage.color_attachment = true;
+    d.width = w;
+    d.height = h;
+    d.pixel_format = fmt;
+    d.sample_count = 1;
+    d.label = "light-buffer";
+    lightImg = make_image(d);
+    sg_view_desc av{};
+    av.color_attachment.image = lightImg;
+    av.label = "light-buffer-att";
+    lightAtt = sg_make_view(&av);
+    sg_view_desc tv{};
+    tv.texture.image = lightImg;
+    tv.label = "light-buffer-tex";
+    lightTexView = sg_make_view(&tv);
+    if (sg_query_image_state(lightImg) != SG_RESOURCESTATE_VALID || sg_query_view_state(lightAtt) != SG_RESOURCESTATE_VALID ||
+        sg_query_view_state(lightTexView) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render", "Cannot create the {}x{} 2D light buffer; lit visuals are shaded per pixel by the first {} lights only",
+                 w, h, kDirectLights2D);
+        for (sg_view* v : {&lightAtt, &lightTexView}) {
+            if (v->id) sg_destroy_view(*v);
+            *v = {};
+        }
+        if (lightImg.id) sg_destroy_image(lightImg);
+        lightImg = {};
+        lightTargetFailed = true;
+        return false;
+    }
+    lightW = w;
+    lightH = h;
+    lightImgFormat = fmt;
+    return true;
+}
+
+// The image of the frame's shadow rows (Frame::shadowData); an empty view when no light casts a shadow. Immutable: a new
+// image is made only when the rows changed (a light moved, a tile was edited), so a still scene uploads nothing.
+sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
+    if (fr.shadowRows <= 0) return sg_view{};
+    const int cur = shadowRowsCurrent;
+    if (shadowRowsView[cur].id && shadowRowsKey[cur] == fr.shadowKey) return shadowRowsView[cur];
+    const int slot = 1 - cur;
+    if (shadowRowsView[slot].id) sg_destroy_view(shadowRowsView[slot]);
+    if (shadowRowsImg[slot].id) sg_destroy_image(shadowRowsImg[slot]);
+    sg_image_desc d{};
+    d.width = kShadowAngles;
+    d.height = fr.shadowRows;
+    d.pixel_format = SG_PIXELFORMAT_RGBA8;
+    d.data.mip_levels[0] = {fr.shadowData.data(), fr.shadowData.size()};
+    d.label = "light-shadow-rows";
+    shadowRowsImg[slot] = make_image(d);
+    sg_view_desc tv{};
+    tv.texture.image = shadowRowsImg[slot];
+    tv.label = "light-shadow-rows-tex";
+    shadowRowsView[slot] = sg_make_view(&tv);
+    shadowRowsKey[slot] = fr.shadowKey;
+    shadowRowsCurrent = slot;
+    return shadowRowsView[slot];
+}
+
+void Renderer::Impl::destroy_light_resources() {
+    for (int i = 0; i < 2; ++i) {
+        if (shadowRowsView[i].id) sg_destroy_view(shadowRowsView[i]);
+        if (shadowRowsImg[i].id) sg_destroy_image(shadowRowsImg[i]);
+        shadowRowsView[i] = {};
+        shadowRowsImg[i] = {};
+        shadowRowsKey[i] = 0;
     }
 }
 
@@ -453,6 +563,7 @@ void Renderer::shutdown() {
         im.fonts.reset();
         im.assets.reset();
         im.destroy_targets();
+        im.destroy_light_resources();
         for (sg_view* v : {&im.shadowColorAtt, &im.shadowDepthAtt, &im.shadowTexView}) if (v->id) sg_destroy_view(*v);
         for (sg_image* i : {&im.shadowColor, &im.shadowDepth}) if (i->id) sg_destroy_image(*i);
         im.gpu.shutdown();
@@ -680,8 +791,14 @@ void Renderer::Impl::render(World& world, float dt) {
     fr.fonts = fonts.get();
     fr.textScale = textScale;
     fr.renderScale = renderScale;
-    if (world.scene_path() != lights2dScene) { lights2dScene = world.scene_path(); warnedLights2d = false; }
+    if (world.scene_path() != lights2dScene) {
+        lights2dScene = world.scene_path();
+        warnedLights2d = false;
+        warnedShadows2d = false;
+    }
     fr.warnedLights2d = &warnedLights2d;
+    fr.warnedShadows2d = &warnedShadows2d;
+    fr.shadowCache = &shadowCache;
 
     flush_particle_bursts(world);
     update_animators(world, fr, false);
@@ -981,6 +1098,76 @@ void Renderer::Impl::render(World& world, float dt) {
     };
     auto declares = [](const MaterialProgram* prog, int ub) { return !prog || prog->has_ub(ub); };
 
+    // ---- 2D light buffer ----
+    // Lit visuals without a normal map read the point lights added up in a light buffer instead of looping over them per
+    // pixel, so the number of lights costs only the pixels the lights cover. The pass runs when the world group has such
+    // a visual, a point light exists and the camera is orthographic (a perspective camera has no screen-space map of the
+    // 2D plane); else flat visuals use the loop over the first kDirectLights2D lights (litMode 0) or, with no point light,
+    // just the ambient and directional lights (litMode 2). Visuals with a normal map always use the loop (the direction of
+    // each light matters), and the screen-space groups too.
+    int litMode = 0;
+    sg_view shadowRowsTex{};
+    {
+        bool anyFlatLit = false;
+        for (const QuadBatch& qb : gWorld.batches) anyFlatLit = anyFlatLit || (qb.lit && !qb.normal);
+        int points = 0;
+        for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
+        shadowRowsTex = upload_shadow_rows(fr);
+        float lightScale = ss.lightScale;
+        lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
+        if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
+            if (points == 0) litMode = 2;
+            else if (gpu.light_ready() && ensure_light_target(lightScale)) litMode = 1;
+        }
+        if (litMode == 1) {
+            std::vector<LightVertex> lv;
+            lv.reserve(std::size_t(points) * 4);
+            static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+            for (const Light2DData& l : fr.lights2d) {
+                if (l.pos[3] < 0.0f) continue;
+                for (const auto& c : kCorner) {
+                    LightVertex v{};
+                    v.corner[0] = c[0];
+                    v.corner[1] = c[1];
+                    std::memcpy(v.pos, l.pos, sizeof(float) * 4);
+                    std::memcpy(v.color, l.color, sizeof(float) * 4);
+                    v.shadow[0] = l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
+                    lv.push_back(v);
+                }
+            }
+            static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a frame is drawn by one draw call");
+            sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
+            sg_write_buffer_desc wd{};
+            wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
+            wd.dst.buffer = lb;
+            sg_write_buffer_transient(&wd);
+
+            sg_pass lp{};
+            lp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
+            lp.action.colors[0].clear_value = {0, 0, 0, 0};
+            lp.action.colors[0].store_action = SG_STOREACTION_STORE;
+            lp.attachments.colors[0] = lightAtt;
+            lp.label = "light-buffer";
+            sg_begin_pass(&lp);
+            sg_apply_pipeline(gpu.light_pipeline());
+            sg_bindings b{};
+            b.vertex_buffers[0] = lb;
+            b.index_buffer = gpu.quad_index_buffer();
+            b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+            b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+            sg_apply_bindings(&b);
+            light_light_vs_params_t vu{};
+            copy_mat(vu.view_proj, fr.cam.viewProj);
+            apply_uniforms(UB_light_light_vs_params, vu);
+            light_light_fs_params_t fu{};
+            fu.range[0] = 1.0f / gpu.light_range();
+            apply_uniforms(UB_light_light_fs_params, fu);
+            sg_draw(0, int(lv.size() / 4) * 6, 1);
+            sg_end_pass();
+            ++stats.drawCalls;
+        }
+    }
+
     // ---- shadow pass ----
     // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
     // shadow, alphaMode "clip" cuts holes into it).
@@ -1119,7 +1306,7 @@ void Renderer::Impl::render(World& world, float dt) {
     stats.materials = int(materialsDrawn.size());
 
     // quad groups
-    auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest) {
+    auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest, int flatMode = 0) {
         if (batches.empty()) return;
         quad_vs_params_t u{};
         copy_mat(u.view_proj, vp);
@@ -1136,12 +1323,26 @@ void Renderer::Impl::render(World& world, float dt) {
         // fragment uniforms of the 2D lights: the same for every lit batch except the normal map's uv transform
         quad_quad_fs_params_t unlit{};
         quad_quad_fs_params_t litUniforms{};
-        litUniforms.lit[0] = float(fr.lights2d.size());
+        litUniforms.lit[0] = float(std::min<std::size_t>(fr.lights2d.size(), std::size_t(kDirectLights2D)));
+        litUniforms.lit[2] = float(flatMode);
         litUniforms.ambient[0] = fr.ambient2d.r; litUniforms.ambient[1] = fr.ambient2d.g; litUniforms.ambient[2] = fr.ambient2d.b;
-        for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kMaxLights2D); ++i) {
+        // A flat visual gets every directional light in full (it faces them head on): they join the ambient light.
+        litUniforms.flat_ambient[0] = fr.ambient2d.r; litUniforms.flat_ambient[1] = fr.ambient2d.g; litUniforms.flat_ambient[2] = fr.ambient2d.b;
+        for (const Light2DData& l : fr.lights2d) {
+            if (l.pos[3] >= 0.0f) continue;
+            for (int c = 0; c < 3; ++c) litUniforms.flat_ambient[c] += l.color[c];
+        }
+        litUniforms.light_map[0] = 1.0f / float(std::max(1, physW));
+        litUniforms.light_map[1] = 1.0f / float(std::max(1, physH));
+        litUniforms.light_map[2] = gpu.light_range();
+        for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kDirectLights2D); ++i) {
             std::memcpy(litUniforms.light_pos[i], fr.lights2d[i].pos, sizeof(float) * 4);
             std::memcpy(litUniforms.light_color[i], fr.lights2d[i].color, sizeof(float) * 4);
+            const float row = fr.lights2d[i].extra[0];
+            litUniforms.light_shadow_v[i][0] = row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
         }
+        const sg_view lightTexBound = flatMode == 1 ? lightTexView : assets->white()->view;
+        const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
         for (const QuadBatch& qb : batches) {
             apply_clip(qb.clip);
             sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
@@ -1162,7 +1363,11 @@ void Renderer::Impl::render(World& world, float dt) {
                 b.index_buffer = gpu.quad_index_buffer();
                 b.views[VIEW_quad_tex] = qb.tex->gpu_view();
                 b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
+                b.views[VIEW_quad_light_tex] = lightTexBound;
+                b.views[VIEW_quad_shadow_tex] = shadowTexBound;
                 b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
+                b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
+                b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
                 sg_apply_bindings(&b);
                 sg_draw(0, int(n * 6), 1);
                 ++stats.drawCalls;
@@ -1171,7 +1376,7 @@ void Renderer::Impl::render(World& world, float dt) {
         }
         apply_clip(Rect{});
     };
-    draw_group(gWorld.batches, fr.cam.viewProj, fr.cam.perspective);
+    draw_group(gWorld.batches, fr.cam.viewProj, fr.cam.perspective, litMode);
     draw_group(gDebugWorld.batches, fr.cam.viewProj, false);
     if (!fr.debugLines.empty()) {
         sg_apply_pipeline(gpu.quad_pipeline(false, true));
@@ -1185,7 +1390,11 @@ void Renderer::Impl::render(World& world, float dt) {
         b.vertex_buffer_offsets[0] = int(lineFirst * sizeof(Vertex2D));
         b.views[VIEW_quad_tex] = assets->white()->view;
         b.views[VIEW_quad_normal_tex] = assets->white()->view;
+        b.views[VIEW_quad_light_tex] = assets->white()->view;
+        b.views[VIEW_quad_shadow_tex] = assets->white()->view;
         b.samplers[SMP_quad_smp] = gpu.sampler(SamplerKind::Nearest);
+        b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
+        b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
         sg_apply_bindings(&b);
         sg_draw(0, int(fr.debugLines.size()), 1);
         ++stats.drawCalls;

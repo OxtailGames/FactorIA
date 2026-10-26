@@ -81,6 +81,15 @@ final class CloudSave: @unchecked Sendable {
         return store.dictionaryRepresentation.keys.sorted()
     }
 
+    /// The size of a key without reading it to the game. The store keeps no time for a key, so `modified` is null: the game
+    /// keeps a revision counter inside the value when it needs to know which of two saves is newer.
+    func stat(key: String) throws -> JSONObject {
+        try requireICloud()
+        store.synchronize()
+        guard let text = store.string(forKey: key) else { return ["exists": false] }
+        return ["exists": true, "size": text.utf8.count, "modified": NSNull()]
+    }
+
     func remove(key: String) throws -> JSONObject {
         try requireICloud()
         store.removeObject(forKey: key)

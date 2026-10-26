@@ -8,7 +8,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 ### [2D](components/2d.md)
 
-- [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites and tilemaps with `lit` true. _Since 0.2.0._
+- [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. _Since 0.2.0._
 - [Parallax](components/2d.md#parallax): Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. _Since 0.2.0._
 - [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions).
 - [Shape2D](components/2d.md#shape2d): Untextured 2D primitive for prototypes, UI panels and debug visuals.
@@ -166,6 +166,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`nav.bake`](commands/physics.md#navbake): Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats. _Not released yet._
 - [`nav.find_path`](commands/physics.md#navfind_path): Find a walkable path between two 3D points on the baked NavMesh3D. _Not released yet._
+- [`nav.find_tile_path`](commands/physics.md#navfind_tile_path): Find a path over the cells of a Tilemap (or a plain cost grid) with A*. _Not released yet._
 - [`nav.info`](commands/physics.md#navinfo): List the NavMesh3D components with their bounds, agent size, bake state and stats. _Not released yet._
 - [`physics.raycast`](commands/physics.md#physicsraycast): Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 - [`physics.shape_cast`](commands/physics.md#physicsshape_cast): Sweep a circle, sphere or box from one point to another and return the first collider it touches.
@@ -174,11 +175,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`platform.add_backend`](commands/platform.md#platformadd_backend-modifies-state): Set up a store backend for this game: its plugin, its build and what the store needs. _Since 0.2.0._
 - [`platform.emit`](commands/platform.md#platformemit-modifies-state): Send an event to the game as the store would: a purchase, the overlay opening or closing, a sign-in change. _Since 0.2.0._
+- [`platform.remote_play_connect`](commands/platform.md#platformremote_play_connect-modifies-state): A guest joins the fake platform's Remote Play Together session, as Steam would tell the game. _Not released yet._
+- [`platform.remote_play_disconnect`](commands/platform.md#platformremote_play_disconnect-modifies-state): A guest leaves the fake platform's Remote Play Together session. _Not released yet._
 - [`platform.reset`](commands/platform.md#platformreset-modifies-state): Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log. _Since 0.2.0._
 - [`platform.respond`](commands/platform.md#platformrespond-modifies-state): Script the next answer(s) the fake platform backend gives to a method: an error, an exact result, or a change to the default. _Since 0.2.0._
 - [`platform.revoke`](commands/platform.md#platformrevoke-modifies-state): Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would. _Not released yet._
 - [`platform.set_ad`](commands/platform.md#platformset_ad-modifies-state): Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused. _Not released yet._
-- [`platform.set_fake`](commands/platform.md#platformset_fake-modifies-state): Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers. _Since 0.2.0._
+- [`platform.set_fake`](commands/platform.md#platformset_fake-modifies-state): Change how the fake platform backend behaves: signed in or out, how many frames it holds its answers, and the time of its cloud saves. _Since 0.2.0._
 - [`platform.state`](commands/platform.md#platformstate): Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds. _Since 0.2.0._
 
 ### [play](commands/play.md)

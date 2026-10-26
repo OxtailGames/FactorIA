@@ -118,6 +118,11 @@
       "prefab": "prefabs/ui/age_gate.prefab.json"
     },
     {
+      "id": "analytics_consent",
+      "active": false,
+      "prefab": "prefabs/ui/analytics_consent.prefab.json"
+    },
+    {
       "id": "shop",
       "active": false,
       "components": {

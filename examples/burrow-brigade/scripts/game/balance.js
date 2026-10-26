@@ -1,14 +1,15 @@
 // @ts-check
 // Remote balance values: a small JSON file on the game's server that changes the numbers of the enemies and the hazards without
 // a new build. The file is untrusted, so every value is checked against RANGES before it is used; what fails the check is
-// ignored (and listed in the result), never half-applied. Offline, or with a file that is not a balance file, the game keeps the
-// numbers it ships with. Nothing is cached: a missing server means the defaults, always (the same game for everyone offline).
+// ignored (and listed in the result), never half-applied. The values come from the "balance" section of the remote config file
+// (online.js); the engine keeps the last good copy, so a player who starts offline plays with the numbers of the last run, and
+// one who never was online with the numbers the game ships with.
 //
-//   file     { "version": 1, "values": { "beetle.hp": 4, "hazards.drownTime": 5 } }
+//   file     { "balance": { "beetle.hp": 4, "hazards.drownTime": 5 } }
 //   keys     "<group>.<name>": group is beetle, thief, king (enemy_brains.js STATS) or hazards (hazards.js TUNING); RANGES lists every key
 //   apply(values)   checks and applies; returns { applied: {key: value}, rejected: [{ key, value, reason, hint }] }
 //   reset()         back to the shipped numbers
-//   refresh()       asks the server (online.js) and applies the answer; resolves { source: "server"|"offline"|"invalid", applied, rejected }
+//   refresh()       waits for the server's file (online.js) and applies its "balance" section; resolves { source: "server"|"cache"|"offline", applied, rejected }
 //   defaults() / current()   the shipped numbers / the ones in use, as { "beetle.hp": 3, ... }
 //
 // A value changes the game only between shifts: `apply` while a shift runs is held back and goes in when the shift ends (`flush`).
@@ -174,16 +175,13 @@ export function stop() {
 }
 
 /**
- * Asks the server for the balance file and applies it. The game works without it: offline or a bad file keep the shipped numbers.
- * @returns {Promise<{source: "server"|"offline"|"invalid", applied: Record<string, number>, rejected: Array<{key: string, value: any, reason: string, hint: string}>, message?: string}>}
+ * Waits for the server's file and applies its "balance" section. The game works without it: with no answer ever the shipped
+ * numbers stay; with an earlier run's cache those numbers apply ("cache").
+ * @returns {Promise<{source: "server"|"cache"|"offline", applied: Record<string, number>, rejected: Array<{key: string, value: any, reason: string, hint: string}>}>}
  */
 export async function refresh() {
-  const r = await online.request("GET", online.PATHS.balance);
-  if (!r.ok) return { source: "offline", applied: {}, rejected: [], message: r.message };
-  const d = r.data;
-  if (!d || typeof d !== "object" || d.version !== 1 || typeof d.values !== "object") {
-    return { source: "invalid", applied: {}, rejected: [], message: 'the balance file must be { "version": 1, "values": { ... } }' };
-  }
-  const out = apply(d.values);
-  return { source: "server", applied: out.applied, rejected: out.rejected };
+  const from = await online.ready();
+  if (from === "default") return { source: "offline", applied: {}, rejected: [] };
+  const out = apply(online.section("balance", {}));
+  return { source: from === "remote" ? "server" : "cache", applied: out.applied, rejected: out.rejected };
 }

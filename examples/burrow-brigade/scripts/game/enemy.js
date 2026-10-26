@@ -3,13 +3,12 @@
 // enemy_brains.js; this script is its body and its blackboard: it senses the miners, walks along the tile paths of
 // pathfinding.js (which follow every tunnel the miners dig), takes hits from the miners' picks (`hit`), and dies.
 // Spawned by shift.js from `mine.enemies` with prefabs/enemy.prefab.json. Enemies are drawn only on tiles the fog shows.
-import { Behaviour, world, rng } from "factoria";
+import { Behaviour, world, rng, bt } from "factoria";
 import * as sound from "./sound.js";
 import * as events from "./events.js";
 import * as players from "./players.js";
 import { live } from "./mine_map.js";
 import { navFor, PathFollower, lineOfSight } from "./pathfinding.js";
-import { Tree } from "./behavior_tree.js";
 import { STATS, beetleBrain, thiefBrain, kingBrain } from "./enemy_brains.js";
 import { miners } from "./actors.js";
 import { burst } from "./puff.js";
@@ -50,7 +49,7 @@ export default class Enemy extends Behaviour {
     this.tint = "";
     this.map = /** @type {import("./mine_map.js").MineMap} */ (live.map);
     this.follower = new PathFollower(navFor(this.map), { maxNodes: 4000 });
-    this.tree = new Tree(BRAINS[this.kind](), this);
+    this.tree = new bt.Tree(BRAINS[this.kind](), this);
     this.dead = false;
     // senses
     this.target = null;

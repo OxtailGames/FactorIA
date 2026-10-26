@@ -563,6 +563,43 @@ is silent. Give `fade` when you switch a low-pass or reverb on or off in the mid
   and so on. "No route" is a result to check, not an exception; a `radius` bigger than the mesh was baked for throws an
   Error that says how to bake for it. `nav.bake(mesh?)` bakes now and returns the stats. Guide: [NAVIGATION.md](NAVIGATION.md).
 
+- `nav.findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal })` → `{ found, complete, cells:
+  {col, row}[], points: Vec2[], cost, length }` or `{ found: false, reason, message, hint }`: A* over a `Tilemap` entity
+  (solid tiles block; `costs` per tile index) or your own `{ width, height, cost }` grid; `nav.tileVersion(tilemap)` counts
+  the `setTile` writes. See NAVIGATION.md, section 7.
+
+### AI: behaviour trees (`bt`)
+`import { bt } from "factoria"` is a small behaviour tree in plain JS (like `tween`): you build a description once, give each
+agent its own `bt.Tree` with a blackboard (the agent's state), and call `tree.tick(dt)` from `onUpdate(dt)`. Nothing runs by
+itself and time only advances by the `dt` you pass, so it is deterministic and replays and tests repeat it exactly.
+
+```js
+import { Behaviour, bt, nav, world } from "factoria";
+const { SUCCESS, FAILURE, RUNNING, sequence, selector, condition, action, wait, cooldown } = bt;
+const brain = selector(
+  sequence(condition((b) => b.seesPlayer()), cooldown(2, action((b) => { b.bite(); return SUCCESS; })), action((b, dt) => { b.chase(dt); return RUNNING; })),
+  sequence(action((b, dt) => { b.wander(dt); return RUNNING; }), wait(1)),   // a node returns SUCCESS, FAILURE or RUNNING
+);
+export default class Rat extends Behaviour {
+  onStart() { this.tree = new bt.Tree(brain, this); }   // the blackboard is the behaviour itself
+  onUpdate(dt) { this.tree.tick(dt); }
+}
+```
+
+- `sequence(...children)`: in order; FAILURE at the first failure, RUNNING while a child runs (the next tick resumes at that
+  child WITHOUT asking the earlier conditions again), SUCCESS when all succeeded.
+- `selector(...children)`: in order from the first child on every tick, the first result that is not FAILURE; so an earlier
+  (more important) child interrupts a running later one.
+- `condition(fn)`: `fn(blackboard)` truthy = SUCCESS, falsy = FAILURE. `action(fn, { onEnter, onExit })`: `fn(blackboard, dt,
+  tree)` returns `bt.SUCCESS`, `bt.FAILURE` or `bt.RUNNING` (anything else throws); `onExit(blackboard, status)` also runs with
+  `"aborted"` when a tick no longer reaches a running action, or `tree.reset()` stops it.
+- `wait(seconds)`: RUNNING until that much `dt` passed, then SUCCESS. `cooldown(seconds, child)`: after the child finishes,
+  FAILURE for `seconds` without ticking it. `inverter(child)` swaps SUCCESS and FAILURE; `succeeder(child)` turns both into SUCCESS.
+- A node that was not ticked on the previous tick starts fresh (a sequence at its first child, a wait at zero). Each `Tree`
+  has its own memory per node, so one description can drive many agents. Build trees once, not every frame.
+- Typical enemy: a tree decides WHAT to do (chase, flee, wander) and `nav.findTilePath` says WHERE to step; see the "enemies"
+  recipe of the AI guide.
+
 ### time
 `dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`.
 
@@ -964,7 +1001,8 @@ the browser's `fetch`). The game declares the servers it may call in `factoria.j
 "purpose": "..." }`); `https://` only; an undeclared host throws at once. Tests get the fake: `game.platform.respond("http.fetch",
 { status: 200, json: {...} })`, no network. The answer may arrive after the scene changed: check `scene.current` before
 using it. Limits, the recipe, replays, per-platform notes (CORS on the web, the Android permission) and the privacy side:
-[NETWORKING.md](NETWORKING.md).
+[NETWORKING.md](NETWORKING.md). Usage events (after the player consents) and values read from your server, both on top of
+`http.fetch`: `analytics.event(name, props)` and `remoteConfig.get(key, fallback)`, in [ANALYTICS.md](ANALYTICS.md).
 
 ```js
 const r = await http.fetch("https://api.example.com/daily").catch(() => null);   // rejects on a network failure

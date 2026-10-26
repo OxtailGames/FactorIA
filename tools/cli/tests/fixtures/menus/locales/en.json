@@ -41,6 +41,7 @@
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
     "privacyOptions": "Ad privacy settings",
+    "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"
@@ -74,5 +75,12 @@
     "year": "Birth year",
     "continue": "Continue",
     "skip": "I would rather not say"
+  },
+  "analyticsConsent": {
+    "title": "Help us improve the game?",
+    "what": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+    "change": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+    "allow": "Allow",
+    "deny": "No thanks"
   }
 }
