@@ -73,6 +73,9 @@ struct RendererDesc {
     bool headless = false;     // no swapchain; present() must not be called
 };
 
+// What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
+// triangles... count what each camera drew, so a sprite in view of two cameras counts twice, and lights, lights2d,
+// lights2dDropped and lights2dShadowed are the lights each camera used, added up (a light two cameras reach counts twice).
 struct RenderStats {
     int drawCalls = 0;
     int sprites = 0;
@@ -206,10 +209,18 @@ public:
     // Read back the last finished game target (RGBA8, top row first).
     bool capture(Image& out, std::string* error = nullptr);
 
-    // Camera helpers for the current world/primary camera (valid after render_world).
-    Vec2 world_to_screen(Vec3 worldPos) const;     // design pixels, top-left origin
-    Vec3 screen_to_world(Vec2 screenPos, float depth = 0.0f) const;  // 2D: z = depth; 3D: point on ray at distance depth
-    void screen_ray(Vec2 screenPos, Vec3& origin, Vec3& dir) const;
+    // Camera helpers (valid after update() or render_world()). Screen points are design pixels, top-left origin, over the WHOLE
+    // screen: with several cameras (Camera.viewport) a point of the screen belongs to the camera whose viewport holds it.
+    // `camera` is a rendering camera entity (active, Camera.primary); null or any other entity = the default camera: for a
+    // screen point the topmost camera whose viewport contains it (the highest depth, so an inset wins over the view under
+    // it; the lowest-depth camera when none does), for a world point the lowest-depth ("primary") camera.
+    Vec2 world_to_screen(Vec3 worldPos, Entity camera = kNullEntity) const;  // design pixels inside that camera's viewport
+    Vec3 screen_to_world(Vec2 screenPos, float depth = 0.0f, Entity camera = kNullEntity) const;  // 2D: z = depth; 3D: point on ray at distance depth
+    void screen_ray(Vec2 screenPos, Vec3& origin, Vec3& dir, Entity camera = kNullEntity) const;
+    // The rendering cameras in draw order (ascending Camera.depth): empty when the world has none (a default camera draws).
+    std::vector<Entity> cameras() const;
+    // The camera a screen point belongs to (see above); null when the world has no camera entity.
+    Entity camera_at(Vec2 screenPos) const;
 
     DebugDraw& debug();
     RenderStats stats() const;  // of the last frame

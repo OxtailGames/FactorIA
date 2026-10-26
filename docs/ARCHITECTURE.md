@@ -167,6 +167,20 @@ snippet, so the engine and the materials share one source of truth (an empty `su
 `MeshRenderer` without a material). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
 
+**Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
+(normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in
+`scene/components.h` reject a bad rectangle). One camera over the whole target is ONE job, world and screen space together, exactly
+the path there was before. Otherwise `Renderer::render` makes one world job per camera (own viewport and scissor, own culling, own
+2D and 3D lights, own clear of its rectangle) and one more job for the screen-space groups, drawn once over the whole target after
+them. The 2D light buffer is built per camera job, from the lights that reach that camera. Bloom, `bloomScreenSpace` and
+`colorFilter` run once, on the finished target, with the lowest-`depth` camera's settings. `RenderStats` is per frame and adds up
+over the cameras. `world_to_screen`, `screen_to_world` and `screen_ray` take an optional camera; without one they use
+`camera_at(point)` (the camera whose viewport contains the point, else the first drawn), and `cameras()` lists those drawn. The
+audio listener without an `AudioListener` is the first camera drawn. Known limit: a screen-space visual with `lit: true` is lit
+by the scene's ambient light only when the frame has several cameras (the screen job gathers no `Light2D`). The editor viewport
+shows the whole frame: its picking uses the camera under the pointer, but its outlines and gizmos project through the first
+camera drawn, so in a split frame they line up with the first view only.
+
 **Custom materials** ([guide for game makers](SHADERS.md), [design](design/CUSTOM_SHADERS.md)):
 
 - *Template and hook points.* `mesh_common.glsl` defines the contract structs (`SurfaceInput`, `Surface`, `VertexData`)

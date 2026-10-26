@@ -109,8 +109,12 @@ struct Renderer::Impl {
 
     DebugDraw debug;
     RenderStats stats;
-    CameraInfo lastCam;
+    // The rendering cameras of the last update()/draw in draw order (never empty after the first one: a world without a camera
+    // gets one default camera). [0] is "the" camera: the lowest depth.
+    std::vector<CameraInfo> lastCams;
     bool warnedNoLight = false;
+    std::string warnedViewport;       // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
+    bool warnedCameras = false;       // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;      // the "more Light2D in view than the budget" warning, once per scene
     bool warnedShadows2d = false;     // the "more shadow casters than the budget" warning, once per scene
     std::string lights2dScene;        // the scene path warnedLights2d and warnedShadows2d belong to
@@ -121,12 +125,15 @@ struct Renderer::Impl {
     int lightW = 0, lightH = 0;
     sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
     bool lightTargetFailed = false;
-    // The shadow rows of the lights with castShadows (light2d.cpp) as an image: the last two are kept (the older one may
-    // still be in use by a frame being recorded), and the image of the last frame is reused while its rows stay the same.
+    // The shadow rows of the lights with castShadows (light2d.cpp) as an image: an image is reused while its rows stay the
+    // same, a new one replaces the oldest of the ring.
     ShadowCache shadowCache;
-    sg_image shadowRowsImg[2]{};
-    sg_view shadowRowsView[2]{};
-    std::uint64_t shadowRowsKey[2]{};
+    // A ring: every camera of a frame may need its own rows, and an image a recorded draw reads is not destroyed within the
+    // frame (kMaxCameras + 1 images).
+    static constexpr int kShadowRowsRing = 9;
+    sg_image shadowRowsImg[kShadowRowsRing]{};
+    sg_view shadowRowsView[kShadowRowsRing]{};
+    std::uint64_t shadowRowsKey[kShadowRowsRing]{};
     int shadowRowsCurrent = 0;
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
@@ -141,8 +148,16 @@ struct Renderer::Impl {
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
-    CameraInfo build_camera(World& world);
+    CameraInfo build_camera(World& world, Entity entity);
+    std::vector<CameraInfo> collect_cameras(World& world);
+    const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
+    struct JobPlan {
+        bool first = false;  // the first pass of the frame: it clears the whole target when its camera clears
+        bool last = false;   // the last job of the frame: it runs the post effects (bloom, the HUD over it, the colour filter)
+        const CameraInfo* post = nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
+    };
     void render(World& world, float dt);
+    void draw_job(World& world, Frame& fr, const JobPlan& plan);
 };
 
 namespace {
@@ -327,9 +342,9 @@ bool Renderer::Impl::ensure_light_target(float scale) {
 // image is made only when the rows changed (a light moved, a tile was edited), so a still scene uploads nothing.
 sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
     if (fr.shadowRows <= 0) return sg_view{};
-    const int cur = shadowRowsCurrent;
-    if (shadowRowsView[cur].id && shadowRowsKey[cur] == fr.shadowKey) return shadowRowsView[cur];
-    const int slot = 1 - cur;
+    for (int i = 0; i < kShadowRowsRing; ++i)
+        if (shadowRowsView[i].id && shadowRowsKey[i] == fr.shadowKey) return shadowRowsView[i];
+    const int slot = (shadowRowsCurrent + 1) % kShadowRowsRing;
     if (shadowRowsView[slot].id) sg_destroy_view(shadowRowsView[slot]);
     if (shadowRowsImg[slot].id) sg_destroy_image(shadowRowsImg[slot]);
     sg_image_desc d{};
@@ -349,7 +364,7 @@ sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
 }
 
 void Renderer::Impl::destroy_light_resources() {
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < kShadowRowsRing; ++i) {
         if (shadowRowsView[i].id) sg_destroy_view(shadowRowsView[i]);
         if (shadowRowsImg[i].id) sg_destroy_image(shadowRowsImg[i]);
         shadowRowsView[i] = {};
@@ -440,23 +455,41 @@ void Renderer::Impl::create_shadow_targets() {
     shadowTexView = sg_make_view(&v);
 }
 
-CameraInfo Renderer::Impl::build_camera(World& world) {
+// The viewport a camera is drawn with: a valid Camera.viewport as it is, an invalid one (a script can set any value live; the
+// scene loader refuses it in a file) clamped into the screen, or the whole screen when it has no size. Logs the problem once.
+static Rect sanitize_viewport(const Rect& v, std::string& warned) {
+    const std::string problem = camera_viewport_problem(v);
+    if (problem.empty()) {
+        const float x = std::clamp(v.x, 0.0f, 1.0f), y = std::clamp(v.y, 0.0f, 1.0f);
+        return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
+    }
+    if (warned != problem) {
+        warned = problem;
+        FA_WARN("render", "{}: the camera is drawn with the nearest valid rectangle. Hint: viewport is [x, y, width, height] as "
+                "fractions of the screen with [0, 0] the top-left corner, e.g. [0, 0, 0.5, 1] for the left half", problem);
+    }
+    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f || v.h <= 0.0f)
+        return Rect{0, 0, 1, 1};
+    const float x = std::clamp(v.x, 0.0f, 0.999f), y = std::clamp(v.y, 0.0f, 0.999f);
+    return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
+}
+
+CameraInfo Renderer::Impl::build_camera(World& world, Entity best) {
     CameraInfo ci;
-    Entity best = kNullEntity;
-    int bestDepth = 0;
-    world.each<Camera>([&](Entity e, Camera& c) {
-        if (!c.primary || !world.active_in_hierarchy(e)) return;
-        if (!best || c.depth < bestDepth) { best = e; bestDepth = c.depth; }
-    });
     const bool z01 = gpu.depth_zero_to_one();
-    float aspect = float(targetW) / float(targetH);
     Camera cam;  // defaults when no camera exists
     Mat4 camWorld;
     if (best) {
         cam = *world.get<Camera>(best);
         camWorld = world.world_matrix(best);
         ci.fromEntity = true;
+        ci.entity = best;
+        ci.depth = cam.depth;
+        ci.viewport = sanitize_viewport(cam.viewport, warnedViewport);
     }
+    // The view is drawn into the viewport: its aspect and its height in design pixels are the rectangle's.
+    const float viewW = float(targetW) * ci.viewport.w, viewH = float(targetH) * ci.viewport.h;
+    const float aspect = viewW / std::max(viewH, 1.0f);
     // Remove scale from the camera's world matrix: view = R^T * T^-1.
     Vec3 t = camWorld.translation();
     Vec3 x = normalize(Vec3{camWorld.at(0, 0), camWorld.at(0, 1), camWorld.at(0, 2)});
@@ -480,7 +513,7 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
         ci.proj = Mat4::perspective(cam.fov, aspect, std::max(1e-3f, cam.nearPlane), std::max(cam.farPlane, cam.nearPlane + 0.01f), z01);
         ci.pixelsPerUnit = 1.0f;
     } else {
-        float halfH = cam.orthoSize > 0 ? cam.orthoSize : float(targetH) * 0.5f;
+        float halfH = cam.orthoSize > 0 ? cam.orthoSize : viewH * 0.5f;
         float halfW = halfH * aspect;
         if (scaleMode == ScaleMode::Expand && cam.orthoSize > 0) {
             // Expand: the design height (landscape-ish targets) or design width (taller targets) stays fixed;
@@ -492,7 +525,7 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
             }
         }
         ci.halfH = halfH; ci.halfW = halfW;
-        ci.pixelsPerUnit = float(targetH) / (2.0f * halfH);
+        ci.pixelsPerUnit = viewH / (2.0f * halfH);
         ci.proj = Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, z01);
         ci.visible = Rect{t.x - halfW, t.y - halfH, halfW * 2, halfH * 2};
         // Rotated 2D cameras: use a conservative (circumscribed) rectangle for culling.
@@ -502,6 +535,49 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
     ci.viewProj = ci.proj * ci.view;
     ci.invViewProj = ci.viewProj.inverse();
     return ci;
+}
+
+// Every active camera with primary = true, ascending Camera.depth (equal depths keep the order of creation); a world without
+// one gets a default camera.
+std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world) {
+    struct Found { Entity e; int depth; };
+    std::vector<Found> found;
+    world.each<Camera>([&](Entity e, Camera& c) {
+        if (c.primary && world.active_in_hierarchy(e)) found.push_back({e, c.depth});
+    });
+    std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
+    constexpr std::size_t kMaxCameras = 8;
+    if (found.size() > kMaxCameras) {
+        if (!warnedCameras) {
+            warnedCameras = true;
+            FA_WARN("render", "{} cameras are active (primary) but a frame draws at most {}: the ones with the highest depth are "
+                    "left out. Hint: set primary to false on the cameras you do not need, e.g. when a split screen ends",
+                    found.size(), kMaxCameras);
+        }
+        found.resize(kMaxCameras);
+    }
+    std::vector<CameraInfo> out;
+    for (const Found& f : found) out.push_back(build_camera(world, f.e));
+    if (out.empty()) out.push_back(build_camera(world, kNullEntity));
+    return out;
+}
+
+// The camera a query uses: `camera` when it is a rendering camera; else (a screen point given) the topmost camera whose
+// viewport contains the point; else the first. `lastCams` is never empty after the first update().
+const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPoint) const {
+    static const CameraInfo kNone{};
+    if (lastCams.empty()) return kNone;
+    if (camera)
+        for (const CameraInfo& c : lastCams)
+            if (c.entity == camera) return c;
+    if (screenPoint && lastCams.size() > 1 && targetW > 0 && targetH > 0) {
+        const float nx = screenPoint->x / float(targetW), ny = screenPoint->y / float(targetH);
+        for (std::size_t i = lastCams.size(); i-- > 0;) {
+            const Rect& v = lastCams[i].viewport;
+            if (nx >= v.x && nx < v.x + v.w && ny >= v.y && ny < v.y + v.h) return lastCams[i];
+        }
+    }
+    return lastCams.front();
 }
 
 // ---------------------------------------------------------------------------
@@ -660,20 +736,23 @@ Json Renderer::asset_report() const {
 }
 
 // ---- camera helpers ----
-Vec2 Renderer::world_to_screen(Vec3 p) const {
+Vec2 Renderer::world_to_screen(Vec3 p, Entity camera) const {
     if (!impl_) return {};
-    Vec4 c = impl_->lastCam.viewProj * Vec4{p, 1.0f};
+    const CameraInfo& cam = impl_->camera_for(camera, nullptr);
+    Vec4 c = cam.viewProj * Vec4{p, 1.0f};
     float w = std::fabs(c.w) > 1e-8f ? c.w : 1e-8f;
     float nx = c.x / w, ny = c.y / w;
-    return {(nx * 0.5f + 0.5f) * float(impl_->targetW), (1.0f - (ny * 0.5f + 0.5f)) * float(impl_->targetH)};
+    const Rect& v = cam.viewport;  // ndc -1..1 spans the viewport, not the whole target
+    return {(v.x + (nx * 0.5f + 0.5f) * v.w) * float(impl_->targetW), (v.y + (1.0f - (ny * 0.5f + 0.5f)) * v.h) * float(impl_->targetH)};
 }
 
-void Renderer::screen_ray(Vec2 s, Vec3& origin, Vec3& dir) const {
+void Renderer::screen_ray(Vec2 s, Vec3& origin, Vec3& dir, Entity camera) const {
     origin = {}; dir = kForward;
     if (!impl_) return;
-    const CameraInfo& c = impl_->lastCam;
-    float nx = s.x / float(impl_->targetW) * 2.0f - 1.0f;
-    float ny = 1.0f - s.y / float(impl_->targetH) * 2.0f;
+    const CameraInfo& c = impl_->camera_for(camera, &s);
+    const Rect& v = c.viewport;
+    float nx = ((s.x / float(impl_->targetW) - v.x) / v.w) * 2.0f - 1.0f;
+    float ny = 1.0f - ((s.y / float(impl_->targetH) - v.y) / v.h) * 2.0f;
     float nearZ = impl_->gpu.depth_zero_to_one() ? 0.0f : -1.0f;
     Vec3 a = c.invViewProj.transform_point({nx, ny, nearZ});
     Vec3 b = c.invViewProj.transform_point({nx, ny, 1.0f});
@@ -682,14 +761,26 @@ void Renderer::screen_ray(Vec2 s, Vec3& origin, Vec3& dir) const {
     if (c.perspective) origin = c.position;
 }
 
-Vec3 Renderer::screen_to_world(Vec2 s, float depth) const {
+Vec3 Renderer::screen_to_world(Vec2 s, float depth, Entity camera) const {
     Vec3 o, d;
-    screen_ray(s, o, d);
+    screen_ray(s, o, d, camera);
     if (!impl_) return o;
-    if (impl_->lastCam.perspective) return o + d * depth;
+    if (impl_->camera_for(camera, &s).perspective) return o + d * depth;
     if (std::fabs(d.z) < 1e-6f) return {o.x, o.y, depth};
     float t = (depth - o.z) / d.z;
     return o + d * t;
+}
+
+std::vector<Entity> Renderer::cameras() const {
+    std::vector<Entity> out;
+    if (impl_)
+        for (const CameraInfo& c : impl_->lastCams)
+            if (c.entity) out.push_back(c.entity);
+    return out;
+}
+
+Entity Renderer::camera_at(Vec2 screenPos) const {
+    return impl_ ? impl_->camera_for(kNullEntity, &screenPos).entity : kNullEntity;
 }
 
 Vec2 Renderer::framebuffer_to_design(Vec2 fb, int fbW, int fbH, ScaleMode mode) const {
@@ -721,10 +812,10 @@ void Renderer::update(World& world, float dt) {
     fr.textScale = im.textScale;
     update_animators(world, fr, true);
     update_particles(world, dt);
-    // Camera queries (world_to_screen, screen_to_world, screen_ray) must not depend on drawing:
+    // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
     // the runtime skips drawing in headless/test runs, so refresh the camera here as well.
-    im.lastCam = im.build_camera(world);
-    update_parallax(world, im.lastCam.position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
+    im.lastCams = im.collect_cameras(world);
+    update_parallax(world, im.lastCams.front().position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
     im.updated = true;
 }
 
@@ -774,39 +865,107 @@ void Renderer::render_world(World& world, float dt) {
     impl_->render(world, dt);
 }
 
+// One frame: the cameras drawn in depth order (each into its viewport rectangle: its own culling, 2D lights, 3D lights, clear)
+// and then, when the cameras do not fill the screen together with a single full-screen camera, the screen-space items
+// (Sprite/Shape2D/Text/ParticleEmitter with space "screen", UI, debug text) once over the whole screen. A game with one
+// camera and no viewport is one job that draws all of it in one pass, as before. Bloom and Camera.colorFilter act once over
+// the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
     auto t0 = std::chrono::steady_clock::now();
     if (Profiler::on()) gpuTimer.begin();
     stats = RenderStats{};
     anyFrameRendered = true;
 
-    Frame fr;
-    fr.cam = build_camera(world);
-    lastCam = fr.cam;
-    fr.targetW = targetW;
-    fr.targetH = targetH;
-    fr.dt = dt;
-    fr.stats = &stats;
-    fr.assets = assets.get();
-    fr.fonts = fonts.get();
-    fr.textScale = textScale;
-    fr.renderScale = renderScale;
+    lastCams = collect_cameras(world);
+    ++shadowCache.tick;  // one per drawn frame, not per camera: every camera of this frame keeps the rows it reads
     if (world.scene_path() != lights2dScene) {
         lights2dScene = world.scene_path();
         warnedLights2d = false;
         warnedShadows2d = false;
+        warnedCameras = false;
     }
-    fr.warnedLights2d = &warnedLights2d;
-    fr.warnedShadows2d = &warnedShadows2d;
-    fr.shadowCache = &shadowCache;
+
+    struct JobSpec { CameraInfo cam; bool world = true, screen = true; };
+    std::vector<JobSpec> specs;
+    const bool split = !(lastCams.size() == 1 && lastCams.front().fullViewport());
+    if (!split) {
+        specs.push_back({lastCams.front(), true, true});
+    } else {
+        for (const CameraInfo& c : lastCams) specs.push_back({c, true, false});
+        specs.push_back({lastCams.front(), false, true});
+    }
 
     flush_particle_bursts(world);
-    update_animators(world, fr, false);
-    gather_2d(world, fr);
-    gather_ui(world, fr);
-    gather_particles(world, fr);
-    gather_debug(*debug.impl(), fr);
+    std::vector<Frame> frames(specs.size());
+    for (std::size_t i = 0; i < specs.size(); ++i) {
+        Frame& fr = frames[i];
+        fr.cam = specs[i].cam;
+        fr.wantWorld = specs[i].world;
+        fr.wantScreen = specs[i].screen;
+        fr.targetW = targetW;
+        fr.targetH = targetH;
+        fr.dt = dt;
+        fr.stats = &stats;
+        fr.assets = assets.get();
+        fr.fonts = fonts.get();
+        fr.textScale = textScale;
+        fr.renderScale = renderScale;
+        fr.warnedLights2d = &warnedLights2d;
+        fr.warnedShadows2d = &warnedShadows2d;
+        fr.shadowCache = &shadowCache;
+        update_animators(world, fr, false);
+        gather_2d(world, fr);
+        if (fr.wantScreen) gather_ui(world, fr);
+        gather_particles(world, fr);
+        gather_debug(*debug.impl(), fr);
+    }
+    // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
+    // The screen-space job of a split frame is dropped when it has nothing to draw (a pass less).
+    if (split && frames.back().screen.empty() && frames.back().debugScreen.empty()) {
+        frames.pop_back();
+        specs.pop_back();
+    }
+
+    const CameraInfo post = specs.front().cam;
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+        JobPlan plan;
+        plan.first = i == 0;
+        plan.last = i + 1 == frames.size();
+        plan.post = &post;
+        draw_job(world, frames[i], plan);
+    }
+
+    debug.clear();
+    gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
+    auto t1 = std::chrono::steady_clock::now();
+    stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+}
+
+// Draws one job of the frame into the game target: the pass(es) of one camera's world (and, for the single full-screen
+// camera, the screen-space items too), or the screen-space pass of a split frame. The last job also runs the post effects.
+void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
+    const CameraInfo& post = *plan.post;
+    const bool hudAfterBloom = post.bloom.enabled && post.bloom.intensity > 0.0f && !post.bloom.screenSpace;
+    // The pixels (of the GPU images, `scale` times the design size) of a fraction of the target. The edges are rounded, not
+    // the sizes, so neighbouring viewports meet without a gap or an overlap.
+    struct Px { int x = 0, y = 0, w = 0, h = 0; };
+    auto px_rect = [](const Rect& v, int W, int H) {
+        const int x0 = std::clamp(int(std::lround(double(v.x) * W)), 0, W), y0 = std::clamp(int(std::lround(double(v.y) * H)), 0, H);
+        const int x1 = std::clamp(int(std::lround(double(v.x + v.w) * W)), x0, W), y1 = std::clamp(int(std::lround(double(v.y + v.h) * H)), y0, H);
+        return Px{x0, y0, x1 - x0, y1 - y0};
+    };
+    const Px fullPx{0, 0, physW, physH};
+    const Px camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : fullPx;
+    const bool partial = fr.wantWorld && !fr.cam.fullViewport();
+    auto apply_view = [](const Px& r) {
+        sg_apply_viewport(r.x, r.y, r.w, r.h, true);
+        sg_apply_scissor_rect(r.x, r.y, r.w, r.h, true);
+    };
+    // A camera that clears and is not the first one (or the only one) cannot use a load action (it clears the whole target,
+    // not its rectangle): a colour quad over its viewport does it.
+    const bool clearByQuad = fr.wantWorld && fr.cam.clear && partial && !plan.first;
+    const bool clearByLoad = fr.wantWorld && fr.cam.clear && (plan.first || !partial);
 
     // ---- 3D gather ----
     const bool z01 = gpu.depth_zero_to_one();
@@ -814,7 +973,7 @@ void Renderer::Impl::render(World& world, float dt) {
     std::vector<LightData> lights;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
-    world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
+    if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!world.active_in_hierarchy(e)) return;
         MeshItem mi;
         mi.mesh = assets->mesh(mr.mesh);
@@ -856,7 +1015,7 @@ void Renderer::Impl::render(World& world, float dt) {
         (anyBlend ? blended : opaque).push_back(mi);
     });
     std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
-    world.each<Light>([&](Entity e, Light& l) {
+    if (fr.wantWorld) world.each<Light>([&](Entity e, Light& l) {
         if (!world.active_in_hierarchy(e)) return;
         Mat4 m = world.world_matrix(e);
         LightData ld;
@@ -883,8 +1042,8 @@ void Renderer::Impl::render(World& world, float dt) {
     });
     // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
     // shader's arrays cannot hold is left out.
-    stats.lightsDropped = select_lights(lights, size_t(kMaxLights));
-    stats.lights = int(lights.size());
+    stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
+    stats.lights += int(lights.size());
     bool haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
     if (!opaque.empty() && lights.empty() && !warnedNoLight) {
         warnedNoLight = true;
@@ -943,8 +1102,19 @@ void Renderer::Impl::render(World& world, float dt) {
 
     // ---- flatten quads into one vertex stream ----
     struct Group { std::vector<QuadBatch> batches; };
-    Group gWorld, gDebugWorld, gScreen, gDebugScreen;
+    Group gClear, gWorld, gDebugWorld, gScreen, gDebugScreen;
     stream.clear();
+    if (clearByQuad) {
+        // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
+        // camera's rectangle (see the draw below).
+        QuadList clearList;
+        clearList.begin_item(0, 0, assets->white(), SamplerKind::Nearest);
+        clearList.set_opaque();
+        QuadEmitter em{clearList, Mat4::identity(), false, pack_color(fr.cam.clearColor), kModeTextured, 0};
+        em.rect(0, 0, 1, 1, 0, 0, 1, 1);
+        clearList.end_item();
+        clearList.flatten(stream, gClear.batches);
+    }
     fr.world.flatten(stream, gWorld.batches);
     fr.debugWorld.flatten(stream, gDebugWorld.batches);
     fr.screen.flatten(stream, gScreen.batches);
@@ -1149,6 +1319,8 @@ void Renderer::Impl::render(World& world, float dt) {
             lp.attachments.colors[0] = lightAtt;
             lp.label = "light-buffer";
             sg_begin_pass(&lp);
+            // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
+            if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
             sg_apply_pipeline(gpu.light_pipeline());
             sg_bindings b{};
             b.vertex_buffers[0] = lb;
@@ -1221,100 +1393,17 @@ void Renderer::Impl::render(World& world, float dt) {
         sg_end_pass();
     }
 
-    // ---- main pass ----
-    // Camera.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
-    // glows it, and a second pass (below) draws the screen-space groups (HUD) on top, so the HUD never glows.
-    // With MSAA the multisampled image must survive the first pass (STORE): the bloom adds its glow to it and the
-    // HUD pass loads it again, so the HUD is multisampled too and the final resolve contains everything.
-    const bool msaa = gpu.sample_count() > 1;
-    const bool hudAfterBloom = fr.cam.bloom.enabled && fr.cam.bloom.intensity > 0.0f && !fr.cam.bloom.screenSpace;
-    sg_pass mp{};
-    mp.action.colors[0].load_action = fr.cam.clear ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
-    mp.action.colors[0].clear_value = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
-    mp.action.colors[0].store_action = (msaa && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-    mp.action.depth.load_action = SG_LOADACTION_CLEAR;
-    mp.action.depth.clear_value = 1.0f;
-    mp.action.stencil.load_action = SG_LOADACTION_CLEAR;
-    mp.attachments.colors[0] = colorAtt;
-    if (gpu.sample_count() > 1) mp.attachments.resolves[0] = resolveAtt;
-    mp.attachments.depth_stencil = depthAtt;
-    mp.label = "game";
-    sg_begin_pass(&mp);
-
-    // sky
-    if (fr.cam.perspective && fr.cam.clear) {
-        sg_apply_pipeline(gpu.sky_pipeline());
-        sg_bindings b{};
-        b.vertex_buffers[0] = gpu.fullscreen_triangle();
-        sg_apply_bindings(&b);
-        sky_sky_vs_params_t vu{};
-        copy_mat(vu.inv_view_proj, fr.cam.invViewProj);
-        vu.cam_pos[0] = fr.cam.position.x; vu.cam_pos[1] = fr.cam.position.y; vu.cam_pos[2] = fr.cam.position.z;
-        apply_uniforms(UB_sky_sky_vs_params, vu);
-        sky_sky_fs_params_t fu{};
-        fu.sky_color[0] = ss.skyColor.r; fu.sky_color[1] = ss.skyColor.g; fu.sky_color[2] = ss.skyColor.b; fu.sky_color[3] = 1;
-        fu.horizon_color[0] = ss.horizonColor.r; fu.horizon_color[1] = ss.horizonColor.g; fu.horizon_color[2] = ss.horizonColor.b; fu.horizon_color[3] = 1;
-        apply_uniforms(UB_sky_sky_fs_params, fu);
-        sg_draw(0, 3, 1);
-        ++stats.drawCalls;
-    }
-
-    // meshes: one instanced draw per part of every batch
-    std::vector<const MaterialAsset*> materialsDrawn;
-    auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items, bool isBlend) {
-        mesh_fa_mesh_vs_params_t vu = vuScene;
-        for (const MeshBatch& batch : batches) {
-            if (batch.mainCount == 0) continue;
-            const MeshItem& mi = items[batch.rep];
-            const MeshRenderer& mr = *mi.mr;
-            vu.fa_uv_scale[0] = mr.uvScale.x; vu.fa_uv_scale[1] = mr.uvScale.y;
-            MaterialInputs inputs{};
-            if (mi.material && mi.material->ok) {
-                material_inputs(mi, mi.material, inputs);
-                if (std::find(materialsDrawn.begin(), materialsDrawn.end(), mi.material) == materialsDrawn.end()) materialsDrawn.push_back(mi.material);
-            } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), mi.material->path) == stats.materialFallbacks.end()) {
-                stats.materialFallbacks.push_back(mi.material->path);
-            }
-            for (auto& part : mi.mesh->parts) {
-                const bool skinned = mi.anim && part.skinVb.id;
-                const PartDraw pd = part_draw(mi, part);
-                const MaterialProgram* prog = pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
-                sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned, prog ? prog->shader : sg_shader{}));
-                sg_bindings b{};
-                b.vertex_buffers[0] = part.vb;
-                b.vertex_buffers[1] = mainInst;
-                b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
-                if (skinned) b.vertex_buffers[2] = part.skinVb;
-                b.index_buffer = part.ib;
-                bind_textures(b, pd, prog, inputs, false);
-                sg_apply_bindings(&b);
-                apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-                if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(mi, part, pd));
-                apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                if (prog) apply_material_params(*prog, inputs);
-                sg_draw(0, part.indexCount, int(batch.mainCount));
-                ++stats.drawCalls;
-                stats.triangles += part.indexCount / 3 * int(batch.mainCount);
-            }
-            stats.meshes += int(batch.mainCount);
-            ++stats.meshBatches;
-        }
-    };
-    draw_meshes(opaqueBatches, opaque, false);
-    draw_meshes(blendedBatches, blended, true);
-    stats.materials = int(materialsDrawn.size());
-
     // quad groups
-    auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest, int flatMode = 0) {
+    auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest, const Px& base, int flatMode = 0) {
         if (batches.empty()) return;
         quad_vs_params_t u{};
         copy_mat(u.view_proj, vp);
-        Rect scissor;  // the clip applied now (w <= 0: the whole target); a ScrollList's content is cut at its rectangle
+        Rect scissor;  // the clip applied now (w <= 0: `base`, the whole target or the camera's viewport); a ScrollList's content is cut at its rectangle
         auto apply_clip = [&](const Rect& c) {
             if (c == scissor) return;
             scissor = c;
-            Rect r = c.w > 0 ? c : Rect{0, 0, float(targetW), float(targetH)};
+            if (c.w <= 0) { sg_apply_scissor_rect(base.x, base.y, base.w, base.h, true); return; }
+            Rect r = c;
             const float k = renderScale;
             const int x0 = std::clamp(int(std::lround(r.x * k)), 0, physW), y0 = std::clamp(int(std::lround(r.y * k)), 0, physH);
             const int x1 = std::clamp(int(std::lround((r.x + r.w) * k)), x0, physW), y1 = std::clamp(int(std::lround((r.y + r.h) * k)), y0, physH);
@@ -1376,8 +1465,100 @@ void Renderer::Impl::render(World& world, float dt) {
         }
         apply_clip(Rect{});
     };
-    draw_group(gWorld.batches, fr.cam.viewProj, fr.cam.perspective, litMode);
-    draw_group(gDebugWorld.batches, fr.cam.viewProj, false);
+    // ---- main pass ----
+    // Camera.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
+    // glows it, and a second pass (below) draws the screen-space groups (HUD) on top, so the HUD never glows.
+    // With MSAA the multisampled image must survive every pass but the last one (STORE): the next pass loads it, and with
+    // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
+    // the final resolve contains everything.
+    const bool msaa = gpu.sample_count() > 1;
+    // Does this job begin a pass? The screen-space job of a frame whose HUD goes over the bloom draws after it instead.
+    const bool mainPass = fr.wantWorld || !hudAfterBloom;
+    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
+    if (mainPass) {
+    sg_pass mp{};
+    mp.action.colors[0].load_action = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
+    mp.action.colors[0].clear_value = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
+    mp.action.colors[0].store_action = (msaa && plan.last && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    mp.action.depth.load_action = SG_LOADACTION_CLEAR;
+    mp.action.depth.clear_value = 1.0f;
+    mp.action.stencil.load_action = SG_LOADACTION_CLEAR;
+    mp.attachments.colors[0] = colorAtt;
+    if (gpu.sample_count() > 1) mp.attachments.resolves[0] = resolveAtt;
+    mp.attachments.depth_stencil = depthAtt;
+    mp.label = fr.wantWorld ? "game" : "game-hud";
+    sg_begin_pass(&mp);
+    if (partial) apply_view(camPx);
+
+    // clear of a camera that shares the target with others
+    if (clearByQuad) draw_group(gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
+
+    // sky
+    if (fr.wantWorld && fr.cam.perspective && fr.cam.clear) {
+        sg_apply_pipeline(gpu.sky_pipeline());
+        sg_bindings b{};
+        b.vertex_buffers[0] = gpu.fullscreen_triangle();
+        sg_apply_bindings(&b);
+        sky_sky_vs_params_t vu{};
+        copy_mat(vu.inv_view_proj, fr.cam.invViewProj);
+        vu.cam_pos[0] = fr.cam.position.x; vu.cam_pos[1] = fr.cam.position.y; vu.cam_pos[2] = fr.cam.position.z;
+        apply_uniforms(UB_sky_sky_vs_params, vu);
+        sky_sky_fs_params_t fu{};
+        fu.sky_color[0] = ss.skyColor.r; fu.sky_color[1] = ss.skyColor.g; fu.sky_color[2] = ss.skyColor.b; fu.sky_color[3] = 1;
+        fu.horizon_color[0] = ss.horizonColor.r; fu.horizon_color[1] = ss.horizonColor.g; fu.horizon_color[2] = ss.horizonColor.b; fu.horizon_color[3] = 1;
+        apply_uniforms(UB_sky_sky_fs_params, fu);
+        sg_draw(0, 3, 1);
+        ++stats.drawCalls;
+    }
+
+    // meshes: one instanced draw per part of every batch
+    std::vector<const MaterialAsset*> materialsDrawn;
+    auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items, bool isBlend) {
+        mesh_fa_mesh_vs_params_t vu = vuScene;
+        for (const MeshBatch& batch : batches) {
+            if (batch.mainCount == 0) continue;
+            const MeshItem& mi = items[batch.rep];
+            const MeshRenderer& mr = *mi.mr;
+            vu.fa_uv_scale[0] = mr.uvScale.x; vu.fa_uv_scale[1] = mr.uvScale.y;
+            MaterialInputs inputs{};
+            if (mi.material && mi.material->ok) {
+                material_inputs(mi, mi.material, inputs);
+                if (std::find(materialsDrawn.begin(), materialsDrawn.end(), mi.material) == materialsDrawn.end()) materialsDrawn.push_back(mi.material);
+            } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), mi.material->path) == stats.materialFallbacks.end()) {
+                stats.materialFallbacks.push_back(mi.material->path);
+            }
+            for (auto& part : mi.mesh->parts) {
+                const bool skinned = mi.anim && part.skinVb.id;
+                const PartDraw pd = part_draw(mi, part);
+                const MaterialProgram* prog = pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
+                sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned, prog ? prog->shader : sg_shader{}));
+                sg_bindings b{};
+                b.vertex_buffers[0] = part.vb;
+                b.vertex_buffers[1] = mainInst;
+                b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+                if (skinned) b.vertex_buffers[2] = part.skinVb;
+                b.index_buffer = part.ib;
+                bind_textures(b, pd, prog, inputs, false);
+                sg_apply_bindings(&b);
+                apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+                if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(mi, part, pd));
+                apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                if (prog) apply_material_params(*prog, inputs);
+                sg_draw(0, part.indexCount, int(batch.mainCount));
+                ++stats.drawCalls;
+                stats.triangles += part.indexCount / 3 * int(batch.mainCount);
+            }
+            stats.meshes += int(batch.mainCount);
+            ++stats.meshBatches;
+        }
+    };
+    draw_meshes(opaqueBatches, opaque, false);
+    draw_meshes(blendedBatches, blended, true);
+    stats.materials += int(materialsDrawn.size());
+
+    draw_group(gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode);
+    draw_group(gDebugWorld.batches, fr.cam.viewProj, false, camPx);
     if (!fr.debugLines.empty()) {
         sg_apply_pipeline(gpu.quad_pipeline(false, true));
         quad_vs_params_t u{};
@@ -1399,15 +1580,18 @@ void Renderer::Impl::render(World& world, float dt) {
         sg_draw(0, int(fr.debugLines.size()), 1);
         ++stats.drawCalls;
     }
-    if (!hudAfterBloom) {
-        draw_group(gScreen.batches, screenProj, false);
-        draw_group(gDebugScreen.batches, screenProj, false);
+    if (drawHudInPass) {
+        draw_group(gScreen.batches, screenProj, false, fullPx);
+        draw_group(gDebugScreen.batches, screenProj, false, fullPx);
     }
 
     sg_end_pass();
+    }  // mainPass
+
+    if (!plan.last) return;
 
     // ---- post-process: bloom adds its glow into the game target ----
-    if (fr.cam.bloom.enabled) {
+    if (post.bloom.enabled) {
         BloomTarget dst;
         if (hudAfterBloom && msaa) {
             // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
@@ -1417,11 +1601,11 @@ void Renderer::Impl::render(World& world, float dt) {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
             dst = BloomTarget{msaa ? resolveColorAtt : colorAtt, sg_view{}, 1};
         }
-        stats.drawCalls += bloom.apply(gpu, fr.cam.bloom, physW, physH, texView, dst);
+        stats.drawCalls += bloom.apply(gpu, post.bloom, physW, physH, texView, dst);
     }
 
     // ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
-    if (hudAfterBloom && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
+    if (hudAfterBloom && fr.wantScreen && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
         sg_pass hp{};
         hp.action.colors[0].load_action = SG_LOADACTION_LOAD;  // keep the world and its glow
         hp.action.colors[0].store_action = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
@@ -1433,19 +1617,14 @@ void Renderer::Impl::render(World& world, float dt) {
         hp.attachments.depth_stencil = depthAtt;
         hp.label = "game-hud";
         sg_begin_pass(&hp);
-        draw_group(gScreen.batches, screenProj, false);
-        draw_group(gDebugScreen.batches, screenProj, false);
+        draw_group(gScreen.batches, screenProj, false, fullPx);
+        draw_group(gDebugScreen.batches, screenProj, false, fullPx);
         sg_end_pass();
     }
 
     // ---- last post-process: Camera.colorFilter (costs nothing with "none") ----
     filterActive = false;
-    if (fr.cam.colorFilter != 0) stats.drawCalls += apply_color_filter(fr.cam.colorFilter);
-
-    debug.clear();
-    gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
-    auto t1 = std::chrono::steady_clock::now();
-    stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    if (post.colorFilter != 0) stats.drawCalls += apply_color_filter(post.colorFilter);
 }
 
 void Renderer::end_frame() {

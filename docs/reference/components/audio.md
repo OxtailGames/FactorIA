@@ -4,7 +4,7 @@
 
 ## AudioListener
 
-The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the primary camera is used.
+The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).
 
 | Field | Type | Default | Description |
 |---|---|---|---|

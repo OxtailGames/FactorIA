@@ -183,7 +183,7 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | Topic | Rule |
 |---|---|
 | 2D world | Units are design pixels. +X is right and +Y is up. The origin is the centre of the screen. With the 1280x720 design size of the templates, a default camera shows x from -640 to 640 and y from -360 to 360. |
-| Screen space | `"space": "screen"` on Sprite, Shape2D, Text or ParticleEmitter. Units are design pixels, the origin is the top-left corner and +Y points down. Cameras do not affect it. Use it for HUD and menus. Section 9.4 shows how to pin items to the corners. |
+| Screen space | `"space": "screen"` on Sprite, Shape2D, Text or ParticleEmitter. Units are design pixels, the origin is the top-left corner and +Y points down. Cameras do not affect it, and with several cameras (split screen) it is drawn once over the whole screen, not once per camera. Use it for HUD and menus. Section 9.4 shows how to pin items to the corners. |
 | `anchor` and `pivot` | Screen space only: `anchor` (0..1 in each axis) is the screen point the position is relative to: [0,0] top-left, [1,0] top-right, [0,1] bottom-left, [1,1] bottom-right. `pivot` is the point of the item that sits at that point: [0,0] bottom-left, [0,1] top-left, [1,1] top-right, [0.5,0.5] centre. Sprite and Shape2D default to [0.5,0.5]; Text defaults to [0,1]. |
 | 3D | Units are meters. Right-handed, +Y up. A perspective camera looks down its local -Z axis. |
 | Angles | Degrees. In 2D only `rotation[2]` is used, counter-clockwise. In 3D, `rotation` is `[pitch X, yaw Y, roll Z]` and the matrix is `Ry(yaw) · Rx(pitch) · Rz(roll)`. |
@@ -297,7 +297,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the screen, 0..1, top-left origin, default [0, 0, 1, 1]), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
 | `Video` | `path`, `autoplay`, `loop`, `volume`, `bus`, `fit`, `tint` + the UiBox fields; runtime `playing`, `time`, `duration`, `ended` | An `.mpg` (MPEG-1 + MP2) drawn in a UI rectangle with its sound; time follows the game clock. Script: `entity.video.play()`, `.seek(s)`, `.on("ended", fn)`. Bring any video with `assets.import` (needs ffmpeg). [ASSETS.md](ASSETS.md) "Video", [MENUS.md](MENUS.md) studio intro. |
@@ -306,7 +306,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `Tilemap` | `tileset`, `tileSize`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty; flat list with `width`/`height`, or an array of rows), `solidTiles`, optional `columns` (0 = derived from the tileset image), optional `margin` and `spacing` (pixels around and between the tiles of the tileset image, default 0) | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
 | `ParticleEmitter` | `emitting`, `rate`, `burst`, `autoDestroy`, `maxParticles`, `lifetime`, `speed`, `direction` (0 = right, 90 = up), `spread`, `gravity`, `startSize`, `endSize`, `startColor`, `endColor`, `blend`, `texture`, `layer`, `space`, `anchor` | Sparks, dust and explosions (section 9.12). `"space": "screen"` (plus `anchor`) draws them in the HUD pass in design pixels (origin top-left); `direction` and `gravity` keep their meaning (90 = up, negative `gravity` y falls down the screen). Ignored for `is3D`. |
 
-`layer` is the draw order: higher layers draw on top. `space: "screen"` items ignore the camera.
+`layer` is the draw order: higher layers draw on top. `space: "screen"` items ignore the camera (all of them: they are drawn once over the whole screen, after every camera).
 
 **3D**
 
@@ -345,7 +345,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | Component | Key fields | Typical use |
 |---|---|---|
 | `AudioSource` | `clip`, `volume` (0..1), `pitch`, `loop`, `playOnStart`, `spatial`, `range`, `playing` (runtime: set true to play) | A sound on an entity. Formats: .wav, .ogg, .mp3. |
-| `AudioListener` | `volume` | The "ears" for spatial sound. Without one, the primary camera listens. |
+| `AudioListener` | `volume` | The "ears" for spatial sound. Without one, the first camera drawn listens (the primary camera with the lowest `depth`: player one's in a split screen). |
 | `Script` | `path` (module), `props` (values that override the class fields), `enabled` | Attaches a Behaviour to the entity. |
 
 ## 8. Scripts: behaviours and the JavaScript API
@@ -387,7 +387,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity`, `moveCharacter(entity, delta)` |
-| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
+| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `camera.all`, `camera.at(point)`, `worldToScreen(v, camera?)`, `screenToWorld(v, depth?, camera?)`, `screenRay(point, camera?)` (with several cameras they default to the camera under the point, section 9.29); `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.platform` (`"windows"`, `"android"`...), `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
@@ -402,7 +402,7 @@ Options worth knowing:
 
 - `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent.
 - `raycast` and `shapeCast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin (or overlap the cast shape at its start) are skipped too. The commands `physics.raycast` and `physics.shape_cast` take the same three options (`ignore` is an entity id or name there).
-- `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the main camera) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
+- `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the camera under the finger: the main camera when there is only one) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
 - `world.find` no longer returns destroyed entities, and their id can be reused right away.
 
 ## 9. Recipes
@@ -1529,6 +1529,62 @@ export default class Runner extends Behaviour {
 }
 ```
 
+### 9.29 Split screen: two or four players, one camera each
+
+Every active `Camera` with `primary: true` draws into its own `viewport` (`[x, y, width, height]`, each 0..1, `[0, 0]` is the
+TOP-LEFT of the screen, +Y down), in ascending `depth`. A split screen is two or more cameras whose viewports share the screen;
+each one culls, sorts and lights its own view (a `Light2D` only lights the cameras it reaches, a 3D camera has its own 3D
+lights), and each clears its own rectangle. The UI and every `space: "screen"` item is drawn once over the WHOLE screen after
+the cameras, so a shared HUD stays in the middle or the corners of the screen, not in each view. Bloom and `colorFilter` are
+applied once to the finished frame with the settings of the lowest-`depth` camera (the other cameras' values are ignored). At
+most 8 cameras are drawn (the ones with the lowest `depth`; one warning names the rest).
+
+```json
+{ "id": "cam1", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Camera": { "projection": "orthographic", "orthoSize": 200, "primary": true, "depth": 0, "viewport": [0, 0, 0.5, 1], "clearColor": [0.05, 0.05, 0.08, 1] },
+    "Script": { "path": "scripts/follow_target.js", "props": { "target": "p1" } } } },
+{ "id": "cam2", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Camera": { "projection": "orthographic", "orthoSize": 200, "primary": true, "depth": 1, "viewport": [0.5, 0, 0.5, 1], "clearColor": [0.05, 0.05, 0.08, 1] },
+    "Script": { "path": "scripts/follow_target.js", "props": { "target": "p2" } } } }
+```
+
+Two players side by side: viewports `[0, 0, 0.5, 1]` and `[0.5, 0, 0.5, 1]`. Four players: `[0, 0, 0.5, 0.5]`, `[0.5, 0, 0.5, 0.5]`,
+`[0, 0.5, 0.5, 0.5]` and `[0.5, 0.5, 0.5, 0.5]`. An inset (a minimap) is a second camera on top (a higher `depth`) with a small
+viewport such as `[0.72, 0.04, 0.24, 0.24]` and `clear: true`. Give the cameras the SAME `orthoSize` so every player has the same
+zoom: the visible HEIGHT is `2 * orthoSize` in every viewport and the visible width follows the rectangle (a half-width view
+sees half the width). With `orthoSize: 0` the camera keeps one world unit per design pixel, so a half-width view sees half the
+world. A `viewport` outside 0..1 or without size makes the scene fail to load with the entity and the field in the message.
+
+```js
+// scripts/follow_target.js (one per camera; `target` is the id of the player it follows)
+import { Behaviour, world } from "factoria";
+export default class FollowTarget extends Behaviour {
+  target = "";
+  catchUp = 8;
+  onLateUpdate(dt) {
+    const t = world.find(this.target);
+    if (!t) return;
+    const k = Math.min(1, this.catchUp * dt), p = this.entity.position;
+    p.x += (t.position.x - p.x) * k;
+    p.y += (t.position.y - p.y) * k;
+  }
+}
+```
+
+Per-player input: each player's script reads `input.player(i)` (section 9.28) with its own pad or key scheme, so the
+camera scripts only follow the players and the controls stay the same with one screen or four.
+
+Screen points and cameras: `camera.all` lists the cameras drawn (draw order), `camera.at(point)` is the one whose viewport
+contains a screen point (the one drawn last, on top, when viewports overlap; a point outside every viewport gives the first camera), and `camera.screenToWorld(point)`,
+`camera.screenRay(point)`, `input.mouse.world` and the `world` of a touch use that camera by default, so a click picks what
+the player under the pointer sees. Name the camera to convert for another one: `camera.worldToScreen(p, cam2)` (inside `cam2`'s
+viewport when `p` is in its view) and `camera.screenToWorld(point, 0, cam2)`. `camera.main` is the first camera drawn (player
+one's). Tools that read "the camera" (screenshots, `game.screenshot`, the editor viewport, `perf.measure`) see the whole frame.
+`game.renderStats()`: `drawCalls`, `triangles`, `lights` and the rest are per FRAME, added up over every camera, so a four-camera
+frame costs about four times a one-camera frame in `drawCalls` (docs/PERFORMANCE.md). Screen-space visuals with `lit: true` get
+only the scene's ambient light (no `Light2D`) in a split-screen frame. Keep it to two or three cameras on phones.
 
 ## 10. Tests
 

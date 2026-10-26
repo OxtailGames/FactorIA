@@ -217,9 +217,8 @@ void assign_shadow_rows(World& world, Frame& f) {
     }
     if (work.empty()) return;
 
-    ShadowCache local;
+    ShadowCache local;  // no cache kept: every row is made now
     ShadowCache& cache = f.shadowCache ? *f.shadowCache : local;
-    ++cache.tick;
     Hasher all;
     const std::vector<Dir>& dirs = directions();
     for (LightWork& w : work) {
@@ -268,7 +267,7 @@ void assign_shadow_rows(World& world, Frame& f) {
     }
     all.add(f.shadowRows);
     f.shadowKey = all.h | 1u;
-    if (f.stats) f.stats->lights2dShadowed = f.shadowRows;
+    if (f.stats) f.stats->lights2dShadowed += f.shadowRows;
     // Rows nobody asked for this frame (a light that moved) are kept a while, then dropped.
     if (cache.rows.size() > 4 * std::size_t(kMaxShadowLights2D)) {
         for (auto it = cache.rows.begin(); it != cache.rows.end();) {

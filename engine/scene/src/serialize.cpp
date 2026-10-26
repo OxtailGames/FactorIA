@@ -474,6 +474,13 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                       ", " + std::to_string(sp->slice.z) + ", " + std::to_string(sp->slice.w) + "]",
                       "slice is [left, top, right, bottom] in texture pixels, each 0 or more. Example: \"slice\": [8, 8, 8, 8].");
         }
+        if (const Camera* cam = world_.get<Camera>(e)) {
+            const std::string problem = camera_viewport_problem(cam->viewport);
+            if (!problem.empty())
+                error(cptr + "/Camera/viewport", problem,
+                      "viewport is [x, y, width, height] as fractions of the screen with [0, 0] the top-left corner and +Y down, "
+                      "inside 0..1. Left half: [0, 0, 0.5, 1]. Bottom-right quarter: [0.5, 0.5, 0.5, 0.5]. Whole screen: [0, 0, 1, 1].");
+        }
         if (const Joint2D* jt = world_.get<Joint2D>(e)) {
             if (jt->enableLimit && jt->lowerLimit > jt->upperLimit)
                 error(cptr + "/Joint2D/lowerLimit", "Joint2D.lowerLimit " + std::to_string(jt->lowerLimit) + " is above upperLimit " + std::to_string(jt->upperLimit),
