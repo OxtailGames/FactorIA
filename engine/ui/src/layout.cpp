@@ -142,13 +142,15 @@ void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure
 
 // Size of `s` as the renderer draws a UI label: at the player's text size (the measure does that), wrapped at `maxWidth` if > 0.
 Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::string& font, float fontSize, float maxWidth,
-                  float maxTextScale) {
+                  float maxTextScale, TextStyle style = {}) {
     if (s.empty()) return {0, 0};
     Text t;
     t.text = s;
     t.font = font;
     t.fontSize = fontSize;
     t.maxWidth = maxWidth;
+    t.markup = style.markup;
+    t.bold = style.bold;
     t.maxTextScale = maxTextScale;  // autoShrink stays off: autoSize makes room for the label at its full (capped) size
     t.space = RenderSpace::Screen;
     return m.textSize ? m.textSize(t) : approx_text_size(t, m.textScale);
@@ -157,15 +159,15 @@ Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::strin
 // The size a Button / Toggle / Slider with autoSize takes: its `design` size, or what its label needs when that is more.
 // The margins match what fa_render draws (ui2d.cpp): a toggle's box and a slider's label / track / value zones.
 Vec2 fitted_size(const Button& b, Vec2 design, const VisualMeasure& m) {
-    Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f, b.maxTextScale);
-    if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth, b.maxTextScale);
+    Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f, b.maxTextScale, {b.markup, b.bold});
+    if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth, b.maxTextScale, {b.markup, b.bold});
     if (label.x <= 0) return design;
     return {std::max(design.x, std::ceil(label.x + 32.0f)), std::max(design.y, std::ceil(label.y + 16.0f))};
 }
 
 Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
-    Vec2 label = label_extent(m, t.label, t.font, t.fontSize, 0.0f, t.maxTextScale);
-    if (t.maxWidth > 0 && label.x > t.maxWidth) label = label_extent(m, t.label, t.font, t.fontSize, t.maxWidth, t.maxTextScale);
+    Vec2 label = label_extent(m, t.label, t.font, t.fontSize, 0.0f, t.maxTextScale, {t.markup, t.bold});
+    if (t.maxWidth > 0 && label.x > t.maxWidth) label = label_extent(m, t.label, t.font, t.fontSize, t.maxWidth, t.maxTextScale, {t.markup, t.bold});
     if (label.x <= 0) return design;
     const float h = std::max(design.y, std::ceil(label.y + 16.0f));
     const float side = ui_toggle_box_side(t, h, m.textScale);
@@ -173,8 +175,8 @@ Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
 }
 
 Vec2 fitted_size(const Slider& s, Vec2 design, const VisualMeasure& m) {
-    Vec2 label = label_extent(m, s.label, s.font, s.fontSize, 0.0f, s.maxTextScale);
-    if (s.maxWidth > 0 && label.x > s.maxWidth) label = label_extent(m, s.label, s.font, s.fontSize, s.maxWidth, s.maxTextScale);
+    Vec2 label = label_extent(m, s.label, s.font, s.fontSize, 0.0f, s.maxTextScale, {s.markup, s.bold});
+    if (s.maxWidth > 0 && label.x > s.maxWidth) label = label_extent(m, s.label, s.font, s.fontSize, s.maxWidth, s.maxTextScale, {s.markup, s.bold});
     const bool above = ui_slider_label_above(s);
     // Beside the track the label gets 35% of the width inside the 8 px margins; above it, the whole width.
     float inner = label.x > 0 ? (above ? label.x : (label.x + 12.0f) / 0.35f) : 0.0f;

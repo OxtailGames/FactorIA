@@ -111,6 +111,8 @@ struct Glyph {
     FontFace* face;
     std::uint32_t gid;
     float adv, xOff, yOff;  // pixels
+    int icon = -1;
+    bool synth = false;
 };
 
 // A group of code points drawn by one or more glyphs that move together (a letter, a ligature, a base with its marks).
@@ -138,7 +140,7 @@ struct Chain {
 };
 
 void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size_t b, FontFace* f, hb_script_t script, bool rtl, int px,
-               std::vector<Glyph>& pool, std::vector<Cluster>& clusters) {
+               bool synth, float synthExtra, std::vector<Glyph>& pool, std::vector<Cluster>& clusters) {
     hb_buffer_clear_contents(buf);
     hb_buffer_add_utf32(buf, reinterpret_cast<const std::uint32_t*>(p.data()), int(p.size()), unsigned(a), int(b - a));
     hb_buffer_set_direction(buf, rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
@@ -157,7 +159,9 @@ void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size
             c.space = is_break_space(p[c.first]);
             clusters.push_back(c);
         }
-        pool.push_back({f, info[i].codepoint, float(pos[i].x_advance) * scale, float(pos[i].x_offset) * scale, float(pos[i].y_offset) * scale});
+        const float adv = float(pos[i].x_advance) * scale;
+        pool.push_back({f, info[i].codepoint, adv > 0 && synth ? adv + synthExtra : adv, float(pos[i].x_offset) * scale,
+                        float(pos[i].y_offset) * scale, -1, synth});
         clusters.back().g1 = std::uint32_t(pool.size());
         clusters.back().adv += pool.back().adv;
     }
@@ -167,19 +171,26 @@ void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size
     for (std::size_t k = first; k < clusters.size(); ++k) clusters[k].end = k + 1 < clusters.size() ? clusters[k + 1].first : std::uint32_t(b);
 }
 
-void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, Chain& chain, HbBuffer& buf, ShapedText& out) {
+void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, Chain& chain, HbBuffer& buf, const RichShaping* rich,
+                     ShapedText& out) {
     const std::size_t n = p.size();
     if (n == 0) {
         out.lines.emplace_back();
         return;
     }
     FontFace* const primary = chain.at(0);
+    const auto attr_of = [&](std::size_t i) -> MarkupAttr {
+        return rich && rich->attrs && base + i < rich->attrs->size() ? (*rich->attrs)[base + i] : MarkupAttr{};
+    };
+    const auto is_icon = [&](std::size_t i) { return attr_of(i).icon >= 0; };
 
     // ---- which font draws each character ----
     std::vector<FontFace*> faceOf(n, primary);
+    std::vector<char> synth(n, 0);  // bold, and no bold face has the character: the engine emboldens it
     for (std::size_t i = 0; i < n; ++i) {
         const char32_t c = p[i];
         FontFace* f = nullptr;
+        if (is_icon(i)) continue;  // a picture: no font
         const bool ext = i > 0 && is_extender(c);
         if (ext) {  // stays with its base character's font, as long as that font can draw it
             f = faceOf[i - 1];
@@ -195,6 +206,11 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
                 out.missing.push_back(c);
         }
         faceOf[i] = f;
+        if (rich && attr_of(i).bold) {
+            FontFace* bf = rich->boldFace ? rich->boldFace(f) : nullptr;
+            if (bf && (bf->has_glyph(c) || is_default_ignorable(c))) faceOf[i] = bf;
+            else synth[i] = 1;
+        }
         for (char32_t part : composed_parts(c))  // the shaper decomposes SARA AM whatever the font has
             if (!f->has_glyph(part) && out.missing.size() < 8 && std::find(out.missing.begin(), out.missing.end(), part) == out.missing.end())
                 out.missing.push_back(part);
@@ -227,8 +243,24 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
     std::vector<Cluster> clusters;
     for (std::size_t i = 0; i < n;) {
         std::size_t j = i + 1;
-        while (j < n && faceOf[j] == faceOf[i] && script[j] == script[i] && level_of(j) == level_of(i)) ++j;
-        shape_run(buf.b, p, i, j, faceOf[i], script[i], (level_of(i) & 1) != 0, px, pool, clusters);
+        if (is_icon(i)) {  // a picture is its own cluster, as wide as the rich text says
+            Cluster c;
+            c.first = std::uint32_t(i);
+            c.end = std::uint32_t(i + 1);
+            c.g0 = std::uint32_t(pool.size());
+            const int icon = attr_of(i).icon;
+            const float adv = std::size_t(icon) < rich->iconAdvance.size() ? rich->iconAdvance[std::size_t(icon)] : float(px);
+            pool.push_back({nullptr, 0, adv, 0, 0, icon, false});
+            c.g1 = std::uint32_t(pool.size());
+            c.adv = adv;
+            clusters.push_back(c);
+            ++i;
+            continue;
+        }
+        while (j < n && !is_icon(j) && faceOf[j] == faceOf[i] && synth[j] == synth[i] && script[j] == script[i] && level_of(j) == level_of(i))
+            ++j;
+        shape_run(buf.b, p, i, j, faceOf[i], script[i], (level_of(i) & 1) != 0, px, synth[i] != 0, rich ? rich->syntheticExtra : 0.0f, pool,
+                  clusters);
         i = j;
     }
     std::vector<std::uint32_t> clusterOf(n + 1, 0);  // code point -> index of its cluster
@@ -286,7 +318,7 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
             for (std::size_t c : order)
                 for (std::uint32_t g = clusters[c].g0; g < clusters[c].g1; ++g) {
                     const Glyph& gl = pool[g];
-                    line.glyphs.push_back({gl.face, gl.gid, base + clusters[c].first, pen + gl.xOff, gl.yOff, gl.adv});
+                    line.glyphs.push_back({gl.face, gl.gid, base + clusters[c].first, pen + gl.xOff, gl.yOff, gl.adv, gl.icon, gl.synth});
                     pen += gl.adv;
                 }
             line.width = pen;
@@ -299,18 +331,22 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
 
 ShapedText shape_text(std::string_view utf8, int px, float maxWidth, std::size_t chainSize,
                       const std::function<FontFace*(std::size_t)>& chainFn) {
+    return shape_text(decode_text(utf8), px, maxWidth, chainSize, chainFn, nullptr);
+}
+
+ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
+                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich) {
     ShapedText out;
     Chain chain(std::max<std::size_t>(chainSize, 1), chainFn);
     if (!chain.at(0)) {
         out.lines.emplace_back();
         return out;
     }
-    const std::u32string text = decode_text(utf8);
     HbBuffer buf;
     for (std::size_t start = 0;;) {
         const std::size_t nl = text.find(U'\n', start);
         const std::size_t end = nl == std::u32string::npos ? text.size() : nl;
-        shape_paragraph(std::u32string_view(text).substr(start, end - start), std::uint32_t(start), px, maxWidth, chain, buf, out);
+        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, chain, buf, rich, out);
         if (nl == std::u32string::npos) break;
         start = nl + 1;
     }

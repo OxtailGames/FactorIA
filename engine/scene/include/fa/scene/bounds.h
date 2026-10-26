@@ -41,7 +41,8 @@ struct VisualMeasure {
 };
 
 // Size of a text without a renderer (headless): 0.6 em per character and 1.2 em per line, wrapping at maxWidth (> 0).
-Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth);
+// With `markup` (Text.markup) the tags are not characters and an icon counts as two.
+Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, bool markup = false);
 // The same for a Text entity's component: screen-space text at the player's text size `textScale`, the maxTextScale cap and
 // autoShrink applied (text_fit.h), so a headless run measures like a rendered one.
 Vec2 approx_text_size(const Text& text, float textScale);

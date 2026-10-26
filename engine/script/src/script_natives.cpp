@@ -735,7 +735,7 @@ VisualMeasure script_measure(Impl* I, const char* what) {
     return m;
 }
 
-NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight) -> [w, h, size]
+NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold) -> [w, h, size]
     SETUP;
     Text t;
     t.text = arg_str(ctx, argc, argv, 0);
@@ -747,9 +747,20 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextS
     t.autoShrink = arg_bool(ctx, argc, argv, 6, false);
     t.minFontSize = static_cast<float>(arg_num(ctx, argc, argv, 7, 10));
     t.maxHeight = static_cast<float>(arg_num(ctx, argc, argv, 8, 0));
+    t.markup = arg_bool(ctx, argc, argv, 9, false);
+    t.bold = arg_bool(ctx, argc, argv, 10, false);
     const VisualMeasure measure = script_measure(I, "ui.measureText");
     const TextFit fit = fit_text(text_fit_spec(t), t.text, t.font, measure.textScale, text_extent_of(measure));
     return array_of(ctx, {fit.size.x, fit.size.y, fit.px});
+}
+
+NATIVE(markupProblems) {  // (text) -> string[]: what is wrong with the markup of `text` (tags, unknown colours and icons)
+    SETUP;
+    const std::vector<std::string> problems = markup_problems(arg_str(ctx, argc, argv, 0), I->host->rich_text_style());
+    JSValue a = JS_NewArray(ctx);
+    uint32_t i = 0;
+    for (const std::string& p : problems) JS_SetPropertyUint32(ctx, a, i++, JS_NewStringLen(ctx, p.data(), p.size()));
+    return a;
 }
 
 NATIVE(textScale) {  // () -> the player's text size option
@@ -3104,7 +3115,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

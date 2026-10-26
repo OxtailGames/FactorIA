@@ -21,6 +21,7 @@
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/mesh_geometry.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
@@ -60,6 +61,8 @@ struct Ctx {
     bool networkDeclared = false;                             // factoria.json "network" lists at least one host
     std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
     bool projectFileRead = false;                             // factoria.json parsed as an object
+    RichTextStyle richStyle;                                  // the "text" section of factoria.json, for the markup checks
+    std::set<std::string> boldSuggested;                      // fonts already told to get a bold face (one warning per font)
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -272,6 +275,8 @@ void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
     }
 }
 
+void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields);
+
 void check_entity_assets(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity,
                          std::set<std::string>& scripts) {
     if (!entity.is_object()) return;
@@ -284,6 +289,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             check_atlas_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
+            check_rich_text_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
                 !it.value()["texture"].get<std::string>().empty())
                 c.spriteTextures.insert(it.value()["texture"].get<std::string>());
@@ -490,6 +496,46 @@ void check_audio(Ctx& c, const AudioSettingsParse& parsed) {
     for (const AudioIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
 }
 
+// The "text" section (rich text colours, icons and bold faces): its mistakes, and the files it names.
+void check_text_settings(Ctx& c, const TextSettingsParse& parsed) {
+    for (const TextSettingsIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    for (const TextSettingsIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+    if (!parsed.ok()) return;
+    for (const auto& [name, icon] : parsed.style.icons)
+        if (!stdfs::exists(stdfs::path(c.dir) / icon.texture))
+            c.error(kProjectFileName, "/text/icons/" + name + "/texture", "The texture '" + icon.texture + "' of icon '" + name + "' does not exist.",
+                    "Fix the path or add the image to the project: [icon:" + name + "] draws nothing without it.");
+    for (const auto& [font, bold] : parsed.style.boldFonts)
+        if (bold.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / bold))
+            c.error(kProjectFileName, "/text/fonts/" + font + "/bold", "The bold font '" + bold + "' does not exist.",
+                    "Fix the path or add the .ttf to the project; until then [b] and Text.bold emulate bold from the regular face.");
+}
+
+// A Text, Button, Toggle, Slider or TouchButton that asks for markup or bold: the markup of its text must be clean, and a font
+// without a bold face in "text.fonts" is emboldened by the engine (it works, it looks worse than a drawn bold face).
+void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields) {
+    static const std::map<std::string, std::string> textField = {
+        {"Text", "text"}, {"Button", "text"}, {"Toggle", "label"}, {"Slider", "label"}, {"TouchButton", "text"}};
+    const auto field = textField.find(typeName);
+    if (field == textField.end() || !fields.is_object()) return;
+    const bool markup = fields.value("markup", false), bold = fields.value("bold", false);
+    if (!markup && !bold) return;
+    if (markup)
+        if (const auto t = fields.find(field->second); t != fields.end() && t->is_string())
+            for (const std::string& problem : markup_problems(t->get<std::string>(), &c.richStyle))
+                c.warn(file, pointer + "/" + field->second, "markup: " + problem,
+                       "Write [[ for a literal '['. Tags: [b]..[/b], [c:name]..[/c], [icon:name]; colours and icons are declared in factoria.json \"text\".");
+    std::string font = fields.contains("font") && fields["font"].is_string() ? fields["font"].get<std::string>() : std::string();
+    if (font == "builtin") font.clear();
+    if (c.richStyle.boldFonts.count(font) || c.boldSuggested.count(font)) return;
+    c.boldSuggested.insert(font);
+    const std::string shown = font.empty() ? "the built-in font" : "font '" + font + "'";
+    c.warn(file, pointer + (markup ? "/markup" : "/bold"),
+           std::string(markup ? "markup" : "bold") + " is used with " + shown + ", which has no bold face in factoria.json \"text.fonts\": [b] and Text.bold "
+               "emulate it by thickening the regular glyphs.",
+           "Add a bold file for it: \"text\": {\"fonts\": {\"" + font + "\": {\"bold\": \"assets/fonts/<Name>-Bold.ttf\"}}}.");
+}
+
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
     auto text = tooling_detail::read_file(stdfs::path(c.dir) / kProjectFileName);
     if (!text) {
@@ -513,6 +559,8 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         parse_remote_config(pj.is_object() && pj.contains(kRemoteConfigKey) ? pj[kRemoteConfigKey] : Json(), network.policy);
     const LocalizationParse localization = parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
     const AudioSettingsParse audio = parse_audio_settings(pj.is_object() && pj.contains("audio") ? pj["audio"] : Json());
+    const TextSettingsParse textSettings = parse_text_settings(pj.is_object() && pj.contains("text") ? pj["text"] : Json());
+    if (textSettings.ok()) c.richStyle = textSettings.style;
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
         for (const auto& e : validate_json(schema, pj)) {
@@ -522,6 +570,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
             if (!remoteConfig.ok() && (e.pointer == "/remoteConfig" || e.pointer.rfind("/remoteConfig/", 0) == 0)) continue;
             if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0)) continue;  // check_localization too
             if (!audio.ok() && (e.pointer == "/audio" || e.pointer.rfind("/audio/", 0) == 0)) continue;  // check_audio too
+            if (!textSettings.ok() && (e.pointer == "/text" || e.pointer.rfind("/text/", 0) == 0)) continue;  // check_text_settings too
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
             const auto sameSpot = [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; };
             const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
@@ -540,6 +589,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     check_services(c, analytics, remoteConfig);
     check_localization(c, localization);
     check_audio(c, audio);
+    check_text_settings(c, textSettings);
     c.projectFileRead = true;
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));

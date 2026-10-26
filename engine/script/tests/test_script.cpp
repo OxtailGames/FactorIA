@@ -600,6 +600,12 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(m["height"].get<double>() > 0);
     Json wrapped = ev_ok(h, "ui.measureText('abcdefgh', { fontSize: 10, maxWidth: 30 })");
     CHECK(wrapped["height"].get<double>() > m["height"].get<double>());
+    // markup: tags take no room, an icon counts as two characters, bold is the same without a renderer
+    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b][c:red]cd[/c]', { fontSize: 10, markup: true }).width").get<double>() == doctest::Approx(24.0));
+    CHECK(ev_ok(h, "ui.measureText('a[icon:x]', { fontSize: 10, markup: true }).width").get<double>() == doctest::Approx(18.0));
+    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b]', { fontSize: 10 }).width").get<double>() > 24.0 * 1.5);  // markup off: they are characters
+    CHECK(ev_ok(h, "ui.markupProblems('[b]x[/b] [c:red]y[/c]')").empty());
+    CHECK(ev_ok(h, "ui.markupProblems('[oops] [b]x')").size() == 2);
     // raycast: the caster's own collider is skipped with `ignore`, and a ray starting inside a collider skips it
     ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");
     ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");

@@ -17,6 +17,7 @@
 #include "fa/core/math.h"
 #include "fa/core/video.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
 
 namespace fa::render {
@@ -199,11 +200,22 @@ struct FontMetrics {
 struct TextQuad {
     float x0, y0, x1, y1;  // local units, y UP, relative to the entity origin after pivot
     float u0, v0, u1, v1;
+    std::uint16_t color = 0;  // rich text: 0 = the Text's colour, k = palette[k - 1] of the layout
+};
+
+// A picture of a rich text ([icon:name]): the rectangle it fills, in the units of TextQuad.
+struct IconQuad {
+    float x0, y0, x1, y1;
+    int def;  // index into TextLayout::iconDefs
 };
 
 struct TextLayout {
     std::vector<TextQuad> quads;
     Vec2 size{0, 0};  // width/height of the laid out box in local units
+    // Rich text only (Text.markup): the colours the quads name and the pictures between the glyphs.
+    std::vector<Color> palette;
+    std::vector<IconQuad> icons;
+    std::vector<RichIcon> iconDefs;
 };
 
 // ---------------------------------------------------------------------------
@@ -460,7 +472,12 @@ public:
     // (screen-space Text and UI labels multiply it by the text scale).
     // `tightBox`: the lines of a wrapped Text are aligned inside its widest line, not inside the maxWidth box (UI labels:
     // their size is the box they are placed by).
+    // `t.markup` / `t.bold` make it rich text (fa/scene/rich_text.h): tags are not characters, a run colour is a palette entry
+    // of the layout and an icon is a rectangle in TextLayout::icons. The glyphs of any mix of colours and weights are
+    // quads of the one glyph atlas.
     TextLayout layout(const Text& t, float fontSize, float pixelsPerUnit, bool tightBox = false);
+    // The project's "text" section: colours, icons and bold faces. Takes effect on the next layout.
+    void set_rich_style(const RichTextStyle& style);
     // The fonts every Text falls back to after its own font; the built-in DejaVu Sans stays last. Project paths, or
     // "builtin:pixel". Takes effect on the next layout.
     void set_fallback_fonts(std::vector<std::string> fonts);
@@ -472,8 +489,10 @@ public:
 
 private:
     FontFace* load(const std::string& font);  // the face of that file even when it failed to load (ok == false)
-    GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid);
+    GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid, bool synthBold = false);
+    FontFace* bold_face(FontFace* regular);
     void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing);
+    void warn_markup(const std::string& source, const MarkupText& m);
 
     struct Impl;
     Gpu& gpu_;

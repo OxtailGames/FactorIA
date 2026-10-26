@@ -4,6 +4,20 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Rich text: bold, colours and icons inside a text
+
+- `Text.markup: true` reads `[b]bold[/b]`, `[c:good]coloured[/c]` and `[icon:fish]` in the text, and so does the label of a
+  `Button`, `Toggle`, `Slider` or `TouchButton` with `markup: true`. Wrapping (also between CJK characters), alignment,
+  `maxWidth` and `autoShrink` work on the whole line, and `ui.measureText(text, { markup: true })` and `entity.bounds()`
+  measure what is drawn. An icon is a rectangle of a project texture as tall as the line. The glyphs of a Text, of any
+  colour and weight, are one batch; each texture that icons come from adds one more.
+- The new `text` section of `factoria.json` names the colours (`text.colors`), the icons (`text.icons`: texture and pixel
+  region) and the bold file of each font (`text.fonts`). `Text.bold` (and the same field of the widgets) draws a whole text
+  bold. A font without a bold file is emboldened by the engine; `factoria validate` suggests adding one, and checks the
+  section, the files it names and the markup of scene texts.
+- Mistakes never hide the sentence: an unknown tag, a `[` without `]` or an unknown colour shows as written, with one
+  warning per text. `ui.markupProblems(text)` lists them for a test. `[[` writes a literal `[`.
+
 An interface size, Panel minimum and maximum sizes, and events for the size options
 
 - `ui.scale` (0.5 to 3, default 1) makes the whole screen-space interface bigger or smaller: the size, offset, padding,
