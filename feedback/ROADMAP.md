@@ -25,10 +25,12 @@ and the open ones became the 21 packages of M29 (built 2026-10-26), which also t
 pathfinding and behaviour trees, audio effects, networking, split screen) and M12's analytics and remote config. M29
 fixed them all (2026-10-26): no entry is open. The game dropped the workarounds that no longer had a reason; the few it
 keeps on purpose are under M29, "Left open".
+M30, a fourth reference game (a management game played with the mouse, web and desktop first), is in progress: it
+is how save slots, a dense mouse UI and the web as the main target get ranked.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
-Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
+Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade examples/tidewater-market --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
 0 entries from 7 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
@@ -879,7 +881,82 @@ Left open:
 Next: no feature is planned. The next milestone is whatever the next reference game or the store accounts ask for; what
 is left of M12 (push notifications, deep links, Epic and GOG, the Android stores outside Play), M19 (save slots, WebSocket)
 and M23 (consoles) waits for a game that needs it. The manual checks that need real stores, devices and operating
-systems (M8, M9, M12, the lists above) need hardware this machine does not have.
+systems (M8, M9, M12, the lists above) need hardware this machine does not have. M30 below is a fourth reference game
+that asks for some of them.
+
+## M30. A fourth reference game: management with the mouse, web and desktop first (L, high) — in progress (the `m30/reference-game` PR)
+
+Planned 2026-10-26 against `9feccf2` (the top of the unpushed M29 stack: GitHub suspended the account that day, so the
+branch starts from `m29/leftovers`). No example game has an open entry. Lantern Keep is a 2D platformer, Clockwork
+Courier a 3D phone game and Burrow Brigade a 2D couch co-op game for pads: none is played with the mouse first, none has
+a screen full of panels, lists and tooltips, hundreds of agents at once, sessions of hours with saves that must survive
+a game update, or the browser as its main target. **Tidewater Market** (`examples/tidewater-market`, ids `TM/FB-n`) is
+that game: a calm management game in a harbour town seen on an isometric grid. The player lays out roads, stalls,
+workshops and warehouses; villagers walk the roads and carry goods along production chains (fish to the smokehouse,
+wheat to the mill and the bakery, wool to the weaver), ships come in with orders to fill, the seasons change what grows
+and sells, and event cards ask for a choice. Time runs at pause, x1, x2 and x4. A game lasts one to three hours, in three
+save slots with an autosave. Mouse and keyboard first (a gamepad drives a cursor); the web (itch.io) and the desktop
+(Steam: Windows, Linux, macOS).
+
+Built like the other three: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public
+commands, no engine change. The game asks on purpose for what the engine may not have; each gap gets its workaround and
+an `ENGINE_FEEDBACK.json` entry, and those entries rank what comes next:
+- an isometric grid: tiles and buildings drawn in iso, depth sorting of tall buildings and walkers, picking the tile
+  under the mouse;
+- a strategy camera: pan by dragging and at the screen edges, zoom on the wheel towards the cursor, bounds;
+- a dense mouse UI: drag to lay out roads and areas, drag and drop between panels, tooltips, an inspector, tables and
+  lists that scroll and sort, charts of production over time, notifications, right-click to cancel, keyboard shortcuts;
+- scale: 500 or more walkers finding paths on a map of about 10,000 tiles at x4 speed, with the render and CPU budgets
+  measured there;
+- data-driven content (buildings, recipes, goods, events in JSON tables, validated), undo and redo of building;
+- save slots with a version and a migration hook (M19): the game changes its save format during the milestone and
+  migrates the old saves, autosaves on a timer and when the browser tab closes or is hidden, cloud saves;
+- the web as the main target: load time and download size, the browser's full screen, saves in the browser, the
+  itch.io page; the desktop build too;
+- rich text in event cards and tooltips (colours, icons inline with text), numbers and dates formatted per language;
+- English, Spanish, French and Simplified Chinese (a CJK font subset; a language whose lines break between any two
+  characters).
+
+Assets are CC0 only, imported with `assets.import` and recorded in `assets.json` (isometric tiles and buildings, UI and
+sounds from Kenney's packs; P1 and P2 choose them).
+
+Packages, in this order: P1, P2, then P3-P5 at once, then P6, then P7 and P8 at once.
+- **P1 map, camera and building (L)**: the isometric map (water, sand, grass, forest, rock) from a seed, the camera, the
+  tile under the mouse, laying out roads by dragging, placing, rotating and demolishing buildings with costs and rules,
+  undo and redo, the data tables (buildings, goods, recipes) and their validation, the title screen and the flow (title,
+  game), the HUD's top bar (money, goods, date), a test map, and the contracts the other packages build on (the map, the
+  building catalogue, the economy's state, game events, the clock).
+- **P2 villagers and the economy (L)**: houses and villagers, walkers on the roads finding paths to work and back,
+  carriers moving goods between buildings and warehouses, the production chains, the clock with pause and x1/x2/x4, the
+  seasons, the money (wages, upkeep, sales), music per season, and a bot that grows a town from a fixed seed over a year
+  of game time with the same result every run.
+- **P3 the interface (M)**: the build menu by category, the inspector of a building or villager, tooltips everywhere,
+  the goods table (sortable, scrolling), charts of production and money over time, notifications, overlays (desirability,
+  coverage, traffic), drag and drop of workers and goods between panels, keyboard shortcuts.
+- **P4 progress and saves (M)**: three save slots with names, play time and a thumbnail, autosave, a versioned format
+  (v1 first, then v2 with the migration of v1 saves, fixtures of both in the tests), saves in the browser and on the
+  desktop, cloud saves, the scenario goals (three maps, each with goals) and a sandbox.
+- **P5 ships and events (M)**: ships that arrive with orders and deadlines, the harbour and its trade, event cards with a
+  choice and rich text, a story across the three scenarios, achievements and stats on the fake store.
+- **P6 sound, options and accessibility (M)**: ambience that follows the camera (sea, market, wind), the sounds of
+  buildings and walkers, the display options (UI scale, window modes), key rebinding, a gamepad cursor, colour-blind
+  readable overlays, reduced motion, hold-free controls.
+- **P7 shipping (M)**: the icon, key art and itch.io and Steam capsules, store texts, store screenshots and a trailer
+  rebuilt by scripts, the web export for itch.io (its size and load time measured), the Windows, Linux and macOS exports,
+  render and perf budgets on the busiest town, `SHIPPING.md`.
+- **P8 languages (M)**: Spanish, French and Simplified Chinese (a Noto Sans SC subset; numbers, money and dates per
+  language), every screen at 100 % and 200 % text.
+
+Acceptance criteria:
+- ctest (`example_tidewater-market_*`) runs the bot that grows a town over a year from a fixed seed and pins its state's
+  hash; one seed gives the same map everywhere.
+- Mouse-only and keyboard-only tests drive building, the panels and the menus; a test drives drag and drop.
+- A v1 save fixture loads in the v2 game; a save in each slot round-trips.
+- The web export is made and runs in the browser pane; the Windows, Linux and macOS exports are made and the macOS one
+  starts on this Mac.
+- The busiest town (500 walkers or more) stays under its draw-call budget in a headless run.
+- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
+  next milestone.
 
 ## Out of scope: Roblox
 
