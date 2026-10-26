@@ -3,6 +3,7 @@
 import { test, expect, game } from "factoria:test";
 import { scene, ui, storage } from "factoria";
 import { cellToWorld } from "../scripts/game/iso.js";
+import { pickFromMenu } from "./ui_helper.js";
 
 const GAME = "scenes/game.scene.json";
 
@@ -57,7 +58,7 @@ test("title screen to a small town, mouse only", () => {
   expect(game.find("hud_date").get("Text").text).toBe("Spring 1, year 1");
 
   // 1. a road along row 18, laid by dragging
-  game.click("tool_road");
+  pickFromMenu("road");
   expect(ctl.tool).toEqual({ kind: "build", type: "road", rot: 0 });
   drag(rig, [18, 18], [22, 18]);
   expect(state.list("road")).toHaveLength(5);
@@ -74,7 +75,7 @@ test("title screen to a small town, mouse only", () => {
   expect(state.list()).toHaveLength(5);
 
   // 3. houses
-  game.click("tool_house");
+  pickFromMenu("house");
   game.click(at(rig, 21, 20));
   game.click(at(rig, 22, 20));
   expect(state.list("house")).toHaveLength(2);
@@ -87,7 +88,7 @@ test("title screen to a small town, mouse only", () => {
   expect(ctl.tool.rot).toBe(1); // the rotation is kept when the next building is picked
 
   // 4. a warehouse needs a road at its door: turn it (it faces +r now) until it faces the road row above it, then place it
-  game.click("tool_warehouse");
+  pickFromMenu("warehouse");
   game.mouseMove(at(rig, 19, 20));
   game.step(2);
   expect(ctl.check.ok).toBe(false); // no road in front of this door
@@ -105,7 +106,7 @@ test("title screen to a small town, mouse only", () => {
   expect([wh.x, wh.y, wh.w, wh.h, wh.rot]).toEqual([19, 19, 2, 3, 3]);
   expect(state.economy.get("planks")).toBe(2);
   // a workshop needs 6 planks and 2 are left: the click builds nothing and the toast says what is missing
-  game.click("tool_workshop");
+  pickFromMenu("workshop");
   game.click(at(rig, 21, 21));
   expect(state.list("workshop")).toHaveLength(0);
   expect(game.find("toast").get("Text").text).toBe("Not enough: you lack 4 planks.");
