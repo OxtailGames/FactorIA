@@ -3,6 +3,7 @@
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, window, input, session, i18n, world, ui, game } from "factoria";
 import * as mix from "./game/mix.js";
+import * as controls from "./game/controls.js"; // controls.js reads and saves the settings too: each uses the other only inside functions
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -34,7 +35,7 @@ function defaults() {
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
-    playerBindings: {}, // seat ("0".."3") -> { keys: {action: names}, pad: {action: names} }, only what each player rebound (scripts/game/controls.js)
+    playerBindings: {}, // seat ("0".."3") -> input.player(seat).export(): { keys: {project action: names}, pad: {...} }, only what each player rebound (scripts/game/controls.js)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
@@ -136,6 +137,7 @@ export function apply(s = load()) {
       console.warn(`settings: the saved controls of "${action}" were ignored: ${e.message}`);
     }
   }
+  controls.applySaved(s); // each seat's own controls, kept by the engine (input.player)
   if (!window.available) return; // headless runs and tests have no window
   const tryApply = (what, fn) => {
     try {

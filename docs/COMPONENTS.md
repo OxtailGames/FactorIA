@@ -3206,6 +3206,76 @@ declare module "factoria" {
   }
 
   /**
+   * One local player, from input.player(index): the project's input actions (the same names input.down() takes) read through that player's own devices, for games where two to four people share the machine. The devices are a gamepad (pad bindings read only that pad) and/or a key scheme (key bindings read only the keys of that scheme, such as the left half of the keyboard); mouse and touch bindings belong to the shared pointer and players do not read them. A player with no device reads nothing. input.down() and the rest of the global API keep hearing every device. Each player has its own bindings: the defaults are the project's, filtered to the device, and rebind() changes this player only.
+   */
+  export interface PlayerInputAPI {
+    /**
+     * The player number, 0 to 3.
+     */
+    readonly index: number;
+    /**
+     * Gives the player its devices; every field left out means none, and use() or use(null) takes them all away. pad is a gamepad slot (0..3); padId is the stable id of a pad (input.gamepad(i).id) and makes the player follow that pad when it comes back in another slot (it reads nothing while that pad is unplugged); use one of the two. keys names a key scheme: "all" (every key), "left" (the left half: Q W E R T A S D F G Z X C V B, 1-5, Space, Tab, LeftShift...), "right" (the right half: arrows, Enter, Backspace, U I O P H J K L N M, 6-0, punctuation...) or one from factoria.json input.schemes (input.keySchemes() lists them). A bad slot, an unknown scheme (with "did you mean"), or both pad and padId throws and changes nothing. What the player rebound stays with the player when its device changes.
+     */
+    use(device?: { pad?: number; padId?: string; keys?: string } | null): void;
+    /**
+     * What use() was given (pad -1, padId "" and keys "" for none) and slot, the pad the player reads right now (-1 for no pad, or for a padId pad that is unplugged).
+     */
+    readonly device: { pad: number; padId: string; keys: string; slot: number };
+    /**
+     * The pad slot the player reads now (device.slot); -1 for none.
+     */
+    readonly pad: number;
+    /**
+     * The action is held on this player's devices (analog bindings count from 0.5). Unknown actions throw with a suggestion; a player with no device gives false.
+     */
+    down(action: string): boolean;
+    /**
+     * Went down this frame on this player's devices.
+     */
+    pressed(action: string): boolean;
+    /**
+     * Went up this frame on this player's devices.
+     */
+    released(action: string): boolean;
+    /**
+     * 0..1 strength of the action on this player's devices (the maximum over its bindings).
+     */
+    value(action: string): number;
+    /**
+     * -1..1 from two actions: value(positive) - value(negative), on this player's devices.
+     */
+    axis(negative: string, positive: string): number;
+    /**
+     * 2D vector from four actions (+Y up), normalized only when longer than 1, on this player's devices.
+     */
+    vector(left: string, right: string, down: string, up: string): Vec2;
+    /**
+     * The player's bindings of an action, as names rebind() accepts. With a family: only that list ("keys": the keys of its scheme, "pad": gamepad bindings), also when the player has no such device now. Without: the lists of the devices the player has, keys first. The defaults are the project's bindings of the action that belong to the player's scheme (a key scheme may give its own with input.schemes.<name>.actions) and to a pad.
+     */
+    bindings(action: string, family?: "keys" | "pad"): string[];
+    /**
+     * Replaces this player's bindings of one action, for one family: all the names must be keys ("Space", "W") or all gamepad bindings ("GamepadA", "GamepadLeftStickUp"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with "did you mean" and changes nothing. Other players and the global input.rebind() are unaffected.
+     */
+    rebind(action: string, bindings: string[], family?: "keys" | "pad"): void;
+    /**
+     * Puts this player's bindings of one action, or of every action, back to the defaults.
+     */
+    reset(action?: string): void;
+    /**
+     * Like input.lastPressed() but only for this player's devices: a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a "press a key to rebind" screen.
+     */
+    lastPressed(): string | null;
+    /**
+     * What the player rebound, for the game to save with storage.set(): only the actions that differ from the defaults ({} when nothing). The device is not part of it.
+     */
+    export(): { keys?: Record<string, string[]>; pad?: Record<string, string[]> };
+    /**
+     * Replaces the player's rebinds with what export() gave. An entry that is no longer valid (an action the project dropped, a name that is not a binding or is of the other family) is skipped and described in the returned array (empty when all applied); the rest applies. No data (or {}) resets the player.
+     */
+    import(data?: { keys?: Record<string, string[]>; pad?: Record<string, string[]> }): string[];
+  }
+
+  /**
    * Input through named actions (factoria.json input.actions), raw keys or gamepads.
    */
   export interface InputAPI {
@@ -3234,6 +3304,22 @@ declare module "factoria" {
      * Pad 0..3 (default 0); a bad index throws.
      */
     gamepad(index?: number): GamepadAPI;
+    /**
+     * How many players input.player() has: 4 (one per gamepad slot).
+     */
+    readonly maxPlayers: number;
+    /**
+     * Player 0..3 for local multiplayer: the same actions as input.down() but read from that player's own gamepad and/or key scheme (see PlayerInputAPI). Assign devices with input.player(i).use({pad: i}) or use({keys: "left"}); a player with no device reads nothing. A bad index throws. The game assigns devices each time its scene starts (a test starts with none, like it starts with the project's bindings).
+     */
+    player(index: number): PlayerInputAPI;
+    /**
+     * The key schemes input.player(i).use({keys}) accepts: "all", "left", "right" and the ones in factoria.json input.schemes.
+     */
+    keySchemes(): string[];
+    /**
+     * The keys of a key scheme, as key names. An unknown scheme throws with a suggestion.
+     */
+    keySchemeKeys(scheme: string): string[];
     /**
      * Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu.
      */

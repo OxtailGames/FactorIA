@@ -289,6 +289,34 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   On phones the `TouchStick` and `TouchButton` components draw an on-screen pad whose fingers feed the same gamepad
   bindings, so these actions work there unchanged (docs/MOBILE.md, "On-screen gamepad"); `gamepad(index)` does not
   list it, and fingers on it are not in `touches`.
+- Local players: `player(i)` (0..3) is one person's view of the same actions, for games where two to four people share the
+  machine, each on their own pad and/or part of the keyboard. `player(i).use({ pad: 0, keys: "left" })` gives the player
+  devices (every field is optional; `use()` takes them all away; a player with no device reads nothing). `pad` is a gamepad
+  slot, `padId` (`input.gamepad(i).id`, instead of `pad`) makes the player follow that physical pad if it comes back in another
+  slot and read nothing while it is unplugged. `keys` names a key scheme: `"all"`, `"left"` (Q W E R T A S D F G Z X C V B,
+  1-5, Space, Tab, LeftShift...), `"right"` (the arrows, Enter, Backspace, U I O P H J K L N M, 6-0, punctuation...) or one
+  from `factoria.json` `"input": { "schemes": { "pad2": { "extends": "right", "keys": [...], "actions": { "jump": ["Enter"] } } } }`
+  (`extends` copies a built-in scheme, `keys` adds keys, `actions` gives the keys of some actions for players of that scheme;
+  `keySchemes()` and `keySchemeKeys(name)` list them). A bad slot or scheme throws with "did you mean" and changes nothing.
+  The reads are the global ones: `down`, `pressed`, `released`, `value`, `axis`, `vector`, with the same action names, and
+  they hear only that player's devices: a pad binding reads that pad (not "any pad"), a key binding counts only keys of the
+  player's scheme, and mouse and touch bindings belong to the shared pointer, so players do not read them. The global
+  `input.down()` and the rest keep hearing every device. Each player has bindings of their own (the project's, filtered to
+  the device; `schemes.<name>.actions` overrides the keys of an action): `bindings(action, family?)`, `rebind(action,
+  names, family?)` (all keys or all pad names; a key outside the player's scheme or a mouse name is an error; the family
+  `"keys"` or `"pad"` is optional and lets a menu edit a list the player has no device for yet), `reset(action?)` and
+  `lastPressed()` (only that player's devices) are per player, and `export()` / `import(data)` move what the player
+  rebound to and from `storage`: `import` skips entries that no longer fit and returns a description of each. What a player
+  rebound stays with the player when its device changes. Devices are not saved: a game assigns them each time its scene
+  starts, and a test starts with none (like it starts with the project's bindings). Tests drive players with `game.keyDown`
+  and `game.gamepad(i)`.
+  ```js
+  const me = input.player(1);
+  me.use({ pad: 1 });                                  // the second gamepad
+  const dir = me.vector("move_left", "move_right", "move_down", "move_up");
+  if (me.pressed("jump")) jump(this.entity);
+  if (b = me.lastPressed()) { me.rebind("jump", [b], b.startsWith("Gamepad") ? "pad" : "keys"); storage.set("p2", me.export()); }
+  ```
 - Options menus (rebinding, "press any key", button labels):
   - `actions()` lists the action names; `bindings(action)` the names bound to one (`["Space", "GamepadA"]`).
     `rebind(action, bindings)` replaces ALL of an action's bindings at once (`input.rebind("jump", ["Enter",

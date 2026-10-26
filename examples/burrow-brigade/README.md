@@ -55,7 +55,9 @@ fills back in if you let go. Dig times with the starting pick: dirt 0.5 s, rock 
 silver 1.5 s, gold 2.4 s, gems 2.6 s. Hard rock, gold and gems need the tier 1 pick (the camp sells it, P4): without it the
 miner makes a "blocked" sound. Bedrock never breaks. Each player rebinds their own keys and buttons in
 Options > Controls (a button cycles Player 1 to 4; click an action, then press the key or button; a key replaces the keyboard list, a
-button replaces the pad list of that action). The bindings are saved by seat in `settings.playerBindings`.
+button replaces the pad list of that action). The engine keeps each player's bindings (`input.player(seat)`) and the game saves
+them by seat in `settings.playerBindings` (what an older version saved as left/right/up/down is moved to the project's
+`move_left`... names the first time it loads, with a note in the log).
 
 Holding dig with an enemy in front of you swings the pick at it instead (every 0.5 s; 1 damage plus the pick tier). With
 several players on one keyboard the key blocks are: WASD + Space + E, arrows + Enter + RightShift, IJKL + U + O (dig and torch
@@ -243,11 +245,13 @@ test file starts fresh). Import them with relative paths.
 ### Players registry: `scripts/game/players.js`
 
 `add({ device, name, color })`, `remove(id)`, `get(id)`, `all()`, `count()`, `alive()`, `hurt(id, amount, cause)`, `setState(id, "active" |
-"lift" | "down", cause)`, `ensureOne()`, `clear()`, `MAX_PLAYERS` (4), `PLAYER_COLORS`, `KEY_SCHEMES`. A player is `{ id, name, device, color,
+"lift" | "down", cause)`, `ensureOne()`, `clear()`, `MAX_PLAYERS` (4), `PLAYER_COLORS`, `KEY_SCHEMES` (the names of the key schemes). A player is `{ id, name, device, color,
 state, hp, invulnerable }` (`MAX_HP` is 3). The shift spawns one miner per registered player (`prefabs/miner.prefab.json`, prop `playerId`) and the HUD shows one
 oil bar each. `device` decides which input moves the miner (`scripts/game/miner_input.js`): `{ kind: "any" }` (the project's
 actions: keyboard and every pad; one player only, the title's Play uses it), `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" }`
-or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). `tests/input.test.js` drives two keyboard players and a second pad at
+or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). The registry gives a keys or pad player to
+the engine as `input.player(id).use({ keys: scheme })` or `use({ pad: index })` (factoria.json `input.schemes` defines the four key schemes) and
+`miner_input.js` reads `input.player(id)`; a player on `any` reads the global input. `tests/input.test.js` drives two keyboard players and a second pad at
 once. `setState` emits `playerState` and, for `"down"`, `playerDown`; a miner that is `down` does not move, dig or burn oil and
 the shift's end check ignores it. `hurt` takes hearts and sets `down` at 0 (`playerHurt` is emitted); the hazards set `down`
 directly with the cause "drowned", "burned" or "caveIn". `revive(id, by)` (REVIVE_HP 1, REVIVE_GRACE 2) gets a downed player up and emits
@@ -256,10 +260,11 @@ can also be `"keyboard"` (the whole keyboard, what the join screen gives). `scri
 
 ### Per-player input: `scripts/game/controls.js`
 
-`bindingsOf(player)` (what `miner_input.js` reads each frame), `bindingsFor(seat, family, device)`, `rebind(seat, "keys" | "pad", action,
-names)` (saved; the same names are taken from the seat's other actions; the wrong family throws), `reset(seat)`, `resetAll()`, `label(...)`,
-`ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns. It exists because the engine's actions match
-any pad (FB-0006).
+The engine does the per-player actions (`input.player(seat)`: its own device, its own bindings; docs: scripting, input); this module is
+the game's side: `bindingsFor(seat, family)` (the six actions of a miner with their bindings), `rebind(seat, "keys" | "pad", action,
+names)` (saved with `export()`; the same names are taken from the seat's other actions; a name the player's device cannot use throws the
+engine's error), `reset(seat)`, `resetAll()`, `applySaved()` (called by `settings.apply`: imports what was saved, renaming the old
+format), `label(...)`, `ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns.
 
 ### Revive, camera and pads: `revive.js`, `camera_views.js`, `pad_watch.js`
 

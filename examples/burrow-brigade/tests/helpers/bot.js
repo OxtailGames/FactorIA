@@ -15,6 +15,7 @@
 //      out of water, magma and cracked floor. Holds the dig button while the next tile of the path is solid.
 // The device decides the input: a keyboard scheme gives eight directions, a gamepad gives a free stick.
 import { game } from "factoria:test";
+import { input } from "factoria";
 import * as players from "../../scripts/game/players.js";
 import { live } from "../../scripts/game/mine_map.js";
 import { run, lampOf } from "../../scripts/game/run_state.js";
@@ -25,6 +26,13 @@ import { STATS } from "../../scripts/game/enemy_brains.js";
 
 /** Keys of the project's own actions (`{ kind: "any" }`): see factoria.json. */
 const ANY_KEYS = { left: "A", right: "D", up: "W", down: "S", dig: "Space", torch: "T" };
+
+/** The first key of each action of a keyboard player, as the engine has it (factoria.json input.schemes, plus what the player rebound). */
+function keysOf(playerId) {
+  const me = input.player(playerId);
+  const first = (action) => me.bindings(action, "keys")[0];
+  return { left: first("move_left"), right: first("move_right"), up: first("move_up"), down: first("move_down"), dig: first("dig"), torch: first("torch") };
+}
 
 const DT = 1 / 60;
 
@@ -40,7 +48,7 @@ export class MinerBot {
     this.player = /** @type {import("../../scripts/game/players.js").Player} */ (players.get(playerId));
     if (!this.player) throw new Error(`bot: no player ${playerId} in the registry (players.add first).`);
     const d = this.player.device;
-    this.keys = d.kind === "keys" ? players.KEY_SCHEMES[d.scheme] : d.kind === "any" ? ANY_KEYS : null;
+    this.keys = d.kind === "keys" ? keysOf(playerId) : d.kind === "any" ? ANY_KEYS : null;
     this.pad = d.kind === "pad" ? d.index : -1;
     this.held = new Set();
     this.dig = false;
