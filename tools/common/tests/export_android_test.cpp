@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 
+#include "fa/core/build_info.h"
 #include "fa/core/command.h"
 #include "fa/core/image.h"
 #include "fa/tooling/export.h"
@@ -1136,4 +1137,69 @@ TEST_CASE("android export: prebuilt mode never mentions CMake") {
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK_FALSE(any_contains(r->warnings, "CMake"));
     CHECK(testing::read_all(stdfs::path(r->outputDir) / "local.properties").find("cmake.dir") == std::string::npos);
+}
+
+// ---- the prebuilt Android and iOS players are checked against this factoria like the desktop ones (M31.2) ---------------
+
+namespace {
+
+// A stand-in for libfactoria_player.so (ELF) or libfactoria_player_main.a (an archive) with a build fingerprint.
+std::string fake_mobile_lib(bool archive, const std::string& fingerprint) {
+    std::string bytes = archive ? std::string("!<arch>\n") : std::string("\x7f" "ELF\2\1\1\0", 8);
+    if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
+    return bytes + " end";
+}
+
+std::string mobile_download(const testing::TempDir& tmp, const std::string& platform, const std::string& fingerprint) {
+    const stdfs::path root = tmp.sub("mobile-" + platform + "-" + (fingerprint.empty() ? "none" : fingerprint.substr(0, 4)));
+    if (platform == "android")
+        for (const char* abi : {"arm64-v8a", "x86_64"})
+            testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", fake_mobile_lib(false, fingerprint));
+    else
+        for (const char* slice : {"iphoneos", "iphonesimulator"})
+            testing::write_all(root / "ios" / slice / "libfactoria_player_main.a", fake_mobile_lib(true, fingerprint));
+    return root.string();
+}
+
+}  // namespace
+
+TEST_CASE("export mobile: a prebuilt player of another build stops the export unless allowPlayerMismatch") {
+    if (std::string(build_fingerprint()) == "unknown") return;  // built outside a git checkout: nothing to compare
+    for (const char* platform : {"android", "ios"}) {
+        CAPTURE(platform);
+        testing::TempDir tmp;
+        const std::string game = make_game(tmp);
+        ExportOptions o;
+        o.projectDir = game;
+        o.platform = platform;
+        o.outDir = tmp.sub("out");
+        o.format = std::string(platform) == "android" ? "gradle" : "";
+
+        o.mobileDir = mobile_download(tmp, platform, build_fingerprint());
+        auto same = export_project(o);
+        REQUIRE_MESSAGE(same.ok(), (same.ok() ? "" : same.error().to_string()));
+        for (const std::string& w : same->warnings) CHECK(w.find("build fingerprint") == std::string::npos);
+
+        o.mobileDir = mobile_download(tmp, platform, "0123456789ab");
+        auto other = export_project(o);
+        REQUIRE_FALSE(other.ok());
+        CHECK(other.error().message.find(std::string("the ") + platform + " player") != std::string::npos);
+        CHECK(other.error().message.find("was built from 0123456789ab") != std::string::npos);
+        CHECK(other.error().hint.find("factoria setup players") != std::string::npos);
+        CHECK(other.error().hint.find("--mobile-dir") != std::string::npos);
+        CHECK(other.error().hint.find("allowPlayerMismatch") != std::string::npos);
+
+        o.mobileDir = mobile_download(tmp, platform, "");
+        auto none = export_project(o);
+        REQUIRE_FALSE(none.ok());
+        CHECK(none.error().message.find("has no build fingerprint") != std::string::npos);
+
+        o.mobileDir = mobile_download(tmp, platform, "0123456789ab");
+        o.allowPlayerMismatch = true;
+        auto allowed = export_project(o);
+        REQUIRE_MESSAGE(allowed.ok(), (allowed.ok() ? "" : allowed.error().to_string()));
+        bool said = false;
+        for (const std::string& w : allowed->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        CHECK(said);
+    }
 }

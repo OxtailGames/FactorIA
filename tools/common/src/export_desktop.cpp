@@ -45,11 +45,14 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
 
 namespace {
 
-// True for the first bytes of a Windows (MZ), Linux (ELF) or macOS (Mach-O, fat) executable.
+// True for the first bytes of a Windows (MZ), Linux and Android (ELF) or macOS (Mach-O, fat) executable, a WebAssembly
+// module (\0asm) or a static library archive (the iOS player: "!<ar").
 bool looks_like_executable(const std::string& head) {
     if (head.size() < 4) return false;
     const auto b = [&](std::size_t i) { return static_cast<unsigned char>(head[i]); };
     if (b(0) == 'M' && b(1) == 'Z') return true;
+    if (b(0) == 0 && b(1) == 'a' && b(2) == 's' && b(3) == 'm') return true;
+    if (b(0) == '!' && b(1) == '<' && b(2) == 'a' && b(3) == 'r') return true;
     if (b(0) == 0x7f && b(1) == 'E' && b(2) == 'L' && b(3) == 'F') return true;
     const std::uint32_t magic = static_cast<std::uint32_t>(b(0)) << 24 | b(1) << 16 | b(2) << 8 | b(3);
     return magic == 0xFEEDFACEu || magic == 0xFEEDFACFu || magic == 0xCEFAEDFEu || magic == 0xCFFAEDFEu || magic == 0xCAFEBABEu;
@@ -81,6 +84,17 @@ Result<void> check_player_build(const ExportOptions& o, const stdfs::path& playe
     }
     const std::string passAnyway = "To bundle this player anyway: factoria export --allow-player-mismatch (export command: "
                                    "\"allowPlayerMismatch\": true).";
+    if (platform == "web")
+        return err(message,
+                   std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
+                       "Build the web player from this checkout (`cmake --preset web-release; cmake --build --preset web-release`, "
+                       "docs/BUILDING.md: the export prefers build/web-release/player), run `factoria setup players --platforms web` "
+                       "for the player of this FactorIA version, or pass the matching folder with --player <folder>. " + passAnyway);
+    if (platform == "android" || platform == "ios")
+        return err(message,
+                   std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
+                       "Run `factoria setup players` for the mobile players of this FactorIA version, use the mobile/ folder of the matching "
+                       "FactorIA download (--mobile-dir), or compile the engine from this checkout (--engine-root <checkout>). " + passAnyway);
     if (theirs.empty())  // a player of a release before the fingerprint (v0.2.0): reinstalling it changes nothing
         return err(message,
                    "This player predates build fingerprints, so it cannot be compared with this factoria, and `factoria setup players` installs "
