@@ -12,6 +12,8 @@
 import { Behaviour, ui, input, i18n, game } from "factoria";
 import { getData } from "./data.js";
 import { createGame } from "./state.js";
+import { takeBoot } from "./boot.js";
+import { Autosaver } from "./autosave.js";
 import { MapView, COLORS } from "./map_view.js";
 import { WalkerView } from "./walker_view.js";
 import { MusicDirector } from "./music_director.js";
@@ -53,7 +55,12 @@ export default class GameController extends Behaviour {
     const testMap = props.testMap !== undefined ? props.testMap : this.testMap;
     this.data = getData();
     const stress = props.stress !== undefined ? props.stress : this.stress;
-    this.state = createGame({ data: this.data, seed: seed || undefined, testMap, rows: stress ? stressRows() : undefined });
+    // P4: a game from a save slot or a scenario (session.boot, scripts/game/boot.js) replaces the scene's own game
+    const boot = takeBoot(this.data);
+    this.run = boot.run;
+    this.state = boot.state || createGame({ data: this.data, seed: seed || undefined, testMap, rows: stress ? stressRows() : undefined });
+    this.autosaver = new Autosaver(this.state, this.run);
+    this.world.spawn({ id: "save_controller", components: { Script: { path: "scripts/save_controller.js" } } });
     /** The stress town is laid out one step per frame (a callback may not run over 2 s), the clock waits for it. */
     this.stressSteps = stress ? stressTownSteps(this.state, { villagers: stress }).steps : [];
     this.view = new MapView(this.state);
@@ -67,7 +74,7 @@ export default class GameController extends Behaviour {
     const [cx, cy] = cellToWorld(hc, hr);
     this.rig.setView(cx, cy, this.rig.startZoom);
     this.walkerView = new WalkerView(this.state);
-    this.state.clock.setSpeed(props.speed !== undefined ? props.speed : this.startSpeed);
+    if (!boot.state) this.state.clock.setSpeed(props.speed !== undefined ? props.speed : this.startSpeed); // a loaded game keeps its saved speed
 
     /** The current tool: kind "none" | "build" | "demolish"; type = the building to build; rot = its rotation. */
     this.tool = { kind: "none", type: null, rot: 0 };
