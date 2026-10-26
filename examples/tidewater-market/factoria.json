@@ -4,18 +4,40 @@
   "id": "com.oxtailgames.tidewatermarket",
   "version": "0.1.0",
   "engine": "0.2.0",
-  "mainScene": "scenes/main.scene.json",
+  "mainScene": "scenes/menu.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
   "input": {
     "actions": {
-      "move_left": ["A", "Left"],
-      "move_right": ["D", "Right"],
-      "move_up": ["W", "Up"],
-      "move_down": ["S", "Down"],
-      "action": ["Space", "MouseLeft", "Touch"]
+      "primary": ["MouseLeft", "Touch"],
+      "pan_drag": ["MouseRight", "MouseMiddle"],
+      "pan_left": ["A", "Left"],
+      "pan_right": ["D", "Right"],
+      "pan_up": ["W", "Up"],
+      "pan_down": ["S", "Down"],
+      "zoom_in": ["PageUp"],
+      "zoom_out": ["PageDown"],
+      "rotate": ["R"],
+      "undo": ["Z"],
+      "redo": ["Y"],
+      "tool_cancel": ["Q"],
+      "tool_demolish": ["X"],
+      "tool_1": ["1"],
+      "tool_2": ["2"],
+      "tool_3": ["3"],
+      "tool_4": ["4"],
+      "tool_5": ["5"],
+      "tool_6": ["6"],
+      "tool_7": ["7"],
+      "tool_8": ["8"],
+      "tool_9": ["9"],
+      "pause": ["Escape", "P", "GamepadStart"]
     }
   },
   "platforms": ["web", "windows", "macos", "linux"],
-  "feedbackFile": "ENGINE_FEEDBACK.json"
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "localization": {
+    "defaultLanguage": "en",
+    "languages": ["en"]
+  }
 }

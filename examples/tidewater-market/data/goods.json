@@ -1,0 +1,13 @@
+{
+  "$comment": "Goods the economy moves. Money is not a good (it is `coins`). icon = atlas frame; basePrice = coins a unit sells for at normal demand (P3 moves prices around it); hud = shown in the top bar; the name is the locale string good.<id>.",
+  "format": "tidewater.goods/1",
+  "goods": {
+    "fish":   { "icon": "icon.fish",   "basePrice": 6,  "category": "food",     "hud": true },
+    "grain":  { "icon": "icon.grain",  "basePrice": 4,  "category": "food",     "hud": true },
+    "wood":   { "icon": "icon.wood",   "basePrice": 5,  "category": "material", "hud": true },
+    "stone":  { "icon": "icon.stone",  "basePrice": 7,  "category": "material", "hud": true },
+    "planks": { "icon": "icon.planks", "basePrice": 12, "category": "material", "hud": true },
+    "bread":  { "icon": "icon.bread",  "basePrice": 9,  "category": "food",     "hud": true },
+    "tools":  { "icon": "icon.tools",  "basePrice": 24, "category": "goods",    "hud": false }
+  }
+}

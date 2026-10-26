@@ -1,0 +1,13 @@
+{
+  "$comment": "What a building makes. P1 only defines and validates them; P2 runs them. inputs/outputs = goods per cycle, seconds = game seconds per cycle at full staff. A building lists its recipes in buildings.json (`recipes`).",
+  "format": "tidewater.recipes/1",
+  "recipes": {
+    "harvest_grain": { "building": "farm",        "inputs": {},                          "outputs": { "grain": 4 },  "seconds": 24 },
+    "catch_fish":    { "building": "fisher_dock", "inputs": {},                          "outputs": { "fish": 3 },   "seconds": 18 },
+    "cut_wood":      { "building": "lumber_camp", "inputs": {},                          "outputs": { "wood": 4 },   "seconds": 20 },
+    "cut_stone":     { "building": "quarry",      "inputs": {},                          "outputs": { "stone": 3 },  "seconds": 26 },
+    "saw_planks":    { "building": "sawmill",     "inputs": { "wood": 2 },               "outputs": { "planks": 1 }, "seconds": 14 },
+    "bake_bread":    { "building": "bakery",      "inputs": { "grain": 2 },              "outputs": { "bread": 3 },  "seconds": 16 },
+    "make_tools":    { "building": "workshop",    "inputs": { "planks": 1, "stone": 1 }, "outputs": { "tools": 1 },  "seconds": 30 }
+  }
+}
