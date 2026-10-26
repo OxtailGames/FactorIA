@@ -47,6 +47,7 @@ struct Backend {
     std::map<std::string, u64> leaderboards;        // store name -> handle (a leaderboard handle is valid for the session)
     std::set<std::string> warned;                   // warnings that are logged once
     std::string library;
+    std::map<u32, Json> remoteSessions;             // Remote Play session id -> its description while connected
 
     // The platform keyboard (text_input.cpp): which of Steam's keyboards is up for the focused TextField.
     enum class Keyboard { None, Floating, Modal };
@@ -117,6 +118,14 @@ void handle_request(FaRequest* request, const char* method, const char* argsJson
 using Handler = void (*)(FaRequest*, const Json&);
 const std::map<std::string, Handler>& player_and_stats_methods();   // methods_game.cpp
 const std::map<std::string, Handler>& store_methods();              // methods_store.cpp
+const std::map<std::string, Handler>& remote_play_methods();        // remote_play.cpp
+
+// Remote Play Together (remote_play.cpp): the description of a connected session, as the remotePlay events and
+// remotePlay.sessions give it; the callbacks Steam sends; and the sessions already connected when the plugin starts.
+Json remote_play_session(u32 id);
+void remote_play_connected(u32 id);
+void remote_play_disconnected(u32 id);
+void remember_remote_play_sessions();
 
 // Helpers the method files share.
 Json player_json();                                      // {id, name, signedIn} of the player

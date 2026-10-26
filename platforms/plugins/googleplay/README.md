@@ -7,7 +7,7 @@ Backend `"googleplay"` for the game's `platform` API (docs/PLATFORM.md, section 
 | `purchases` | Google Play Billing 9 | products, buy (consumables, non-consumables, subscriptions), finish, restore; `purchase` events for pending payments that complete, purchases made outside the game and purchases the last run did not finish. The receipt is the signed purchase JSON plus its signature. |
 | `overlay` | Play Games and the Play Store | `achievements` and `leaderboards` (Play Games screens), `store` (the game's Play Store page). `friends` is `unavailable`. |
 | `integrity` | Play Integrity (classic request) | `platform.integrity.token(challenge)`: the token your server decodes with Google. |
-| `achievements`, `leaderboards`, `cloudSave` | Play Games Services v2 | only when the Play Games project id is set (below); cloud saves are Saved Games snapshots. |
+| `achievements`, `leaderboards`, `cloudSave` | Play Games Services v2 | only when the Play Games project id is set (below); cloud saves are Saved Games snapshots; `cloud.stat` opens the snapshot to count its bytes and answers its last modified time. |
 
 There are no `stats` and no `presence` on Google Play: the engine answers those `unavailable`.
 

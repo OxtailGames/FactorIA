@@ -35,7 +35,7 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
          "Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
          "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the "
          "backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, "
-         "leaderboards: {id: best} (a daily or weekly board: \"id@periodKey\"), cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}], "
+         "leaderboards: {id: best} (a daily or weekly board: \"id@periodKey\"), cloud: {key: text}, cloudModified: {key: unix seconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}], "
          "presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, "
          "scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids "
          "included) and how it was answered: assert on it after game.step. `adsBackend` is the backend that answers ads.* (an ads "
@@ -165,24 +165,62 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
         });
 
     commands.add(
+        {"platform.remote_play_connect",
+         "A guest joins the fake platform's Remote Play Together session, as Steam would tell the game.",
+         "Adds a session that remotePlay.sessions() lists and sends the game {status: \"connected\", session} at the start of the next "
+         "frame (game.step), which platform.on(\"remotePlay\", fn) listeners receive. `session` is {id (numbered from 1), guestName, "
+         "guestId, deviceName, formFactor, resolution: {width, height}}; what you leave out is made up (\"Guest 1\", \"fake-guest-1\", "
+         "\"Fake device\", \"computer\", 1920 x 1080). Returns the session. A guest's input is NOT simulated here: drive the pad the "
+         "guest would use with game.gamepad(i). Fails when the game runs a real store backend. Example: "
+         "platform.remote_play_connect {\"guestName\":\"Ana\",\"formFactor\":\"phone\"}",
+         schema(R"({"type":"object","properties":{
+             "guestName":{"type":"string","description":"The guest's name on the store (Steam's persona name)."},
+             "guestId":{"type":"string","description":"The guest's account id on the store (a SteamID as decimal text)."},
+             "deviceName":{"type":"string","description":"The name of the guest's device."},
+             "formFactor":{"type":"string","enum":["unknown","phone","tablet","computer","tv","vr"],"description":"The kind of device the guest plays on."},
+             "resolution":{"type":"object","description":"The guest's screen in pixels: {width, height}."}}})"),
+         false, "platform"},
+        [&platform](const Json& a) {
+            auto r = need_fake(platform, "platform.remote_play_connect").connect_guest(a);
+            if (!r.ok()) rethrow(r.error());
+            return r.value();
+        });
+
+    commands.add(
+        {"platform.remote_play_disconnect",
+         "A guest leaves the fake platform's Remote Play Together session.",
+         "Removes the session from remotePlay.sessions() and sends the game {status: \"disconnected\", session} (the session as it was) at "
+         "the start of the next frame (game.step). Fails when no guest has that session id (the message lists the connected ones) or "
+         "when the game runs a real store backend. Example: platform.remote_play_disconnect {\"id\":1}",
+         schema(R"({"type":"object","required":["id"],"properties":{
+             "id":{"type":"integer","description":"The session id platform.remote_play_connect returned."}}})"),
+         false, "platform"},
+        [&platform](const Json& a) {
+            auto r = need_fake(platform, "platform.remote_play_disconnect").disconnect_guest(a.at("id").get<long long>());
+            if (!r.ok()) rethrow(r.error());
+            return r.value();
+        });
+
+    commands.add(
         {"platform.set_fake",
-         "Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers.",
+         "Change how the fake platform backend behaves: signed in or out, how many frames it holds its answers, and the time of its cloud saves.",
          "`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` "
          "holds each answer for n engine frames (0, the default, answers at once), so a test can look at the \"waiting\" state of a "
-         "screen and game.step() until the answer arrives. Give any of them. `backend: \"none\"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. "
+         "screen and game.step() until the answer arrives. Give any of them. `cloudClock: n` sets the time (Unix seconds) the next cloud.save gets as its modified time, which cloud.stat reports; it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up by one second with each save, so saves are ordered without the wall clock. `backend: \"none\"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. "
          "Example: platform.set_fake {\"delayFrames\":2}",
          schema(R"({"type":"object","properties":{
              "signedIn":{"type":"boolean","description":"false: the player is not signed in."},
              "backend":{"type":"string","enum":["fake","none"],"description":"\"none\": behave as the none backend until platform.reset."},
-             "delayFrames":{"type":"integer","minimum":0,"maximum":10000,"description":"Frames each answer is held (0 = at once)."}}})"),
+             "delayFrames":{"type":"integer","minimum":0,"maximum":10000,"description":"Frames each answer is held (0 = at once)."},
+             "cloudClock":{"type":"integer","minimum":0,"description":"Unix seconds the next cloud.save is stamped with (cloud.stat's modified)."}}})"),
          false, "platform"},
         [&platform](const Json& a) {
             FakeBackend& fake = need_fake(platform, "platform.set_fake");
-            static const std::vector<std::string> known = {"signedIn", "delayFrames", "backend"};
+            static const std::vector<std::string> known = {"signedIn", "delayFrames", "backend", "cloudClock"};
             for (const auto& [key, value] : a.items()) {
                 if (std::find(known.begin(), known.end(), key) != known.end()) continue;
                 throw CommandError("invalid_argument", "platform.set_fake has no option " + Json(key).dump() + ".",
-                                   did_you_mean(key, known) + " Options: signedIn, delayFrames, backend.");
+                                   did_you_mean(key, known) + " Options: signedIn, delayFrames, backend, cloudClock.");
             }
             if (a.contains("backend")) {
                 const std::string b = a["backend"].get<std::string>();
@@ -194,7 +232,12 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
             }
             if (a.contains("signedIn")) fake.set_signed_in(a["signedIn"].get<bool>());
             if (a.contains("delayFrames")) fake.set_delay_frames(a["delayFrames"].get<int>());
-            return Json::object({{"signedIn", fake.signed_in()}, {"delayFrames", fake.delay_frames()}, {"backend", fake.name()}});
+            if (a.contains("cloudClock")) {
+                auto r = fake.set_cloud_clock(a["cloudClock"].get<long long>());
+                if (!r.ok()) rethrow(r.error());
+            }
+            return Json::object({{"signedIn", fake.signed_in()}, {"delayFrames", fake.delay_frames()}, {"backend", fake.name()},
+                                 {"cloudClock", fake.cloud_clock()}});
         });
 }
 

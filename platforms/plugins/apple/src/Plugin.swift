@@ -75,6 +75,8 @@ final class ApplePlugin: @unchecked Sendable {
             return try cloud.list()
         case "cloud.remove":
             return try cloud.remove(key: a.string("key") ?? "")
+        case "cloud.stat":
+            return try cloud.stat(key: a.string("key") ?? "")
         case "purchases.products":
             return try await purchases.products(a.entries("products"))
         case "purchases.buy":

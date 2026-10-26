@@ -347,6 +347,18 @@ void cloud_list(FaRequest* r, const Json&) {
     resolve(r, out);
 }
 
+// The size and modified time of a key without reading it. A key that is not there is a normal answer, not an error.
+// GetFileTimestamp is Steam's own time for the file (Unix seconds), the one Steam Cloud uses to tell which copy is newer.
+void cloud_stat(FaRequest* r, const Json& a) {
+    if (!cloud_enabled(r)) return;
+    SteamApi& s = steam();
+    const std::string file = cloud_file(a.string_or("key"));
+    if (!s.SteamAPI_ISteamRemoteStorage_FileExists(s.remoteStorage, file.c_str())) return resolve(r, Json::object().set("exists", false));
+    const i32 size = s.SteamAPI_ISteamRemoteStorage_GetFileSize(s.remoteStorage, file.c_str());
+    const i64 modified = s.SteamAPI_ISteamRemoteStorage_GetFileTimestamp(s.remoteStorage, file.c_str());
+    resolve(r, Json::object().set("exists", true).set("size", std::max<i32>(size, 0)).set("modified", modified));
+}
+
 void cloud_remove(FaRequest* r, const Json& a) {
     if (!cloud_enabled(r)) return;
     SteamApi& s = steam();
@@ -376,6 +388,7 @@ const std::map<std::string, Handler>& player_and_stats_methods() {
         {"cloud.load", cloud_load},
         {"cloud.list", cloud_list},
         {"cloud.remove", cloud_remove},
+        {"cloud.stat", cloud_stat},
     };
     return methods;
 }

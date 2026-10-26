@@ -879,13 +879,129 @@ declare module "factoria" {
   }
 
   /**
-   * Path finding on the baked NavMesh3D (docs/NAVIGATION.md). The mesh is baked from the static colliders when the scene loads.
+   * A cell of a tile map: 0-based column and row, row 0 = the top row.
+   */
+  export interface NavCell {
+    /**
+     * Column, 0 = left.
+     */
+    col: number;
+    /**
+     * Row, 0 = top.
+     */
+    row: number;
+  }
+
+  /**
+   * A plain cost grid for nav.findTilePath, for maps that are not a Tilemap (a game's own grid).
+   */
+  export interface NavTileGrid {
+    /**
+     * Cells per row.
+     */
+    width: number;
+    /**
+     * Number of rows.
+     */
+    height: number;
+    /**
+     * width * height numbers, row-major, row 0 = top: the cost of ENTERING the cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined = blocked.
+     */
+    cost: readonly (number | null | undefined)[];
+    /**
+     * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     */
+    origin?: Vec2Like;
+    /**
+     * Size of a cell in the world (default 1); used for `points` and `length`.
+     */
+    cellSize?: number | Vec2Like;
+  }
+
+  /**
+   * Options of nav.findTilePath.
+   */
+  export interface NavTileOptions {
+    /**
+     * Tilemap only: cost of entering a cell per tile index (flip flags ignored). Infinity or null blocks. A solid tile listed here becomes walkable at that cost; key -1 sets empty cells. Default: solidTiles block, every other cell costs 1.
+     */
+    costs?: { [tileIndex: number]: number };
+    /**
+     * Allow 8-way steps (default false). A diagonal costs sqrt(2) times the cell entered and never cuts a corner: both cells it passes between must be open.
+     */
+    diagonals?: boolean;
+    /**
+     * Most cells the search expands before it gives up with reason "too_far" (default 100000).
+     */
+    maxNodes?: number;
+    /**
+     * When the goal cannot be reached, return the path to the reachable cell nearest to it (found true, complete false).
+     */
+    closest?: boolean;
+    /**
+     * A blocked goal cell can still be entered (at cost 1): a path that ends ON the wall or the enemy being chased.
+     */
+    allowBlockedGoal?: boolean;
+  }
+
+  /**
+   * Result of nav.findTilePath.
+   */
+  export interface NavTilePath {
+    /**
+     * True when `cells` holds a path (check `complete` for closest).
+     */
+    found: boolean;
+    /**
+     * False when only the path to the cell nearest the goal was found (options.closest).
+     */
+    complete: boolean;
+    /**
+     * The path from the start cell to the end cell, both included.
+     */
+    cells: NavCell[];
+    /**
+     * The centres of those cells in the world (a Tilemap's transform applied; for a grid origin + (col + 0.5, -(row + 0.5)) * cellSize).
+     */
+    points: Vec2[];
+    /**
+     * Sum of the entering costs along the path.
+     */
+    cost: number;
+    /**
+     * Distance along the cell centres in the map's own units (tile size times cells for a Tilemap, before the entity's scale; cellSize for a grid).
+     */
+    length: number;
+    /**
+     * Why there is no path (found false).
+     */
+    reason?: "start_off_map" | "goal_off_map" | "goal_blocked" | "blocked" | "too_far";
+    /**
+     * What is wrong, with the cells.
+     */
+    message?: string;
+    /**
+     * How to fix it.
+     */
+    hint?: string;
+  }
+
+  /**
+   * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
    */
   export interface NavAPI {
     /**
      * Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];
      */
     findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
+    /**
+     * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost }. 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     */
+    findTilePath(map: Entity | string | NavTileGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * How many tiles were written to the Tilemap with setTile or tilemap.set_tile so far (a counter, cheap). Compare it with the value from when you searched to know a cached path is stale. Writes that replace `tiles` as a whole are not counted; starts at 0 on every scene load.
+     */
+    tileVersion(tilemap: Entity | string): number;
     /**
      * Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise.
      */
@@ -1556,7 +1672,7 @@ declare module "factoria" {
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable". "http" is http.fetch: it is offered when the system's HTTP client can run (always in tests, which answer from game.platform.respond).
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "http";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "remotePlay" | "http";
 
   /**
    * Who is signed in to the store.
@@ -1713,6 +1829,60 @@ declare module "factoria" {
   }
 
   /**
+   * A guest connected through Steam's Remote Play Together, as the store describes the session.
+   */
+  export interface PlatformRemotePlaySession {
+    /**
+     * The session id Steam gave the guest's connection (the fake numbers them from 1). It identifies the session in the "disconnected" event too.
+     */
+    readonly id: number;
+    /**
+     * The guest's name on the store (Steam's persona name); "" when the store does not say.
+     */
+    readonly guestName: string;
+    /**
+     * The guest's account id on the store (a SteamID as decimal text); "" when unknown.
+     */
+    readonly guestId: string;
+    /**
+     * The name of the guest's device, as Steam reports it.
+     */
+    readonly deviceName: string;
+    /**
+     * The kind of device the guest plays on: a phone or a tablet has no keyboard and a small screen, so a game may show bigger touch-free prompts.
+     */
+    readonly formFactor: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr";
+    /**
+     * The guest's screen in pixels; null when Steam does not know it.
+     */
+    readonly resolution: { width: number; height: number } | null;
+  }
+
+  /**
+   * The payload of platform.on("remotePlay").
+   */
+  export interface PlatformRemotePlayEvent {
+    /**
+     * connected: a guest joined; disconnected: the guest left (the session is as it was when they were connected).
+     */
+    readonly status: "connected" | "disconnected";
+    /**
+     * The guest's session. It says who is connected, not which pad is theirs: the guest's input arrives as one more gamepad (input.gamepad(i), game.on("gamepadConnected")), and the engine does not map a session to a pad index.
+     */
+    readonly session: PlatformRemotePlaySession;
+  }
+
+  /**
+   * Remote Play Together: friends who join the game through Steam and play on their own device. Offered by the Steam backend (check platform.has("remotePlay")); the fake backend simulates guests in tests (game.platform.remotePlayConnect). Steam shows each guest's controller to the game as one more gamepad, so a local multiplayer game already works with them; this API tells who is connected.
+   */
+  export interface PlatformRemotePlayAPI {
+    /**
+     * The guests connected now (an empty array when nobody is). Guests already connected when the game starts are listed here but no "remotePlay" event announces them: read this list at the start. Rejects with code "unavailable" when the backend has no remotePlay service.
+     */
+    sessions(): Promise<PlatformRemotePlaySession[]>;
+  }
+
+  /**
    * Cloud saves: small named values the store keeps for the player across devices.
    */
   export interface PlatformCloudAPI {
@@ -1732,6 +1902,10 @@ declare module "factoria" {
      * Deletes a key.
      */
     remove(key: string): Promise<void>;
+    /**
+     * Reads the size and modified time of a key without returning its text: { exists: false } for a key that is not there (not an error), else size (bytes of the saved JSON text) and modified (Unix seconds, a number you can compare, or null when the store keeps no time: Apple's iCloud key-value store). Steam answers the file's time, Google Play the snapshot's last modified time, the fake a counter that starts at 1767225600 and goes up one second with each save (game.platform.set({ cloudClock }) sets it). A store's time comes from the clock of the device that saved, which may be wrong: to decide which of two saves is newer, keep a revision counter inside the saved value and use `modified` only as a hint.
+     */
+    stat(key: string): Promise<{ exists: false } | { exists: true; size: number; modified: number | null }>;
   }
 
   /**
@@ -1843,7 +2017,7 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -1878,6 +2052,10 @@ declare module "factoria" {
      * The signed-in player changed.
      */
     on(event: "player", fn: (e: PlatformPlayer) => void): () => void;
+    /**
+     * A guest joined or left through Remote Play Together ({ status, session }). Only a backend with the "remotePlay" service (Steam; the fake in tests) sends it.
+     */
+    on(event: "remotePlay", fn: (e: PlatformRemotePlayEvent) => void): () => void;
     readonly achievements: PlatformAchievementsAPI;
     readonly stats: PlatformStatsAPI;
     readonly leaderboards: PlatformLeaderboardsAPI;
@@ -1886,6 +2064,7 @@ declare module "factoria" {
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
     readonly integrity: PlatformIntegrityAPI;
+    readonly remotePlay: PlatformRemotePlayAPI;
     readonly ads: PlatformAdsAPI;
     /**
      * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
@@ -2195,6 +2374,11 @@ declare module "factoria" {
   export const nav: NavAPI;
 
   /**
+   * Behaviour trees (bt.Tree, bt.sequence, bt.selector...), ticked by your script.
+   */
+  export const bt: BtAPI;
+
+  /**
    * Game clock.
    */
   export const time: TimeAPI;
@@ -2280,7 +2464,7 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
 
@@ -2495,6 +2679,119 @@ declare module "factoria" {
     readonly bounceIn: EaseFn;
     readonly bounceOut: EaseFn;
     readonly bounceInOut: EaseFn;
+  }
+
+  /**
+   * What a behaviour tree node returns each tick: bt.SUCCESS, bt.FAILURE or bt.RUNNING.
+   */
+  export type BtStatus = "success" | "failure" | "running";
+
+  /**
+   * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter and bt.succeeder.
+   */
+  export interface BtNode {
+    /**
+     * sequence, selector, condition, action, wait, cooldown, inverter or succeeder.
+     */
+    readonly type: string;
+  }
+
+  /**
+   * Hooks of bt.action.
+   */
+  export interface BtActionHooks {
+    /**
+     * Runs when the action starts (the first tick it is reached, or after it finished or was interrupted).
+     */
+    onEnter?: (blackboard: any) => void;
+    /**
+     * Runs when the action returns SUCCESS or FAILURE, or with "aborted" when a tick did not reach it (a selector chose an earlier child) or the tree was reset.
+     */
+    onExit?: (blackboard: any, status: BtStatus | "aborted") => void;
+  }
+
+  /**
+   * A behaviour tree with its own memory per node: ten enemies can each run a Tree built from the same node description.
+   */
+  export interface BtTree {
+    /**
+     * The root node.
+     */
+    readonly root: BtNode;
+    /**
+     * The object every condition and action receives.
+     */
+    blackboard: any;
+    /**
+     * Seconds the tree has run: the sum of the dt it was ticked with.
+     */
+    readonly clock: number;
+    /**
+     * Result of the last tick.
+     */
+    readonly status: BtStatus;
+    /**
+     * Runs the tree one step; call it once per frame with the dt of onUpdate. A node that was not ticked on the previous tick starts fresh (a sequence goes back to its first child, a wait to zero).
+     */
+    tick(dt: number): BtStatus;
+    /**
+     * Forgets what every node remembers (running actions get onExit with "aborted").
+     */
+    reset(): void;
+  }
+
+  /**
+   * Behaviour trees in plain JS, ticked by your script with a dt you pass (deterministic). Example: const tree = new bt.Tree(bt.selector(bt.sequence(bt.condition((b) => b.sees), bt.action((b, dt) => { b.chase(dt); return bt.RUNNING; })), bt.action((b, dt) => { b.wander(dt); return bt.RUNNING; })), enemy); in onUpdate(dt): tree.tick(dt).
+   */
+  export interface BtAPI {
+    /**
+     * Status: the node finished well.
+     */
+    readonly SUCCESS: "success";
+    /**
+     * Status: the node failed or its condition was false.
+     */
+    readonly FAILURE: "failure";
+    /**
+     * Status: the node needs more ticks.
+     */
+    readonly RUNNING: "running";
+    /**
+     * Creates a tree for one agent.
+     */
+    readonly Tree: new (root: BtNode, blackboard?: any) => BtTree;
+    /**
+     * Ticks the children in order: FAILURE as soon as one fails, RUNNING while one runs (the next tick resumes at that child without asking the earlier conditions again), SUCCESS when all succeeded.
+     */
+    sequence(...children: BtNode[]): BtNode;
+    /**
+     * Ticks the children in order from the FIRST one every tick, so a more important child can interrupt a running one; returns the first result that is not FAILURE.
+     */
+    selector(...children: BtNode[]): BtNode;
+    /**
+     * Truthy = SUCCESS, falsy = FAILURE. Never RUNNING.
+     */
+    condition(fn: (blackboard: any) => unknown): BtNode;
+    /**
+     * Does something and returns bt.SUCCESS, bt.FAILURE or bt.RUNNING (anything else throws).
+     */
+    action(fn: (blackboard: any, dt: number, tree: BtTree) => BtStatus, hooks?: BtActionHooks): BtNode;
+    /**
+     * RUNNING for that many seconds of tick dt, then SUCCESS. Starts over when it was not ticked on the previous tick.
+     */
+    wait(seconds: number): BtNode;
+    /**
+     * Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once.
+     */
+    cooldown(seconds: number, child: BtNode): BtNode;
+    /**
+     * Swaps SUCCESS and FAILURE; RUNNING stays.
+     */
+    inverter(child: BtNode): BtNode;
+    /**
+     * SUCCESS whenever the child finishes, either way.
+     */
+    succeeder(child: BtNode): BtNode;
   }
 
   /**
@@ -2794,7 +3091,7 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
-     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. How many lights shade a frame: see Light2D.
      * @since 0.2.0
      */
     lit: boolean;
@@ -2840,7 +3137,7 @@ declare module "factoria" {
     readonly offset: Vec2;
   }
   /**
-   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights whose radius reaches the camera view, the ones with more of their radius in view first, then the more intense ones; a light entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -2887,6 +3184,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     elevation: number;
+    /**
+     * Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.
+     * @since unreleased
+     */
+    castShadows: boolean;
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
@@ -2999,7 +3301,7 @@ declare module "factoria" {
      */
     innerRadius: number;
     /**
-     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.
      * @since 0.2.0
      */
     lit: boolean;
@@ -3153,6 +3455,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no `lit` itself to cast. Default false.
+     * @since unreleased
+     */
+    occludesLight: boolean;
   }
   /**
    * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
@@ -5351,6 +5658,11 @@ declare module "factoria" {
      * Volume of the background music, 0..1.
      */
     musicVolume: number;
+    /**
+     * Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights.
+     * @since unreleased
+     */
+    lightScale: number;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -5399,11 +5711,11 @@ declare module "factoria" {
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
-    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
@@ -5430,7 +5742,7 @@ declare module "factoria" {
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -5702,15 +6014,23 @@ declare module "factoria:test" {
      */
     ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
-     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
+     * A guest joins Remote Play Together: platform.remotePlay.sessions() lists the session and platform.on("remotePlay") listeners get { status: "connected", session } at the next game.step(). What info leaves out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080); the sessions are numbered from 1. Returns the session. The guest's input is not simulated: drive the pad they would use with game.gamepad(i). An unknown field or form factor throws with a suggestion.
+     */
+    remotePlayConnect(info?: { guestName?: string; guestId?: string; deviceName?: string; formFactor?: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr"; resolution?: { width: number; height: number } }): PlatformRemotePlaySession;
+    /**
+     * The guest with that session id leaves: sessions() no longer lists it and listeners get { status: "disconnected", session } at the next game.step(). Throws, listing the connected ids, when no guest has that id.
+     */
+    remotePlayDisconnect(id: number): PlatformRemotePlaySession;
+    /**
+     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in, no Remote Play guests.
      */
     reset(): void;
     /**
-     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
+     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer. cloudClock n (Unix seconds) is the modified time the next cloud.save gets, which cloud.stat() reports: it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up one second with each save, so saves are ordered without the wall clock.
      */
-    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none" }): void;
+    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none"; cloudClock?: number }): void;
     /**
-     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
+     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, cloudModified, remotePlay, owned, unfinished, presence, scripted, calls... } }.
      */
     state(): Json;
     /**
@@ -5807,9 +6127,9 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 16: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      */

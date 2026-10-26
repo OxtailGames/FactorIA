@@ -27,6 +27,7 @@ endif()
 #   legacy   the SDK 1.58 to 1.60 ones: no InitFlat, older accessors, stats that must be requested
 #   next     one interface version above the newest the plugin knows (what SDK 1.65 does to ISteamUtils): used, with a warning
 #   future   interface versions far above the ones the plugin knows: refused
+# (current, next and future export ISteamRemotePlay v002, legacy the older v001; the mock's "noRemotePlay" option is a client with none)
 if(WIN32)
     set(steam_mock_name steam_api64)
     set(steam_mock_prefix "")
@@ -75,6 +76,7 @@ set(steam_scenarios
     "no_library|steam without library*"
     "not_running|steam not running*"
     "no_app_id|steam without app id*"
+    "no_remote_play|steam without remote play*"
     "exit|steam exit*")
 foreach(scenario ${steam_scenarios})
     string(REPLACE "|" ";" parts "${scenario}")

@@ -2089,6 +2089,20 @@ NATIVE(navFindPath) {  // ({ from: [x,y,z], to: [x,y,z], radius?, snap?, closest
     if (!r.ok()) return throw_err(ctx, "nav.findPath(from, to): " + r.error().to_string());
     return I->from_json(r.value().to_json());
 }
+NATIVE(navFindTilePath) {  // ({ tilemap | grid, from, to, costs?, diagonals?, maxNodes?, closest?, allowBlockedGoal? })
+    SETUP;
+    auto r = nav_tile_query(W, I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
+NATIVE(tileVersion) {  // (entity) -> how many tiles set_tilemap_tile wrote on this Tilemap so far
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    return JS_NewUint32(ctx, tm->version);
+}
 NATIVE(navBake) {  // (mesh)
     SETUP;
     auto r = I->host->physics().nav_bake(W, arg_str(ctx, argc, argv, 0));
@@ -2783,7 +2797,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

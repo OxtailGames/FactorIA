@@ -180,6 +180,16 @@ void dispatch(int id, const std::vector<std::uint8_t>& data) {
                                  .set("receipt", ""));
             return;
         }
+        case kSteamRemotePlaySessionConnected: {
+            SteamRemotePlaySessionConnected c;
+            if (read(data, c)) remote_play_connected(c.sessionId);
+            return;
+        }
+        case kSteamRemotePlaySessionDisconnected: {
+            SteamRemotePlaySessionDisconnected d;
+            if (read(data, d)) remote_play_disconnected(d.sessionId);
+            return;
+        }
         case kSteamServersConnected:
         case kSteamServersDisconnected: {
             Json player = player_json();
@@ -259,7 +269,7 @@ void handle_request(FaRequest* request, const char* method, const char* argsJson
                    "This is an engine bug; report it with `factoria call feedback.add`.");
             return;
         }
-        for (const auto* table : {&player_and_stats_methods(), &store_methods()}) {
+        for (const auto* table : {&player_and_stats_methods(), &store_methods(), &remote_play_methods()}) {
             auto it = table->find(name);
             if (it != table->end()) {
                 it->second(request, args);

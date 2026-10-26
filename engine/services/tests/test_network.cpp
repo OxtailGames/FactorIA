@@ -329,7 +329,7 @@ TEST_CASE("http.fetch: a game without declared hosts cannot fetch, and a store w
 TEST_CASE("http.fetch: plugin backends cannot offer the http service and the list of store services stays as it was") {
     const auto all = platform_services_all();
     CHECK(std::find(all.begin(), all.end(), "http") == all.end());
-    CHECK(all.size() == 9);
+    CHECK(all.size() == 10);  // the store services (remotePlay included); "http" is not one of them
 }
 
 // ------------------------------------------------------------------------------------------------- the http log ----

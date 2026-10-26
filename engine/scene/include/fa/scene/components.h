@@ -180,8 +180,12 @@ struct Tilemap {
     std::int32_t layer = -10;
     bool lit = false;                 // shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;            // normal map image with the same layout as the tileset ("" = flat); needs lit
+    bool occludesLight = false;       // the tiles in solidTiles block the light of Light2D with castShadows
     // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
     std::vector<TileEdit> edits;
+    // Runtime only: goes up by one on every set_tilemap_tile() (never reset by physics), so `nav.tileVersion` tells a script
+    // cheaply that the map changed. Writes that bypass set_tilemap_tile (replacing `tiles` as a whole) do not count.
+    std::uint32_t version = 0;
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so
@@ -207,6 +211,7 @@ struct Light2D {
     float height = 80.0f;             // point: height above the drawing plane in world units; lower = more grazing normal-map relief
     float direction = 270.0f;         // directional: degrees the light travels towards (0 = right, 90 = up, 270 = down)
     float elevation = 45.0f;          // directional: degrees above the drawing plane (90 = straight at the picture)
+    bool castShadows = false;         // point: solid tiles of Tilemaps with occludesLight block this light
 };
 
 struct ParticleEmitter {
@@ -736,6 +741,7 @@ struct SceneSettings {
     Color horizonColor{0.8f, 0.85f, 0.9f, 1.0f};  // gradient bottom
     std::string music;                // asset path, looped background music ("" = none)
     float musicVolume = 0.6f;
+    float lightScale = 1.0f;          // size of the Light2D light buffer as a fraction of the picture (0.25 .. 1)
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

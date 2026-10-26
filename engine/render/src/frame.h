@@ -6,6 +6,18 @@
 
 namespace fa::render {
 
+// The shadow rows computed for lights, kept while a light, its radius and the solid tiles around it stay the same: a light
+// that does not move casts the same shadow every frame, so only a moving or newly lit one pays for its rays (light2d.cpp).
+// The key is a hash of everything a row is computed from.
+struct ShadowCache {
+    struct Entry {
+        std::vector<std::uint8_t> row;  // kShadowAngles RGBA8 texels
+        std::uint64_t used = 0;         // the tick of the last frame that read it
+    };
+    std::unordered_map<std::uint64_t, Entry> rows;
+    std::uint64_t tick = 0;
+};
+
 struct Frame {
     CameraInfo cam;
     int targetW = 0, targetH = 0;
@@ -22,6 +34,13 @@ struct Frame {
     std::vector<Light2DData> lights2d;
     Color ambient2d{0.25f, 0.25f, 0.3f, 1.0f};
     bool* warnedLights2d = nullptr;  // set once gather_2d warned that more than kMaxLights2D lights are in view (per scene)
+    bool* warnedShadows2d = nullptr; // set once gather_2d warned that more than kMaxShadowLights2D lights cast shadows (per scene)
+    // The shadow rows of the point lights with castShadows (light2d.cpp): shadowRows rows of kShadowAngles RGBA8 texels,
+    // row r for the light whose Light2DData::extra[0] is r. Empty when no light casts a shadow this frame.
+    std::vector<std::uint8_t> shadowData;
+    int shadowRows = 0;
+    std::uint64_t shadowKey = 0;     // identifies the content of shadowData: equal keys, equal bytes (0 = no rows)
+    ShadowCache* shadowCache = nullptr;  // the renderer's rows kept across frames; null = none kept
 };
 
 // Emits the 4 vertices of an axis-aligned local rectangle (y up) transformed by `m`.
@@ -47,6 +66,10 @@ void update_animators(World& world, Frame& f, bool advance);
 // at the start of gather_2d, so entity.bounds() is right in headless runs too.
 void update_parallax(World& world, Vec2 camPos);
 void gather_2d(World& world, Frame& f);
+// Gives the point lights of f.lights2d that ask for shadows (extra[1]) a row of f.shadowData when a Tilemap with
+// occludesLight is in the scene, at most kMaxShadowLights2D (the ones ranked first); sets extra[0] to the row and counts
+// them in the stats. light2d.cpp.
+void assign_shadow_rows(World& world, Frame& f);
 // Panel, Button, Toggle, Slider, TextField and ScrollList (ui2d.cpp): screen space, after gather_2d.
 void gather_ui(World& world, Frame& f);
 // The scissor rectangle of a screen-space item of entity `e`: the ScrollLists around it (`clip` stays empty, w = 0,
