@@ -1,6 +1,9 @@
 // nav.findTilePath, nav.tileVersion and bt from scripts.
 #include <doctest.h>
 
+#include <chrono>
+#include <cstdio>
+
 #include "test_host.h"
 
 using namespace fa;
@@ -54,6 +57,112 @@ TEST_CASE("nav.findTilePath: a Tilemap entity, a grid, version and errors") {
     // a wrong option type is a script error, not a crash
     CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { diagonals: 'yes' })").find("true or false") != std::string::npos);
     CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { maxNodes: 'lots' })").find("maxNodes") != std::string::npos);
+}
+
+TEST_CASE("nav.createGrid and nav.flowField: a kept grid, setCost, flow fields and errors") {
+    TestHost h("nav_grid_handles");
+    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
+    REQUIRE(h.start());
+    CHECK(h.load_scene_now("scenes/main.scene.json").empty());
+    // the grid gives the paths of the array form
+    CHECK(eval_ok(h, R"(
+      const cost = [1,1,1,1,1, 1,Infinity,Infinity,Infinity,1, 1,1,1,1,1];
+      globalThis.g = nav.createGrid({ width: 5, height: 3, cost, origin: [10, 20], cellSize: 2 });
+      const a = nav.findTilePath({ width: 5, height: 3, cost, origin: [10, 20], cellSize: 2 }, [2, 0], [2, 2]);
+      const b = nav.findTilePath(g, [2, 0], [2, 2]);
+      JSON.stringify(a.cells) === JSON.stringify(b.cells) && a.cost === b.cost && b.points[0].x === 15 && b.points[0].y === 19 && b.found
+    )").get<bool>());
+    // setCost: the next path sees it; the version counts changes
+    CHECK(eval_ok(h, "globalThis.v = g.version; g.setCost(2, 1, 1); g.setCost(2, 1, 1); [g.version - v, nav.findTilePath(g, [2, 0], [2, 2]).cost, g.getCost(1, 1), g.getCost(2, 1)]") == Json::parse("[1,2,\"Infinity\",1]"));
+    CHECK(eval_ok(h, "g.setCost(2, 1, null); String(g.getCost(2, 1))") == "Infinity");  // null blocks too
+    CHECK(eval_ok(h, "g.findPath([2, 0], [2, 2]).cost").get<int>() == 6);
+    // flow field: distances, steps, path, goals, rebuild
+    CHECK(eval_ok(h, R"(
+      globalThis.f = nav.flowField(g, [{ col: 2, row: 2 }, [4, 0]]);
+      const s0 = f.stepToward(0, 0);
+      [f.distance(2, 2), f.distance(0, 0), s0.col, s0.row, f.stepToward(2, 2), f.pathFrom(0, 0).length, f.rebuilds]
+    )") == Json::parse("[0,4,1,0,null,5,1]"));
+    CHECK(eval_ok(h, "g.setCost(2, 1, 1); [f.distance(2, 0), f.rebuilds]") == Json::parse("[2,2]"));
+    CHECK(eval_ok(h, "f.stepToward({ col: 2, row: 0 }).col").get<int>() == 3);
+    // a field with no reachable goal answers Infinity and null
+    CHECK(eval_ok(h, "const w = nav.createGrid({ width: 3, height: 1, cost: [1, Infinity, 1] }); const wf = nav.flowField(w, [2, 0]); [wf.distance(0, 0) === Infinity, wf.stepToward(0, 0), wf.pathFrom(0, 0).length]") == Json::parse("[true,null,0]"));
+    CHECK(eval_ok(h, "nav.createGrid({ width: 2, height: 2 }).getCost(1, 1)").get<int>() == 1);
+    // errors teach
+    CHECK(eval_err(h, "nav.createGrid({ width: 2, height: 2, cost: [1] })").find("width * height = 4") != std::string::npos);
+    CHECK(eval_err(h, "nav.createGrid({ width: 0, height: 2 })").find("width and height") != std::string::npos);
+    CHECK(eval_err(h, "g.setCost(9, 9, 1)").find("outside the 5 x 3 grid") != std::string::npos);
+    CHECK(eval_err(h, "g.setCost(1, 1, 'x')").find("cost must be a number") != std::string::npos);
+    CHECK(eval_err(h, "nav.flowField(g, [9, 9])").find("outside") != std::string::npos);
+    CHECK(eval_err(h, "nav.flowField(g, [])").find("at least one goal") != std::string::npos);
+    CHECK(eval_err(h, "nav.flowField({ width: 2, height: 2, cost: [1,1,1,1] }, [0, 0])").find("nav.createGrid") != std::string::npos);
+    CHECK(eval_err(h, "f.distance('a', 1)").find("col, row") != std::string::npos);
+    CHECK(eval_ok(h, "nav.findTilePath(g, [0,0], [9,9]).reason") == "goal_off_map");
+    CHECK(eval_err(h, "nav.findTilePath(g, [0,0], [1,0], { diagonals: 'yes' })").find("true or false") != std::string::npos);
+}
+
+// 600 walkers on a 60 x 60 map for 75 ticks, each asking for its next step toward one of 6 buildings every tick. The array
+// form converts and sweeps the whole map on every call; the kept grid does not; the flow field answers in O(1) after one
+// search per goal. The numbers are printed so a later change can see where they stand.
+TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid vs flow field") {
+    TestHost h("nav_grid_bench");
+    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
+    REQUIRE(h.start());
+    CHECK(h.load_scene_now("scenes/main.scene.json").empty());
+    eval_ok(h, R"(
+      globalThis.W = 60; globalThis.H = 60;
+      globalThis.cost = new Array(W * H);
+      for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) cost[r * W + c] = (r % 6 === 3 && c % 20 !== 7) ? Infinity : 1;
+      globalThis.goals = [[5, 5], [54, 5], [30, 28], [5, 52], [54, 52], [30, 40]];
+      let s = 777;
+      const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s >> 8; };
+      globalThis.start = [];
+      while (start.length < 600) { const i = rnd() % (W * H); if (cost[i] !== Infinity) start.push([i % W, (i - i % W) / W, rnd() % goals.length]); }
+      // begin(mode) sets the walkers up; tick(n) runs n ticks (the watchdog limits one eval to 5 seconds)
+      globalThis.begin = (mode) => {
+        globalThis.mode = mode;
+        globalThis.walkers = start.map((w) => ({ c: w[0], r: w[1], g: w[2] }));
+        globalThis.grid = mode === "array" ? { width: W, height: H, cost } : nav.createGrid({ width: W, height: H, cost });
+        globalThis.fields = mode === "flow" ? goals.map((g) => nav.flowField(grid, g)) : null;
+        globalThis.moved = 0;
+      };
+      globalThis.tick = (n) => {
+        for (let t = 0; t < n; t++)
+          for (const w of walkers) {
+            let nx = null;
+            if (fields) nx = fields[w.g].stepToward(w.c, w.r);
+            else { const p = nav.findTilePath(grid, [w.c, w.r], goals[w.g]); if (p.found && p.cells.length > 1) nx = p.cells[1]; }
+            if (nx) { w.c = nx.col; w.r = nx.row; moved++; }
+          }
+      };
+      globalThis.result = () => [moved, walkers.reduce((a, w) => a + w.c * 100 + w.r, 0)];
+    )");
+    // Runs `ticks` ticks one eval at a time (the watchdog stops an eval after 5 seconds) and returns {ms, result}.
+    auto time_it = [&](const char* mode, int ticks) {
+        eval_ok(h, (std::string("begin('") + mode + "')").c_str());
+        double ms = 0;
+        for (int t = 0; t < ticks; ++t) {
+            const auto t0 = std::chrono::steady_clock::now();
+            eval_ok(h, "tick(1)");
+            ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        }
+        return std::make_pair(ms, eval_ok(h, "result()"));
+    };
+    // The array form costs seconds per tick in a Debug build, so it runs 3 ticks and is scaled to 75 (every tick asks the same
+    // 600 questions); the other two run all 75.
+    constexpr int kSample = 3;
+    const auto arraySample = time_it("array", kSample);
+    const auto gridSample = time_it("grid", kSample);
+    const auto grid = time_it("grid", 75);
+    const auto flow = time_it("flow", 75);
+    const double arrayMs = arraySample.first * 75.0 / kSample;
+    std::printf("nav benchmark (600 walkers, 60x60, 75 ticks, Debug build): array form %.0f ms (%d ticks measured, scaled), "
+                "kept grid %.0f ms, flow field %.0f ms\n", arrayMs, kSample, grid.first, flow.first);
+    // The array form and the kept grid take the very same steps. The flow field takes shortest steps too, but may break a tie
+    // another way, so only its step count is compared.
+    CHECK(arraySample.second == gridSample.second);
+    CHECK(flow.second[0] == grid.second[0]);
+    CHECK(grid.first < arrayMs * 0.8);
+    CHECK(flow.first < arrayMs * 0.1);
 }
 
 TEST_CASE("bt: every node type from factoria") {

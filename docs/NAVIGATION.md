@@ -190,6 +190,51 @@ export default class Rat extends Behaviour {
   `scene.set_component`, an editor edit). A call hashes the tiles once, so ask when you need a decision,
   not for every cell; the count starts at 0 on every scene load. For your own grid, keep your own counter.
 
+### Reusable grids and flow fields
+
+Every `nav.findTilePath` call with a `{width, height, cost}` array converts the whole array and sweeps it for its cheapest
+cell, so a short route costs as much as the size of the map. A script that asks hundreds of times on one map keeps the grid
+natively instead:
+
+```js
+import { nav } from "factoria";
+const grid = nav.createGrid({ width: 60, height: 60, cost: roads.map((r) => (r ? 1 : Infinity)) });
+grid.setCost(3, 4, 1);                              // a road was built: one cell changes, nothing is converted again
+const p = nav.findTilePath(grid, [0, 0], [9, 4]);   // the same result as with the array, without the conversion
+const field = nav.flowField(grid, [{ col: 9, row: 4 }, [20, 7]]);   // one search for every walker heading there
+const next = field.stepToward(col, row);            // { col, row } of the next cell, or null: O(1)
+```
+
+- `nav.createGrid({ width, height, cost?, origin?, cellSize? })`: `cost` as for the array form (default: every cell costs 1).
+  The grid lives in the engine and is freed when the script drops it (garbage collection); there is nothing to release. `grid.width`, `grid.height`,
+  `grid.version` (counts changes), `grid.setCost(col, row, cost)`, `grid.getCost(col, row)` (Infinity when blocked),
+  `grid.setCosts(array)` (all at once) and `grid.findPath(from, to, opts)` (= `nav.findTilePath(grid, ...)`). A cell outside
+  the grid throws. Infinity, a negative number or null blocks a cell.
+- `nav.findTilePath(grid, from, to, opts)` takes the grid as the first argument, with the options and the result of the
+  array form (`diagonals`, `closest`, `maxNodes`, ...; `costs` is for Tilemaps only). It gives exactly the cells the array
+  form gives for the same costs. The array form stays as it was.
+- `nav.flowField(grid, goals, { diagonals })`: `goals` is a cell or a list of cells. The field is the cost of the cheapest
+  route from every cell to the nearest goal, with the rules of `findTilePath` (entering a cell costs its cost; with
+  `diagonals` a diagonal costs sqrt(2) times that and never cuts a corner). A blocked goal cell is entered at cost 1, like
+  `allowBlockedGoal`. Nothing is searched until the first question; the search is one pass over the grid.
+  - `field.stepToward(col, row)` is the neighbour to walk to: `{ col, row }`, or `null` at a goal, where no goal can be
+    reached, or outside the grid. Among equally cheap neighbours it picks east, south, west, north, then the diagonals.
+  - `field.distance(col, row)` is the cost to the nearest goal (0 at a goal), Infinity where none can be reached.
+  - `field.pathFrom(col, row)` is the whole way, the cell and the goal included (what repeated `stepToward` gives); empty when
+    no goal can be reached.
+  - A field reads the grid it was made on. When `setCost` has changed the grid since, the next question rebuilds the field
+    from its goals (`field.rebuilds` counts the searches), so a field kept across road changes is always right, and costs one
+    pass over the grid after each change.
+- Use the array form for a one-off question, `nav.findTilePath(grid, ...)` for many different starts and goals on one map, and a
+  flow field when many walkers head for the same few goals: it is one search however many walkers there are, and every step
+  after that is a lookup. PERFORMANCE.md ("Path finding on tile maps") has the measured costs.
+- A Tilemap is not copied into a grid (its tiles change under `setTile`): pass the Tilemap to `findTilePath`, or build the
+  `cost` array from the tiles you care about.
+
+Command: `nav.flow_field {"grid":{...},"goals":[[9,4]],"from":[0,0]}` (or `"tilemap"`) is the stateless form of a flow field:
+it returns `distance` for every cell (row-major, `null` where no goal can be reached) and, with `from`, `reachable`, `cost`,
+`next` and `path`. Commands keep nothing between calls, so a grid kept natively is for scripts.
+
 Command (agents, tools): `nav.find_tile_path {"tilemap":"ground","from":[0,1],"to":[3,1],"diagonals":true,"costs":{"7":5,"9":null}}`
 or `{"grid":{"width":3,"height":2,"cost":[1,1,null,1,1,1]},"from":[0,0],"to":[2,1]}`; the result is the same object with
 `cells` as `[col, row]` pairs and `points` as `[x, y]`, and `null` (not `Infinity`) blocks.

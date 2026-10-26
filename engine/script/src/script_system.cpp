@@ -816,6 +816,17 @@ std::vector<std::string> ScriptSystem::Impl::bump_module_versions(const std::str
     return {affected.begin(), affected.end()};
 }
 
+JSClassID g_navHandleClass = 0;
+JSClassID g_debugFrameClass = 0;
+
+void reserve_class_ids(JSRuntime* rt) {
+    JSClassID nav = 0, frame = 0;
+    JS_NewClassID(rt, &nav);
+    JS_NewClassID(rt, &frame);
+    g_navHandleClass = nav;
+    g_debugFrameClass = frame;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // init / shutdown
 // ---------------------------------------------------------------------------------------------------------------------
@@ -827,6 +838,7 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         if (error) *error = "failed to create the JavaScript runtime";
         return false;
     }
+    reserve_class_ids(rt);
     JS_SetMemoryLimit(rt, size_t(768) * 1024 * 1024);
     JS_SetMaxStackSize(rt, size_t(2) * 1024 * 1024);
     JS_SetInterruptHandler(rt, interrupt_cb, this);

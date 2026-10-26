@@ -610,6 +610,11 @@ is silent. Give `fade` when you switch a low-pass or reverb on or off in the mid
   {col, row}[], points: Vec2[], cost, length }` or `{ found: false, reason, message, hint }`: A* over a `Tilemap` entity
   (solid tiles block; `costs` per tile index) or your own `{ width, height, cost }` grid; `nav.tileVersion(tilemap)` counts
   the changes of the tiles. See NAVIGATION.md, section 7.
+- `nav.createGrid({ width, height, cost?, origin?, cellSize? })` → a `NavGrid` kept natively (`setCost(col, row, cost)`,
+  `getCost`, `setCosts`, `version`): pass it to `nav.findTilePath` instead of the array when you ask many times on one map.
+  `nav.flowField(grid, goals, { diagonals })` → a `NavFlowField`: `stepToward(col, row)` is the next cell toward the nearest
+  goal in O(1), `distance(col, row)` the cost, `pathFrom(col, row)` the whole way; it is rebuilt by itself after
+  `grid.setCost`. See NAVIGATION.md, "Reusable grids and flow fields".
 
 ### AI: behaviour trees (`bt`)
 `import { bt } from "factoria"` is a small behaviour tree in plain JS (like `tween`): you build a description once, give each
