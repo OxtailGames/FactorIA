@@ -1,12 +1,13 @@
 // @ts-check
-// The maths of the soundscape (pure: no engine calls, so tests/sound_mix.test.js checks it without a window). The engine's
+import { audio } from "factoria";
+// The maths of the soundscape (pure but for the VoiceBook's list of playing voices, which tests replace). The engine's
 // spatial audio is linear in world distance and knows nothing about the zoom of a strategy camera, so the game works out for
 // itself what is heard from where the camera is (README, "Sound, options and accessibility"; ENGINE_FEEDBACK FB-0040).
 //
 //   zoomGain      1 when the camera is as close as `fullZoom`, falling to 0.2 at `farZoom` and below: from high up a town is quiet
 //   ambienceLevels the volume of each bed (sea, market, wind) from what the screen holds
 //   sourceMix     volume and pan of one sound that comes from a place on the screen
-//   VoiceBook     a cap on how many one-shots play at once: the nearest to the middle of the screen win
+//   VoiceBook     a cap on how many one-shots play at once: the nearest to the middle of the screen win (reads audio.activeVoices())
 
 /** @typedef {{ fullZoom: number, farZoom: number, margin: number, seaCells: number, marketWeight: number, walkerWeight: number, houseWeight: number, busyAt: number, windFar: number, windWinter: number, ease: number, every: number }} Mix */
 
@@ -55,14 +56,19 @@ export function sourceMix(sx, sy, zoom, mix) {
 }
 
 /**
- * A cap on the one-shots playing at once. The caller knows how long a sound lasts (the engine does not say when a voice ends),
- * so each entry has an end time. `offer` says what to do with a new sound: play it, play it instead of the weakest one, or drop it.
+ * A cap on the one-shots playing at once. The engine says which voices still play (`audio.activeVoices()`), so the book needs no
+ * clip lengths: it forgets a voice that is no longer in that list, also after a scene load stopped it. `offer` says what to do with
+ * a new sound: play it, play it instead of the weakest one, or drop it.
  */
 export class VoiceBook {
-  /** @param {number} cap */
-  constructor(cap) {
+  /**
+   * @param {number} cap
+   * @param {() => Set<number>} playing the ids of the voices that play now (default: audio.activeVoices(), tests pass their own)
+   */
+  constructor(cap, playing = () => new Set(audio.activeVoices().map((v) => v.id))) {
     this.cap = cap;
-    /** @type {{ voice: number, until: number, score: number }[]} */
+    this.playing = playing;
+    /** @type {{ voice: number, score: number }[]} */
     this.entries = [];
     /** Most voices at once so far, and how many sounds were started and dropped. */
     this.peak = 0;
@@ -70,21 +76,24 @@ export class VoiceBook {
     this.dropped = 0;
   }
 
-  /** Forget the sounds that ended by `now` (seconds). */
-  prune(now) {
-    this.entries = this.entries.filter((e) => e.until > now);
+  /** Forget the sounds that are no longer playing. */
+  prune() {
+    if (this.entries.length === 0) return;
+    const alive = this.playing();
+    this.entries = this.entries.filter((e) => alive.has(e.voice));
   }
 
   get count() {
+    this.prune();
     return this.entries.length;
   }
 
   /**
-   * @param {number} now @param {number} score how much this sound matters (louder = more)
+   * @param {number} score how much this sound matters (louder = more)
    * @returns {{ play: boolean, evict: number | null }} evict = the voice to stop first, or null
    */
-  offer(now, score) {
-    this.prune(now);
+  offer(score) {
+    this.prune();
     if (this.entries.length < this.cap) return { play: true, evict: null };
     let weakest = this.entries[0];
     for (const e of this.entries) if (e.score < weakest.score) weakest = e;
@@ -94,9 +103,9 @@ export class VoiceBook {
   }
 
   /** Record a sound that was started (after `offer` said yes; an evicted voice leaves the book). */
-  add(voice, now, seconds, score, evicted = null) {
+  add(voice, score, evicted = null) {
     if (evicted !== null) this.entries = this.entries.filter((e) => e.voice !== evicted);
-    this.entries.push({ voice, until: now + seconds, score });
+    this.entries.push({ voice, score });
     this.started++;
     if (this.entries.length > this.peak) this.peak = this.entries.length;
   }

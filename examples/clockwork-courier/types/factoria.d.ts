@@ -839,12 +839,64 @@ declare module "factoria" {
     readonly touches: TouchInfo[];
   }
 
+  /**
+   * One sound that plays now, from audio.activeVoices().
+   * @since unreleased
+   */
+  export interface ActiveVoice {
+    /**
+     * The voice id (what audio.play returned).
+     * @since unreleased
+     */
+    readonly id: number;
+    /**
+     * Project-relative clip path.
+     * @since unreleased
+     */
+    readonly path: string;
+    /**
+     * The bus it plays on.
+     * @since unreleased
+     */
+    readonly bus: string;
+    /**
+     * The voice volume it is moving to.
+     * @since unreleased
+     */
+    readonly volume: number;
+    /**
+     * @since unreleased
+     */
+    readonly pitch: number;
+    /**
+     * @since unreleased
+     */
+    readonly pan: number;
+    /**
+     * @since unreleased
+     */
+    readonly loop: boolean;
+    /**
+     * True for the music and its layers.
+     * @since unreleased
+     */
+    readonly music: boolean;
+    /**
+     * Id of the entity whose AudioSource plays it; "" for scripts and music.
+     * @since unreleased
+     */
+    readonly source: string;
+  }
+
   export interface PlayOptions {
     volume?: number;
     pitch?: number;
     pan?: number;
     loop?: boolean;
-    bus?: "sfx" | "music" | "ui";
+    /**
+     * The bus to play on: "sfx" (default), "music", "ui" or a bus declared in factoria.json "audio"."buses". Throws, listing the buses, for another name.
+     */
+    bus?: string;
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
@@ -865,6 +917,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     captionSeconds?: number;
+    /**
+     * Called once, on the frame after the sound ends, with its voice id: it played to the end, audio.stop(voice) stopped it, or a full mixer dropped it. Not called by audio.stopAll or a scene load (they discard the callback), nor for a sound that did not start. A looping sound ends only when stopped. Check that your scene is still the current one before acting on it.
+     * @since unreleased
+     */
+    onEnded?: (voice: number) => void;
   }
 
   /**
@@ -876,7 +933,7 @@ declare module "factoria" {
      * The bus this handle controls.
      * @since unreleased
      */
-    readonly name: "master" | "sfx" | "music" | "ui";
+    readonly name: string;
     /**
      * A 12 dB per octave low-pass filter at `hz` (20..20000; a muffled, underwater sound is 400..800). 0 or null switches it off. With `fade` (seconds) the cutoff slides (in octaves) from where it is; a bus with no filter starts open. Costs one biquad per channel: five multiply-adds per sample of the bus.
      * @since unreleased
@@ -891,7 +948,7 @@ declare module "factoria" {
      * Lowers this bus by `amount` (the fraction removed, 0.5 default: half as loud) while `byBus` is louder than -40 dBFS, e.g. audio.bus("music").duck("sfx", 0.5) pushes the music down under every sound effect. `attack` (0.05 s) and `release` (0.5 s) are time constants in seconds: the bus covers 63% of the way down (or back up) in that time, about 95% in three times it. null switches ducking off (so does unduck()); the master cannot duck. Costs a peak detector on `byBus` and one multiply per sample here.
      * @since unreleased
      */
-    duck(byBus: "sfx" | "music" | "ui" | null, amount?: number, attack?: number, release?: number): AudioBus;
+    duck(byBus: string | null, amount?: number, attack?: number, release?: number): AudioBus;
     /**
      * Switches ducking off.
      * @since unreleased
@@ -918,6 +975,11 @@ declare module "factoria" {
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
+    /**
+     * The sounds that play now, oldest first: { id, path, bus, volume, pitch, pan, loop, music, source }. `volume` is the voice volume it is moving to; `music` is true for the music and its layers; `source` is the entity id of an AudioSource, "" for scripts. Use it to count or limit voices on a bus, e.g. audio.activeVoices().filter((v) => v.bus === "ambience").length.
+     * @since unreleased
+     */
+    activeVoices(): ActiveVoice[];
     /**
      * Stops every sound and the music now, a persisted track included.
      */
@@ -946,19 +1008,19 @@ declare module "factoria" {
      */
     stopMusic(fade?: number): void;
     /**
-     * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
+     * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). A bus from factoria.json "audio"."buses" works too (SCRIPTING.md, "Project buses"). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
      */
-    setVolume(bus: "master" | "sfx" | "music" | "ui", volume: number): void;
+    setVolume(bus: string, volume: number): void;
     /**
      * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
      * @since 0.1.6
      */
-    getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
+    getVolume(bus: string): number;
     /**
      * A handle on a bus to set its effects: low-pass, reverb, ducking and volume (see AudioBus). Throws for an unknown name, with a "did you mean". The effects stay across scene loads, like volumes (a snapshot or the handle changes them).
      * @since unreleased
      */
-    bus(name: "master" | "sfx" | "music" | "ui"): AudioBus;
+    bus(name: string): AudioBus;
     /**
      * Moves every bus to the named snapshot of factoria.json "audio"."snapshots" (volume scale, low-pass, reverb and ducking; a bus the snapshot does not list goes back to neutral, so { "normal": {} } is the way back). `fade` is the seconds the move takes; without it the snapshot's own "fade" (0.5 when it has none). Low-pass, reverb and volume slide, ducking switches at once; the volumes the player set with setVolume are not touched. Throws for an unknown name, with a "did you mean". `factoria validate` checks the catalog.
      * @since unreleased
@@ -5137,6 +5199,11 @@ declare module "factoria" {
      * Master volume multiplier for everything this listener hears.
      */
     volume: number;
+    /**
+     * Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1.
+     * @since unreleased
+     */
+    zoom: number;
   }
   /**
    * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
@@ -6485,7 +6552,7 @@ declare module "factoria" {
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
-    AudioListener: { volume?: number };
+    AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
@@ -6646,7 +6713,22 @@ declare module "factoria:test" {
     readonly volume: number;
     readonly pitch: number;
     readonly pan: number;
-    readonly bus: "sfx" | "music" | "ui";
+    readonly bus: string;
+    /**
+     * "play" for a sound that started; "setVoiceVolume" for a call to audio.setVoiceVolume on a voice that plays (toContainPlayed ignores these).
+     * @since unreleased
+     */
+    readonly kind: "play" | "setVoiceVolume";
+    /**
+     * The voice id from audio.play (0 for music and layers).
+     * @since unreleased
+     */
+    readonly voice: number;
+    /**
+     * Seconds of the fade of a setVoiceVolume entry; 0 otherwise. For a setVoiceVolume entry `volume` is the new target.
+     * @since unreleased
+     */
+    readonly fade: number;
     readonly loop: boolean;
     /**
      * The layer name when audio.musicLayers started it; "" otherwise.

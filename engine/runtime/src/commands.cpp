@@ -900,7 +900,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"audio.bus", "Set a bus's volume and effects (low-pass, reverb, ducking), or read its state.",
-           "Buses are \"sfx\", \"music\", \"ui\" and \"master\" (the master has no ducking). Every voice of a bus is summed into its own buffer; "
+           "Buses are \"sfx\", \"music\", \"ui\", \"master\" (the master has no ducking) and the project's own (factoria.json \"audio\".\"buses\"). Every voice of a bus, "
+           "and the buses declared under it, is summed into its own buffer; "
            "the effects run on that sum in this order: low-pass, reverb, volume, ducking. `volume` is the player's volume (what "
            "audio.setVolume sets); `lowpass` is a 12 dB per octave cutoff in Hz (0 or null = off); `reverb` is the wet mix 0..1 "
            "(0 = off); `duck` lowers the bus by `amount` (the fraction removed) while the bus `by` is louder than -40 dBFS, with "
@@ -909,12 +910,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "`bus` it returns the state. Returns volume, snapshotVolume, lowpass, reverb and duck. A bus with no effect does no effect "
            "work. Example: audio.bus {\"bus\":\"music\",\"lowpass\":800,\"fade\":0.5}",
            parse_schema(R"({"type":"object","required":["bus"],"properties":{
-               "bus":{"enum":["sfx","music","ui","master"],"description":"The bus."},
+               "bus":{"type":"string","description":"The bus: sfx, music, ui, master or a bus of factoria.json audio.buses."},
                "volume":{"type":"number","minimum":0,"maximum":4,"description":"The bus volume, 1 = as recorded."},
                "lowpass":{"type":["number","null"],"minimum":0,"maximum":20000,"description":"Low-pass cutoff in Hz; 0 or null = off."},
                "reverb":{"type":"number","minimum":0,"maximum":1,"description":"Reverb wet mix; 0 = off."},
                "duck":{"type":["object","null"],"description":"Ducking by another bus; null = off.","properties":{
-                   "by":{"enum":["sfx","music","ui"],"description":"The bus that triggers it."},
+                   "by":{"type":"string","description":"The bus that triggers it (any bus but the master)."},
                    "amount":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"Fraction of the volume removed while `by` plays."},
                    "attack":{"type":"number","minimum":0,"default":0.05,"description":"Attack time constant in seconds: 63% of the way down in this time, about 95% in three times it."},
                    "release":{"type":"number","minimum":0,"default":0.5,"description":"Release time constant in seconds: 63% of the way back up in this time."}}},
@@ -923,6 +924,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&I](const Json& a) {
               const std::string bus = a.value("bus", std::string());
               const float fade = a.value("fade", 0.0f);
+              if (I.audio.bus_volume(bus) < 0) {
+                  const auto names = I.audio.bus_names();
+                  throw CommandError("invalid_argument", "audio.bus: unknown bus '" + bus + "'. " + did_you_mean(bus, names),
+                                     "The buses are " + join(names, ", ") + " (project buses: factoria.json \"audio\".\"buses\").");
+              }
               const auto check = [](const Result<void>& r) {
                   if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
               };

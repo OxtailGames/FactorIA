@@ -48,7 +48,6 @@ export function validateSoundTables(raw, base = rawTables.buildings, known = ass
         const near = didYouMean(name, Object.keys(buildings));
         add(p, `'${name}' is not a building`, near ? `did you mean '${near}'?` : "a work sound is named after the building that makes it (data/buildings.json)");
       }
-      if ((role === "work" || role === "walkers") && !(typeof entry.seconds === "number" && entry.seconds > 0)) add(`${p}/seconds`, "seconds must be a number above 0: how long the one-shot counts as playing", "about the length of the clip");
     }
   }
   for (const bed of BEDS) if (isObject(s.ambience) && !s.ambience[bed]) add(`/ambience/${bed}`, `the ambience bed '${bed}' is missing`, "the soundscape plays sea, market and wind");

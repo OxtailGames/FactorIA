@@ -461,26 +461,41 @@ if (window.available) {
 ```
 
 ### audio
-- `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
-- `music(path, { volume, fade, persist })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
+- `play(path, { volume, pitch, pan, loop, bus, onEnded })` → voice id · `stop(id)` · `stopAll()`
+- `music(path, { volume, fade, persist })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"` or a bus of the project, see "Project buses" below; default 1; not saved: an options menu stores it)
+- `activeVoices()` lists the sounds that play now, oldest first: `[{ id, path, bus, volume, pitch, pan, loop, music, source }]`
+  (`volume` is the voice's own volume as last set, the volume a `setVoiceVolume` fade moves to; `music` is true for the music
+  track and its layers; `source` is the entity id of the `AudioSource` or `Video` that plays it, `""` for scripts). A game that
+  caps how many sounds play at once counts this list instead of keeping its own.
+- `play(path, { onEnded })` calls `onEnded(voiceId)` once, in the step after the voice ended: the clip finished, a fade-out
+  reached silence, `audio.stop(id)` was called, or a full mixer cut it. It is not called when `stopAll()` or a scene load cut
+  the sound, nor for a sound that did not start (id 0): the scene that asked is gone. A looping sound ends only when stopped.
+  An error thrown by the callback is reported like one from a timer.
 - A scene load (`scene.load`, reload) stops every sound and the music, then starts the new scene's `SceneSettings.music` (the same
   track again too). `audio.music(path, { persist: true })` is the exception: that track keeps playing through scene loads, and a
   scene whose `settings.music` is the same track does not restart it (another track replaces it). `stopAll()` stops a persisted track too.
 - `setVoiceVolume(id, volume, fade?)` moves the volume of a sound that plays (an id from `play`) in a straight line over `fade`
-  seconds, bus and master volumes still apply; false once the voice ended.
+  seconds, bus and master volumes still apply; false once the voice ended. Each change that took effect is also an entry of
+  `game.audioLog()` (see the last point of this list).
 - `musicLayers({ drums: path, bass: path }, { volume, fade, persist, levels })` starts stems of one piece on the same audio
   sample (all in one step, so they never start in different blocks); `setLayer(name, level, fade?)` fades a stem in or out
   (0 silent, 1 full). Stems of equal length stay aligned across loops; `stopMusic` stops every layer.
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
-  `game.audioLog()`, agents with the `audio.log` command.
+  `game.audioLog()`, agents with the `audio.log` command. Each entry has `kind`: `"play"` (with `voice`, the id the request
+  got, 0 when it did not start; music started by the engine has none) or `"setVoiceVolume"` (a `setVoiceVolume` of a voice that
+  plays: `voice`, `path`, `volume` is the target, `fade` the seconds, `bus`), so a test can assert that a bed followed the
+  camera. `toContainPlayed` counts plays only.
+- `AudioListener.zoom` scales how far positional sounds are heard (docs/COMPONENTS.md, "AudioListener"); a script moves it
+  with `listenerEntity.get("AudioListener").zoom = v` each frame (or the `scene.set_component` command).
 - `bus(name)` gives a handle with `lowpass`, `reverb`, `duck`, `unduck`, `volume` and `state`; `snapshot(name, { fade })` and
   `snapshots()` move every bus to a named snapshot of factoria.json. Effects and ducking are in "Audio buses" below.
 - A change of a bus volume (`setVolume`, `bus(name).volume`) ramps over about 10 ms, so it never clicks.
 
 ### Audio buses
-Every voice goes into the buffer of its bus (`sfx`, `music`, `ui`), each bus gets its effects and its volume, and the
-buses are summed into the master, which has its own. `audio.bus(name)` returns a handle on `"sfx"`, `"music"`, `"ui"` or
-`"master"` (an unknown name throws with a "did you mean"); its methods return the handle, so they chain:
+Every voice goes into the buffer of its bus (`sfx`, `music`, `ui` or a bus of the project), each bus gets its effects and its
+volume, and the buses are summed into their parent and finally into the master, which has its own. `audio.bus(name)` returns a
+handle on `"sfx"`, `"music"`, `"ui"`, `"master"` or a project bus (an unknown name throws with a "did you mean" and the list);
+its methods return the handle, so they chain:
 
 ```js
 audio.bus("music").lowpass(800).reverb(0.2);              // muffled, in a small room
@@ -493,7 +508,7 @@ audio.bus("music").unduck();                              // or duck(null)
 |---|---|
 | `lowpass(hz, { fade })` | 12 dB per octave low-pass at `hz` (20 to 20000; 400 to 800 sounds muffled or underwater). `0` or `null` switches it off. With `fade` the cutoff slides, measured in octaves, from where it is (a bus with no filter starts at 20000). |
 | `reverb(mix, { fade })` | A small room reverb: `(1 - mix)` dry plus `mix` wet, 0 to 1. `0` switches it off. The tail rings out for about 4 seconds after the bus goes silent, then the reverb stops working. |
-| `duck(byBus, amount = 0.5, attack = 0.05, release = 0.5)` | Lowers this bus by `amount` (the fraction removed: 0.5 is half as loud, 1 is silent) while `byBus` (`"sfx"`, `"music"` or `"ui"`, another bus than this one) is louder than -40 dBFS, measured after that bus's own effects and volume. `attack` and `release` are time constants in seconds: the bus covers 63% of the way in that time and about 95% in three times it. The master cannot duck. `duck(null)` and `unduck()` switch it off. Ducking has no `fade`: it follows `byBus` by itself. |
+| `duck(byBus, amount = 0.5, attack = 0.05, release = 0.5)` | Lowers this bus by `amount` (the fraction removed: 0.5 is half as loud, 1 is silent) while `byBus` (any bus but this one and the master) is louder than -40 dBFS, measured after that bus's own effects and volume. `attack` and `release` are time constants in seconds: the bus covers 63% of the way in that time and about 95% in three times it. The master cannot duck. `duck(null)` and `unduck()` switch it off. Ducking has no `fade`: it follows `byBus` by itself. |
 | `volume(v, { fade })` | The bus volume, the same as `audio.setVolume(name, v)` with an optional fade (a straight line over `fade` seconds). |
 | `state()` | `{ volume, snapshotVolume, lowpass, reverb, duck }`: what the bus is moving to (a fade in progress shows its end), `lowpass` is 0 and `reverb` 0 when off, `duck` is null or `{ by, amount, attack, release }`. |
 
@@ -501,6 +516,29 @@ The order on a bus is low-pass, reverb, volume, then ducking; the master takes a
 buses, then its volume. A bad value (a cutoff below 20 Hz, a mix above 1, a bus that ducks itself) throws an error that says
 what to use. Effects stay across scene loads, like volumes: a game that switches them on for one level switches them off
 (or applies a snapshot) when it leaves. The test runner puts every effect back to off before each test.
+
+**Project buses.** `sfx`, `music`, `ui` and the master always exist; a project adds its own in factoria.json, each with a
+parent (default `"master"`; a parent may be declared after its child):
+
+```json
+"audio": { "buses": {
+  "ambience": { "parent": "sfx" },
+  "birds":    { "parent": "ambience" },
+  "voiceover": {}
+} }
+```
+
+`audio.play(path, { bus: "ambience" })`, `audio.setVolume("ambience", 0.5)`, `audio.bus("ambience")`, `duck("voiceover")`, the
+`audio.bus` command and snapshots take the new names. A bus is mixed on its own (its voices and the buses under it, then its
+low-pass, reverb, volume and ducking) and the result is summed into its parent, so `setVolume("sfx", 0.5)` also halves
+`ambience`, while `setVolume("ambience", 0.5)` leaves the other sound effects alone. Names are lowercase letters, digits, `_` or
+`-` (`setVolume` lowercases what it gets), may not repeat a built-in name, and a chain of parents must end at a built-in bus;
+`factoria validate` reports a wrong name, an unknown parent (with a "did you mean"), a loop, and a snapshot or a `duck.by` that
+names a bus nobody declared. At most 32 project buses. When the buses of a project change (a reload), a bus that stays keeps its
+volume and effects, and the voices of a bus that went away play on `sfx`. Ducking between buses of different depth: the
+bus that ducks reads the other bus after its own effects and volume when that bus is as deep or deeper in the tree (a child of
+the ducked bus's parent, for example), and as the sum of its voices and its children before its own effects when it is nearer
+the master.
 
 **Snapshots** name a whole mixer state so a script does not juggle buses one by one. They live in factoria.json:
 
@@ -521,10 +559,10 @@ player set with `setVolume` (the options menu keeps working under a snapshot); l
 switches at once. `audio.snapshots()` returns `{ names, current }`. An unknown name throws with a "did you mean", and
 `factoria validate` reports a bad catalog (a typo in a bus or key, a value out of range) with its JSON pointer and a fix.
 Agents use the commands `audio.bus` (`{ "bus": "music", "lowpass": 800, "fade": 0.5 }`; just `bus` reads the state) and
-`audio.snapshot` (`{ "name": "underwater" }`; no name lists them). The mix is deterministic, so a test can render a clip with
+`audio.snapshot` (`{ "name": "underwater" }`; no name lists them). A snapshot may list project buses too. The mix is deterministic, so a test can render a clip with
 `factoria run --headless --record-audio out.wav` after switching an effect on and measure the result.
 
-Cost, on a mix of 44.1 or 48 kHz stereo: a bus with no effect does no effect work (its voices are only added into the master,
+Cost, on a mix of 44.1 or 48 kHz stereo: a bus with no effect does no effect work (its voices are only added into its parent,
 one add per sample while it plays). A low-pass is one biquad per channel, five multiply-adds a sample, and works only while
 the bus has sound. A reverb is eight comb and four all-pass filters per channel (several times a low-pass) and about 100 KB of
 delay lines, allocated when first switched on; it keeps working for its 4 s tail and then stops. Ducking is a peak detector on
@@ -1129,7 +1167,7 @@ test("player jumps", () => {
   `click` needed), `press(action)`, `release(action)`, `tap(action)`,
   `keyDown(key)`, `keyUp(key)`, `tapKey(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
-  `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
+  `[{ kind, voice, fade, seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok, layer }]`, cleared before each test),
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
   `focus()`, `blur()` (what the OS does to the app, so lifecycle code can be tested),
   `renderStats()` (what the renderer drew in the picture now, drawing a frame first when none was drawn: `{ drawCalls,

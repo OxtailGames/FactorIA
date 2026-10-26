@@ -1102,6 +1102,49 @@
     },
     {
      "kind": "interface",
+     "name": "ActiveVoice",
+     "doc": "One sound that plays now, from audio.activeVoices().",
+     "members": [
+      {
+       "sig": "readonly id: number",
+       "doc": "The voice id (what audio.play returned)."
+      },
+      {
+       "sig": "readonly path: string",
+       "doc": "Project-relative clip path."
+      },
+      {
+       "sig": "readonly bus: string",
+       "doc": "The bus it plays on."
+      },
+      {
+       "sig": "readonly volume: number",
+       "doc": "The voice volume it is moving to."
+      },
+      {
+       "sig": "readonly pitch: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly pan: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly loop: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "readonly music: boolean",
+       "doc": "True for the music and its layers."
+      },
+      {
+       "sig": "readonly source: string",
+       "doc": "Id of the entity whose AudioSource plays it; \"\" for scripts and music."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "PlayOptions",
      "members": [
       {
@@ -1121,8 +1164,8 @@
        "doc": ""
       },
       {
-       "sig": "bus?: \"sfx\" | \"music\" | \"ui\"",
-       "doc": ""
+       "sig": "bus?: string",
+       "doc": "The bus to play on: \"sfx\" (default), \"music\", \"ui\" or a bus declared in factoria.json \"audio\".\"buses\". Throws, listing the buses, for another name."
       },
       {
        "sig": "caption?: string",
@@ -1139,6 +1182,10 @@
       {
        "sig": "captionSeconds?: number",
        "doc": "Show the caption for this many seconds of the game clock instead of for as long as the sound plays. Required with loop: true (a looping sound never ends), otherwise play() throws."
+      },
+      {
+       "sig": "onEnded?: (voice: number) => void",
+       "doc": "Called once, on the frame after the sound ends, with its voice id: it played to the end, audio.stop(voice) stopped it, or a full mixer dropped it. Not called by audio.stopAll or a scene load (they discard the callback), nor for a sound that did not start. A looping sound ends only when stopped. Check that your scene is still the current one before acting on it."
       }
      ]
     },
@@ -1148,7 +1195,7 @@
      "doc": "A handle on one audio bus, from audio.bus(name): its effects (docs/SCRIPTING.md, \"Audio buses\"). Every method returns the handle, so audio.bus(\"music\").lowpass(800).reverb(0.2) chains. A bus with no effect does no effect work (it only costs one add per sample into the master while it plays).",
      "members": [
       {
-       "sig": "readonly name: \"master\" | \"sfx\" | \"music\" | \"ui\"",
+       "sig": "readonly name: string",
        "doc": "The bus this handle controls."
       },
       {
@@ -1160,7 +1207,7 @@
        "doc": "A small room reverb: the bus is heard as (1 - mix) dry + mix wet, mix 0..1 (0 switches it off, 0.3 is a touch of room). The tail rings out for about 4 seconds after the bus goes silent, then the work stops. With `fade` the mix slides. Costs several times a low-pass (eight comb and four all-pass filters per channel) and some memory for its delay lines."
       },
       {
-       "sig": "duck(byBus: \"sfx\" | \"music\" | \"ui\" | null, amount?: number, attack?: number, release?: number): AudioBus",
+       "sig": "duck(byBus: string | null, amount?: number, attack?: number, release?: number): AudioBus",
        "doc": "Lowers this bus by `amount` (the fraction removed, 0.5 default: half as loud) while `byBus` is louder than -40 dBFS, e.g. audio.bus(\"music\").duck(\"sfx\", 0.5) pushes the music down under every sound effect. `attack` (0.05 s) and `release` (0.5 s) are time constants in seconds: the bus covers 63% of the way down (or back up) in that time, about 95% in three times it. null switches ducking off (so does unduck()); the master cannot duck. Costs a peak detector on `byBus` and one multiply per sample here."
       },
       {
@@ -1191,6 +1238,10 @@
        "doc": ""
       },
       {
+       "sig": "activeVoices(): ActiveVoice[]",
+       "doc": "The sounds that play now, oldest first: { id, path, bus, volume, pitch, pan, loop, music, source }. `volume` is the voice volume it is moving to; `music` is true for the music and its layers; `source` is the entity id of an AudioSource, \"\" for scripts. Use it to count or limit voices on a bus, e.g. audio.activeVoices().filter((v) => v.bus === \"ambience\").length."
+      },
+      {
        "sig": "stopAll(): void",
        "doc": "Stops every sound and the music now, a persisted track included."
       },
@@ -1215,15 +1266,15 @@
        "doc": "Stops the music (and every layer) fading out over `fade` seconds (default 0.5)."
       },
       {
-       "sig": "setVolume(bus: \"master\" | \"sfx\" | \"music\" | \"ui\", volume: number): void",
-       "doc": "Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to \"sfx\" unless their `bus` option says otherwise; \"master\" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start."
+       "sig": "setVolume(bus: string, volume: number): void",
+       "doc": "Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). A bus from factoria.json \"audio\".\"buses\" works too (SCRIPTING.md, \"Project buses\"). Plays go to \"sfx\" unless their `bus` option says otherwise; \"master\" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start."
       },
       {
-       "sig": "getVolume(bus: \"master\" | \"sfx\" | \"music\" | \"ui\"): number",
+       "sig": "getVolume(bus: string): number",
        "doc": "The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name."
       },
       {
-       "sig": "bus(name: \"master\" | \"sfx\" | \"music\" | \"ui\"): AudioBus",
+       "sig": "bus(name: string): AudioBus",
        "doc": "A handle on a bus to set its effects: low-pass, reverb, ducking and volume (see AudioBus). Throws for an unknown name, with a \"did you mean\". The effects stay across scene loads, like volumes (a snapshot or the handle changes them)."
       },
       {
@@ -3954,8 +4005,20 @@
        "doc": ""
       },
       {
-       "sig": "readonly bus: \"sfx\" | \"music\" | \"ui\"",
+       "sig": "readonly bus: string",
        "doc": ""
+      },
+      {
+       "sig": "readonly kind: \"play\" | \"setVoiceVolume\"",
+       "doc": "\"play\" for a sound that started; \"setVoiceVolume\" for a call to audio.setVoiceVolume on a voice that plays (toContainPlayed ignores these)."
+      },
+      {
+       "sig": "readonly voice: number",
+       "doc": "The voice id from audio.play (0 for music and layers)."
+      },
+      {
+       "sig": "readonly fade: number",
+       "doc": "Seconds of the fade of a setVoiceVolume entry; 0 otherwise. For a setVoiceVolume entry `volume` is the new target."
       },
       {
        "sig": "readonly loop: boolean",
