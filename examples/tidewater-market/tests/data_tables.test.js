@@ -11,7 +11,7 @@ test("the tables that ship with the game are sound", () => {
   expect(validateTables(rawTables)).toEqual([]);
   const data = loadData(rawTables);
   expect(data.buildingIds[0]).toBe("road");
-  expect(data.buildingIds).toHaveLength(13);
+  expect(data.buildingIds).toHaveLength(14);
   expect(data.terrainIds).toEqual(["water", "sand", "grass", "forest", "rock"]);
   expect(data.terrainByChar.g).toBe(2);
 });
@@ -115,5 +115,5 @@ test("formatProblems and didYouMean", () => {
 test("project.validate_data says ok for the shipped tables", () => {
   const out = fa.call("project.validate_data", {});
   expect(out.ok).toBe(true);
-  expect(out.counts.buildings).toBe(13);
+  expect(out.counts.buildings).toBe(14);
 });

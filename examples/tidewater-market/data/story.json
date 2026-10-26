@@ -1,0 +1,60 @@
+{
+  "$comment": "The story of each scenario, keyed by the scenario ids of data/scenarios.json (P4). A list of cards shown IN ORDER, each once, when its `when` holds (all keys must): day = the game day number (the game starts at 0), season, pier / ordersFilled / shipsFilled / reputation / population / coins = at least this many, built = { buildingType: count }. A card has the same shape as an event (data/events.json): choices with effects, texts story.<scenario>.<id>.title, .body, .choice.<choiceId>, .result.<choiceId>. Answering the last card finishes the story: the achievement story_<scenario> unlocks. A scenario with no entry (the sandbox) has no story.",
+  "format": "tidewater.story/1",
+  "scenarios": {
+    "first_harbour": [
+      { "id": "letter", "when": { "day": 2 }, "choices": [
+        { "id": "aloud", "effects": { "delta": {}, "reputation": 1 } },
+        { "id": "quiet", "effects": { "delta": { "coins": 40 } } }
+      ] },
+      { "id": "pier", "when": { "pier": 1 }, "choices": [
+        { "id": "paint", "effects": { "delta": { "coins": -20 }, "reputation": 2 } },
+        { "id": "plain", "effects": { "delta": {} } }
+      ] },
+      { "id": "cargo", "when": { "shipsFilled": 1 }, "choices": [
+        { "id": "toast", "effects": { "delta": { "coins": -30 }, "reputation": 3 } },
+        { "id": "pocket", "effects": { "delta": { "coins": 40 }, "reputation": -1 } }
+      ] },
+      { "id": "map", "when": { "ordersFilled": 3 }, "choices": [
+        { "id": "flag", "effects": { "delta": { "coins": 100 }, "reputation": 3 } },
+        { "id": "feast", "effects": { "delta": {}, "reputation": 6 } }
+      ] }
+    ],
+    "river_mills": [
+      { "id": "bend", "when": { "day": 3 }, "choices": [
+        { "id": "survey", "effects": { "delta": { "coins": -20 }, "reputation": 1 } },
+        { "id": "build", "effects": { "delta": {} } }
+      ] },
+      { "id": "grindstone", "when": { "built": { "mill": 1 } }, "choices": [
+        { "id": "buy", "effects": { "delta": { "coins": -60, "stone": 6 } } },
+        { "id": "borrow", "effects": { "delta": { "stone": 3 }, "reputation": -1 } }
+      ] },
+      { "id": "oven", "when": { "built": { "bakery": 1 } }, "choices": [
+        { "id": "share", "effects": { "delta": { "bread": 4 }, "reputation": 2 } },
+        { "id": "sell", "effects": { "delta": { "coins": 50 } } }
+      ] },
+      { "id": "south", "when": { "shipsFilled": 2 }, "choices": [
+        { "id": "contract", "effects": { "delta": { "coins": 120 }, "reputation": 2 } },
+        { "id": "freedom", "effects": { "delta": {}, "reputation": 5 } }
+      ] }
+    ],
+    "winter_trade": [
+      { "id": "ice", "when": { "day": 1 }, "choices": [
+        { "id": "stock", "effects": { "delta": { "coins": -50, "wood": 20 } } },
+        { "id": "trust", "effects": { "delta": {} } }
+      ] },
+      { "id": "frost", "when": { "season": "winter", "pier": 1 }, "choices": [
+        { "id": "break_ice", "effects": { "delta": { "coins": -40 }, "reputation": 2 } },
+        { "id": "wait", "effects": { "delta": {}, "shipDelay": 2 } }
+      ] },
+      { "id": "bargain", "when": { "reputation": 6 }, "choices": [
+        { "id": "haggle", "effects": { "delta": { "coins": 80 }, "reputation": -1 } },
+        { "id": "fair", "effects": { "delta": {}, "reputation": 4 } }
+      ] },
+      { "id": "thaw", "when": { "ordersFilled": 3 }, "choices": [
+        { "id": "celebrate", "effects": { "delta": { "coins": -30 }, "reputation": 5 } },
+        { "id": "save", "effects": { "delta": { "coins": 60 } } }
+      ] }
+    ]
+  }
+}

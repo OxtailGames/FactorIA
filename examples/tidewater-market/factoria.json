@@ -29,8 +29,120 @@
       "speed_2": ["3"],
       "speed_3": ["4"],
       "pause_toggle": ["Space"],
+      "order_board": ["O"],
       "pause": ["Escape", "P", "GamepadStart"]
     }
+  },
+  "platform": {
+    "achievements": [
+      {
+        "id": "first_ship",
+        "nameKey": "achievement.first_ship.name",
+        "descriptionKey": "achievement.first_ship.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_FIRST_SHIP"
+        }
+      },
+      {
+        "id": "ten_orders",
+        "nameKey": "achievement.ten_orders.name",
+        "descriptionKey": "achievement.ten_orders.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_TEN_ORDERS"
+        }
+      },
+      {
+        "id": "harbour_master",
+        "nameKey": "achievement.harbour_master.name",
+        "descriptionKey": "achievement.harbour_master.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_HARBOUR_MASTER"
+        }
+      },
+      {
+        "id": "no_debt_year",
+        "nameKey": "achievement.no_debt_year.name",
+        "descriptionKey": "achievement.no_debt_year.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_NO_DEBT_YEAR"
+        }
+      },
+      {
+        "id": "story_first_harbour",
+        "nameKey": "achievement.story_first_harbour.name",
+        "descriptionKey": "achievement.story_first_harbour.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_STORY_FIRST_HARBOUR"
+        }
+      },
+      {
+        "id": "story_river_mills",
+        "nameKey": "achievement.story_river_mills.name",
+        "descriptionKey": "achievement.story_river_mills.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_STORY_RIVER_MILLS"
+        }
+      },
+      {
+        "id": "story_winter_trade",
+        "nameKey": "achievement.story_winter_trade.name",
+        "descriptionKey": "achievement.story_winter_trade.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_STORY_WINTER_TRADE"
+        }
+      }
+    ],
+    "stats": [
+      {
+        "id": "ships_docked",
+        "type": "int",
+        "ids": {
+          "steam": "ShipsDocked"
+        }
+      },
+      {
+        "id": "orders_filled",
+        "type": "int",
+        "ids": {
+          "steam": "OrdersFilled"
+        }
+      },
+      {
+        "id": "orders_missed",
+        "type": "int",
+        "ids": {
+          "steam": "OrdersMissed"
+        }
+      },
+      {
+        "id": "events_resolved",
+        "type": "int",
+        "ids": {
+          "steam": "EventsResolved"
+        }
+      },
+      {
+        "id": "coins_earned",
+        "type": "int",
+        "ids": {
+          "steam": "CoinsEarned"
+        }
+      },
+      {
+        "id": "stories_finished",
+        "type": "int",
+        "ids": {
+          "steam": "StoriesFinished"
+        }
+      }
+    ]
   },
   "platforms": ["web", "windows", "macos", "linux"],
   "feedbackFile": "ENGINE_FEEDBACK.json",
