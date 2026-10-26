@@ -89,7 +89,8 @@ Seen while playing:
 - The first click on a building card right after switching the build tab did not select it once; the next click did.
   Not reproduced since.
 - The browser logs "ScriptProcessorNode is deprecated" from the player's audio (FB-0054).
-- `favicon.ico` is a 404: the export writes no icon for the page.
+- The tab shows no icon: the page declares an empty one so hosts log no 404, and does not use the game icon (FB-0071). The
+  `favicon.ico` 404s in the local server log came from the browser pane, which asks for it anyway.
 
 ## Budget
 
