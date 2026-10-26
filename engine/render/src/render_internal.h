@@ -354,6 +354,12 @@ struct BloomSettings {
 };
 
 struct CameraInfo {
+    Entity entity = kNullEntity;            // the Camera entity (null for the default camera of a world without one)
+    int depth = 0;                          // Camera.depth
+    // Camera.viewport after sanitizing: [x, y, w, h] as fractions of the target, top-left origin, +Y down. proj maps the
+    // view onto THIS rectangle (its aspect is the rectangle's), so ndc -1..1 is the viewport, not the whole target.
+    Rect viewport{0, 0, 1, 1};
+    bool fullViewport() const { return viewport.x == 0.0f && viewport.y == 0.0f && viewport.w == 1.0f && viewport.h == 1.0f; }
     Mat4 view, proj, viewProj, invViewProj;
     Vec3 position{0, 0, 0};
     bool perspective = false;

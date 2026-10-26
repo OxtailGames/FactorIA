@@ -163,8 +163,9 @@ void gather_particles(World& world, Frame& f) {
         if (it == all.end()) return;
         EmitterState& st = it->second;
         if (st.particles.empty()) return;
-        Mat4 m = world.world_matrix(e);
         const bool screen = screen_space(em);
+        if (screen ? !f.wantScreen : !f.wantWorld) return;
+        Mat4 m = world.world_matrix(e);
         Vec3 anchor{};
         if (screen) {
             const Vec2 a = anchor_point(em.anchor, em.safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());

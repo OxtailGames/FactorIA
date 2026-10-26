@@ -15,11 +15,15 @@ struct ShadowCache {
         std::uint64_t used = 0;         // the tick of the last frame that read it
     };
     std::unordered_map<std::uint64_t, Entry> rows;
-    std::uint64_t tick = 0;
+    std::uint64_t tick = 0;  // one per drawn frame (the renderer counts it): a row not used this frame may be dropped
 };
 
 struct Frame {
     CameraInfo cam;
+    // What this frame gathers: one camera's world (a view into its viewport) and/or the screen-space items drawn once over the
+    // whole screen after every camera (Sprite/Shape2D/Text/ParticleEmitter with space "screen", UI, debug text). A game with
+    // one camera and the whole screen as its viewport gathers both in one frame.
+    bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
     QuadList world, screen, debugWorld, debugScreen;

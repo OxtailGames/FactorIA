@@ -116,10 +116,17 @@ window) fails with the error `gpu_busy` and says so, instead of crashing: run it
 `Light2D` point lights are added up in a light buffer that lit sprites, tiles and shapes read, so the number of lights costs
 the pixels the lights cover, not a loop per pixel over every light.
 
+A frame with several cameras (`Camera.viewport`, split screen) draws the world once per camera: culling, sorting, 2D lights and
+their light buffer are per camera, so `drawCalls`, `triangles` and `lights` of `game.renderStats()` and `perf.measure` are the sum over
+the cameras of the frame, and a four-camera frame costs about four times a one-camera frame. The screen-space items (UI, HUD) are
+one more job over the whole screen, and the post effects run once. A game with one full-screen camera is unchanged. Budget two or
+three cameras on phones, and give the lights a radius that stays in one view so each camera keeps only the lights that reach it.
+
 What the budget is:
 
 | | Limit | Beyond it |
 | --- | --- | --- |
+| Cameras drawn per frame (`Camera.viewport`, split screen) | 8: the lowest `depth`s | the others are not drawn, one warning |
 | Lights that shade a frame (`lights2d`) | 256: directional first, then the point lights whose radius reaches the camera view | the rest is counted in `lights2dDropped`, one warning per scene |
 | Lights that cast shadows (`lights2dShadowed`) | 32, the ones ranked first, and only lights with a solid tile of an `occludesLight` Tilemap within their radius | the others shine through walls, one warning per scene |
 | Lights on a lit sprite or tile WITH a normal map | the first 16 of the order above (its shading depends on each light's direction) | the others still light flat surfaces |

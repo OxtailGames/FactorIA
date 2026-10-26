@@ -254,7 +254,7 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   gives a short vector, two keys a unit diagonal). An action is `down` from `value >= 0.5` (a stick pushed about 60 %
   of the way with the default deadzone); `pressed`/`released` fire when it crosses that threshold.
 - Keys: `keyDown("Space")`, `keyPressed("A")`, `keyReleased("Escape")`
-- Mouse: `mouse.position` (screen, top-left origin), `mouse.world` (world coords via main camera),
+- Mouse: `mouse.position` (screen, top-left origin), `mouse.world` (world coords via the camera under the pointer: the main camera when there is one),
   `mouse.delta`, `mouse.wheel`, `mouse.down("left")`, `mouse.pressed("right")`
 - Touch: `touches` → `[{ id, position, world, pressed }]`. The first finger also drives the mouse (position, and the
   left button down while it is down), on a device and in tests alike, so a script that reads both `input.mouse` and
@@ -596,7 +596,14 @@ export default class PauseMenu extends Behaviour {
 Keep such a behaviour on an entity that stays active (an inactive entity gets no callbacks) and show or hide the panel.
 
 ### camera
-`main` (primary camera Entity), `worldToScreen(v)`, `screenToWorld(v)`.
+`main` (the first camera drawn: the primary camera with the lowest `depth`, or null), `all` (every camera drawn, in draw
+order, at most 8), `at(v)` (the camera whose viewport contains the screen point `v`, else the first), `worldToScreen(v, camera?)`,
+`screenToWorld(v, depth?, camera?)` (also `screenToWorld(v, camera)`) and `screenRay(v, camera?)` (`{origin, direction}` for a 3D
+pick). A camera is an Entity or its id. Without a camera, a screen point uses the camera under it (`at`), a world point the
+first camera. With one camera and the default viewport nothing changes. `mouse.world` and a touch's `world` use the camera under
+the pointer. Each camera draws into `Camera.viewport` (a part of the screen, 0..1, top-left origin): two or more primary cameras
+make a split screen, see the recipe in AI_GUIDE section 9.28. A script that sets `viewport` live gets a value outside the
+screen clamped to it, with one warning.
 The `Camera` component fields are live, for example `camera.main.get("Camera").bloomIntensity = 2` changes the glow
 (`bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`; see AI_GUIDE section 9.20).
 
