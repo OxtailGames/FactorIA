@@ -33,8 +33,10 @@ test("stress: the town holds 640 villagers and over 500 of them are on the roads
 
 test("stress scene: the crowd is drawn with a handful of draw calls", () => {
   game.load("scenes/stress.scene.json");
-  game.step(20); // the town is laid out one step per frame
+  game.step(1); // onStart queues the steps
   const ctl = game.find("controller").behaviour;
+  // the town is laid out one small step per frame (no frame may run over the 2 s script limit on a slow runner)
+  for (let i = 0; i < 200 && ctl.stressSteps.length; i++) game.step(1);
   const state = ctl.state;
   expect(ctl.stressSteps.length).toBe(0);
   expect(state.sim.people.villagers.size).toBe(640);

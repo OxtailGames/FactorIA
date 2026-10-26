@@ -53,13 +53,27 @@ export function stressTownSteps(state, options = {}) {
       result.houses += planner.buildMany("house", Math.min(20, houses - result.houses));
     });
   }
-  steps.push(() => {
-    result.workplaces = planner.buildMany("farm", Math.floor(jobs / 2)) + planner.buildMany("bakery", Math.floor(jobs / 2));
-  });
-  steps.push(() => {
-    for (const h of state.list("house")) {
-      while (result.villagers < want && state.sim.people.moveIn(h.id)) result.villagers++;
+  // small steps: the planner searches the whole map for each building, and a frame may not run over 2 s on a slow runner
+  for (const kind of ["farm", "bakery"]) {
+    for (let done = 0; done < Math.floor(jobs / 2); done += 4) {
+      steps.push(() => {
+        result.workplaces += planner.buildMany(kind, Math.min(4, Math.floor(jobs / 2) - done));
+      });
     }
+  }
+  /** @type {any[]} */
+  let homes = [];
+  steps.push(() => {
+    homes = state.list("house");
+  });
+  for (let start = 0; start < houses; start += 10) {
+    steps.push(() => {
+      for (const h of homes.slice(start, start + 10)) {
+        while (result.villagers < want && state.sim.people.moveIn(h.id)) result.villagers++;
+      }
+    });
+  }
+  steps.push(() => {
     // empty packs: whoever has no job (and the workers after a day) walk to the market
     for (const v of state.sim.people.villagers.values()) v.food = 0;
   });
