@@ -5,6 +5,7 @@
     {{title}}      the game's name, HTML-escaped
     {{wasmBytes}}  size of factoria_player.wasm in bytes (progress when the server sends no Content-Length)
     {{pakBytes}}   size of game.pak in bytes (same)
+    {{favicon}}    favicon.png (made from the game's icon), or data:, when the game has none
   Next to it: factoria_player.js (Emscripten, MODULARIZE=1, EXPORT_NAME=createFactoriaPlayer), factoria_player.wasm and
   game.pak. The page downloads the wasm and the pack with progress, writes the pack to /game.pak in the module's file
   system and starts the player, which loads /game.pak.
@@ -27,7 +28,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>{{title}}</title>
-<link rel="icon" href="data:,"><!-- no favicon request: a host without one logs a 404 in every player's console -->
+<link rel="icon" href="{{favicon}}"><!-- favicon.png from the game's icon; data:, without one, so that a host without a favicon logs no 404 -->
 
 <style>
   :root { color-scheme: dark; }

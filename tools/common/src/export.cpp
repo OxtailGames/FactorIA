@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
+#include <map>
 #include <regex>
 #include <set>
 
@@ -308,6 +310,79 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
                            "factoria.json (a square PNG or JPG, 1024x1024 recommended), or \"export." + platform +
                            ".icon\" for this platform only");
     return p;
+}
+
+// ---- the size report ---------------------------------------------------------------------------------
+
+namespace {
+
+std::string size_text(std::uint64_t bytes) {
+    char buf[32];
+    if (bytes >= 1024ull * 1024) std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    else if (bytes >= 1024) std::snprintf(buf, sizeof buf, "%.1f KB", static_cast<double>(bytes) / 1024.0);
+    else std::snprintf(buf, sizeof buf, "%llu B", static_cast<unsigned long long>(bytes));
+    return buf;
+}
+
+std::string seconds_text(double s) {
+    char buf[32];
+    if (s < 1.0) std::snprintf(buf, sizeof buf, "under 1 s");
+    else if (s < 90.0) std::snprintf(buf, sizeof buf, "%.0f s", s);
+    else std::snprintf(buf, sizeof buf, "%.1f min", s / 60.0);
+    return buf;
+}
+
+// The speeds of the download times, in Mbit/s.
+constexpr double kSpeeds[] = {1, 5, 20, 100};
+
+}  // namespace
+
+// The folder a file is counted in: its directory cut to two levels ("assets/audio/sfx/hit.ogg" -> "assets/audio").
+static std::string report_folder(const std::string& path) {
+    const std::size_t first = path.find('/');
+    if (first == std::string::npos) return "(top level)";
+    const std::size_t second = path.find('/', first + 1);
+    return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
+}
+
+// What the pack (or the game folder) holds, folder by folder: fills report.largestFolders and warns about the folders that
+// are almost always material for making the game, never something it loads (docs/EXPORTING.md, "What is shipped").
+static void report_packed_sizes(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
+    std::map<std::string, ExportSize> folders;
+    std::map<std::string, ExportSize> suspect;  // the packed "store", "screenshots" or "src" folders, by their path
+    for (const std::string& f : files) {
+        const auto staged = p.staged.find(f);
+        std::error_code ec;
+        const auto n = stdfs::file_size(os_path(staged != p.staged.end() ? staged->second : p.dir / f), ec);
+        const std::uint64_t bytes = ec ? 0 : static_cast<std::uint64_t>(n);
+        ExportSize& row = folders[report_folder(f)];
+        row.name = report_folder(f);
+        ++row.files;
+        row.bytes += bytes;
+        // The first folder on the path that has one of the three names (a folder called src deep in assets/ counts too).
+        std::size_t start = 0;
+        for (std::size_t slash = f.find('/'); slash != std::string::npos; slash = f.find('/', start)) {
+            const std::string name = f.substr(start, slash - start);
+            if (name == "store" || name == "screenshots" || name == "src") {
+                ExportSize& s = suspect[f.substr(0, slash)];
+                s.name = f.substr(0, slash);
+                ++s.files;
+                s.bytes += bytes;
+                break;
+            }
+            start = slash + 1;
+        }
+    }
+    for (auto& [name, row] : folders) report.largestFolders.push_back(row);
+    std::sort(report.largestFolders.begin(), report.largestFolders.end(), [](const ExportSize& a, const ExportSize& b) {
+        return std::make_pair(b.bytes, a.name) < std::make_pair(a.bytes, b.name);
+    });
+    if (report.largestFolders.size() > 5) report.largestFolders.resize(5);
+    for (const auto& [name, s] : suspect)
+        report.warnings.push_back("The folder " + name + "/ (" + std::to_string(s.files) + " file(s), " + size_text(s.bytes) +
+                                  ") is packed into the game. A folder of that name usually holds store pictures, screenshots or the "
+                                  "sources of the assets, which the game never loads: if so, add \"" + name + "\" to \"export.exclude\" in "
+                                  "factoria.json (docs/EXPORTING.md, \"What is shipped and what is not\")");
 }
 
 // ---- game file collection ----------------------------------------------------------------------
@@ -670,6 +745,26 @@ std::string normalize_export_platform(const std::string& name) {
     return {};
 }
 
+std::vector<std::string> ExportReport::size_lines() const {
+    std::vector<std::string> out;
+    if (!largestFolders.empty()) {
+        std::string line = "Largest folders in the game:";
+        for (const ExportSize& f : largestFolders) line += "\n  " + f.name + "  " + size_text(f.bytes) + " (" + std::to_string(f.files) + " files)";
+        out.push_back(line);
+    }
+    if (!webFiles.empty()) {
+        std::string line = "Web download (raw / about gzip):";
+        for (const ExportSize& f : webFiles) line += "\n  " + f.name + "  " + size_text(f.bytes) + " / " + size_text(f.gzipBytes);
+        line += "\n  total  " + size_text(webBytes) + " / " + size_text(webGzipBytes);
+        out.push_back(line);
+        std::string times = "Download of the total, compressed, at";
+        for (const double mbit : kSpeeds)
+            times += " " + std::to_string(static_cast<int>(mbit)) + " Mbit/s: " + seconds_text(static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)) + (mbit == kSpeeds[3] ? "" : ",");
+        out.push_back(times + " (a host that does not gzip sends the raw total)");
+    }
+    return out;
+}
+
 Json ExportReport::to_json() const {
     Json j = Json::object();
     j["outputDir"] = outputDir;
@@ -684,6 +779,25 @@ Json ExportReport::to_json() const {
     if (!materials.empty()) j["materials"] = materials;
     if (!pluginsLeftOut.empty()) j["pluginsLeftOut"] = pluginsLeftOut;
     j["files"] = files;
+    auto size_rows = [](const std::vector<ExportSize>& rows) {
+        Json a = Json::array();
+        for (const ExportSize& r : rows) {
+            Json o = Json::object({{"name", r.name}, {"files", r.files}, {"bytes", r.bytes}});
+            if (r.gzipBytes) o["gzipBytes"] = r.gzipBytes;
+            a.push_back(o);
+        }
+        return a;
+    };
+    if (!largestFolders.empty()) j["largestFolders"] = size_rows(largestFolders);
+    if (!webFiles.empty()) {
+        j["webFiles"] = size_rows(webFiles);
+        j["webBytes"] = webBytes;
+        j["webGzipBytes"] = webGzipBytes;
+        Json t = Json::array();
+        for (const double mbit : kSpeeds)
+            t.push_back(Json::object({{"mbitPerSecond", mbit}, {"seconds", static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)}}));
+        j["webDownloadSeconds"] = t;
+    }
     j["nextSteps"] = nextSteps;
     j["warnings"] = warnings;
     return j;
@@ -780,6 +894,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         return assetsReady.error();
     }
 
+    report_packed_sizes(p, files, report);
     Result<void> r;
     bool keepOutput = false;  // a failed Gradle build leaves its project in place, so that it can be opened and fixed
     if (platform == "android" || platform == "ios") {
