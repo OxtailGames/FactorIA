@@ -1,6 +1,6 @@
 # Components reference
 
-Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "Since 0.1.x." line under its heading, and a field added later than its component ends with "(since 0.1.x)"; "Not released yet" means it is only on the main branch, in no download. Nothing is printed for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. In scene JSON a component is `"Name": { field: value, ... }` (omitted fields keep their defaults); in scripts use `entity.get("Name")`. Vectors accept `[x, y]` or `{x, y}`; colors accept `[r, g, b, a]` (0..1) or `"#rrggbb"`.
+Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "Since 0.1.x." line under its heading, and a field added later than its component ends with "(since 0.1.x)"; "Not released yet" means it is only on the main branch, in no download. Nothing is printed for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. In scene JSON a component is `"Name": { field: value, ... }` (omitted fields keep their defaults); in scripts use `entity.get("Name")`. Vectors accept `[x, y]` or `{x, y}`; colors accept `[r, g, b, a]` (0..1) or `"#rrggbb"`.
 
 ## Core
 
@@ -2702,11 +2702,13 @@ declare module "factoria" {
 
   /**
    * The family of a gamepad, found from its vendor id and name (Microsoft, Sony, Nintendo, Valve). It decides the button names input.buttonName() gives: the same bottom button is "A" on Xbox and Steam Deck, "Cross" on PlayStation and "B" on Nintendo. "generic" (any other pad) uses the Xbox names.
+   * @since 0.1.6
    */
   export type GamepadType = "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck";
 
   /**
    * The kind of device that produced input last (input.lastDevice): choose keyboard or gamepad button prompts with it.
+   * @since 0.1.6
    */
   export type InputDevice = "keyboard" | "mouse" | "gamepad" | "touch";
 
@@ -2739,10 +2741,12 @@ declare module "factoria" {
     y: number;
     /**
      * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
@@ -2837,10 +2841,12 @@ declare module "factoria" {
     z: number;
     /**
      * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
@@ -2881,14 +2887,17 @@ declare module "factoria" {
     a: number;
     /**
      * c[0]..c[3]: r, g, b, a.
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
      * The number of components (4); Vec2 and Vec3 have the length() method instead.
+     * @since 0.2.0
      */
     readonly length: number;
     set(r: number, g: number, b: number, a?: number): this;
@@ -2923,14 +2932,17 @@ declare module "factoria" {
     h: number;
     /**
      * r[0]..r[3]: x, y, w, h.
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
      * The number of components (4); Vec2 and Vec3 have the length() method instead.
+     * @since 0.2.0
      */
     readonly length: number;
     contains(p: Vec2Like): boolean;
@@ -3055,14 +3067,17 @@ declare module "factoria" {
     emitBurst(count?: number): void;
     /**
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
+     * @since 0.2.0
      */
     readonly animator: AnimatorAPI;
     /**
      * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     * @since unreleased
      */
     readonly tilemap: TilemapAPI;
     /**
      * Playback of this entity's Video component (play, pause, stop, seek, time, duration, the "ended" event). Throws if the entity has no Video; entity.get("Video") answers null instead.
+     * @since unreleased
      */
     readonly video: VideoAPI;
   }
@@ -3082,6 +3097,7 @@ declare module "factoria" {
     enabled: boolean;
     /**
      * Default false. While time.scale is 0 (game.paused) the engine calls onUpdate and onLateUpdate only on behaviours whose runWhilePaused is true, with the REAL frame time as dt (time.dt is 0 then; time.unscaledDt is the real one). Set it as a class field (`runWhilePaused = true;`) on pause menus and anything else that must react while gameplay is frozen. onFixedUpdate never runs while paused. ui events and world.on listeners are delivered either way.
+     * @since 0.1.6
      */
     runWhilePaused: boolean;
     /**
@@ -3102,10 +3118,12 @@ declare module "factoria" {
     onStart?(): void;
     /**
      * Every time the entity becomes active in the hierarchy (it or an ancestor got active = true) while the Script is enabled; the first time it runs right after onStart. Runs before the frame is drawn, so a panel can refresh its texts here and they are right in the first drawn frame.
+     * @since 0.2.0
      */
     onEnable?(): void;
     /**
      * Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn.
+     * @since 0.2.0
      */
     onDisable?(): void;
     /**
@@ -3201,10 +3219,12 @@ declare module "factoria" {
     released(button?: "left" | "right" | "middle"): boolean;
     /**
      * Whether the mouse cursor is drawn over the window (default true). Set false for a game that draws its own cursor or plays with a pad. Independent of `locked`. A headless run or test only records the value.
+     * @since 0.1.6
      */
     visible: boolean;
     /**
      * Mouse lock for mouse-look cameras: the cursor is hidden and held in the window, `position` stays frozen and `delta` reports raw movement (not design pixels). The window system may unlock it when the window loses focus; the engine locks it again when focus comes back. A headless run or test only records the value.
+     * @since 0.1.6
      */
     locked: boolean;
   }
@@ -3226,14 +3246,17 @@ declare module "factoria" {
     readonly connected: boolean;
     /**
      * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
+     * @since 0.1.6
      */
     readonly type: GamepadType;
     /**
      * The stable id of the pad in this slot: the same physical pad gives the same id every time it is plugged in (see game.on("gamepadConnected") for what goes into it on each platform). "" for a slot that never had a pad; kept after the pad is unplugged until another pad takes the slot.
+     * @since unreleased
      */
     readonly id: string;
     /**
      * What the OS calls the pad ("Wireless Controller", "Xbox controller (XInput)"); "" for a slot that never had a pad; kept after the pad is unplugged.
+     * @since unreleased
      */
     readonly name: string;
     /**
@@ -3260,70 +3283,87 @@ declare module "factoria" {
 
   /**
    * One local player, from input.player(index): the project's input actions (the same names input.down() takes) read through that player's own devices, for games where two to four people share the machine. The devices are a gamepad (pad bindings read only that pad) and/or a key scheme (key bindings read only the keys of that scheme, such as the left half of the keyboard); mouse and touch bindings belong to the shared pointer and players do not read them. A player with no device reads nothing. input.down() and the rest of the global API keep hearing every device. Each player has its own bindings: the defaults are the project's, filtered to the device, and rebind() changes this player only.
+   * @since unreleased
    */
   export interface PlayerInputAPI {
     /**
      * The player number, 0 to 3.
+     * @since unreleased
      */
     readonly index: number;
     /**
      * Gives the player its devices; every field left out means none, and use() or use(null) takes them all away. pad is a gamepad slot (0..3); padId is the stable id of a pad (input.gamepad(i).id) and makes the player follow that pad when it comes back in another slot (it reads nothing while that pad is unplugged); use one of the two. keys names a key scheme: "all" (every key), "left" (the left half: Q W E R T A S D F G Z X C V B, 1-5, Space, Tab, LeftShift...), "right" (the right half: arrows, Enter, Backspace, U I O P H J K L N M, 6-0, punctuation...) or one from factoria.json input.schemes (input.keySchemes() lists them). A bad slot, an unknown scheme (with "did you mean"), or both pad and padId throws and changes nothing. What the player rebound stays with the player when its device changes.
+     * @since unreleased
      */
     use(device?: { pad?: number; padId?: string; keys?: string } | null): void;
     /**
      * What use() was given (pad -1, padId "" and keys "" for none) and slot, the pad the player reads right now (-1 for no pad, or for a padId pad that is unplugged).
+     * @since unreleased
      */
     readonly device: { pad: number; padId: string; keys: string; slot: number };
     /**
      * The pad slot the player reads now (device.slot); -1 for none.
+     * @since unreleased
      */
     readonly pad: number;
     /**
      * The action is held on this player's devices (analog bindings count from 0.5). Unknown actions throw with a suggestion; a player with no device gives false.
+     * @since unreleased
      */
     down(action: string): boolean;
     /**
      * Went down this frame on this player's devices.
+     * @since unreleased
      */
     pressed(action: string): boolean;
     /**
      * Went up this frame on this player's devices.
+     * @since unreleased
      */
     released(action: string): boolean;
     /**
      * 0..1 strength of the action on this player's devices (the maximum over its bindings).
+     * @since unreleased
      */
     value(action: string): number;
     /**
      * -1..1 from two actions: value(positive) - value(negative), on this player's devices.
+     * @since unreleased
      */
     axis(negative: string, positive: string): number;
     /**
      * 2D vector from four actions (+Y up), normalized only when longer than 1, on this player's devices.
+     * @since unreleased
      */
     vector(left: string, right: string, down: string, up: string): Vec2;
     /**
      * The player's bindings of an action, as names rebind() accepts. With a family: only that list ("keys": the keys of its scheme, "pad": gamepad bindings), also when the player has no such device now. Without: the lists of the devices the player has, keys first. The defaults are the project's bindings of the action that belong to the player's scheme (a key scheme may give its own with input.schemes.<name>.actions) and to a pad.
+     * @since unreleased
      */
     bindings(action: string, family?: "keys" | "pad"): string[];
     /**
      * Replaces this player's bindings of one action, for one family: all the names must be keys ("Space", "W") or all gamepad bindings ("GamepadA", "GamepadLeftStickUp"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with "did you mean" and changes nothing. Other players and the global input.rebind() are unaffected.
+     * @since unreleased
      */
     rebind(action: string, bindings: string[], family?: "keys" | "pad"): void;
     /**
      * Puts this player's bindings of one action, or of every action, back to the defaults.
+     * @since unreleased
      */
     reset(action?: string): void;
     /**
      * Like input.lastPressed() but only for this player's devices: a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a "press a key to rebind" screen.
+     * @since unreleased
      */
     lastPressed(): string | null;
     /**
      * What the player rebound, for the game to save with storage.set(): only the actions that differ from the defaults ({} when nothing). The device is not part of it.
+     * @since unreleased
      */
     export(): { keys?: Record<string, string[]>; pad?: Record<string, string[]> };
     /**
      * Replaces the player's rebinds with what export() gave. An entry that is no longer valid (an action the project dropped, a name that is not a binding or is of the other family) is skipped and described in the returned array (empty when all applied); the rest applies. No data (or {}) resets the player.
+     * @since unreleased
      */
     import(data?: { keys?: Record<string, string[]>; pad?: Record<string, string[]> }): string[];
   }
@@ -3359,18 +3399,22 @@ declare module "factoria" {
     gamepad(index?: number): GamepadAPI;
     /**
      * How many players input.player() has: 4 (one per gamepad slot).
+     * @since unreleased
      */
     readonly maxPlayers: number;
     /**
      * Player 0..3 for local multiplayer: the same actions as input.down() but read from that player's own gamepad and/or key scheme (see PlayerInputAPI). Assign devices with input.player(i).use({pad: i}) or use({keys: "left"}); a player with no device reads nothing. A bad index throws. The game assigns devices each time its scene starts (a test starts with none, like it starts with the project's bindings).
+     * @since unreleased
      */
     player(index: number): PlayerInputAPI;
     /**
      * The key schemes input.player(i).use({keys}) accepts: "all", "left", "right" and the ones in factoria.json input.schemes.
+     * @since unreleased
      */
     keySchemes(): string[];
     /**
      * The keys of a key scheme, as key names. An unknown scheme throws with a suggestion.
+     * @since unreleased
      */
     keySchemeKeys(scheme: string): string[];
     /**
@@ -3379,54 +3423,67 @@ declare module "factoria" {
     deadzone: number;
     /**
      * The characters typed this frame, as UTF-8 text ("" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits.
+     * @since 0.1.6
      */
     readonly text: string;
     /**
      * Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown). A text field does this by itself when it gets and loses focus.
+     * @since 0.1.6
      */
     showKeyboard(on?: boolean): void;
     /**
      * The last value given to showKeyboard() (false at start).
+     * @since 0.1.6
      */
     readonly keyboardShown: boolean;
     /**
      * True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only.
+     * @since unreleased
      */
     readonly platformKeyboard: boolean;
     /**
      * The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });
+     * @since 0.2.0
      */
     onBack(handler: () => boolean | void): () => void;
     /**
      * One pulse of the vibration motor of a phone, seconds above 0 and up to 5 (default 0.1): 0.02 to 0.05 is a tap, 0.2 a buzz. iOS cannot pick a length: a short pulse is a haptic tap, a long one the system vibration; iPads have no motor. Android needs the VIBRATE permission, which the FactorIA Android template declares. A no-op on desktop; a headless run or test records the pulse (game.vibrations()). Throws for anything but a number in range.
+     * @since 0.2.0
      */
     vibrate(seconds?: number): void;
     /**
      * The names of all input actions (from factoria.json input.actions and the engine's own), sorted.
+     * @since 0.1.6
      */
     actions(): string[];
     /**
      * The bindings of an action in order, as names input.rebind() accepts: ["Space", "W", "GamepadA"]. An unknown action throws with a suggestion.
+     * @since 0.1.6
      */
     bindings(action: string): string[];
     /**
      * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
+     * @since 0.1.6
      */
     rebind(action: string, bindings: string[]): void;
     /**
      * Puts one action (or every action when no name is given) back to what factoria.json and the engine's defaults say, undoing input.rebind().
+     * @since 0.1.6
      */
     resetBindings(action?: string): void;
     /**
      * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
+     * @since 0.1.6
      */
     lastPressed(): string | null;
     /**
      * The device that produced input last: "keyboard" (a key going down), "mouse" (moved, clicked, wheel), "gamepad" (a button pressed or a stick pushed past the deadzone) or "touch". "keyboard" at the start. Show gamepad prompts when it is "gamepad".
+     * @since 0.1.6
      */
     readonly lastDevice: InputDevice;
     /**
      * The label a player sees, for button prompts: a key gives its name ("Space", "W"), the mouse "Left Click", and a pad button the name on THAT pad (pad 0 by default): Xbox/Steam Deck "A" "B" "X" "Y" "LB" "RB" "LT" "RT" "View" "Menu", PlayStation "Cross" "Circle" "Square" "Triangle" "L1" "R1" "L2" "R2" "Create" "Options", Nintendo "B" "A" "Y" "X" "L" "R" "ZL" "ZR" "-" "+" (our A, the bottom button, is Nintendo's B). An action gives the label of its first binding for input.lastDevice (a pad binding after pad input, else a key or mouse binding), or "" if it has no binding. Unknown names throw with a suggestion.
+     * @since 0.1.6
      */
     buttonName(bindingOrAction: string, pad?: number): string;
     /**
@@ -3447,52 +3504,64 @@ declare module "factoria" {
     bus?: "sfx" | "music" | "ui";
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
+     * @since 0.2.0
      */
     caption?: string;
     /**
      * Localization key of the subtitle (docs/LOCALIZATION.md): the line is the translation in the current language and changes with the language while it shows. `caption`, when also given, is the fallback for a key that no string table has.
+     * @since 0.2.0
      */
     captionKey?: string;
     /**
      * Name shown before the caption line in the Captions speakerColor, e.g. "Mara". Needs caption or captionKey.
+     * @since 0.2.0
      */
     speaker?: string;
     /**
      * Show the caption for this many seconds of the game clock instead of for as long as the sound plays. Required with loop: true (a looping sound never ends), otherwise play() throws.
+     * @since 0.2.0
      */
     captionSeconds?: number;
   }
 
   /**
    * A handle on one audio bus, from audio.bus(name): its effects (docs/SCRIPTING.md, "Audio buses"). Every method returns the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. A bus with no effect does no effect work (it only costs one add per sample into the master while it plays).
+   * @since unreleased
    */
   export interface AudioBus {
     /**
      * The bus this handle controls.
+     * @since unreleased
      */
     readonly name: "master" | "sfx" | "music" | "ui";
     /**
      * A 12 dB per octave low-pass filter at `hz` (20..20000; a muffled, underwater sound is 400..800). 0 or null switches it off. With `fade` (seconds) the cutoff slides (in octaves) from where it is; a bus with no filter starts open. Costs one biquad per channel: five multiply-adds per sample of the bus.
+     * @since unreleased
      */
     lowpass(hz: number | null, opts?: { fade?: number }): AudioBus;
     /**
      * A small room reverb: the bus is heard as (1 - mix) dry + mix wet, mix 0..1 (0 switches it off, 0.3 is a touch of room). The tail rings out for about 4 seconds after the bus goes silent, then the work stops. With `fade` the mix slides. Costs several times a low-pass (eight comb and four all-pass filters per channel) and some memory for its delay lines.
+     * @since unreleased
      */
     reverb(mix: number, opts?: { fade?: number }): AudioBus;
     /**
      * Lowers this bus by `amount` (the fraction removed, 0.5 default: half as loud) while `byBus` is louder than -40 dBFS, e.g. audio.bus("music").duck("sfx", 0.5) pushes the music down under every sound effect. `attack` (0.05 s) and `release` (0.5 s) are time constants in seconds: the bus covers 63% of the way down (or back up) in that time, about 95% in three times it. null switches ducking off (so does unduck()); the master cannot duck. Costs a peak detector on `byBus` and one multiply per sample here.
+     * @since unreleased
      */
     duck(byBus: "sfx" | "music" | "ui" | null, amount?: number, attack?: number, release?: number): AudioBus;
     /**
      * Switches ducking off.
+     * @since unreleased
      */
     unduck(): AudioBus;
     /**
      * The bus volume, like audio.setVolume (the player's volume: snapshots scale on top of it and leave it alone). With `fade` (seconds) it moves in a straight line; without it, it still ramps over about 10 ms so it does not click.
+     * @since unreleased
      */
     volume(volume: number, opts?: { fade?: number }): AudioBus;
     /**
      * The settings the bus is moving to (a fade in progress shows its end value): `lowpass` is 0 when off, `snapshotVolume` is the scale the last snapshot put on `volume`.
+     * @since unreleased
      */
     state(): { volume: number, snapshotVolume: number, lowpass: number, reverb: number, duck: { by: string, amount: number, attack: number, release: number } | null };
   }
@@ -3516,14 +3585,17 @@ declare module "factoria" {
     music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void;
     /**
      * Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: "assets/m/base.ogg", drums: "assets/m/drums.ogg" }, { levels: { drums: 0 } }); later audio.setLayer("drums", 1, 2).
+     * @since unreleased
      */
     musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean;
     /**
      * Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer.
+     * @since unreleased
      */
     setLayer(name: string, level: number, fade?: number): void;
     /**
      * Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play("assets/wind.ogg", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3).
+     * @since unreleased
      */
     setVoiceVolume(voice: number, volume: number, fade?: number): boolean;
     /**
@@ -3536,220 +3608,271 @@ declare module "factoria" {
     setVolume(bus: "master" | "sfx" | "music" | "ui", volume: number): void;
     /**
      * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
+     * @since 0.1.6
      */
     getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
     /**
      * A handle on a bus to set its effects: low-pass, reverb, ducking and volume (see AudioBus). Throws for an unknown name, with a "did you mean". The effects stay across scene loads, like volumes (a snapshot or the handle changes them).
+     * @since unreleased
      */
     bus(name: "master" | "sfx" | "music" | "ui"): AudioBus;
     /**
      * Moves every bus to the named snapshot of factoria.json "audio"."snapshots" (volume scale, low-pass, reverb and ducking; a bus the snapshot does not list goes back to neutral, so { "normal": {} } is the way back). `fade` is the seconds the move takes; without it the snapshot's own "fade" (0.5 when it has none). Low-pass, reverb and volume slide, ducking switches at once; the volumes the player set with setVolume are not touched. Throws for an unknown name, with a "did you mean". `factoria validate` checks the catalog.
+     * @since unreleased
      */
     snapshot(name: string, opts?: { fade?: number }): void;
     /**
      * The snapshot names of factoria.json and the one applied last ("" = none).
+     * @since unreleased
      */
     snapshots(): { names: string[], current: string };
   }
 
   /**
    * Options of nav.findPath.
+   * @since unreleased
    */
   export interface NavPathOptions {
     /**
      * Agent radius of this query (meters). Default: the NavMesh3D's agentRadius. Larger than that is an error: bake a NavMesh3D for the bigger agent.
+     * @since unreleased
      */
     radius?: number;
     /**
      * How far (meters) a start or goal that is not on walkable ground is moved onto the nearest walkable cell (default agentRadius + 2 cells).
+     * @since unreleased
      */
     snap?: number;
     /**
      * When the goal cannot be reached, return a path to the reachable point nearest to it (complete = false) instead of found = false.
+     * @since unreleased
      */
     closest?: boolean;
     /**
      * Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`.
+     * @since unreleased
      */
     mesh?: string;
   }
 
   /**
    * Result of nav.findPath.
+   * @since unreleased
    */
   export interface NavPath {
     /**
      * true: `points` holds a path. false: `reason`, `message` and `hint` say why.
+     * @since unreleased
      */
     found: boolean;
     /**
      * Corners of the path from the start to the goal on the walkable surface (meters), few of them: walk straight from one to the next. Empty when not found.
+     * @since unreleased
      */
     points: Vec3[];
     /**
      * Meters along the points.
+     * @since unreleased
      */
     length: number;
     /**
      * false when only a path to the reachable point nearest the goal was returned (opts.closest).
+     * @since unreleased
      */
     complete: boolean;
     /**
      * Off-mesh links (NavLink3D) the path takes, in order: `point` is the index in `points` where the link starts (points[point + 1] is where it ends: jump or climb from one to the other, do not walk the straight line) and `entity` the id of the entity with the NavLink3D. Absent when the path takes none.
+     * @since unreleased
      */
     links?: { point: number; entity: string }[];
     /**
      * Id of the NavMesh3D entity that answered.
+     * @since unreleased
      */
     mesh: string;
     /**
      * Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way or a moving platform (Collider3D.navWalkable) is away.
+     * @since unreleased
      */
     reason?: "start_off_mesh" | "goal_off_mesh" | "disconnected";
     /**
      * What is wrong, with numbers (nearest walkable point, areas, limits).
+     * @since unreleased
      */
     message?: string;
     /**
      * How to fix it.
+     * @since unreleased
      */
     hint?: string;
     /**
      * reason start_off_mesh / goal_off_mesh: the nearest walkable point.
+     * @since unreleased
      */
     nearest?: Vec3;
     /**
      * Meters from the point asked for to `nearest`.
+     * @since unreleased
      */
     nearestDistance?: number;
   }
 
   /**
    * A cell of a tile map: 0-based column and row, row 0 = the top row.
+   * @since unreleased
    */
   export interface NavCell {
     /**
      * Column, 0 = left.
+     * @since unreleased
      */
     col: number;
     /**
      * Row, 0 = top.
+     * @since unreleased
      */
     row: number;
   }
 
   /**
    * A plain cost grid for nav.findTilePath, for maps that are not a Tilemap (a game's own grid).
+   * @since unreleased
    */
   export interface NavTileGrid {
     /**
      * Cells per row.
+     * @since unreleased
      */
     width: number;
     /**
      * Number of rows.
+     * @since unreleased
      */
     height: number;
     /**
      * width * height numbers, row-major, row 0 = top: the cost of ENTERING the cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined = blocked.
+     * @since unreleased
      */
     cost: readonly (number | null | undefined)[];
     /**
      * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     * @since unreleased
      */
     origin?: Vec2Like;
     /**
      * Size of a cell in the world (default 1); used for `points` and `length`.
+     * @since unreleased
      */
     cellSize?: number | Vec2Like;
   }
 
   /**
    * Options of nav.findTilePath.
+   * @since unreleased
    */
   export interface NavTileOptions {
     /**
      * Tilemap only: cost of entering a cell per tile index (flip flags ignored). Infinity or null blocks. A solid tile listed here becomes walkable at that cost; key -1 sets empty cells. Default: solidTiles block, every other cell costs 1.
+     * @since unreleased
      */
     costs?: { [tileIndex: number]: number };
     /**
      * Allow 8-way steps (default false). A diagonal costs sqrt(2) times the cell entered and never cuts a corner: both cells it passes between must be open.
+     * @since unreleased
      */
     diagonals?: boolean;
     /**
      * Most cells the search expands before it gives up with reason "too_far" (default 100000).
+     * @since unreleased
      */
     maxNodes?: number;
     /**
      * When the goal cannot be reached, return the path to the reachable cell nearest to it (found true, complete false).
+     * @since unreleased
      */
     closest?: boolean;
     /**
      * A blocked goal cell can still be entered (at cost 1): a path that ends ON the wall or the enemy being chased.
+     * @since unreleased
      */
     allowBlockedGoal?: boolean;
   }
 
   /**
    * Result of nav.findTilePath.
+   * @since unreleased
    */
   export interface NavTilePath {
     /**
      * True when `cells` holds a path (check `complete` for closest).
+     * @since unreleased
      */
     found: boolean;
     /**
      * False when only the path to the cell nearest the goal was found (options.closest).
+     * @since unreleased
      */
     complete: boolean;
     /**
      * The path from the start cell to the end cell, both included.
+     * @since unreleased
      */
     cells: NavCell[];
     /**
      * The centres of those cells in the world (a Tilemap's transform applied; for a grid origin + (col + 0.5, -(row + 0.5)) * cellSize).
+     * @since unreleased
      */
     points: Vec2[];
     /**
      * Sum of the entering costs along the path.
+     * @since unreleased
      */
     cost: number;
     /**
      * Distance along the cell centres in the map's own units (tile size times cells for a Tilemap, before the entity's scale; cellSize for a grid).
+     * @since unreleased
      */
     length: number;
     /**
      * Why there is no path (found false).
+     * @since unreleased
      */
     reason?: "start_off_map" | "goal_off_map" | "goal_blocked" | "blocked" | "too_far";
     /**
      * What is wrong, with the cells.
+     * @since unreleased
      */
     message?: string;
     /**
      * How to fix it.
+     * @since unreleased
      */
     hint?: string;
   }
 
   /**
    * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
+   * @since unreleased
    */
   export interface NavAPI {
     /**
      * Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     * @since unreleased
      */
     findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
     /**
      * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost }. 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     * @since unreleased
      */
     findTilePath(map: Entity | string | NavTileGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
     /**
      * How many tiles were written to the Tilemap with setTile or tilemap.set_tile so far (a counter, cheap). Compare it with the value from when you searched to know a cached path is stale. Writes that replace `tiles` as a whole are not counted; starts at 0 on every scene load.
+     * @since unreleased
      */
     tileVersion(tilemap: Entity | string): number;
     /**
      * Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise.
+     * @since unreleased
      */
     bake(mesh?: string): { mesh: string; cellsX: number; cellsZ: number; cells: number; spans: number; walkableCells: number; regions: number; obstacles: number }[];
   }
@@ -3822,40 +3945,49 @@ declare module "factoria" {
     setVelocity(entity: Entity, v: Vec3Like): void;
     /**
      * Moves an entity that has a CharacterController3D by `delta` metres with collide-and-slide: it slides along walls, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit, snaps down onto the ground, pushes dynamic bodies and is stopped by ceilings. Call it once per frame from onFixedUpdate with the walk of that frame (speed * time.fixedDt) plus your own gravity and jump (keep a vertical speed in the script and reset it when isGrounded). Throws an Error that explains the fix when the entity has no CharacterController3D.
+     * @since 0.2.0
      */
     moveCharacter(entity: Entity, delta: Vec3Like): CharacterMove;
   }
 
   /**
    * Result of physics.moveCharacter.
+   * @since 0.2.0
    */
   export interface CharacterMove {
     /**
      * World position of the entity after the move.
+     * @since 0.2.0
      */
     position: Vec3;
     /**
      * How far it actually moved (less than the delta when blocked).
+     * @since 0.2.0
      */
     moved: Vec3;
     /**
      * Standing on walkable ground (a slope not steeper than slopeLimit) after the move.
+     * @since 0.2.0
      */
     isGrounded: boolean;
     /**
      * Surface normal of that ground (zero when not grounded).
+     * @since 0.2.0
      */
     groundNormal: Vec3;
     /**
      * The entity it stands on, null in the air.
+     * @since 0.2.0
      */
     ground: Entity | null;
     /**
      * Blocked by a wall or a slope too steep to climb during this move.
+     * @since 0.2.0
      */
     hitWall: boolean;
     /**
      * Bumped its head on something above.
+     * @since 0.2.0
      */
     hitCeiling: boolean;
   }
@@ -3880,6 +4012,7 @@ declare module "factoria" {
     scale: number;
     /**
      * Seconds of the current frame, NOT scaled by time.scale (the real frame time while paused): animate pause menus with it.
+     * @since 0.1.6
      */
     readonly unscaledDt: number;
   }
@@ -3894,10 +4027,12 @@ declare module "factoria" {
     readonly main: Entity | null;
     /**
      * Every camera drawn, in draw order (ascending depth, equal depths in the order they were created); at most 8 are drawn. One entry for a game with a single camera.
+     * @since unreleased
      */
     readonly all: Entity[];
     /**
      * The camera whose viewport contains the screen point `v` (design pixels): where two viewports overlap, the one drawn last. A point outside every viewport gives the first camera; null when no camera is active. Use it to pick which player a click belongs to.
+     * @since unreleased
      */
     at(v: Vec2Like): Entity | null;
     /**
@@ -3910,6 +4045,7 @@ declare module "factoria" {
     screenToWorld(v: Vec2Like, depth?: number | Entity | string, camera?: Entity | string): Vec3;
     /**
      * The ray under the screen point `v` (design pixels) through `camera` (default: the camera whose viewport contains `v`, else the first camera). For a 3D pick: physics.raycast(origin, origin + direction * distance).
+     * @since unreleased
      */
     screenRay(v: Vec2Like, camera?: Entity | string): { origin: Vec3; direction: Vec3 };
   }
@@ -3933,6 +4069,7 @@ declare module "factoria" {
   export interface SceneAPI {
     /**
      * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     * @since unreleased
      */
     preload(path: string): PreloadHandle;
     /**
@@ -3945,28 +4082,45 @@ declare module "factoria" {
 
   /**
    * How far a notch, rounded corners and the system bars cover the screen from each edge, in design pixels.
+   * @since 0.2.0
    */
   export interface ScreenInsets {
+    /**
+     * @since 0.2.0
+     */
     left: number;
+    /**
+     * @since 0.2.0
+     */
     top: number;
+    /**
+     * @since 0.2.0
+     */
     right: number;
+    /**
+     * @since 0.2.0
+     */
     bottom: number;
   }
 
   /**
    * The screen as the player sees it, in design pixels with the origin at the top-left and +Y down (like screen-space Text and UI). On a phone the safe area is the screen minus the notch, rounded corners and the system bars; everywhere else (desktop, headless, tests without game.setSafeArea) it is the whole screen. It follows rotation. Give HUD items `safeArea: true` to anchor them to it without any script.
+   * @since 0.2.0
    */
   export interface ScreenAPI {
     /**
      * The design resolution (the same as game.screenSize).
+     * @since 0.2.0
      */
     readonly size: Vec2;
     /**
      * { left, top, right, bottom }: the distance in design pixels the notch, corners and bars cover from each edge. All 0 on a screen without cutouts.
+     * @since 0.2.0
      */
     readonly insets: ScreenInsets;
     /**
      * The part of the screen to keep text and buttons in, as a Rect { x, y, w, h } in design pixels: (x, y) is its TOP-LEFT corner and y grows downwards (unlike entity.bounds(), which is in the +Y-up world). Read it every frame or when needed: it changes when the phone rotates. Example: const a = screen.safeArea; button.position = [a.x + a.w - 20, a.y + 20];
+     * @since 0.2.0
      */
     readonly safeArea: Rect;
   }
@@ -3979,26 +4133,32 @@ declare module "factoria" {
     paused: boolean;
     /**
      * The props the current scene was started with: scene.load(path, props), factoria run --props, or the scene.load command's props. A plain object, {} when none were given; available from the first onStart. A reload keeps them, a load without props drops them. A fresh copy each call. Example: const level = game.sceneProps().level ?? 1.
+     * @since unreleased
      */
     sceneProps(): Json;
     /**
      * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso ("YYYY-MM-DD") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on("dayChanged") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate("2026-10-23T23:59:30"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
+     * @since unreleased
      */
     today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * True while the game's window has the keyboard focus (always true on a phone with the app in the foreground, in headless runs and in tests until game.blur()). Changes are announced by game.on("focus") and game.on("blur").
+     * @since unreleased
      */
     readonly focused: boolean;
     /**
      * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was set; a game with a window reads the clock about once a minute) calls fn with game.today(); the other handlers take no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
+     * @since unreleased
      */
     on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
     /**
      * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
+     * @since unreleased
      */
     on(event: "gamepadConnected" | "gamepadDisconnected", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void;
     /**
      * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
+     * @since unreleased
      */
     on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;
     /**
@@ -4008,145 +4168,184 @@ declare module "factoria" {
     readonly screenSize: Vec2;
     /**
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
+     * @since 0.1.6
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
     /**
      * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
+     * @since 0.1.6
      */
     readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
     /**
      * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium), steamDeck (true on a Steam Deck: the Steam plugin says so when Steam is running, which is certain; without it the SteamDeck=1 environment variable that Steam sets for games it starts on a Deck decides, and a SteamDeck=0 launch option turns it off; a Deck reports formFactor "desktop") and handheld (true on a Steam Deck, a phone or a tablet: a screen held in the hands, so a game picks bigger text and touch or pad prompts). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
+     * @since unreleased
      */
     readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high"; steamDeck: boolean; handheld: boolean }>;
     /**
      * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
+     * @since 0.2.0
      */
     readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
   }
 
   /**
    * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.
+   * @since unreleased
    */
   export type WindowMode = "windowed" | "borderless" | "fullscreen";
 
   /**
    * One monitor, from window.monitors().
+   * @since unreleased
    */
   export interface MonitorInfo {
     /**
      * Its place in window.monitors(), the number window.setMonitor() takes. The primary monitor is 0.
+     * @since unreleased
      */
     index: number;
     /**
      * What the OS calls it ("DELL U2723QE", "Built-in Retina Display", "HDMI-1"; Windows gives the graphics driver's text, often "Generic PnP Monitor"). Two identical monitors have the same name: show the index too.
+     * @since unreleased
      */
     name: string;
     /**
      * Its size in logical pixels.
+     * @since unreleased
      */
     size: Vec2;
     /**
      * The OS's main monitor (the one with the taskbar or menu bar).
+     * @since unreleased
      */
     primary: boolean;
     /**
      * The game window is on it now.
+     * @since unreleased
      */
     current: boolean;
   }
 
   /**
    * A window size in logical pixels, from window.resolutions().
+   * @since 0.1.6
    */
   export interface Resolution {
+    /**
+     * @since 0.1.6
+     */
     width: number;
+    /**
+     * @since 0.1.6
+     */
     height: number;
   }
 
   /**
    * The game window, for an options menu: full screen, size, vsync and frame cap. The getters work in every run (a run without a window answers from factoria.json display settings). Every setter throws an Error that explains why when this run has no window (headless runs, tests, the MCP server, the editor's game view), so check `window.available` first. The engine saves nothing: keep the player's choice with storage.set() and apply it at start (docs/SCRIPTING.md has the recipe). Sizes are logical pixels: the window system's points, so a 1280 x 720 window on a 200% display has a 2560 x 1440 framebuffer. Phones and tablets always run full screen.
+   * @since 0.1.6
    */
   export interface WindowAPI {
     /**
      * True when the game owns a real window: `factoria run`, an exported game, the mobile players. False in headless runs, tests and inside the editor.
+     * @since 0.1.6
      */
     readonly available: boolean;
     /**
      * Whether the window is full screen (the project's display.fullscreen when there is no window; always true on phones and tablets).
+     * @since 0.1.6
      */
     readonly fullscreen: boolean;
     /**
      * Enters or leaves full screen: `setMode("fullscreen")` for true, `setMode("windowed")` for false. `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     * @since 0.1.6
      */
     setFullscreen(on: boolean): void;
     /**
      * "windowed", "borderless" or "fullscreen" ("fullscreen" when the project's display.fullscreen is on and there is no window, and always on phones and tablets). `window.fullscreen` is true for both borderless and fullscreen.
+     * @since unreleased
      */
     readonly mode: WindowMode;
     /**
      * Chooses how the window is shown. "windowed" has a frame and the size window.setSize() gave. "borderless" has no frame and covers the monitor the window is on. "fullscreen" covers it too, and where the OS has a native full screen it uses it: on macOS that is the OS's own full screen Space (the menu bar slides in, Mission Control shows it as a Space; borderless instead hides the menu bar and the Dock but stays on the desktop's Space); on Windows and Linux the engine has no exclusive mode, so fullscreen and borderless are the same frameless window over the monitor and the two names only keep what the player picked. On macOS going from fullscreen straight to borderless throws (the Space takes a moment to leave): go through "windowed" and wait a second. Use window.supports("borderless") before offering borderless. Throws without a window, on an unknown name, and on phones and tablets for anything but "fullscreen".
+     * @since unreleased
      */
     setMode(mode: WindowMode): void;
     /**
      * The monitors, primary first. A run without a window, phones, tablets and the web answer with one entry, the display the game runs on (a run without a window: the project's display size). Linux lists the connected XRandR outputs (one entry for the whole screen when libXrandr is missing).
+     * @since unreleased
      */
     monitors(): MonitorInfo[];
     /**
      * The index in window.monitors() of the monitor the window is on (0 when there is only one).
+     * @since unreleased
      */
     readonly monitor: number;
     /**
      * Moves the window to monitor `index` of window.monitors(): a windowed window is centred on it, a fullscreen or borderless one covers it. Works on Windows, macOS and Linux; throws on other platforms, without a window, for an index that does not exist, and on macOS while the window is in its native full screen Space (leave it with setMode("windowed") first). `window.displaySize` and `window.resolutions()` describe the new monitor afterwards (on Linux a moment later, when the window manager has moved the window). Check window.supports("monitors") first.
+     * @since unreleased
      */
     setMonitor(index: number): void;
     /**
      * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
+     * @since 0.1.6
      */
     readonly size: Vec2;
     /**
      * The size in logical pixels of the monitor the window is on (the whole screen on Linux with several monitors); the window size when the platform cannot tell.
+     * @since 0.1.6
      */
     readonly displaySize: Vec2;
     /**
      * Resizes the window's client area, in whole logical pixels from 160 to 16384; the window keeps its position. Desktop windows only, and not in full screen: call setFullscreen(false) first, or the call throws and says so. The game keeps its design resolution and letterboxes (or expands, see display.scaleMode) to the new size.
+     * @since 0.1.6
      */
     setSize(width: number, height: number): void;
     /**
      * Window sizes for a resolution picker: common 16:9 and 16:10 sizes (640x360 up to 3840x2160) plus the game's design size, keeping those that fit the monitor, smallest first. Pass an entry to setSize().
+     * @since 0.1.6
      */
     resolutions(): Resolution[];
     /**
      * Whether presents wait for the display (the project's display.vsync at start, then setVsync()).
+     * @since 0.1.6
      */
     readonly vsync: boolean;
     /**
      * Turns vsync on or off while the game runs (Windows, Linux; macOS only stops waiting for the display). Throws and names the platform where it cannot (phones and tablets, a Linux driver without swap control) or when there is no window.
+     * @since 0.1.6
      */
     setVsync(on: boolean): void;
     /**
      * Frames per second the window may draw at: 0 = unlimited (default), else a whole number from 15 to 1000. The game loop waits so frames do not start faster than that; the simulation still runs at the fixed step, so gameplay results do not change. Useful with vsync off, or to save battery on a laptop. Setting it throws without a window and on phones and tablets (the display sets the pace).
+     * @since 0.1.6
      */
     frameCap: number;
     /**
      * Resolution of the picture as a fraction of the window, from 0.5 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. Works in every run with a renderer, headless tests included (game.screenshot then has that size); a run without graphics only remembers the value. A number outside 0.5 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === "low" ? 0.6 : 1.
+     * @since unreleased
      */
     renderScale: number;
     /**
      * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". borderless needs a desktop window (Windows, macOS, Linux; not the web), monitors needs a desktop window that can list and move between monitors (Windows, macOS, Linux; true with one monitor too: offer the choice when window.monitors().length > 1). Read window.supports("frameCap") before offering window.frameCap.
+     * @since unreleased
      */
     supports(feature: "frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): boolean;
   }
 
   /**
    * The clipboard. A game with a window reads and writes the system clipboard on Windows, macOS, Linux and the web; headless runs and tests have an in-memory one (it starts empty in every test); phones and tablets have none yet: window.supports("clipboard") is false there and read() rejects with code "unsupported". A focused TextField already pastes with Ctrl+V (Cmd+V) and copies with Ctrl+C (Cmd+C), without any script.
+   * @since unreleased
    */
   export interface ClipboardAPI {
     /**
      * Resolves with the text on the clipboard ("" when it holds none or something that is not text). On the web the browser lets a page read the clipboard only inside a paste, so it resolves with the text of the last paste (the player pressed Ctrl+V or Cmd+V in the page). Rejects with code "unsupported" where there is no clipboard (phones, tablets). In a replay the text a read returned is recorded and given back, so a paste replays the same. Example: const text = await clipboard.read();
+     * @since unreleased
      */
     read(): Promise<string>;
     /**
      * Puts `text` on the clipboard. Throws when it is not a string. Does nothing where there is no clipboard. The web lets a page write only during a key press or click, so a write made in the middle of a frame may not reach the browser's clipboard. Example: clipboard.write("ABC123");
+     * @since unreleased
      */
     write(text: string): void;
   }
@@ -4168,6 +4367,7 @@ declare module "factoria" {
     clear(): void;
     /**
      * True when storage.json did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started with empty save data, so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
+     * @since 0.2.0
      */
     readonly corrupt: boolean;
   }
@@ -4299,22 +4499,27 @@ declare module "factoria" {
 
   /**
    * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField).
+   * @since 0.1.6
    */
   export interface UiEvent {
     /**
      * Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B).
+     * @since 0.1.6
      */
     readonly type: "click" | "change" | "submit" | "focus" | "cancel";
     /**
      * Id of the widget entity (the "id" of the scene entity). null for a cancel with nothing focused.
+     * @since 0.1.6
      */
     readonly id: string | null;
     /**
      * The widget entity; null for a cancel with nothing focused.
+     * @since 0.1.6
      */
     readonly entity: Entity | null;
     /**
      * change and submit only: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string).
+     * @since 0.1.6
      */
     readonly value?: boolean | number | string;
   }
@@ -4329,92 +4534,114 @@ declare module "factoria" {
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number }): { width: number; height: number; fontSize: number };
     /**
      * true when the text of a screen-space or world Text with a box (maxWidth, maxHeight) or the label of a Button, Toggle, Slider or TouchButton still does not fit its box at the size it is drawn at, i.e. after ui.textScale, maxTextScale and autoShrink (down to minFontSize) have done what they can. false for any other entity, an empty text or a Text without a box. Read it after game.step or ui.layout(). Same as `overflowed: true` in `ui.state`. Example: ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);
+     * @since unreleased
      */
     overflowed(entityOrId: Entity | string): boolean;
     /**
      * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     * @since 0.2.0
      */
     rectOf(entityOrId: Entity | string): Rect | null;
     /**
      * Runs the UI layout now, exactly what every frame does: autoSize sizes, fit sizes, ScrollList fill, positions and the Panel fallbackLayout choice. After changing a label or a font size, call it and read Button.size, Panel.size or ui.rectOf right away, with no game.step. Throws when the run has no UI system. Example: button.get("Button").text = "A longer label"; ui.layout(); const w = ui.rectOf(button).w;
+     * @since 0.2.0
      */
     layout(): void;
     /**
      * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer. Setting a number outside 0.5 to 3 throws; clamp a saved value first. The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
+     * @since 0.2.0
      */
     textScale: number;
     /**
      * Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
+     * @since 0.1.6
      */
     on(type: "click" | "change" | "submit" | "focus" | "cancel", fn: (e: UiEvent) => void): () => void;
     /**
      * Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
+     * @since 0.1.6
      */
     on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void): () => void;
     /**
      * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
+     * @since 0.1.6
      */
     focus(target: Entity | string | null): void;
     /**
      * Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t("menu.play")). Example: ui.on("focus", (e) => ui.speak(e.entity.get("Button").text)). Same as the ui.speak command.
+     * @since 0.2.0
      */
     speak(text: string, opts?: { interrupt?: boolean }): void;
     /**
      * Shows a subtitle line on the Captions component for `seconds` (default 3) of the game clock, for dialogue or hints that have no sound file; a sound's own subtitle is audio.play(path, { caption }). With `key` (a localization key) the line is the translation and follows a language change while it shows; `text` is then the fallback and may be "". `speaker` is a name drawn before the line. The newest Captions.maxLines lines show, the oldest drop first. Without a Captions entity the line is only tracked and the log says so once. Same as the ui.caption command. Example: ui.caption("Watch out!", 2, { speaker: "Mara" }).
+     * @since 0.2.0
      */
     caption(text: string, seconds?: number, opts?: { key?: string; speaker?: string }): void;
     /**
      * Removes every caption now, also the ones of sounds that still play (the sounds are not stopped). Same as the ui.clear_captions command.
+     * @since 0.2.0
      */
     clearCaptions(): void;
     /**
      * Stops what is being said and drops the queued lines. Does nothing when nothing is being said or the system has no speech. Same as the ui.stop_speaking command.
+     * @since 0.2.0
      */
     stopSpeaking(): void;
     /**
      * True when the system can speak. False on a Linux without speech-dispatcher (libspeechd.so.2) or an Android without a speech engine: hide your "read menus aloud" option then. Headless runs and tests report true because they record what would be said (game.spoken()).
+     * @since 0.2.0
      */
     readonly speechAvailable: boolean;
     /**
      * The widget that has keyboard / gamepad focus, or null.
+     * @since 0.1.6
      */
     readonly focused: Entity | null;
     /**
      * The widget under the mouse pointer (the top-most visible interactable one), or null. Check it in game code so a click meant for a button does not also shoot.
+     * @since 0.1.6
      */
     readonly hovered: Entity | null;
   }
 
   /**
    * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   * @since unreleased
    */
   export interface PreloadHandle {
     /**
      * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     * @since unreleased
      */
     readonly progress: number;
     /**
      * True once every file is read, or the job failed (then error says why).
+     * @since unreleased
      */
     readonly done: boolean;
     /**
      * Files read so far.
+     * @since unreleased
      */
     readonly files: number;
     /**
      * Bytes read so far.
+     * @since unreleased
      */
     readonly bytes: number;
     /**
      * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
+     * @since unreleased
      */
     readonly error: string;
     /**
      * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     * @since unreleased
      */
     readonly promise: Promise<{ files: number; bytes: number }>;
     /**
      * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     * @since unreleased
      */
     release(): void;
   }
@@ -4425,6 +4652,7 @@ declare module "factoria" {
   export interface AssetsAPI {
     /**
      * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     * @since unreleased
      */
     preload(paths: string[]): PreloadHandle;
     /**
@@ -4435,679 +4663,862 @@ declare module "factoria" {
 
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable". "http" is http.fetch: it is offered when the system's HTTP client can run (always in tests, which answer from game.platform.respond).
+   * @since 0.2.0
    */
   export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "remotePlay" | "http";
 
   /**
    * Who is signed in to the store.
+   * @since 0.2.0
    */
   export interface PlatformPlayer {
     /**
      * The store's id of the player ("" when nobody is signed in).
+     * @since 0.2.0
      */
     readonly id: string;
     /**
      * The player's display name.
+     * @since 0.2.0
      */
     readonly name: string;
     /**
      * False when nobody is signed in: calls then reject with code "notSignedIn".
+     * @since 0.2.0
      */
     readonly signedIn: boolean;
   }
 
   /**
    * The outcome of a purchase, from purchases.buy() or the "purchase" event.
+   * @since 0.2.0
    */
   export interface PlatformPurchase {
     /**
      * revoked (only in a "purchase" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
+     * @since 0.2.0
      */
     readonly status: "purchased" | "pending" | "cancelled" | "revoked";
     /**
      * The catalog id of the product (as in factoria.json platform.products).
+     * @since 0.2.0
      */
     readonly productId: string;
     /**
      * Only when purchased: pass it to purchases.finish() once the goods are delivered.
+     * @since 0.2.0
      */
     readonly transactionId?: string;
     /**
      * Only when purchased: the store's proof of purchase, for a server that wants to verify it.
+     * @since 0.2.0
      */
     readonly receipt?: string;
   }
 
   /**
    * A product as the store shows it.
+   * @since 0.2.0
    */
   export interface PlatformProduct {
     /**
      * The catalog id.
+     * @since 0.2.0
      */
     readonly id: string;
     /**
      * The title in the current language: the catalog's titleKey translated (else title) on the fake backend; a real store answers its own, localized by its console.
+     * @since 0.2.0
      */
     readonly title: string;
     /**
      * The store's description.
+     * @since 0.2.0
      */
     readonly description: string;
     /**
      * The price formatted for the player's country ("$0.99"): show it as it is.
+     * @since 0.2.0
      */
     readonly price: string;
     /**
      * The price as a number.
+     * @since 0.2.0
      */
     readonly priceValue: number;
     /**
      * ISO currency code ("USD").
+     * @since 0.2.0
      */
     readonly currency: string;
     /**
      * The catalog's product type.
+     * @since 0.2.0
      */
     readonly type: "consumable" | "nonConsumable" | "subscription";
   }
 
   /**
    * One row of a leaderboard.
+   * @since 0.2.0
    */
   export interface PlatformLeaderboardEntry {
     /**
      * 1 is the best.
+     * @since 0.2.0
      */
     readonly rank: number;
     /**
      * The player's display name.
+     * @since 0.2.0
      */
     readonly name: string;
     /**
      * The score.
+     * @since 0.2.0
      */
     readonly score: number;
     /**
      * The store's id of the player.
+     * @since 0.2.0
      */
     readonly playerId: string;
     /**
      * True for the signed-in player's own row.
+     * @since 0.2.0
      */
     readonly isPlayer: boolean;
   }
 
   /**
    * Achievements of factoria.json platform.achievements.
+   * @since 0.2.0
    */
   export interface PlatformAchievementsAPI {
     /**
      * Unlocks an achievement; `newly` is false when it already was. An id the catalog does not declare throws at once with a suggestion.
+     * @since 0.2.0
      */
     unlock(id: string): Promise<{ id: string; unlocked: true; newly: boolean }>;
     /**
      * Reports progress from 0 to 1 toward an achievement; 1 unlocks it. Progress never goes down.
+     * @since 0.2.0
      */
     progress(id: string, fraction: number): Promise<{ id: string; progress: number; unlocked: boolean }>;
     /**
      * The state of every achievement of the catalog, with its name and description in the current language (the catalog's nameKey / descriptionKey translated, else name / description; a store that answers its own texts wins).
+     * @since 0.2.0
      */
     list(): Promise<{ id: string; name: string; description: string; unlocked: boolean; progress: number }[]>;
     /**
      * Development only: locks every achievement again (the fake backend; real stores usually refuse).
+     * @since 0.2.0
      */
     reset(): Promise<void>;
   }
 
   /**
    * Numbers the store keeps for the player (factoria.json platform.stats).
+   * @since 0.2.0
    */
   export interface PlatformStatsAPI {
     /**
      * The stat's value (0 when never set).
+     * @since 0.2.0
      */
     get(id: string): Promise<number>;
     /**
      * Sets the stat and resolves with the stored value. An int stat needs a whole number.
+     * @since 0.2.0
      */
     set(id: string, value: number): Promise<number>;
     /**
      * get() then set(): resolves with the new value. Not atomic: two adds in flight can lose one.
+     * @since 0.2.0
      */
     add(id: string, delta: number): Promise<number>;
   }
 
   /**
    * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake keeps one per period; Steam makes one board per period, Game Center and Play Games use their own time scopes: docs/PLATFORM.md, "Leaderboard periods"; each store starts a period at its own time).
+   * @since 0.2.0
    */
   export interface PlatformLeaderboardsAPI {
     /**
      * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs. options.day: "YYYY-MM-DD" submits to the daily board of that day instead of today's (without it the board of the local date, game.today().iso; pass game.today().utc.iso to submit and entries alike for one board worldwide); only a daily board takes it, and Game Center and Play Games reject a day other than the local or UTC today with code "unsupported".
+     * @since 0.2.0
      */
     submit(id: string, score: number, options?: { day?: string }): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
     /**
      * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs. options.day: "YYYY-MM-DD" reads the daily board of that day, e.g. yesterday's (the same key submit wrote: the local date by default, game.today().utc.iso if the game submits with it; the fake and Steam keep every day, Game Center and Play Games reject a day other than the local or UTC today with code "unsupported").
+     * @since 0.2.0
      */
     entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number; day?: string }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
   }
 
   /**
    * A guest connected through Steam's Remote Play Together, as the store describes the session.
+   * @since unreleased
    */
   export interface PlatformRemotePlaySession {
     /**
      * The session id Steam gave the guest's connection (the fake numbers them from 1). It identifies the session in the "disconnected" event too.
+     * @since unreleased
      */
     readonly id: number;
     /**
      * The guest's name on the store (Steam's persona name); "" when the store does not say.
+     * @since unreleased
      */
     readonly guestName: string;
     /**
      * The guest's account id on the store (a SteamID as decimal text); "" when unknown.
+     * @since unreleased
      */
     readonly guestId: string;
     /**
      * The name of the guest's device, as Steam reports it.
+     * @since unreleased
      */
     readonly deviceName: string;
     /**
      * The kind of device the guest plays on: a phone or a tablet has no keyboard and a small screen, so a game may show bigger touch-free prompts.
+     * @since unreleased
      */
     readonly formFactor: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr";
     /**
      * The guest's screen in pixels; null when Steam does not know it.
+     * @since unreleased
      */
     readonly resolution: { width: number; height: number } | null;
   }
 
   /**
    * The payload of platform.on("remotePlay").
+   * @since unreleased
    */
   export interface PlatformRemotePlayEvent {
     /**
      * connected: a guest joined; disconnected: the guest left (the session is as it was when they were connected).
+     * @since unreleased
      */
     readonly status: "connected" | "disconnected";
     /**
      * The guest's session. It says who is connected, not which pad is theirs: the guest's input arrives as one more gamepad (input.gamepad(i), game.on("gamepadConnected")), and the engine does not map a session to a pad index.
+     * @since unreleased
      */
     readonly session: PlatformRemotePlaySession;
   }
 
   /**
    * Remote Play Together: friends who join the game through Steam and play on their own device. Offered by the Steam backend (check platform.has("remotePlay")); the fake backend simulates guests in tests (game.platform.remotePlayConnect). Steam shows each guest's controller to the game as one more gamepad, so a local multiplayer game already works with them; this API tells who is connected.
+   * @since unreleased
    */
   export interface PlatformRemotePlayAPI {
     /**
      * The guests connected now (an empty array when nobody is). Guests already connected when the game starts are listed here but no "remotePlay" event announces them: read this list at the start. Rejects with code "unavailable" when the backend has no remotePlay service.
+     * @since unreleased
      */
     sessions(): Promise<PlatformRemotePlaySession[]>;
   }
 
   /**
    * Cloud saves: small named values the store keeps for the player across devices.
+   * @since 0.2.0
    */
   export interface PlatformCloudAPI {
     /**
      * Stores any JSON value under a key (1-64 letters, digits, '_', '.', '-'). Stores limit how much a game may keep in the cloud, so save small things (settings, progress), not assets.
+     * @since 0.2.0
      */
     save(key: string, value: Json): Promise<{ key: string; bytes: number }>;
     /**
      * The stored value, or undefined when the key does not exist.
+     * @since 0.2.0
      */
     load(key: string): Promise<Json | undefined>;
     /**
      * The stored keys.
+     * @since 0.2.0
      */
     list(): Promise<string[]>;
     /**
      * Deletes a key.
+     * @since 0.2.0
      */
     remove(key: string): Promise<void>;
     /**
      * Reads the size and modified time of a key without returning its text: { exists: false } for a key that is not there (not an error), else size (bytes of the saved JSON text) and modified (Unix seconds, a number you can compare, or null when the store keeps no time: Apple's iCloud key-value store). Steam answers the file's time, Google Play the snapshot's last modified time, the fake a counter that starts at 1767225600 and goes up one second with each save (game.platform.set({ cloudClock }) sets it). A store's time comes from the clock of the device that saved, which may be wrong: to decide which of two saves is newer, keep a revision counter inside the saved value and use `modified` only as a hint.
+     * @since unreleased
      */
     stat(key: string): Promise<{ exists: false } | { exists: true; size: number; modified: number | null }>;
   }
 
   /**
    * In-app purchases of factoria.json platform.products.
+   * @since 0.2.0
    */
   export interface PlatformPurchasesAPI {
     /**
      * Titles and prices as the store shows them, for the given catalog ids (all by default). Products the store does not know are left out.
+     * @since 0.2.0
      */
     products(ids?: string[]): Promise<PlatformProduct[]>;
     /**
      * Starts a purchase. Resolves also when the player cancels (status "cancelled"); rejects when the store failed (network, notAllowed...). Deliver the goods when status is "purchased", then call finish().
+     * @since 0.2.0
      */
     buy(id: string): Promise<PlatformPurchase>;
     /**
      * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore(). A transaction the game was not told about (or finished already) rejects with code "unknownId".
+     * @since 0.2.0
      */
     finish(transactionId: string): Promise<void>;
     /**
      * The non-consumables and subscriptions the player owns (a "Restore purchases" button).
+     * @since 0.2.0
      */
     restore(): Promise<{ productId: string; transactionId: string; receipt: string }[]>;
   }
 
   /**
    * The store's own overlay (Steam overlay, Game Center dashboard).
+   * @since 0.2.0
    */
   export interface PlatformOverlayAPI {
     /**
      * Opens a page of the overlay; `id` (an achievement, leaderboard or product of the catalog) goes to that entry where the store can. Pause the game on the "overlay" event while it is open.
+     * @since 0.2.0
      */
     open(page: "achievements" | "leaderboards" | "friends" | "store", id?: string): Promise<void>;
   }
 
   /**
    * Rich presence: what friends see the player doing.
+   * @since 0.2.0
    */
   export interface PlatformPresenceAPI {
     /**
      * Sets the text ("In level 3"); "" clears it. `data` holds string values some stores use (Steam's rich presence keys).
+     * @since 0.2.0
      */
     set(text: string, data?: { [key: string]: string }): Promise<void>;
   }
 
   /**
    * What the player answered to the consent sheets, from ads.consent().
+   * @since unreleased
    */
   export interface PlatformConsent {
     /**
      * The GDPR (Google UMP) sheet: granted, denied, notRequired (the player is outside the regions that need it) or unknown (not asked yet).
+     * @since unreleased
      */
     readonly gdpr: "granted" | "denied" | "notRequired" | "unknown";
     /**
      * The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet (Android) and on iOS when platform.ads.trackingPrompt is off; otherwise the status of the sheet the ads plugin asks for after the consent form.
+     * @since unreleased
      */
     readonly tracking: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired";
     /**
      * False when the player refused the GDPR consent: no ad may be requested then.
+     * @since unreleased
      */
     readonly canShowAds: boolean;
     /**
      * Whether the game must offer a way to change the ad choices (GDPR): required means the player has to find a "Privacy settings" button that calls platform.ads.privacyOptions(); notRequired where the consent sheet does not apply; unknown before the consent flow finished.
+     * @since unreleased
      */
     readonly privacyOptions: "required" | "notRequired" | "unknown";
   }
 
   /**
    * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped Android game gets Google AdMob with the Google consent sheet (UMP) when it has the admob plugin (platform.add_backend admob), and any other shipped game rejects every call with code "unavailable" until a backend offers ads (check platform.has("ads")). Use platform.release to keep a development-only ad stub out of a shipped game. Children: factoria.json platform.ads.audience (docs/PLATFORM.md, "Children and consent").
+   * @since unreleased
    */
   export interface PlatformAdsAPI {
     /**
      * True when a rewarded ad is ready to show at the placement (false: no fill, or the player refused the consent). Use it to show or hide the "watch an ad" button. A placement the catalog does not declare throws at once with a suggestion.
+     * @since unreleased
      */
     available(placement: string): Promise<boolean>;
     /**
      * Shows a rewarded ad and resolves when it ends. rewarded is true only when the player watched it to the end: give the reward then and only then. Otherwise reason says why: closedEarly (the player closed it), noFill (no ad to show), consentRefused (the player refused the consent). Rejects with code "network" or "unavailable" when the platform failed.
+     * @since unreleased
      */
     showRewarded(placement: string): Promise<{ rewarded: boolean; reason?: "closedEarly" | "noFill" | "consentRefused" }>;
     /**
      * What the GDPR and tracking sheets answered, for the game's privacy screen.
+     * @since unreleased
      */
     consent(): Promise<PlatformConsent>;
     /**
      * Tells the ad network whether the player is under the age of consent (use 16, the highest age of consent in Europe). Call it after the game asked the player's age with a neutral screen (the menu kit's ageGate part does). The engine keeps the answer for the session and sends it with every ads request: AdMob then tags the requests as child-directed and under the age of consent, and the consent sheet is not shown to a child. With factoria.json platform.ads.audience "mixed" no ad is shown before this is called (available() is false, showRewarded() ends with reason "consentRefused"); with "children" every player counts as under age and setUnderAge(false) throws.
+     * @since unreleased
      */
     setUnderAge(underAge: boolean): Promise<void>;
     /**
      * Opens the consent form where the player changes their ad choices. Show a "Privacy settings" button that calls it only when consent().privacyOptions is "required" (the menu kit's options screen does). Resolves when the form closes; shown is false when there was no form to open.
+     * @since unreleased
      */
     privacyOptions(): Promise<{ shown: boolean }>;
     /**
      * Who plays, from factoria.json platform.ads.audience (default "general").
+     * @since unreleased
      */
     readonly audience: "general" | "children" | "mixed";
     /**
      * The answer of setUnderAge() for this session: true or false; true in a "children" game; null while the game has not asked.
+     * @since unreleased
      */
     readonly underAge: boolean | null;
   }
 
   /**
    * Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.
+   * @since 0.2.0
    */
   export interface PlatformIntegrityAPI {
     /**
      * Asks the platform for a signed integrity token. `challenge` is a nonce your server made: 16 to 500 characters of URL-safe Base64 (A-Z a-z 0-9 - _ =), e.g. 16 or more random bytes. Send the token to your server, which must verify it with the store's server API and check the challenge inside the decoded token (a token without a fresh challenge can be replayed); never trust the client's word. A bad challenge throws at once. Offered by some stores only (Google Play): check platform.has("integrity") and let the game work without it; otherwise the Promise rejects with code "unavailable".
+     * @since 0.2.0
      */
     token(challenge: string): Promise<{ token: string }>;
   }
 
   /**
    * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * @since 0.2.0
    */
   export interface PlatformAPI {
     /**
      * Which backend answers: "fake" (development, tests), "none" (no store: every call rejects with "unavailable"), or the plugin's backend name ("steam", "apple").
+     * @since 0.2.0
      */
     readonly backend: string;
     /**
      * Which backend answers platform.ads: an ads plugin ("admob"), the store backend when it offers ads itself ("fake"), or "none" when nothing offers ads.
+     * @since unreleased
      */
     readonly adsBackend: string;
     /**
      * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion. platform.has("http") tells whether http.fetch can run: false when this computer has no HTTP client (a Linux without libcurl).
+     * @since 0.2.0
      */
     has(service: PlatformService): boolean;
     /**
      * The last known player (from signIn() and "player" events).
+     * @since 0.2.0
      */
     readonly player: PlatformPlayer;
     /**
      * Signs the player in (or reads who is signed in). Always allowed, even when nobody is.
+     * @since 0.2.0
      */
     signIn(): Promise<PlatformPlayer>;
     /**
      * Listens to purchases that did not come from a buy() call: Ask to Buy approved, an unfinished transaction from an earlier run, a purchase made in the store. Deliver the goods and call purchases.finish(e.transactionId). Events that arrive while nobody listens are kept (up to 100) and delivered to the first listener. Returns the function that stops listening; listeners end with the scene, like ui.on.
+     * @since 0.2.0
      */
     on(event: "purchase", fn: (e: PlatformPurchase) => void): () => void;
     /**
      * The store's overlay opened or closed: pause the game while it is open.
+     * @since 0.2.0
      */
     on(event: "overlay", fn: (e: { open: boolean }) => void): () => void;
     /**
      * The signed-in player changed.
+     * @since 0.2.0
      */
     on(event: "player", fn: (e: PlatformPlayer) => void): () => void;
     /**
      * A guest joined or left through Remote Play Together ({ status, session }). Only a backend with the "remotePlay" service (Steam; the fake in tests) sends it.
+     * @since 0.2.0
      */
     on(event: "remotePlay", fn: (e: PlatformRemotePlayEvent) => void): () => void;
+    /**
+     * @since 0.2.0
+     */
     readonly achievements: PlatformAchievementsAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly stats: PlatformStatsAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly leaderboards: PlatformLeaderboardsAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly cloud: PlatformCloudAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly purchases: PlatformPurchasesAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly overlay: PlatformOverlayAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly presence: PlatformPresenceAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly integrity: PlatformIntegrityAPI;
+    /**
+     * @since unreleased
+     */
     readonly remotePlay: PlatformRemotePlayAPI;
+    /**
+     * @since unreleased
+     */
     readonly ads: PlatformAdsAPI;
     /**
      * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
+     * @since unreleased
      */
     readonly release: boolean;
   }
 
   /**
    * The options of http.fetch. Every field is optional.
+   * @since unreleased
    */
   export interface HttpFetchOptions {
     /**
      * The HTTP method, "GET" by default (lower case works too). Another method throws with a suggestion. PATCH works on every platform (Android sends it as POST with X-HTTP-Method-Override).
+     * @since unreleased
      */
     method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
     /**
      * Request headers: at most 32, string values, no duplicates (names ignore case). Host, Content-Length, Connection, Transfer-Encoding, Upgrade, Expect, TE, Trailer, Keep-Alive, Proxy-* and Sec-* are set by the system and throw.
+     * @since unreleased
      */
     headers?: Record<string, string>;
     /**
      * The request body, at most 1 MB, not for GET or HEAD. A string is sent as it is; an object or array is sent as JSON, with Content-Type application/json unless you set a content type yourself.
+     * @since unreleased
      */
     body?: string | Json;
     /**
      * Seconds to wait for the whole request, above 0 and at most 120. Default 15. A request that takes longer rejects with code "network".
+     * @since unreleased
      */
     timeout?: number;
   }
 
   /**
    * What http.fetch resolves with: the server's answer, whatever its status. Immutable.
+   * @since unreleased
    */
   export interface HttpResponse {
     /**
      * The HTTP status code: 200, 404, 500...
+     * @since unreleased
      */
     readonly status: number;
     /**
      * True for a status from 200 to 299.
+     * @since unreleased
      */
     readonly ok: boolean;
     /**
      * The response headers with lower-case names; a header the server sent twice is joined with ", ".
+     * @since unreleased
      */
     readonly headers: Readonly<Record<string, string>>;
     /**
      * The body as text (UTF-8; bytes that are not valid UTF-8 become U+FFFD). At most 4 MB: a bigger answer rejects with code "network".
+     * @since unreleased
      */
     readonly text: string;
     /**
      * The body parsed as JSON. Throws an Error that shows the start of the body when it is not JSON; check ok and the content-type header first when the server may answer an error page.
+     * @since unreleased
      */
     json(): any;
   }
 
   /**
    * HTTP requests to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md): a leaderboard server, a news feed, a daily seed. Only https:// URLs (plain http:// only to localhost, for development); a host that is not declared throws at once. Works the same on Windows, macOS, iOS, Linux, Android and the web; in tests and headless runs the fake answers what game.platform.respond scripted and never touches the network. Example: `const r = await http.fetch("https://api.example.com/scores"); if (r.ok) show(r.json());`.
+   * @since unreleased
    */
   export interface HttpAPI {
     /**
      * Sends one request. Resolves with the server's answer even for 404 or 500 (look at response.ok); rejects with an Error that has `code` ("network": no connection, DNS, TLS, timeout, too big an answer; "unavailable": no HTTP client on this computer) and `hint`. A mistake in the call (a host factoria.json "network" does not declare, a http:// URL, a bad header or body) throws at once with what to change. Redirects are followed, to https only, at most 5. The answer settles at the start of an engine frame, maybe long after your code ran: a script that awaits it must check that its scene is still the current one (scene.current, entity.alive) before it uses the answer. Example: `const r = await http.fetch(url, { method: "POST", body: { name, score } });`.
+     * @since unreleased
      */
     fetch(url: string, options?: HttpFetchOptions): Promise<HttpResponse>;
   }
 
   /**
    * What analytics.status() returns, for debugging.
+   * @since unreleased
    */
   export interface AnalyticsStatus {
     /**
      * True when factoria.json has an "analytics" section with an endpoint.
+     * @since unreleased
      */
     configured: boolean;
     /**
      * The player's answer (analytics.consent()).
+     * @since unreleased
      */
     consent: "granted" | "denied" | "unknown";
     /**
      * Events waiting for the next batch.
+     * @since unreleased
      */
     queued: number;
     /**
      * True while a batch is on its way.
+     * @since unreleased
      */
     inFlight: boolean;
     /**
      * Events given up on since the start: a 4xx answer, too many attempts, or a queue over its limit.
+     * @since unreleased
      */
     dropped: number;
     /**
      * Failed attempts in a row (0 after a batch got through).
+     * @since unreleased
      */
     failures: number;
     /**
      * Seconds until the next attempt after a failure, 0 when none is waited for.
+     * @since unreleased
      */
     retryInSeconds: number;
     /**
      * The endpoint of factoria.json, "" when not configured.
+     * @since unreleased
      */
     endpoint: string;
   }
 
   /**
    * What analytics.flush() resolves with.
+   * @since unreleased
    */
   export interface AnalyticsFlushResult {
     /**
      * Events the server accepted in this request.
+     * @since unreleased
      */
     sent: number;
     /**
      * False when the request failed (no connection, a server error, a 4xx answer): a failure never rejects.
+     * @since unreleased
      */
     ok: boolean;
   }
 
   /**
    * The limits analytics.event checks, so a game can stay inside them.
+   * @since unreleased
    */
   export interface AnalyticsLimits {
     /**
      * Longest event name.
+     * @since unreleased
      */
     readonly nameLength: number;
     /**
      * Most props of one event.
+     * @since unreleased
      */
     readonly props: number;
     /**
      * Longest prop name.
+     * @since unreleased
      */
     readonly keyLength: number;
     /**
      * Longest text value of a prop.
+     * @since unreleased
      */
     readonly stringLength: number;
     /**
      * Most characters of the props of one event, as JSON.
+     * @since unreleased
      */
     readonly eventBytes: number;
     /**
      * Most events kept while waiting; the oldest is dropped over it.
+     * @since unreleased
      */
     readonly queue: number;
     /**
      * Most events of one request.
+     * @since unreleased
      */
     readonly batch: number;
     /**
      * Attempts per event before it is dropped.
+     * @since unreleased
      */
     readonly attempts: number;
   }
 
   /**
    * Usage analytics with consent (docs/ANALYTICS.md). analytics.event(name, props) queues small anonymous events and sends them in batches to the endpoint of factoria.json "analytics" through http.fetch, but only after the player said yes with analytics.setConsent(true): before that nothing is kept or sent, and a refusal forgets what waited. A batch goes out when `batch` events wait, when the oldest waited `flushSeconds`, when the app is suspended and when the game quits (the quit waits up to 3 seconds for the request). A network failure keeps the events and retries later; a 4xx answer drops them. Without the section, event(), flush() and setConsent() throw with what to add; check `configured` in code shared between games. Say what is sent in your privacy policy (docs/LEGAL.md). Example: `if (analytics.consent() === "unknown") askPlayer(); analytics.event("level_done", { level: 3, won: true });`.
+   * @since unreleased
    */
   export interface AnalyticsAPI {
     /**
      * True when factoria.json has an "analytics" section with an endpoint.
+     * @since unreleased
      */
     readonly configured: boolean;
     /**
      * The player's answer, kept between runs; "unknown" when not asked yet (event() then keeps nothing). With factoria.json analytics.consentFromAds, an unanswered question follows the ad consent (granted when the GDPR consent is granted and tracking is authorized or not required); the player's own answer always wins.
+     * @since unreleased
      */
     consent(): "granted" | "denied" | "unknown";
     /**
      * Records the player's answer (kept between runs). false forgets every event waiting to be sent. Throws when the game has no analytics section or yes is not a boolean.
+     * @since unreleased
      */
     setConsent(yes: boolean): void;
     /**
      * Queues one event and returns true; returns false (keeping nothing) when the player has not said yes. The name starts with a letter and uses letters, digits, "_", "." and "-" (at most 64 characters). props is a flat object of strings, numbers, booleans or null: at most 20 props, texts of at most 200 characters (never what the player typed), at most 2048 characters of props as JSON. A mistake throws with the limit (analytics.limits). The time of the event is engine seconds since the run started.
+     * @since unreleased
      */
     event(name: string, props?: Record<string, string | number | boolean | null>): boolean;
     /**
      * Sends what waits now, in one request of at most 100 events. Resolves { sent, ok }; a failure is ok: false and keeps the events for a retry. Rejects only for a mistake of the call (no analytics section). The answer settles at the start of an engine frame, maybe after the scene changed.
+     * @since unreleased
      */
     flush(): Promise<AnalyticsFlushResult>;
     /**
      * The state, for debugging: queue length, failures, retry time, consent.
+     * @since unreleased
      */
     status(): AnalyticsStatus;
     /**
      * The limits event() checks.
+     * @since unreleased
      */
     readonly limits: AnalyticsLimits;
   }
 
   /**
    * Values the game reads from a server (docs/ANALYTICS.md): balance numbers, an event flag, a message. The JSON object at factoria.json "remoteConfig".url is fetched once, at the first use, through http.fetch, and its last good answer is cached in storage, so an offline player gets the values of the last run and a first-time offline player gets the defaults. get(key, fallback) always works: with no section, no connection or a value of the wrong type it returns fallback. A bad answer (not a JSON object, over 64 KB or 500 keys, a 4xx or 5xx status) is ignored as a whole, never half applied. Example: `const speed = remoteConfig.get("enemySpeed", 1.5);`. A script that awaits ready() or refresh() must check that its scene is still the current one (scene.current) before it uses the answer.
+   * @since unreleased
    */
   export interface RemoteConfigAPI {
     /**
      * True when factoria.json has a "remoteConfig" section with a url.
+     * @since unreleased
      */
     readonly configured: boolean;
     /**
      * The server's value of key; else the cached one; else fallback. A value whose type differs from the fallback's (a text where you expect a number) counts as missing. Returns a copy: changing it changes nothing. The first call starts the fetch.
+     * @since unreleased
      */
     get<T extends Json>(key: string, fallback: T): T;
     /**
      * Where the values come from now: this run's fetch, the cache of an earlier run, or only the defaults.
+     * @since unreleased
      */
     source(): "remote" | "cache" | "default";
     /**
      * Resolves with source() when the first fetch ended or timeoutSeconds (engine seconds, default 3) passed. Never rejects: a game waits for it at its loading screen and plays on with whatever it has.
+     * @since unreleased
      */
     ready(timeoutSeconds?: number): Promise<"remote" | "cache" | "default">;
     /**
      * Fetches again; resolves with source() when the answer (or the failure) arrived.
+     * @since unreleased
      */
     refresh(): Promise<"remote" | "cache" | "default">;
   }
 
   /**
    * The payload of i18n.on("change").
+   * @since 0.2.0
    */
   export interface I18nChange {
     /**
      * The language now in use.
+     * @since 0.2.0
      */
     language: string;
     /**
      * The language before.
+     * @since 0.2.0
      */
     previous: string;
   }
 
   /**
    * Localization: the strings of locales/<language>.json in the player's language. factoria.json "localization" lists the languages; without it the game is not localized (t(key) returns the key, languages is []). Components with a `key` field (Text, Button, Toggle, Slider, TextField) are translated by the engine; use t() for text a script builds itself. The chosen language is not saved between runs: keep it with `storage` and call setLanguage at start. See docs/LOCALIZATION.md.
+   * @since 0.2.0
    */
   export interface I18nAPI {
     /**
      * The text of `key` in the current language, else in its base language ("pt" for "pt-BR"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws.
+     * @since 0.2.0
      */
     t(key: string, args?: { count?: number; [name: string]: unknown }): string;
     /**
      * `value` written the way the current language writes numbers: decimal and group separators and digits from the engine's table (en "1,234.5", es "1234,5" and "12.345,5", de "1.234,5", fr "1 234,5" with a narrow no-break space, ar Arabic-Indic digits "١٬٢٣٤٫٥"). `decimals` (0 to 9) fixes the digits after the separator; without it the number keeps the digits it has. A language the table does not know writes like English; a game without localization is English. Same as the `{v:number:1}` placeholder of a string table. Throws for a value that is not a number or decimals out of range.
+     * @since unreleased
      */
     number(value: number, options?: { decimals?: number }): string;
     /**
      * `seconds` as a time in the current language: "1:23.4" for 83.4 (minutes:seconds), "1:02:03.4" from one hour on. `decimals` (0 to 3, default 1) are the digits of the second; the decimal separator and the digits follow the language (es "1:23,4", ar "١:٢٣٫٤"). Rounded as a whole, so 59.96 is "1:00.0". Same as the `{t:duration}` placeholder of a string table.
+     * @since unreleased
      */
     duration(seconds: number, options?: { decimals?: number }): string;
     /**
      * True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one.
+     * @since 0.2.0
      */
     has(key: string): boolean;
     /**
      * The current language (one of `languages`; "" when the game has no localization).
+     * @since 0.2.0
      */
     readonly language: string;
     /**
      * Switches now: every Text and widget with a `key` is rewritten at once and the "change" listeners run. Accepts the tag as in factoria.json or close to it ("pt_br", "es-MX" -> "es"). An unknown language throws with a "did you mean" and the languages the game has. Not saved: a game keeps the player's choice with `storage` and calls this at start.
+     * @since 0.2.0
      */
     setLanguage(language: string): void;
     /**
      * The game's languages, as in factoria.json localization.languages.
+     * @since 0.2.0
      */
     readonly languages: string[];
     /**
      * factoria.json localization.defaultLanguage: the language of the text written in scenes and the last fallback.
+     * @since 0.2.0
      */
     readonly defaultLanguage: string;
     /**
      * The writing direction of the current language: "rtl" for Arabic, Hebrew, Persian, Urdu and the other right-to-left languages, else "ltr" (also when the game has no localization). Text align "start"/"end" and Panel direction "auto" follow it by themselves; read it to mirror what they do not reach, such as an anchor or a pivot (docs/LOCALIZATION.md, section 6).
+     * @since 0.2.0
      */
     readonly direction: "ltr" | "rtl";
     /**
      * The player's system languages, best first (BCP 47 tags such as "es-MX"). Empty in headless runs and tests: the start language does not depend on the machine there.
+     * @since 0.2.0
      */
     readonly systemLanguages: string[];
     /**
      * The language's own name for a language menu ("Español"): the "$name" of its table, else the tag.
+     * @since 0.2.0
      */
     name(language: string): string;
     /**
      * Runs fn after every language switch (setLanguage or the i18n.set_language command). Returns the function that stops listening; listeners end with the scene, like ui.on, so register in onStart.
+     * @since 0.2.0
      */
     on(event: "change", fn: (e: I18nChange) => void): () => void;
   }
@@ -5134,11 +5545,13 @@ declare module "factoria" {
 
   /**
    * Path finding on the baked NavMesh3D.
+   * @since unreleased
    */
   export const nav: NavAPI;
 
   /**
    * Behaviour trees (bt.Tree, bt.sequence, bt.selector...), ticked by your script.
+   * @since unreleased
    */
   export const bt: BtAPI;
 
@@ -5169,16 +5582,19 @@ declare module "factoria" {
 
   /**
    * The screen and its safe area.
+   * @since 0.2.0
    */
   export const screen: ScreenAPI;
 
   /**
    * The game window: full screen, size, vsync, frame cap.
+   * @since 0.1.6
    */
   export const window: WindowAPI;
 
   /**
    * The clipboard: read and write text.
+   * @since unreleased
    */
   export const clipboard: ClipboardAPI;
 
@@ -5224,422 +5640,605 @@ declare module "factoria" {
 
   /**
    * Functions of the game's native plugins (factoria.json "plugins", docs/EXTENDING.md "Native plugins"): plugins.<plugin>.<function>(...args) passes the arguments as JSON and returns the plugin's JSON result; a failure throws an Error with the plugin's message and hint. A plugin that is not built for this platform is undefined (test with `if (plugins.steam)`); one that failed to load throws why on first use.
+   * @since 0.1.6
    */
   export const plugins: PluginsAPI;
 
   /**
    * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests (docs/PLATFORM.md).
+   * @since 0.2.0
    */
   export const platform: PlatformAPI;
 
   /**
    * http.fetch(url, options): HTTP requests to the hosts declared in factoria.json "network" (docs/NETWORKING.md).
+   * @since unreleased
    */
   export const http: HttpAPI;
 
   /**
    * analytics.event(name, props), setConsent(yes), consent(), flush(): anonymous usage events sent in batches after the player consented (docs/ANALYTICS.md).
+   * @since unreleased
    */
   export const analytics: AnalyticsAPI;
 
   /**
    * remoteConfig.get(key, fallback): values a server serves as JSON, cached for offline runs (docs/ANALYTICS.md).
+   * @since unreleased
    */
   export const remoteConfig: RemoteConfigAPI;
 
   /**
    * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
+   * @since 0.2.0
    */
   export const i18n: I18nAPI;
 
   /**
    * Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
+   * @since 0.2.0
    */
   export interface AnimatorAPI {
     /**
      * Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
+     * @since 0.2.0
      */
     play(clip: string, fadeSeconds?: number): void;
     /**
      * Pauses and returns to the bind pose (the model as exported).
+     * @since 0.2.0
      */
     stop(): void;
     /**
      * Sets a state machine parameter declared in the Animator's `params`. The transitions read it on the next step.
+     * @since 0.2.0
      */
     set(name: string, value: number | boolean): void;
     /**
      * Current value of a state machine parameter.
+     * @since 0.2.0
      */
     get(name: string): number | boolean;
     /**
      * Makes the parameter `name` true for the next step only (one-shot input like "jump" or "hurt"). It does not need to be declared.
+     * @since 0.2.0
      */
     trigger(name: string): void;
     /**
      * Names of the animation clips of the model.
+     * @since 0.2.0
      */
     readonly clips: string[];
     /**
      * Length of a clip in seconds.
+     * @since 0.2.0
      */
     duration(clip: string): number;
     /**
      * Listens to a game event of THIS entity's animator: a clip event from the Animator's `events`, a state's `onEnter` name, or "anim.finished". Returns the unsubscribe function. world.on(name, fn) hears every entity.
+     * @since 0.2.0
      */
     on(event: string, fn: (data: { id: string; clip?: string; time?: number; state?: string }, source: Entity | null) => void): () => void;
     /**
      * State machine: the current state.
+     * @since 0.2.0
      */
     readonly state: string;
     /**
      * The clip playing now. Assigning switches clips with the component's `fade`.
+     * @since 0.2.0
      */
     clip: string;
     /**
      * Seconds into the current clip. Assigning seeks (no events fire for the jump).
+     * @since 0.2.0
      */
     time: number;
     /**
      * Playback speed multiplier.
+     * @since 0.2.0
      */
     speed: number;
     /**
      * Start over at the end of the clip. false stops on the last pose and sends "anim.finished".
+     * @since 0.2.0
      */
     loop: boolean;
     /**
      * false pauses, true resumes.
+     * @since 0.2.0
      */
     playing: boolean;
     /**
      * The Animator component view (model, params, states, transitions, events...).
+     * @since 0.2.0
      */
     readonly component: Components["Animator"];
   }
 
   /**
    * Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   * @since unreleased
    */
   export class TilemapAPI {
     /**
      * The tile value at column x, row y (0-based, row 0 = TOP row): the tile index plus flip/rotate flag bits, -1 when empty or outside the map. Mask with `& 0xFFFFFFF` for the plain index.
+     * @since unreleased
      */
     getTile(x: number, y: number): number;
     /**
      * Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step.
+     * @since unreleased
      */
     setTile(x: number, y: number, tile: number): void;
     /**
      * Map width in tiles.
+     * @since unreleased
      */
     readonly width: number;
     /**
      * Map height in tiles (rows).
+     * @since unreleased
      */
     readonly height: number;
     /**
      * The Tilemap component view.
+     * @since unreleased
      */
     readonly component: Components["Tilemap"];
   }
 
   /**
    * Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on("ended", () => scene.load("scenes/menu.scene.json"))`; `intro.video.seek(10)`.
+   * @since unreleased
    */
   export class VideoAPI {
     /**
      * Plays, or resumes after pause(). After the end it starts over from the first picture.
+     * @since unreleased
      */
     play(): void;
     /**
      * Stops advancing and keeps the picture; the sound goes silent.
+     * @since unreleased
      */
     pause(): void;
     /**
      * Pauses and returns to the first picture.
+     * @since unreleased
      */
     stop(): void;
     /**
      * Jumps to `seconds` (clamped to the length) and shows the picture there. Keeps playing if it was playing; no "ended" event comes from a seek.
+     * @since unreleased
      */
     seek(seconds: number): void;
     /**
      * Listens to the "ended" event of THIS entity's video: a video that does not loop reached its end (once per play). Returns the unsubscribe function. world.on("video.ended", fn) hears every Video.
+     * @since unreleased
      */
     on(event: "ended", fn: (data: { id: string; path: string }, source: Entity | null) => void): () => void;
     /**
      * Seconds into the video.
+     * @since unreleased
      */
     readonly time: number;
     /**
      * Length in seconds; 0 until the file is open (the first fixed step after the scene loads).
+     * @since unreleased
      */
     readonly duration: number;
     /**
      * True while it advances.
+     * @since unreleased
      */
     readonly playing: boolean;
     /**
      * True after it reached its end, until a seek or play() starts it again.
+     * @since unreleased
      */
     readonly ended: boolean;
     /**
      * Wrap to the first picture at the end instead of ending.
+     * @since unreleased
      */
     loop: boolean;
     /**
      * Loudness of the sound, 0..1.
+     * @since unreleased
      */
     volume: number;
     /**
      * The Video component view (path, autoplay, fit, tint, bus...).
+     * @since unreleased
      */
     readonly component: Components["Video"];
   }
 
   /**
    * An easing function: maps progress 0..1 to eased progress (0 at 0, 1 at 1; back and elastic overshoot in between).
+   * @since 0.2.0
    */
   export type EaseFn = (t: number) => number;
 
   /**
    * Name of a built-in easing: linear, or quad / cubic / quart / quint / sine / expo / circ / back / elastic / bounce followed by In, Out or InOut.
+   * @since 0.2.0
    */
   export type EaseName = "linear" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "elasticIn" | "elasticOut" | "elasticInOut" | "bounceIn" | "bounceOut" | "bounceInOut";
 
   /**
    * The built-in easing functions by name (ease.quadOut, ease.bounceOut...). tween() also accepts the name as a string.
+   * @since 0.2.0
    */
   export interface EaseAPI {
+    /**
+     * @since 0.2.0
+     */
     readonly linear: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quadIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quadOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quadInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly cubicIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly cubicOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly cubicInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quartIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quartOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quartInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quintIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quintOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quintInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly sineIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly sineOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly sineInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly expoIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly expoOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly expoInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly circIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly circOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly circInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly backIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly backOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly backInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly elasticIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly elasticOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly elasticInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly bounceIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly bounceOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly bounceInOut: EaseFn;
   }
 
   /**
    * What a behaviour tree node returns each tick: bt.SUCCESS, bt.FAILURE or bt.RUNNING.
+   * @since unreleased
    */
   export type BtStatus = "success" | "failure" | "running";
 
   /**
    * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter and bt.succeeder.
+   * @since unreleased
    */
   export interface BtNode {
     /**
      * sequence, selector, condition, action, wait, cooldown, inverter or succeeder.
+     * @since unreleased
      */
     readonly type: string;
   }
 
   /**
    * Hooks of bt.action.
+   * @since unreleased
    */
   export interface BtActionHooks {
     /**
      * Runs when the action starts (the first tick it is reached, or after it finished or was interrupted).
+     * @since unreleased
      */
     onEnter?: (blackboard: any) => void;
     /**
      * Runs when the action returns SUCCESS or FAILURE, or with "aborted" when a tick did not reach it (a selector chose an earlier child) or the tree was reset.
+     * @since unreleased
      */
     onExit?: (blackboard: any, status: BtStatus | "aborted") => void;
   }
 
   /**
    * A behaviour tree with its own memory per node: ten enemies can each run a Tree built from the same node description.
+   * @since unreleased
    */
   export interface BtTree {
     /**
      * The root node.
+     * @since unreleased
      */
     readonly root: BtNode;
     /**
      * The object every condition and action receives.
+     * @since unreleased
      */
     blackboard: any;
     /**
      * Seconds the tree has run: the sum of the dt it was ticked with.
+     * @since unreleased
      */
     readonly clock: number;
     /**
      * Result of the last tick.
+     * @since unreleased
      */
     readonly status: BtStatus;
     /**
      * Runs the tree one step; call it once per frame with the dt of onUpdate. A node that was not ticked on the previous tick starts fresh (a sequence goes back to its first child, a wait to zero).
+     * @since unreleased
      */
     tick(dt: number): BtStatus;
     /**
      * Forgets what every node remembers (running actions get onExit with "aborted").
+     * @since unreleased
      */
     reset(): void;
   }
 
   /**
    * Behaviour trees in plain JS, ticked by your script with a dt you pass (deterministic). Example: const tree = new bt.Tree(bt.selector(bt.sequence(bt.condition((b) => b.sees), bt.action((b, dt) => { b.chase(dt); return bt.RUNNING; })), bt.action((b, dt) => { b.wander(dt); return bt.RUNNING; })), enemy); in onUpdate(dt): tree.tick(dt).
+   * @since unreleased
    */
   export interface BtAPI {
     /**
      * Status: the node finished well.
+     * @since unreleased
      */
     readonly SUCCESS: "success";
     /**
      * Status: the node failed or its condition was false.
+     * @since unreleased
      */
     readonly FAILURE: "failure";
     /**
      * Status: the node needs more ticks.
+     * @since unreleased
      */
     readonly RUNNING: "running";
     /**
      * Creates a tree for one agent.
+     * @since unreleased
      */
     readonly Tree: new (root: BtNode, blackboard?: any) => BtTree;
     /**
      * Ticks the children in order: FAILURE as soon as one fails, RUNNING while one runs (the next tick resumes at that child without asking the earlier conditions again), SUCCESS when all succeeded.
+     * @since unreleased
      */
     sequence(...children: BtNode[]): BtNode;
     /**
      * Ticks the children in order from the FIRST one every tick, so a more important child can interrupt a running one; returns the first result that is not FAILURE.
+     * @since unreleased
      */
     selector(...children: BtNode[]): BtNode;
     /**
      * Truthy = SUCCESS, falsy = FAILURE. Never RUNNING.
+     * @since unreleased
      */
     condition(fn: (blackboard: any) => unknown): BtNode;
     /**
      * Does something and returns bt.SUCCESS, bt.FAILURE or bt.RUNNING (anything else throws).
+     * @since unreleased
      */
     action(fn: (blackboard: any, dt: number, tree: BtTree) => BtStatus, hooks?: BtActionHooks): BtNode;
     /**
      * RUNNING for that many seconds of tick dt, then SUCCESS. Starts over when it was not ticked on the previous tick.
+     * @since unreleased
      */
     wait(seconds: number): BtNode;
     /**
      * Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once.
+     * @since unreleased
      */
     cooldown(seconds: number, child: BtNode): BtNode;
     /**
      * Swaps SUCCESS and FAILURE; RUNNING stays.
+     * @since unreleased
      */
     inverter(child: BtNode): BtNode;
     /**
      * SUCCESS whenever the child finishes, either way.
+     * @since unreleased
      */
     succeeder(child: BtNode): BtNode;
   }
 
   /**
    * Options of tween().
+   * @since 0.2.0
    */
   export interface TweenOptions {
     /**
      * Seconds per play (default 1).
+     * @since 0.2.0
      */
     duration?: number;
     /**
      * Seconds to wait before it starts (default 0).
+     * @since 0.2.0
      */
     delay?: number;
     /**
      * Easing (default "linear"). inOut easings play the in curve for the first half and its mirror image for the second.
+     * @since 0.2.0
      */
     ease?: EaseName | EaseFn;
     /**
      * Extra plays after the first (0 = once, Infinity = forever).
+     * @since 0.2.0
      */
     repeat?: number;
     /**
      * Every second play runs backwards.
+     * @since 0.2.0
      */
     yoyo?: boolean;
     /**
      * Start values instead of the current ones, same shape as the end values: { x: 0 }. For tween(from, to, ...) the start is the first argument.
+     * @since 0.2.0
      */
     from?: any;
     /**
      * Called once when the delay is over and it starts moving (start values are read here).
+     * @since 0.2.0
      */
     onStart?: (tween: Tween) => void;
     /**
      * Called after every update. `value` is the eased progress (can overshoot with back/elastic); for tween(from, to) it is the current number.
+     * @since 0.2.0
      */
     onUpdate?: (value: number, tween: Tween) => void;
     /**
      * Called when the last play ends (never for a cancelled tween).
+     * @since 0.2.0
      */
     onComplete?: (tween: Tween) => void;
   }
 
   /**
    * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.
+   * @since 0.2.0
    */
   export interface Tween {
     /**
      * false once it completed or was cancelled.
+     * @since 0.2.0
      */
     readonly active: boolean;
     /**
      * 0..1 over all plays (after the delay).
+     * @since 0.2.0
      */
     readonly progress: number;
     /**
      * Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code.
+     * @since 0.2.0
      */
     readonly finished: Promise<boolean>;
     /**
      * Stops it where it is (values stay as they are) and cancels the tweens chained after it.
+     * @since 0.2.0
      */
     cancel(): this;
     /**
      * Freezes it.
+     * @since 0.2.0
      */
     pause(): this;
     /**
      * Continues after pause().
+     * @since 0.2.0
      */
     resume(): this;
     /**
      * Adds a completion callback.
+     * @since 0.2.0
      */
     onComplete(fn: (tween: Tween) => void): this;
     /**
      * Starts another tween when this one completes (chain): `tween(a, {x: 1}).next(a, {y: 1}).next(b, {a: 0})`. Returns the NEW tween. Cancelling this one cancels the chain.
+     * @since 0.2.0
      */
     next(target: object, props: object, options?: TweenOptions): Tween;
   }
 
   /**
    * Built-in easing functions.
+   * @since 0.2.0
    */
   export const ease: EaseAPI;
 
@@ -5660,16 +6259,19 @@ declare module "factoria" {
 
   /**
    * Moves numbers, vectors and colors of `target` to the end values in `props` over time. Targets: a component view (`tween(sprite, {color: "#ff0000"})`), a vector (`tween(entity.position, {y: 5})`), a color, or a plain object. A vector end value is [x, y, z], {x, y, z} or a Vec; a color is "#rrggbb", [r, g, b, a] or {r, g, b, a}. Start values are read when the delay ends. Driven by the game clock (fixed step, time.scale), never by the wall clock. Example: `await tween(entity.position, {y: 3}, {duration: 0.5, ease: "backOut"}).finished`.
+   * @since 0.2.0
    */
   export function tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
 
   /**
    * Tweens a plain number from `from` to `to`, calling options.onUpdate(value) every step (for a counter, a health bar value...).
+   * @since 0.2.0
    */
   export function tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween;
 
   /**
    * Cancels every running tween, or only those whose target is `target`.
+   * @since 0.2.0
    */
   export function cancelTweens(target?: object): void;
 
@@ -8555,6 +9157,7 @@ declare module "factoria:test" {
     toMatch(pattern: string | RegExp): void;
     /**
      * Every field of `subset` is in the received object with an equal value, recursively; the object may have more fields. Arrays must have the same length and each element matches its subset.
+     * @since 0.2.0
      */
     toMatchObject(subset: object): void;
     toBeInstanceOf(cls: Function): void;
@@ -8585,40 +9188,49 @@ declare module "factoria:test" {
 
   /**
    * One entry of game.captions(): a subtitle that is on the caption list.
+   * @since 0.2.0
    */
   export interface CaptionEntry {
     /**
      * The text shown, in the current language when it has a key.
+     * @since 0.2.0
      */
     readonly text: string;
     /**
      * The speaker's name, "" for none.
+     * @since 0.2.0
      */
     readonly speaker: string;
     /**
      * The localization key, "" for a plain-text caption.
+     * @since 0.2.0
      */
     readonly key: string;
     /**
      * "audio:<clip path>" for the caption of a sound, "ui" for ui.caption.
+     * @since 0.2.0
      */
     readonly source: string;
   }
 
   /**
    * One entry of game.spoken(): a ui.speak call (or ui.speak command) that was recorded instead of spoken.
+   * @since 0.2.0
    */
   export interface SpokenLine {
     /**
      * The text, as given.
+     * @since 0.2.0
      */
     readonly text: string;
     /**
      * The game language (i18n.language) when it was asked; "" when the game has no localization.
+     * @since 0.2.0
      */
     readonly language: string;
     /**
      * True when the call interrupted what was being said (the default), false when it queued.
+     * @since 0.2.0
      */
     readonly interrupt: boolean;
   }
@@ -8650,6 +9262,7 @@ declare module "factoria:test" {
     readonly loop: boolean;
     /**
      * The layer name when audio.musicLayers started it; "" otherwise.
+     * @since unreleased
      */
     readonly layer: string;
     /**
@@ -8693,118 +9306,145 @@ declare module "factoria:test" {
     disconnect(): void;
     /**
      * Plugs the pad in as that family, so input.gamepad(i).type and input.buttonName() answer for it (tests start with "generic" pads, which use the Xbox names). An unknown family throws with a suggestion.
+     * @since 0.1.6
      */
     setType(type: "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck"): void;
   }
 
   /**
    * One request the game made to the platform backend, as the fake backend logged it.
+   * @since 0.2.0
    */
   export interface TestPlatformCall {
     /**
      * 1, 2, 3... in the order of the requests.
+     * @since 0.2.0
      */
     readonly seq: number;
     /**
      * The engine frame it was made in (counted from the start of the test file or the last reset).
+     * @since 0.2.0
      */
     readonly frame: number;
     /**
      * "achievements.unlock", "purchases.buy"... (docs/PLATFORM.md lists them).
+     * @since 0.2.0
      */
     readonly method: string;
     /**
      * The arguments the backend got, with the store's id (storeId) filled in.
+     * @since 0.2.0
      */
     readonly args: Json;
     /**
      * False when the request failed or was rejected; absent while it is waiting for an answer (delayFrames).
+     * @since 0.2.0
      */
     readonly ok?: boolean;
     /**
      * The answer, when ok.
+     * @since 0.2.0
      */
     readonly result?: Json;
     /**
      * The error, when not ok.
+     * @since 0.2.0
      */
     readonly error?: { code: string; message: string; hint: string };
   }
 
   /**
    * What analytics did in this test run, for tests (docs/ANALYTICS.md). Nothing leaves the test: the batches go through http.fetch, so script the server with game.platform.respond("http.fetch", { status: 204 }); an unscripted request fails like an offline player and is retried later.
+   * @since unreleased
    */
   export interface TestAnalytics {
     /**
      * The events the server accepted (a 2xx answer), oldest first; t is engine seconds since the run started.
+     * @since unreleased
      */
     sent(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
     /**
      * Every request made, with why it was made and how it ended.
+     * @since unreleased
      */
     requests(): { endpoint: string; reason: "batch" | "timer" | "suspend" | "quit" | "flush"; ok: boolean; status?: number; error?: string; events: { name: string; props: Json; t: number }[] }[];
     /**
      * The events waiting for the next batch.
+     * @since unreleased
      */
     queued(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
     /**
      * The next run of the game: the queue and the logs are forgotten; the player's consent stays (it is in storage; storage.clear() forgets it).
+     * @since unreleased
      */
     restart(): void;
   }
 
   /**
    * The remote config of this test run, for tests (docs/ANALYTICS.md). Script the server with game.platform.respond("http.fetch", { json: { ... } }).
+   * @since unreleased
    */
   export interface TestRemoteConfig {
     /**
      * The next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use, starting from the cache earlier runs left in storage (an unscripted fetch fails: an offline player).
+     * @since unreleased
      */
     restart(): void;
   }
 
   /**
    * The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.
+   * @since 0.2.0
    */
   export interface TestPlatform {
     /**
      * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion. For "http.fetch" there is no default answer: a request nobody scripted rejects with code "network", so a test never depends on a server. Script it with { status: 200, json: { ... } } (json becomes the text, with a content-type header), { status: 404, text: "not found", headers: { "Retry-After": "5" } }, or { error: "network" } for an offline player; status 200, no headers and an empty text fill what you leave out. See docs/NETWORKING.md.
+     * @since 0.2.0
      */
     respond(method: string, answer: Json, times?: number): void;
     /**
      * Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased "purchase" also records an unfinished transaction.
+     * @since 0.2.0
      */
     emit(event: "purchase" | "overlay" | "player", data?: Json): void;
     /**
      * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
+     * @since unreleased
      */
     revoke(productId: string): void;
     /**
      * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr, options.tracking and options.privacyOptions set what ads.consent() answers (with privacyOptions "required", platform.ads.privacyOptions() counts a form shown); a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
+     * @since unreleased
      */
     ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
      * A guest joins Remote Play Together: platform.remotePlay.sessions() lists the session and platform.on("remotePlay") listeners get { status: "connected", session } at the next game.step(). What info leaves out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080); the sessions are numbered from 1. Returns the session. The guest's input is not simulated: drive the pad they would use with game.gamepad(i). An unknown field or form factor throws with a suggestion.
+     * @since unreleased
      */
     remotePlayConnect(info?: { guestName?: string; guestId?: string; deviceName?: string; formFactor?: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr"; resolution?: { width: number; height: number } }): PlatformRemotePlaySession;
     /**
      * The guest with that session id leaves: sessions() no longer lists it and listeners get { status: "disconnected", session } at the next game.step(). Throws, listing the connected ids, when no guest has that id.
+     * @since unreleased
      */
     remotePlayDisconnect(id: number): PlatformRemotePlaySession;
     /**
      * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in, no Remote Play guests.
+     * @since 0.2.0
      */
     reset(): void;
     /**
      * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer. cloudClock n (Unix seconds) is the modified time the next cloud.save gets, which cloud.stat() reports: it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up one second with each save, so saves are ordered without the wall clock.
+     * @since 0.2.0
      */
     set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none"; cloudClock?: number }): void;
     /**
      * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, cloudModified, remotePlay, owned, unfinished, presence, scripted, calls... } }.
+     * @since 0.2.0
      */
     state(): Json;
     /**
      * Every request the game made, oldest first (the request log of state().fake.calls).
+     * @since 0.2.0
      */
     calls(): TestPlatformCall[];
   }
@@ -8815,38 +9455,47 @@ declare module "factoria:test" {
   export interface TestGame {
     /**
      * Same as the script `game.paused`: true while time.scale is 0; setting it keeps and restores time.scale. Reading a member the test game does not have (game.pasued) throws with a did-you-mean.
+     * @since 0.2.0
      */
     paused: boolean;
     /**
      * Same as the script `game.today()`: 2026-01-01 at the start of every test, or the date of --date, until game.setDate().
+     * @since unreleased
      */
     today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * Same as the script `game.focused`.
+     * @since unreleased
      */
     readonly focused: boolean;
     /**
      * Sets the date game.today() answers, "YYYY-MM-DD" or with a time "YYYY-MM-DDTHH:MM[:SS]" (midnight without one), until the test ends (the next test starts from the run's date again). options.utcOffsetMinutes sets the time zone (minutes east of UTC; the current one is kept otherwise), which decides game.today().utc. Moving to another local day sends "dayChanged" to the game.on listeners once, so a test crosses midnight with game.setDate("2026-10-23T23:59:59") then game.setDate("2026-10-24T00:00:01"). An impossible date or time throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
+     * @since unreleased
      */
     setDate(iso: string, options?: { utcOffsetMinutes?: number }): void;
     /**
      * The player clicks the window's close button (Cmd+Q, Alt+F4): the game.on("quit") handlers run at once. Returns false when one called event.cancel() (the game goes on), true otherwise: game.quitRequested is then true. Example: expect(game.closeWindow()).toBe(false).
+     * @since unreleased
      */
     closeWindow(): boolean;
     /**
      * The app goes to the background, as on a phone: the game.on("suspend") handlers run at once and, with pauseOnSuspend (the default), the game and the music freeze (game.paused is true) unless a handler paused it itself. Every test starts running.
+     * @since unreleased
      */
     suspend(): void;
     /**
      * The app comes back: undoes the freeze suspend() made (a pause the game made itself stays) and runs the game.on("resume") handlers.
+     * @since unreleased
      */
     resume(): void;
     /**
      * The window gains the focus: game.focused becomes true and the game.on("focus") handlers run. Does nothing when it already had it.
+     * @since unreleased
      */
     focus(): void;
     /**
      * The window loses the focus: game.focused becomes false and the game.on("blur") handlers run. Does not pause anything (a window that lost the focus keeps running).
+     * @since unreleased
      */
     blur(): void;
     /**
@@ -8855,6 +9504,7 @@ declare module "factoria:test" {
     load(path: string, props?: Json): void;
     /**
      * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
+     * @since unreleased
      */
     fileReads(): number;
     /**
@@ -8872,44 +9522,54 @@ declare module "factoria:test" {
     tap(action: string): void;
     /**
      * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     * @since unreleased
      */
     tapKey(key: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
     /**
      * Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap().
+     * @since 0.1.6
      */
     typeText(text: string): void;
     /**
      * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable.
+     * @since unreleased
      */
     setSlider(id: string, value: number): void;
     /**
      * Presses the system Back button of Android. The input.onBack handlers run at the next step(); when none consumes it the game asks to quit (game.quitRequested in game.state()).
+     * @since 0.2.0
      */
     pressBack(): void;
     /**
      * Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to "none" before every test.
+     * @since 0.2.0
      */
     setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | "none" | "phone-portrait" | "phone-landscape"): void;
     /**
      * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false }, except handheld, which is true when you set steamDeck: true or a phone or tablet formFactor (and nothing else says it is not). For a Steam Deck: game.setDevice({ steamDeck: true }). An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
+     * @since unreleased
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
      * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * @since unreleased
      */
     renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
+     * @since 0.2.0
      */
     setAccessibility(settings: { textScale?: number; reduceMotion?: boolean; highContrast?: boolean; screenReader?: boolean }): void;
     /**
      * Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text ("{\"hi") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file.
+     * @since 0.2.0
      */
     setStorageText(text: string | null): void;
     /**
      * The pulses input.vibrate() asked for since the test started, in seconds, oldest first (cleared before each test).
+     * @since 0.2.0
      */
     vibrations(): number[];
     /**
@@ -8918,26 +9578,32 @@ declare module "factoria:test" {
     gamepad(index?: number): TestGamepad;
     /**
      * Holds a mouse button (default left) until mouseUp(): input.mouse.down(button) follows. With mouseMove() it tests a drag.
+     * @since unreleased
      */
     mouseDown(button?: "left" | "right" | "middle"): void;
     /**
      * Releases a mouse button held with mouseDown().
+     * @since unreleased
      */
     mouseUp(button?: "left" | "right" | "middle"): void;
     /**
      * Turns the mouse wheel by dy notches for the next frame (input.mouse.wheel); a non-number throws.
+     * @since unreleased
      */
     wheel(dy: number): void;
     /**
      * True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test run never stops because of it. Cleared before each test.
+     * @since unreleased
      */
     readonly quitRequested: boolean;
     /**
      * Pretends the device has these languages (BCP 47 tags, best first): i18n.systemLanguages answers them so a first-run language choice can be tested. An empty list means no system language. Reset (empty) before each test. Example: game.setSystemLanguages(["es-ES", "en"]).
+     * @since unreleased
      */
     setSystemLanguages(languages: string[]): void;
     /**
      * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers. Both default to true; an unknown key throws with a suggestion.
+     * @since unreleased
      */
     resetState(options?: { storage?: boolean; platform?: boolean }): void;
     mouseMove(screenPos: Vec2Like): void;
@@ -8986,26 +9652,32 @@ declare module "factoria:test" {
     clearAudioLog(): void;
     /**
      * What ui.speak was asked to say since the current test started (cleared before each test), oldest first: { text, language, interrupt }. Headless runs and tests speak nothing, they only record. Example: expect(game.spoken().map((l) => l.text)).toEqual(["Play", "Options"]).
+     * @since 0.2.0
      */
     spoken(): SpokenLine[];
     /**
      * Empties the list of spoken lines (e.g. after setup, before the action under test).
+     * @since 0.2.0
      */
     clearSpoken(): void;
     /**
      * The captions on the list now (cleared before each test), oldest first: { text, speaker, key, source }. `text` is in the current language, `key` is "" for plain text, `source` is "audio:<clip path>" or "ui". The Captions component draws the newest maxLines of them. Example: expect(game.captions().map((c) => c.text)).toEqual(["Welcome"]).
+     * @since 0.2.0
      */
     captions(): CaptionEntry[];
     /**
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
+     * @since 0.2.0
      */
     readonly platform: TestPlatform;
     /**
      * What analytics sent in this test run: game.analytics.sent(), requests(), queued(), restart().
+     * @since unreleased
      */
     readonly analytics: TestAnalytics;
     /**
      * The remote config of this test run: game.remoteConfig.restart().
+     * @since unreleased
      */
     readonly remoteConfig: TestRemoteConfig;
   }
@@ -9027,28 +9699,34 @@ declare module "factoria:test" {
 
   /**
    * What robust() hands to the check on each run.
+   * @since unreleased
    */
   export interface RobustRun {
     /**
      * 0 for the unperturbed run, then 1, 2, ...
+     * @since unreleased
      */
     run: number;
     /**
      * How many runs robust() makes.
+     * @since unreleased
      */
     runs: number;
     /**
      * Moves each entity (Entity or id) by a small repeatable offset of up to `nudge` metres on every axis. Does nothing on run 0. An id that is not in the scene throws.
+     * @since unreleased
      */
     nudge(...targets: (Entity | string)[]): void;
     /**
      * nudge() for every entity with a RigidBody3D or RigidBody2D. Call it after game.load and before the first game.step.
+     * @since unreleased
      */
     nudgeBodies(): void;
   }
 
   /**
    * Runs `check` `runs` times (default 5) under small perturbations (positions nudged by up to `nudge` metres, default 0.005; run 0 is unperturbed) and fails when any run fails, saying which one. Use it where a level test would otherwise assert something that depends on rounding (a chaotic rope bridge, an exact frame count): physics is exact per build but may differ on another compiler or CPU. The check must load its own scene (game.load) so each run starts fresh. The offsets are a hash of run, entity id and axis, not the RNG, so a test nudges the same way on every platform.
+   * @since unreleased
    */
   export function robust(check: (p: RobustRun) => void, options?: { runs?: number; nudge?: number }): void;
 
