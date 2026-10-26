@@ -24,7 +24,8 @@
       "video": "Video",
       "audio": "Audio",
       "controls": "Controls",
-      "language": "Language"
+      "language": "Language",
+      "access": "Access"
     },
     "windowMode": "Window mode: {mode}",
     "mode": {
@@ -52,7 +53,8 @@
       "master": "Master",
       "music": "Music",
       "effects": "Effects",
-      "interface": "Interface"
+      "interface": "Interface",
+      "ambience": "Ambience"
     },
     "action": {
       "pan_left": "Scroll left",
@@ -74,7 +76,9 @@
       "speed_3": "Fastest",
       "pause_toggle": "Pause or resume the clock",
       "tool_next": "Next building",
-      "tool_prev": "Previous building"
+      "tool_prev": "Previous building",
+      "cat_prev": "Previous build category",
+      "cat_next": "Next build category"
     },
     "binding": "{action}: {button}",
     "player": "Player {n}",
@@ -88,7 +92,14 @@
     "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "safeColors": "Colour-blind safe signals (patterns and marks)",
+    "reducedMotion": "Reduced motion (no camera easing, no fading notices, a still title picture)",
+    "holdFree": "Hold-free controls (clicks, not holds and drags)",
+    "textScale": "Text size: {value}%",
+    "uiScale": "Interface size: {value}%",
+    "accessNote": "Each change applies at once and is saved. The colour filter of the Video tab shows the game as a colour-blind player sees it.",
+    "conflict": "{button} already does '{other}'. Pick another button for '{action}', or change '{other}' first."
   },
   "pause": {
     "title": "Paused",
@@ -955,7 +966,11 @@
       "hungry": "{count} villagers are hungry.",
       "storageFull": "The warehouses are full of {goodName}.",
       "broke": "Not enough coins for wages and upkeep.",
-      "left": "A villager left: {reasonText}."
+      "left": "A villager left: {reasonText}.",
+      "mark": {
+        "bad": "[!!]",
+        "warn": "[!]"
+      }
     },
     "drag": {
       "villager": "Villager #{id}",

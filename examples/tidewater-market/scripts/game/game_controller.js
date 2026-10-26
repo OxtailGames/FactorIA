@@ -20,6 +20,10 @@ import { GoalPanel } from "../ui/goal_panel.js";
 import { MapView, COLORS } from "./map_view.js";
 import { WalkerView } from "./walker_view.js";
 import { MusicDirector } from "./music_director.js";
+import { Soundscape } from "./soundscape.js";
+import { GameSfx } from "./sfx.js";
+import { pointer } from "./pointer.js";
+import { live, preview } from "../settings.js";
 import { harbourCell } from "./harbour.js";
 import { stressRows, stressTownSteps } from "./stress_town.js";
 import { SPEEDS } from "./clock.js";
@@ -56,6 +60,7 @@ export default class GameController extends Behaviour {
 
   onStart() {
     const props = game.sceneProps();
+    if (props.options) preview(props.options); // tooling: show the game with some options on, saving nothing
     const seed = props.seed !== undefined ? props.seed : this.seed;
     const testMap = props.testMap !== undefined ? props.testMap : this.testMap;
     this.data = getData();
@@ -123,6 +128,9 @@ export default class GameController extends Behaviour {
     this.refreshHud(true);
     if (this.run.tracker) this.goalPanel = new GoalPanel(this); // P4: the goals of a scenario game (scripts/ui/goal_panel.js)
     if (props.music !== undefined ? props.music : this.music && !testMap) this.musicDirector = new MusicDirector(this.state);
+    // P6: the ambience beds and building sounds follow the camera; the interface sounds follow the events (sound only reads the game)
+    this.soundscape = new Soundscape(this.state, this.rig);
+    this.sfx = new GameSfx(this.state, this.hud.notices);
   }
 
   onDestroy() {
@@ -130,6 +138,8 @@ export default class GameController extends Behaviour {
     this.off = [];
     if (this.hud) this.hud.destroy();
     if (this.musicDirector) this.musicDirector.destroy();
+    if (this.soundscape) this.soundscape.destroy();
+    if (this.sfx) this.sfx.destroy();
     if (this.view) this.view.destroy();
     if (this.goalPanel) this.goalPanel.destroy();
   }
@@ -348,7 +358,7 @@ export default class GameController extends Behaviour {
 
   /** Is the point over the HUD (a widget or a bar)? Then a click is not meant for the map. */
   overUi(m) {
-    if (ui.hovered || this.hud.over(m)) return true;
+    if (pointer.hovered() || this.hud.over(m)) return true;
     for (const e of this.uiPanels) {
       const r = ui.rectOf(e);
       if (r && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h) return true;
@@ -358,17 +368,20 @@ export default class GameController extends Behaviour {
 
   onUpdate(dt) {
     if (this.stressSteps.length) {
+      this.sfx.muted = true; // the town being laid out is not a player building 300 houses
       this.stressSteps.shift()();
       return;
     }
-    const m = input.mouse.position;
+    this.sfx.muted = false;
+    const m = pointer.position();
     this.state.clock.advance(Math.min(dt, MAX_FRAME), MAX_STEPS_PER_FRAME);
     this.walkerView.update();
+    this.soundscape.update(dt);
 
     this.keys();
     const onUi = this.overUi(m);
     this.hover = null;
-    if (!onUi && !this.rig.dragging) {
+    if (!onUi && !this.rig.dragging && !this.rig.inEdgeStrip(m)) {
       const [c, r] = this.rig.screenToCell(m.x, m.y);
       if (this.state.map.inBounds(c, r)) this.hover = [c, r];
     }
@@ -421,16 +434,28 @@ export default class GameController extends Behaviour {
       this.rightPress = null;
     }
 
+    // Hold-free (option, or a gamepad in use): a road or a demolish takes two clicks, first end then second end, not a press held down.
+    const twoClicks = live().holdFree || pointer.pad;
     if (input.pressed("primary")) {
-      this.pressOnMap = !onUi && !!this.hover;
-      if (this.pressOnMap) this.beginPress();
+      this.pressOnMap = !onUi && !!this.hover && !this.hud.carrying();
+      if (twoClicks && this.drag && this.drag.twoClicks) {
+        if (this.hover) this.continueDrag();
+        this.finishDrag();
+        this.pressOnMap = false;
+      } else if (this.pressOnMap) {
+        this.beginPress();
+        if (this.drag && twoClicks) this.drag.twoClicks = true;
+      } else if (this.drag && this.drag.twoClicks) {
+        this.drag = null; // a click on a panel gives the two-click drag up
+      }
     }
     if (this.drag && this.hover) this.continueDrag();
-    if (input.released("primary")) {
-      if (this.drag) this.finishDrag();
+    if (input.released("primary") && this.drag && !this.drag.twoClicks) {
+      this.finishDrag();
       this.pressOnMap = false;
     }
-    if (this.drag && !input.down("primary")) this.drag = null; // lost the release (focus change)
+    if (input.released("primary")) this.pressOnMap = false;
+    if (this.drag && !this.drag.twoClicks && !input.down("primary")) this.drag = null; // lost the release (focus change)
   }
 
   beginPress() {
@@ -442,9 +467,9 @@ export default class GameController extends Behaviour {
       const res = this.state.placeAt(tool.type, c, r, tool.rot);
       if (res.ok) this.toast(i18n.t("toast.built", { name: buildingName(tool.type) }));
     } else if (tool.kind === "demolish") {
-      this.drag = { kind: "demolish", cells: [[c, r]], last: [c, r] };
+      this.drag = { kind: "demolish", cells: [[c, r]], last: [c, r], from: [c, r] };
     } else {
-      this.hud.pickAt(input.mouse.position, [c, r]);
+      this.hud.pickAt(pointer.position(), [c, r]);
     }
   }
 
@@ -452,7 +477,11 @@ export default class GameController extends Behaviour {
     const [c, r] = this.hover;
     const drag = this.drag;
     if (drag.kind === "road") drag.to = [c, r];
-    else if (drag.kind === "demolish" && (c !== drag.last[0] || r !== drag.last[1])) {
+    else if (drag.kind === "demolish" && drag.twoClicks) {
+      // two clicks: the cells from the first click to the pointer in a straight run, not the trail the pointer left
+      drag.cells = roadPath(drag.from, [c, r]);
+      drag.last = [c, r];
+    } else if (drag.kind === "demolish" && (c !== drag.last[0] || r !== drag.last[1])) {
       for (const cell of roadPath(drag.last, [c, r]).slice(1)) drag.cells.push(cell);
       drag.last = [c, r];
     }
@@ -534,7 +563,7 @@ export default class GameController extends Behaviour {
 
   statusFor(onUi) {
     const tool = this.tool;
-    const hovered = ui.hovered;
+    const hovered = pointer.hovered();
     if (hovered && hovered.id && hovered.id.startsWith("tool_") && hovered.id !== "tool_demolish") {
       const type = hovered.id.slice(5);
       return i18n.t("status.palette", { name: buildingName(type), desc: i18n.t(`building.${type}.desc`), cost: amountText(this.data.buildings[type].cost) });

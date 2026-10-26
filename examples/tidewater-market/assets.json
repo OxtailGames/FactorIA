@@ -1,6 +1,48 @@
 {
   "format": "factoria.assets/1",
   "assets": {
+    "assets/ambience/market.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_ambience.py",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_ambience.py)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/ambience/sea.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_ambience.py",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_ambience.py)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/ambience/wind.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_ambience.py",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_ambience.py)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
     "assets/atlas.png": {
       "provenance": {
         "origin": "original",
@@ -56,6 +98,314 @@
         "seconds": 15.0,
         "bytes": 480044,
         "sha256": "ff6baed1862c7224a972329bf388ac933122b77894b091c8da341a96b4947ddc"
+      }
+    },
+    "assets/sfx/cart_creak.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/demolish.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/event_card.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/order_filled.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/place.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_click.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_confirm.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_error.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_notice.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/walker_step.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_bakery.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_farm.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_fisher_dock.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_lumber_camp.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_market.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_mill.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_pier.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_quarry.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_sawmill.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_smokehouse.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_warehouse.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_workshop.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
       }
     },
     "assets/src/kenney/beach.png": {
