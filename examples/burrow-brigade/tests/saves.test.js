@@ -18,8 +18,7 @@ function openSlots() {
   players.clear();
   game.load(TITLE);
   game.step(3);
-  game.click("play");
-  game.step(2);
+  game.click("play"); // the click lays the UI out first, so the panel can be used at once
 }
 
 describe("format 2 and the migration of format 1", () => {

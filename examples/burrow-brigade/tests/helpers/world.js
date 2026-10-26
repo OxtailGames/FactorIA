@@ -104,8 +104,3 @@ export function record(...names) {
   for (const name of names) events.on(name, (data) => log.push({ name, data }));
   return log;
 }
-
-/** Active Light2D entities in the scene. */
-export function activeLights() {
-  return game.world.entities().filter((e) => e.active && e.get("Light2D"));
-}

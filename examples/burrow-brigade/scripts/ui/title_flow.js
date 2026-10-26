@@ -200,9 +200,10 @@ export class TitleFlow {
     this.text("code_message", how.key, how.args);
   }
 
-  pasteCode() {
+  async pasteCode() {
     if (!this.live("code_panel")) return;
-    const text = clipboard.paste();
+    const text = await clipboard.paste();
+    if (!this.live("code_panel")) return; // the player left the panel (or the title) while the clipboard answered
     if (!text) {
       this.text("code_message", "code.pasteEmpty");
       return;

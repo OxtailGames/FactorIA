@@ -93,9 +93,9 @@ The whole game is in `game.pak` (167 files, scripts compiled to bytecode). The e
    `scenes/menu.scene.json` (98 entities), renders the frames and exits 0. With `--scene scenes/join.scene.json` it loads the
    join screen (17 entities) the same way. The app is an ad hoc signed arm64 bundle; sign and notarize it with
    `sign.macos` before it leaves this machine.
-3. **Input.** The exported player has no input-replay, state-dump or screenshot option (only `[projectDir|game.pak] --scene
-   --fullscreen --frames --version`, FB-0029), so input cannot be fed to the exported binary from a script. It was proven on
-   the same project and scripts with the engine's own runtime: `factoria run --headless --scene scenes/join.scene.json
+3. **Input.** The exported player now takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` with `--frames`
+   like `factoria run` (FB-0029; EXPORTING.md, "checking an exported build"). The check below was made before that, with the
+   engine's own runtime on the same project and scripts, and was not repeated on the exported binary: `factoria run --headless --scene scenes/join.scene.json
    --input store/replays/join.json --frames 200 --state-out build/proof/join_state.json` presses A on four gamepads one
    after the other. Without `--input` the state dump shows "Nobody has joined yet." and four "press A to join" slots; with
    it, the slots read "P1 - Gamepad 1 - Start begins the shift", "P2 - Gamepad 2", "P3 - Gamepad 3", "P4 - Gamepad 4". The
@@ -129,8 +129,9 @@ Steam keeps a file's executable bit only from a macOS or Linux machine: upload t
   (it is in `.gitignore`), the game runs with platform services off ("no store backend"), and the exports above have no Steam
   library. Before the real Steam build, on each export machine:
   `factoria call platform.add_backend '{"backend":"steam","sdk":"~/Downloads/steamworks_sdk_<version>.zip","appId":<your app id>}'`.
-- **Publish dry run**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. It refuses Valve's test app 480
-  even for a dry run (FB-0033: "a build cannot be uploaded to it"). Pass any other id to see the plan:
+- **Publish dry run**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. Valve's test app 480 is accepted
+  in a dry run with a warning and refused for a real upload (FB-0033, fixed in the engine; the command below was run before
+  that change and with another id). To see the plan with any id:
   `factoria call publish.steam '{"dryRun":true,"appId":1234567}'` returned the three depots (windows 9000001, macos
   9000002, linux 9000003), `steamcmd +login FAKE_steam_build_account +run_app_build .../app_build_1234567.vdf +quit`, with
   `steamcmd` not found on this Mac named as a warning (nothing ran, `ran: false`).
@@ -149,9 +150,9 @@ The busiest floor is Crystal Caves floor 3 with four miners, six torches, the cr
 
 | File | What it holds |
 |---|---|
-| `perf.json` | 300 frames of that scene; budgets `maxDrawCalls` 24, `maxLights` 16, `maxTextureMB` 4, `maxEntities` 200; one runner, `macos-clang-metal` |
-| `tools/cli/tests/perf/burrow-brigade.perf.json` (engine repo) | the same scene and budgets, **no runner entries**; the orchestrator adds CI's after the first CI run |
-| `tests/render_budget.test.js` | the same caps, checked on every floor (all nine), with 4 miners, and the Light2D count (cap 16) |
+| `perf.json` | 300 frames of that scene; budgets `maxDrawCalls` 24, `maxLights` 24, `maxTextureMB` 4, `maxEntities` 200; one runner, `macos-clang-metal` |
+| `tools/cli/tests/perf/burrow-brigade.perf.json` (engine repo) | the same scene and budgets, with one entry per CI runner (`drawCalls` and `entities` are the same on all of them) |
+| `tests/render_budget.test.js` | the same caps, checked on every floor (all nine), with 4 miners, and the Light2D count (`renderStats().lights2d`, up to 24 in view) |
 
 Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 10 draw calls, 134 entities, 47 MB
 peak, 1.4 ms CPU per frame on average (p95 2.3 ms), 0.08 MB of textures. CPU time and memory are CI's to measure; draw

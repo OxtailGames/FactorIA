@@ -74,8 +74,8 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 - **Daily dig**: one shared seed per local calendar day. It is played once for the score; a run in daily mode does not write
   to the slots.
 - **Seed codes**: a floor and seed as `XXXX-XXXX` (base32 with a check character). The results and camp screens copy it, the
-  title pastes it. The clipboard is a session buffer inside the game: scripts cannot reach the system clipboard (FB-0016), so a
-  code copied here is pasted here; typing a code from elsewhere works as usual.
+  title pastes it. Copy and paste use the system clipboard (`clipboard.write` / `clipboard.read`), so a code can travel to
+  another program and back; on a phone, which has no script clipboard, the game keeps the code in its own buffer for the session.
 
 ## The shift
 
@@ -112,8 +112,8 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   (0.5 s). **Cracked floor** brings the roof down on the 3 x 3 tiles around it 1.4 s after a miner steps on it; a miner inside
   goes down, a miner on the exit lift is safe. The floor tiles of a cave-in become rock.
 - **Light**: besides the lamp, a team has 6 **torches** per shift to put down (they stay lit and reveal the tiles around them).
-  Crystal walls (Crystal Caves) and magma glow. The engine draws at most 16 point lights, so `lights.js` keeps a pool and lights
-  the sources nearest the miners. The mine is under **fog of war**: tiles a lamp or torch reaches in a straight line are
+  Crystal walls (Crystal Caves) and magma glow. Every torch, crystal and magma source has its own Light2D (the engine
+  draws up to 256 per frame and skips the ones off screen), so none is left dark. The mine is under **fog of war**: tiles a lamp or torch reaches in a straight line are
   clear, tiles seen once stay half dark, the rest is black, and enemies are drawn only on clear tiles.
 - **Enemies**: **beetles** patrol, chase what their eyes find, wind up for 0.45 s and bite (a heart and 10 oil); **goblin
   thieves** take 25 percent of the ore the team carries and run to escape after 3 s (kill one and the ore drops); both follow
@@ -290,8 +290,8 @@ unsubscribe function, `emit(name, data)`, `count(name)`, `emitted(name)`, `clear
 `run` is `{ active, seed, mode, dailyKey, slot, stratum, floor, shiftNumber, cash, upgrades, ore, lamps, torches, molesRescued,
 molesTotal, shiftTime, playTime, bestDepth, shiftSeed, inShift, lastShift }`.
 
-**Contract with P5 (online):** a daily dig sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the local date from
-`game.today()`); every other run has `run.mode = "normal"` and `run.dailyKey = null`. `run.slot` is 1 to 3, or null for a daily
+**Contract with P5 (online):** a daily dig sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the UTC date from
+`game.today().utc.iso`); every other run has `run.mode = "normal"` and `run.dailyKey = null`. `run.slot` is 1 to 3, or null for a daily
 dig. Read these to tag a score or a board. `mineSeed(...)` and `depthOf(...)` give a floor's seed and its depth in metres. `upgrades` is `{ pickTier, pickSpeed, lampOil, lampRadius, walkSpeed, torches }` (`BASE_UPGRADES`); the miner
 already reads every one, the camp changes them (`upgrades.js`). `lamps` maps a player id to `{ oil, max, out, low }` (`lampOf(id)`). Functions:
 `startRun({ seed, stratum, floor })` (the title's Play calls it; it also clears the events bus and resets the music),
@@ -317,8 +317,8 @@ generated one (`w` water, `M` magma, `x` cracked floor). `update(dt)`, `speedFac
 ### Light and fog: `scripts/game/lights.js`, `scripts/game/fog.js`
 
 `new Lights(map)`: `placeTorch(playerId)` (true when put down; uses one of `run.torches`; a torch needs a free floor tile that is not
-water, magma or cracked floor and not already holding one), `sources`, `lit`, `update(dt)`. The Light2D pool is at most 16 minus
-one per miner (`ENGINE_LIGHT_CAP`); a test counts the active `Light2D` entities because `renderStats().lights` does not count them.
+water, magma or cracked floor and not already holding one), `sources`, `lit`, `update(dt)`. Each source owns one Light2D entity, kept while the source exists (a dug crystal loses its light); tests
+count them with `renderStats().lights2d` (drawn) plus `lights2dDropped` (off view). The fog is drawn with `tilemap.setTile`, one call per changed tile.
 `new Fog(map)` is a three-state map (`UNSEEN`, `SEEN`, `VISIBLE`) drawn on its own Tilemap: `stateAt(tx, ty)`, `isVisible`,
 `seen()`, `update(dt, { torches })`. Walls block sight, and digging opens it at once. `TORCH_RADIUS` is 4.5 tiles.
 
@@ -391,14 +391,14 @@ in `burrow.backup.N` and never deleted. Answers: `unavailable`, `none`, `inSync`
 ### Daily dig: `scripts/game/daily.js`
 
 `todayKey()`, `isKey(s)`, `seedFor(key)` (FNV-1a of `burrow-brigade/daily/<key>`), `status()`, `start()`, `noteShift(...)`. The key
-is the local date: `game.today()` has no time of day, so UTC cannot be derived (FB-0017). Played days are in `burrow.daily`.
+is the UTC date (`game.today().utc.iso`), so the whole world shares one dig and one board per day. Played days are in `burrow.daily`.
 
 ### Seed codes: `scripts/game/seed_code.js`, `scripts/game/clipboard.js`
 
 `encode(floorIndex, seed)`, `decode(text)` (a result or a teaching error with a "did you mean"), `normalize(text)`, `ALPHABET`,
 `EXAMPLE`. 4 bits of floor index and 31 bits of seed as 7 characters plus a check character, shown `XXXX-XXXX`; look-alike
-characters (O/0, I/1) are accepted. `clipboard.js`: `copy`, `paste`, `system`, `useSystem({ write, read })`, `reset`. It is a session
-buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
+characters (O/0, I/1) are accepted. `clipboard.js`: `copy`, `async paste()`, `system`, `useSystem(on)`, `reset`. It writes and reads the engine clipboard, and falls
+back to a session buffer where `window.supports("clipboard")` is false (phones) or the read is refused.
 
 ### Achievements and stats: `scripts/game/trophies.js`
 
@@ -423,11 +423,10 @@ A store that is missing, signed out or failing never reaches the player: the cal
 
 Two boards in the catalog: `best_run_cash` (all time, descending) and `daily_run_cash` (daily, descending). The score is the cash
 banked over the run so far: each shift that ends on the lift adds its banked cash and posts the sum (`dark` and `allDown` post
-nothing). **Contract with P4**: a daily-dig run sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the local date the
+nothing). **Contract with P4**: a daily-dig run sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the UTC date the
 try began on); every other run `run.mode = "normal"` and `run.dailyKey = null` (a missing `run.mode` counts as normal). The daily
-board takes the score only when `run.dailyKey` is within one day of `game.today().iso`: the engine posts to the board of the
-local date at the moment of the post and cannot be told another (FB-0021), so a try that crosses midnight still posts (to the new
-day's board) and an older key is skipped, with `status().lastPost.daily` saying `{ skipped: "otherDay" }`. Functions: `start`, `stop`, `idle`, `top(board, count = 10)`
+board takes the score with `submit(id, score, { day: run.dailyKey })`, so a try that crosses midnight UTC still posts to the day it began on;
+`top` reads the board of today's UTC day. Functions: `start`, `stop`, `idle`, `top(board, count = 10)`
 (rows `{ rank, name, score, isPlayer }`; `[]` when the store has no boards), `status()`, `BOARDS`, `modeOf`, `dailyKeyOf`,
 `dailyOpen`. `boardPosted { board, score, period }` is emitted after a post and `achievementUnlocked { id, name }` after an unlock.
 The boards screen (`scripts/ui/boards.js`, the Boards button of the title) has the tabs All time, Daily dig and Trophies and works
@@ -447,8 +446,7 @@ the services use it.
   `steamdeck` (a generic pad counts as Xbox) with a 64 px picture under `assets/glyphs/<family>/`; `prompt(action, pad, device)`
   picks the pad glyph, the key or the mouse button by `input.lastDevice`; `promptText(action)` is the label alone. The title's
   `hints` row uses it.
-- **Steam Deck** (`deck.js`): `isDeck()` is true while a connected pad is of type `steamdeck` (the engine has no other way to
-  tell), `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
+- **Steam Deck** (`deck.js`): `isDeck()` is `game.device.steamDeck`, `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
   is where the 1280x720 design lands in a window (1280x800: scale 1 and bars of 40 above and below; the UI is anchored, so
   nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause; the engine sends the waiting analytics events
   by itself) and resume (send the presence again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
@@ -559,7 +557,7 @@ update the privacy sentence in `network.purpose` and the store texts (`docs/LEGA
 | `daily.test.js` | the same seed per day, played once, `run.mode` and `run.dailyKey`, no slot written |
 | `seed_code.test.js` | encode and decode round trips, check character, look-alikes, copy at the camp and results, paste at the title |
 | `hazards.test.js` | a flood sealed then spreading, slow water and drowning, magma burning, a cave-in warning then impact, a miner on the lift spared, `allDown` with one and with three players, the results screen |
-| `light.test.js` | the cap of 16 Light2D with four players, six torches and a crystal hall, the nearest sources win the pool, torch rules and the T key, fog states, walls blocking sight and digging opening it |
+| `light.test.js` | a Light2D for every source (four players, six torches, a crystal hall; a dug crystal loses its light), torch rules and the T key, fog states, walls blocking sight and digging opening it |
 | `pathfinding.test.js` | the cost rules over the engine's A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
 | `behavior_tree.test.js` | every node of the engine's `bt`, including the running-sequence catch |
 | `enemies.test.js` | the three brains driven by a fake blackboard, then a beetle, a chase through a tunnel dug a moment ago, the thief stealing, fleeing, escaping or being killed, the Mole King waking, slamming, charging, scaling with players and jamming the lift |

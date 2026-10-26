@@ -1,9 +1,10 @@
 // Records the input replays the store screenshots and the trailer are made from: four bots on four gamepads play a floor and
 // every stick and button they press is written out in the format of `factoria run --input` (docs/AI_GUIDE.md 11.2).
 // Not part of `factoria test` (it is outside tests/): `python3 store/make_store.py record` runs it and keeps the output.
-// What it prints between the markers is JSON: { name, frames, outcome, replay, marks }. `marks` lists frames worth a screenshot
+// Each floor is saved with `fa.call("fs.write")` to .factoria/tmp/record_<name>.json as JSON: { name, frames, outcome, replay, marks }. `marks` lists frames worth a screenshot
 // (an enemy next to a miner, ore picked, a torch put down, a mole freed), so the screenshots are chosen from what happened.
 import { test, describe, game } from "factoria:test";
+import { fa } from "factoria";
 import { cleanBeforeEach } from "../tests/helpers/world.js";
 import { botsForAll, MinerBot } from "../tests/helpers/bot.js";
 import * as players from "../scripts/game/players.js";
@@ -165,7 +166,10 @@ describe("record the store replays", () => {
         }
         frames[f].gamepad = [...(frames[f].gamepad ?? []), ...Object.values(byPad)];
       }
-      console.log("@@REPLAY " + JSON.stringify({ name: floor.name, frames: frame, outcome, replay: { frames }, marks }));
+      fa.call("fs.write", {
+        path: `.factoria/tmp/record_${floor.name}.json`,
+        content: JSON.stringify({ name: floor.name, frames: frame, outcome, replay: { frames }, marks }),
+      });
     });
   }
 });
