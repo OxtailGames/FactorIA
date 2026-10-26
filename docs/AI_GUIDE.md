@@ -393,7 +393,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `platform` | Store and platform services, every call a Promise: `platform.has("purchases")`, `achievements.unlock(id)`, `stats.add(id, n)`, `leaderboards.submit(id, score)`, `cloud.save(key, value)`, `purchases.buy(id)` / `finish(transactionId)` / `restore()`, `on("purchase" \| "overlay" \| "player", fn)`; ids are declared in `factoria.json` `"platform"`. In tests the fake store answers and `game.platform` (from `factoria:test`) controls it. Details: `docs_read {"name":"platform"}` |
-| `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth, space})` returns `{width, height}`; `ui.layout()` runs the UI layout now (read `Button.size` / `ui.rectOf` right after changing a text); `ui.textScale` (0.5 to 3, not saved) is the player's text size option for screen-space Text and widget labels (`docs_read {"name":"text"}`); `ui.speak(text, {interrupt})` says a line with the system's text to speech in `i18n.language` (`ui.stopSpeaking()`, `ui.speechAvailable`; tests record the lines in `game.spoken()`; recipe and manual check in `docs_read {"name":"menus"}`) |
+| `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth, space})` returns `{width, height}`; `ui.layout()` runs the UI layout now (read `Button.size` / `ui.rectOf` right after changing a text); `ui.textScale` (0.5 to 3, not saved) is the player's text size option for screen-space Text and widget labels (`docs_read {"name":"text"}`); `ui.scale` (0.5 to 3, default from `factoria.json` `"ui": {"scale"}`, not saved) makes every screen-space widget and Text bigger or smaller, and `ui.on("scale" \| "textScale", fn)` runs when either changes; `ui.speak(text, {interrupt})` says a line with the system's text to speech in `i18n.language` (`ui.stopSpeaking()`, `ui.speechAvailable`; tests record the lines in `game.spoken()`; recipe and manual check in `docs_read {"name":"menus"}`) |
 | `assets` | `assets.textureSize("assets/hero.png")` returns the texture file's pixel size `{width, height}` (32 x 32 for a missing file); works headless |
 | `vec2`, `vec3`, `color` | constructors, for example `vec2(10, 0)`, `vec3([0, 4, 9])` or `color("#ffcc00")` |
 | `ToolError` | `new ToolError(message, hint, data?)` for a failed check in a tool (section A of `docs_read {"name":"extending"}`) |
@@ -1256,8 +1256,15 @@ export default class Menu extends Behaviour {
   buttons during play. Rebind the six `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
 - **Looks.** A plain widget is a translucent dark rectangle with a label; give `texture` + `slice` (9-slice borders in
   texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
-  `size`, `padding` and `spacing` do not change with the window size; use `anchor` and `pivot` to pin a panel to a corner
+  `size`, `padding` and `spacing` do not change with the window size (only with the interface size, `ui.scale`, which the player may change); use `anchor` and `pivot` to pin a panel to a corner
   or the centre.
+- **Lay out for every interface size.** Players choose the interface size (`ui.scale`, 0.5 to 3; the menu kit's Options has
+  it) and the text size (`ui.textScale`). Anchor panels, let a `Panel` with `fit: true` grow with its rows (and give it
+  `minSize` / `maxSize` for a look that does not jump with the language), `autoSize` on the widgets, a `ScrollList` with
+  `fill` where the list may be long, and never space widgets with empty `Panel` or `Text` spacers or move them by hand
+  when the size changes: `padding`, `spacing` and the layout already scale. Redo script maths with `ui.on("scale", ...)`
+  and `ui.on("textScale", ...)`. Prove it with `ui.check_layout {"uiScales":[1,1.5], "textScales":[1,2]}` (`docs_read
+  {"name":"text"}`, "Interface size").
 - **Pause menu.** The UI keeps working while `game.paused` (`time.scale` 0); section 9.24 has the pause menu.
 - **Find and click things from outside.** `ui.state` lists every widget with its `rect` (so `game.input` can click its
   centre), `focused` and `value`. To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,

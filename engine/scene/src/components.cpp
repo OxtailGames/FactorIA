@@ -15,9 +15,9 @@ template <class T>
 TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
-               "Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
+               "Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
                "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel "
-               "with fit = true recomputes it every frame.")
+               "with fit = true recomputes it every frame (within its minSize and maxSize).")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
                "[1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] "
@@ -25,6 +25,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
         .field("anchor", static_cast<Vec2 T::*>(&UiBox::anchor),
                "Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] "
                "top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. "
+               "The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. "
                "The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] "
                "and are placed by the Panel's layout.")
         .field("safeArea", static_cast<bool T::*>(&UiBox::safeArea),
@@ -1033,7 +1034,8 @@ void register_builtin_components(TypeRegistry& r) {
                   "grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other "
                   "Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` "
                   "field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above "
-                  "the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.",
+                  "the world and above HUD Text; the interface scale `ui.scale` (docs/SCRIPTING.md) multiplies every size, offset, padding, spacing and "
+                  "font size of them; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.",
                   "UI");
         ui_box_fields(panel)
             .enum_field("layout", &Panel::layout, {"none", "row", "column", "grid"},
@@ -1042,8 +1044,8 @@ void register_builtin_components(TypeRegistry& r) {
                         "Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in "
                         "screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout "
                         "moves its Transform.position so it lands in its slot.")
-            .field("spacing", &Panel::spacing, "Gap in design pixels between children (a grid uses it on both axes).").range(0, 10000)
-            .field("padding", &Panel::padding, "Space [left, top, right, bottom] between the panel's edge and its children.")
+            .field("spacing", &Panel::spacing, "Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it).").range(0, 10000)
+            .field("padding", &Panel::padding, "Space [left, top, right, bottom] in UI units between the panel's edge and its children (`ui.scale` multiplies it).")
             .field("columns", &Panel::columns, "Grid only: number of columns.").range(1, 64)
             .enum_field("align", &Panel::align, {"start", "center", "end"},
                         "Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = "
@@ -1060,7 +1062,19 @@ void register_builtin_components(TypeRegistry& r) {
                         "Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.")
             .field("fit", &Panel::fit,
                    "true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); "
-                   "the pivot then decides which point of the fitted box stays on the position.")
+                   "the pivot then decides which point of the fitted box stays on the position. The fitted size is still held between "
+                   "`minSize` and `maxSize`.")
+            .field("minSize", &Panel::minSize,
+                   "Lower bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is raised to it, "
+                   "also when `fit` is true (a fitted panel never gets smaller than this, so a menu keeps one width while its "
+                   "texts change) and also when `layout` is none. Children are laid out inside the panel as clamped. "
+                   "`ui.scale` multiplies it like `size`.")
+            .field("maxSize", &Panel::maxSize,
+                   "Upper bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is cut to it, also "
+                   "when `fit` is true (a fitted panel stops growing and its content overflows: use a ScrollList or "
+                   "`autoShrink`/`maxWidth` on the texts to keep it readable). When both bounds are set and cross, `minSize` "
+                   "wins. `ui.scale` multiplies it like `size`.")
+            .range(0, 100000)
             .field("uniformSize", &Panel::uniformSize,
                    "true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children "
                    "of the panels and lists inside it; active ones only) takes the size of the largest of them, width and "

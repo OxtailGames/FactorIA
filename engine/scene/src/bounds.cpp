@@ -120,7 +120,11 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
 
     if (const Text* t = W.get<Text>(e);
         t && (includeScreenSpace || t->space == RenderSpace::World) && !t->text.empty() && t->fontSize > 0.0f) {
-        const Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(*t, measure.textScale);
+        Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(*t, measure.textScale);
+        // A centred or right-aligned Text with a maxWidth is drawn in a box of that width (the renderer aligns inside it), so
+        // that is the box layout and ui.state must see: a short note aligned to the end of a wrap box stays in its rectangle.
+        const bool left = t->align == Align::Left || (t->align == Align::Start && !W.rtl()) || (t->align == Align::End && W.rtl());
+        if (t->maxWidth > 0.0f && !left) size.x = std::max(size.x, t->maxWidth);
         out.push_back(make("Text", t->space, t->layer, t->anchor, t->safeArea,
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
                                      (1.0f - t->pivot.y) * size.y)));

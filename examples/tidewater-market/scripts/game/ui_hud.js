@@ -21,7 +21,7 @@ import { footprintCells } from "./rules.js";
 import { amountText, buildingName, compactText, coinsText, dateText, goodsBagText, listText, numberText, villagersText } from "./format.js";
 import { DESIGN } from "./camera_math.js";
 import {
-  COLORS, FONT, LAYER, Tooltips, button, icon, inside, isActive, label, panel, rule, setActive, setIcon,
+  COLORS, FONT, LAYER, Tooltips, button, icon, inside, isActive, label, panel, setActive, setIcon, toUnits,
 } from "./ui_kit.js";
 import {
   COVERAGE, GOODS_COLUMNS, Notices, Recorder, SHORTCUTS, Traffic, canDropWorker, categories, centreOf, describeBuilding,
@@ -202,8 +202,8 @@ export class Hud {
   buildInspector() {
     this.inspRoot = panel("inspector", null, {
       anchor: [1, 1], pivot: [1, 0], position: [-8, -38, 0], layout: "column", fit: true, spacing: 4, padding: [10, 8, 10, 8], align: "start",
+      minSize: [312, 0], // never narrower than this, whatever the lines hold (the width of the old invisible rule)
     });
-    rule("inspector_rule", this.inspRoot, 292, 2, CLEAR);
     this.inspLines = [];
     const sizes = [FONT.title, FONT.body, FONT.body, FONT.body, null, FONT.small, FONT.body, FONT.body, FONT.body, FONT.body, FONT.body, FONT.small];
     for (let i = 0; i < sizes.length; i++) {
@@ -797,7 +797,7 @@ export class Hud {
     const r = ui.rectOf(chart.area);
     if (!r || !chart.points.length) return null;
     const n = chart.points.length;
-    const pad = 16;
+    const pad = 16 * ui.scale; // r and the pointer are in screen pixels
     const step = (r.w - 2 * pad) / (CHART_POINTS - 1);
     const i = Math.round(n - 1 - (r.x + r.w - pad - this.mouse.x) / step);
     const p = chart.points[Math.max(0, Math.min(n - 1, i))];
@@ -981,26 +981,29 @@ export class Hud {
    */
   /**
    * The inspector hangs from the bottom-right corner; when it is taller than the room under the right-hand column (large text or a
-   * large UI scale make both bigger) it stands left of the column instead of over it. Uses last frame's rectangles.
+   * large UI scale make both bigger) it stands left of the column instead of over it. Uses last frame's rectangles (ui.rectOf is in
+   * screen pixels; the position of the panel is in UI units, ui.scale times smaller).
    */
   placeInspector() {
     if (!this.isOpen("inspector")) return;
     const r = ui.rectOf(this.inspRoot);
     const c = ui.rectOf(this.column);
     if (!r || !c) return;
-    const room = DESIGN.height - INSPECTOR_BOTTOM - (c.y + c.h) - 6;
-    const x = r.h > room ? -(c.w + 16) : -8;
+    const k = ui.scale;
+    const room = DESIGN.height - INSPECTOR_BOTTOM * k - (c.y + c.h) - 6 * k;
+    const x = r.h > room ? -(toUnits(c.w) + 16) : -8;
     // Over the build bar's width it stands on the bar instead of over it (the bar is wide at large text and interface sizes).
     let y = -INSPECTOR_BOTTOM;
     const b = this.isOpen("build") ? ui.rectOf(this.bar) : null;
-    if (b && r.x < b.x + b.w + 4) y = -(DESIGN.height - b.y + 6);
+    if (b && r.x < b.x + b.w + 4) y = -(toUnits(DESIGN.height - b.y) + 6);
     const pos = this.inspRoot.position;
     if (pos.x !== x || pos.y !== y) this.inspRoot.position = [x, y, pos.z];
   }
 
   /**
    * The goods table, the charts and the help are centred on the screen; when the interface size makes one wider than the room left
-   * of the right-hand column, it is moved left until it clears the column (it keeps 8 px from the screen's edge).
+   * of the right-hand column, it is moved left until it clears the column (it keeps 8 px from the screen's edge). The rectangles are
+   * in screen pixels, the offset of the panel in UI units.
    */
   placeCentred() {
     const c = ui.rectOf(this.column);
@@ -1011,13 +1014,14 @@ export class Hud {
       const r = ui.rectOf(root);
       if (!r) continue;
       const room = c.x - 8;
-      const x = DESIGN.width / 2 + r.w / 2 <= room ? 0 : Math.max(room - r.w / 2 - DESIGN.width / 2, 8 + r.w / 2 - DESIGN.width / 2);
+      const px = DESIGN.width / 2 + r.w / 2 <= room ? 0 : Math.max(room - r.w / 2 - DESIGN.width / 2, 8 + r.w / 2 - DESIGN.width / 2);
+      const x = toUnits(px);
       // and up, off the build menu (which is wide and tall at large sizes) when it would cover it
       let y = 0;
       const bar = this.isOpen("build") ? ui.rectOf(this.bar) : null;
       if (bar) {
-        const flat = r.y + r.h - root.position.y; // the bottom edge with no offset (position y is down)
-        y = Math.min(0, bar.y - 6 - flat);
+        const flat = r.y + r.h - root.position.y * ui.scale; // the bottom edge with no offset (position y is down)
+        y = toUnits(Math.min(0, bar.y - 6 - flat));
       }
       const pos = root.position;
       if (Math.abs(pos.x - x) > 0.5 || Math.abs(pos.y - y) > 0.5) root.position = [x, y, pos.z];
@@ -1045,7 +1049,7 @@ export class Hud {
       d.over = b ? b.id : 0;
       d.verdict = b ? canDropWorker(this.state, d.villager, b.id) : { ok: false, code: "none" };
       setActive(this.chip, true);
-      this.chip.position = [m.x + 12, m.y + 28, 0];
+      this.chip.position = [toUnits(m.x) + 12, toUnits(m.y) + 28, 0];
       this.chipText.get("Text").text = d.over && !d.verdict.ok ? t("drag.no", { reason: t(`drag.reason.${d.verdict.code}`) }) : t("drag.villager", { id: d.villager });
       this.chip.get("Panel").color = d.over && !d.verdict.ok ? [0.55, 0.2, 0.18, 0.95] : d.over ? [0.2, 0.5, 0.3, 0.95] : [0.2, 0.35, 0.55, 0.95];
     }

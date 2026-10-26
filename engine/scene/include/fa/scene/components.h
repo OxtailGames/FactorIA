@@ -301,6 +301,8 @@ struct Panel : UiBox {
     UiAlign justify = UiAlign::Start;         // main axis
     UiDirection direction = UiDirection::Ltr; // horizontal reading direction of the layout
     bool fit = false;                         // size = content + padding, every frame
+    Vec2 minSize{0, 0};                       // lower bound of the size, per axis (0 = none); holds when fit is true too
+    Vec2 maxSize{0, 0};                       // upper bound of the size, per axis (0 = none); holds when fit is true too
     bool uniformSize = false;                 // autoSize buttons / toggles / sliders inside share the largest size
     UiLayout fallbackLayout = UiLayout::None; // layout used instead of `layout` when that would not fit the screen
     bool usingFallback = false;               // runtime: laid out with fallbackLayout right now

@@ -139,7 +139,7 @@ std::optional<UiLabelFit> ui_label_fit(const World& w, Entity e, const Rect& r, 
 
 bool ui_text_overflowed(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
     const TextExtent extent = text_extent_of(measure);
-    if (const std::optional<Rect> r = ui_rect(w, e, designSize)) {
+    if (const std::optional<Rect> r = ui_layout_rect(w, e, designSize)) {  // UI units, like the extents
         const std::optional<UiLabelFit> f = ui_label_fit(w, e, *r, measure.textScale, extent);
         return f && f->fit.overflow;
     }

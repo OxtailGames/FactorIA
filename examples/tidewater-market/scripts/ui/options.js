@@ -7,7 +7,6 @@
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
 import * as settings from "../settings.js";
-import { setUiScale } from "../game/ui_kit.js";
 import { MenuStack } from "./menu_stack.js";
 
 const TABS = ["video", "audio", "controls", "access", "language"];
@@ -236,7 +235,7 @@ export default class Options extends Behaviour {
     });
     ui.on("click", "ui_scale", () => {
       s.uiScale = next(settings.UI_SCALES, s.uiScale);
-      setUiScale(s.uiScale);
+      ui.scale = s.uiScale;
       settings.save(s);
       this.refreshAccess();
     });

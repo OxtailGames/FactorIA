@@ -10,6 +10,7 @@
 #include "fa/core/profiler.h"
 #include "fa/platform/sokol_logging.h"
 #include "fa/scene/text_fit.h"
+#include "fa/scene/ui_rect.h"
 #include "bloom.h"
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
@@ -92,6 +93,7 @@ struct Renderer::Impl {
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
     float textScale = 1.0f;  // Renderer::set_text_scale
+    float uiScale = 1.0f;    // Renderer::set_ui_scale
 
     sg_image colorImg{}, resolveImg{}, depthImg{};
     sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
@@ -626,6 +628,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
     im.fonts->set_fallback_fonts(fallbackFonts_);
     im.textScale = textScale_;
+    im.uiScale = uiScale_;
     im.create_targets(desc.designWidth, desc.designHeight);
     im.initialized = true;
     return true;
@@ -810,6 +813,7 @@ void Renderer::update(World& world, float dt) {
     fr.assets = im.assets.get();
     fr.fonts = im.fonts.get();
     fr.textScale = im.textScale;
+    fr.uiScale = ui_scale_clamped(world.ui_scale());
     update_animators(world, fr, true);
     update_particles(world, dt);
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
@@ -835,14 +839,22 @@ Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_v
     t.font = std::string(font);
     t.fontSize = fontSize;
     t.maxWidth = maxWidth;
-    // The very layout of Text drawing at entity scale 1 (and of UI labels in screen space).
-    return impl_->fonts->layout(t, space == RenderSpace::Screen ? fontSize * impl_->textScale : fontSize, 1.0f).size;
+    // The very layout of Text drawing at entity scale 1 (and of UI labels in screen space). Screen-space text is drawn at the
+    // interface scale (ui.scale), rasterized k times as large, so it is measured at that raster size too (the result is in
+    // UI units, not multiplied by k).
+    const bool screen = space == RenderSpace::Screen;
+    return impl_->fonts->layout(t, screen ? fontSize * impl_->textScale : fontSize, screen ? impl_->uiScale : 1.0f).size;
 }
 
 Vec2 Renderer::measure_text(const Text& text) const {
     if (!initialized() || text.text.empty() || text.fontSize <= 0.0f) return {0, 0};
-    const TextExtent extent = [this](const std::string& s, const std::string& font, float px, float wrap) {
-        return measure_text(s, px, font, wrap, RenderSpace::World);  // px is final: no text scale
+    const bool screen = text.space == RenderSpace::Screen;
+    const TextExtent extent = [this, screen](const std::string& s, const std::string& font, float px, float wrap) {
+        Text t;
+        t.text = s;
+        t.font = font;
+        t.maxWidth = wrap;
+        return impl_->fonts->layout(t, px, screen ? impl_->uiScale : 1.0f).size;  // px is final: no text scale
     };
     return fit_text(text_fit_spec(text), text.text, text.font, textScale_, extent).size;
 }
@@ -850,6 +862,11 @@ Vec2 Renderer::measure_text(const Text& text) const {
 void Renderer::set_fallback_fonts(std::vector<std::string> fonts) {
     fallbackFonts_ = std::move(fonts);
     if (impl_ && impl_->fonts) impl_->fonts->set_fallback_fonts(fallbackFonts_);
+}
+
+void Renderer::set_ui_scale(float scale) {
+    uiScale_ = std::isfinite(scale) ? std::clamp(scale, kMinUiScale, kMaxUiScale) : 1.0f;
+    if (impl_) impl_->uiScale = uiScale_;
 }
 
 void Renderer::set_text_scale(float scale) {
@@ -909,6 +926,7 @@ void Renderer::Impl::render(World& world, float dt) {
         fr.assets = assets.get();
         fr.fonts = fonts.get();
         fr.textScale = textScale;
+        fr.uiScale = ui_scale_clamped(world.ui_scale());
         fr.renderScale = renderScale;
         fr.warnedLights2d = &warnedLights2d;
         fr.warnedShadows2d = &warnedShadows2d;

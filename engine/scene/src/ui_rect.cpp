@@ -79,12 +79,35 @@ bool safe_area_profile(std::string_view name, Vec2 designSize, EdgeInsets& out) 
     return true;
 }
 
-std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize) {
+float ui_scale_clamped(float k) {
+    if (!(k > 0.0f)) return 1.0f;
+    return std::clamp(k, kMinUiScale, kMaxUiScale);
+}
+
+Vec2 ui_layout_screen(const World& w, Vec2 designSize) {
+    const float k = ui_scale_clamped(w.ui_scale());
+    return {designSize.x / k, designSize.y / k};
+}
+
+EdgeInsets ui_layout_insets(const World& w) {
+    const float k = ui_scale_clamped(w.ui_scale());
+    const EdgeInsets& i = w.safe_insets();
+    return {i.left / k, i.top / k, i.right / k, i.bottom / k};
+}
+
+std::optional<Rect> ui_layout_rect(const World& w, Entity e, Vec2 designSize) {
     const UiBox* b = ui_box(w, e);
     if (!b) return std::nullopt;
     const Vec3 t = w.world_matrix(e).translation();
-    const Vec2 a = anchor_point(b->anchor, b->safeArea, designSize, w.safe_insets());
+    const Vec2 a = anchor_point(b->anchor, b->safeArea, ui_layout_screen(w, designSize), ui_layout_insets(w));
     return Rect{t.x + a.x - b->pivot.x * b->size.x, t.y + a.y - (1.0f - b->pivot.y) * b->size.y, b->size.x, b->size.y};
+}
+
+std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize) {
+    std::optional<Rect> r = ui_layout_rect(w, e, designSize);
+    if (!r) return r;
+    const float k = ui_scale_clamped(w.ui_scale());
+    return Rect{r->x * k, r->y * k, r->w * k, r->h * k};
 }
 
 Rect ui_intersect(const Rect& a, const Rect& b) {

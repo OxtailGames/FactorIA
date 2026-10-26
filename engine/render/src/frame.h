@@ -33,6 +33,7 @@ struct Frame {
     Fonts* fonts = nullptr;
     float renderScale = 1.0f;  // Renderer::set_render_scale: glyphs are rasterized this many times larger (sharp text)
     float textScale = 1.0f;  // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
+    float uiScale = 1.0f;    // World::ui_scale() of this frame: screen-space UI is drawn this many times as big (ui_rect.h)
     bool white_used = false;
     // Lit 2D visuals (Sprite.lit, Tilemap.lit): the lights of this frame (gather_2d) and the base light.
     std::vector<Light2DData> lights2d;
@@ -82,7 +83,8 @@ bool screen_clip(const World& world, Entity e, const Frame& f, Rect& clip);
 
 // The renderer's text layout as a TextExtent for fit_text (text_fit.h): size of text at a final font size `px`, so a fit
 // decided here is the one `Renderer::measure_text(Text)` and `ui.overflowed` decide.
-TextExtent frame_text_extent(Frame& f);
+// `ppu`: the raster size per unit the text is drawn at, relative to 1 (screen-space text: f.uiScale; world-space: 1).
+TextExtent frame_text_extent(Frame& f, float ppu = 1.0f);
 // Particle simulation (no drawing): spawns the initial burst, continuous emission, queued emit_burst()
 // requests, integrates, kills, and destroys finished autoDestroy emitters. `assets` is unused by the sim.
 void update_particles(World& world, float dt);

@@ -500,7 +500,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"scene.reload", "Reload the current scene from disk (discards runtime changes).",
            "Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing "
-           "them), factoria.json input actions, fixedHz and deadzone; script errors are cleared. Example: scene.reload {}",
+           "them), factoria.json input actions, fixedHz, deadzone and ui.scale; script errors are cleared. Example: scene.reload {}",
            parse_schema(R"({"type":"object","properties":{}})"), false, "scene"},
           [&engine, &I](const Json&) {
               if (I.currentScene.empty()) throw CommandError("unavailable", "No scene is loaded.", "Use scene.load first.");
@@ -721,11 +721,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "`value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton "
            "is a finger holding it (drive one with game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a "
            "Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space \"screen\") follow the widgets as "
-           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
+           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. Example: ui.state {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
           [&engine, &I](const Json&) {
               Json state = I.ui.state(I.world, I.design_size(), I.measure());
               state["textScale"] = engine.text_scale();
+              state["uiScale"] = engine.ui_scale();
               return state;
           });
 
@@ -766,6 +767,24 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine](const Json& a) {  // the schema has already checked the range
               engine.set_text_scale(a.at("scale").get<float>());
               return Json::object({{"textScale", engine.text_scale()}});
+          });
+
+    I.commands.add({"ui.set_scale", "Set the interface scale: every screen-space widget and Text gets bigger or smaller.",
+           "The same as `ui.scale = value` in a script (docs/TEXT.md, \"Interface size\"): the size, offset, padding, spacing, "
+           "margins and font size of every screen-space widget (Panel, Button, Label, Slider..., Text with space \"screen\") are "
+           "multiplied by `scale`, on top of the text size option (ui.set_text_scale); the layout, ui.state rectangles, clicks and "
+           "the drawing all follow. The widgets are laid out in a screen of design size / scale, so a Panel with anchors keeps its "
+           "place and its children stay inside it. World-space Text and entities are not scaled. 1 is as authored; the range is "
+           "0.5 to 3. The project default is the \"ui\": {\"scale\"} of factoria.json. A change sends the game event `ui.scale` "
+           "{value, previous}. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the "
+           "result with game.screenshot, and check every size you offer with ui.check_layout {\"uiScales\": [...]}. "
+           "Example: ui.set_scale {\"scale\":1.5}",
+           parse_schema(R"({"type":"object","required":["scale"],"properties":{
+               "scale":{"type":"number","minimum":0.5,"maximum":3,"description":"Interface multiplier: 1 = as authored, 1.5 = 50% bigger, 0.5 = half."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {  // the schema has already checked the range
+              engine.set_ui_scale(a.at("scale").get<float>());
+              return Json::object({{"uiScale", engine.ui_scale()}});
           });
 
     I.commands.add({"ui.speak", "Say a line aloud with the system's text to speech (or record it, headless).",

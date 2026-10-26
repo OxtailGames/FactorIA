@@ -194,6 +194,11 @@ public:
     // May be called before init().
     void set_text_scale(float scale);
     float text_scale() const { return textScale_; }
+    // The interface scale ui.scale (ui_rect.h): screen-space UI is laid out in UI units and drawn this many times as big.
+    // The renderer only needs it to measure screen-space text at the size it is drawn (measure_text); the drawing itself
+    // reads World::ui_scale(). Clamped to kMinUiScale..kMaxUiScale (NaN = 1). Set by Engine::set_ui_scale; may be called before init().
+    void set_ui_scale(float scale);
+    float ui_scale() const { return uiScale_; }
 
     // Expand support: with ScaleMode::Expand the orthographic camera keeps the design height fixed (or the
     // design width when the target is taller than the design aspect). present() also records its mode.
@@ -254,6 +259,7 @@ private:
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     float textScale_ = 1.0f;
+    float uiScale_ = 1.0f;
     ShaderCompiler shaderCompiler_;
 };
 

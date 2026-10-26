@@ -73,6 +73,14 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     input.set_gamepad_deadzone(float(project.inputDeadzone));
+    // The interface scale of factoria.json: applied when it changes (the first time included), so reloading the project for
+    // another setting does not undo what the player chose in the Options menu. The start-up change sends no ui.scale event.
+    if (project.uiScale != appliedProjectUiScale) {
+        const bool atStart = appliedProjectUiScale < 0.0f;
+        appliedProjectUiScale = project.uiScale;
+        self->set_ui_scale(project.uiScale);
+        if (atStart) std::erase_if(world.events().game, [](const GameEvent& e) { return e.name == "ui.scale"; });
+    }
     for (const std::string& problem : input.set_actions(ui_with_default_actions(project.inputActions))) {
         FA_WARN("input", "{}", problem);
         startupProblems.push_back(problem);
@@ -146,7 +154,7 @@ VisualMeasure Engine::Impl::measure() const {
 }
 
 // Every scene load (scene.load, scene.reload, hot reload, project.test) starts from what is on disk now. ponytail: only
-// fixedHz, the input actions and the deadzone are re-applied from factoria.json; size, scale mode, the renderer and the
+// fixedHz, the input actions, the deadzone and (when the file changed it) ui.scale are re-applied from factoria.json; size, scale mode, the renderer and the
 // "localization" section (languages, default language: setup_localization) need a restart. locales/*.json reload by themselves.
 void Engine::Impl::refresh_from_disk() {
     const std::int64_t t = fs::modified_time(kProjectFileName);
@@ -508,6 +516,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.gpu.reset();
         } else {
             if (config.shaderCompiler) I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
+            I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
@@ -1030,6 +1039,12 @@ void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set
     ScriptHost::set_text_scale(scale);
     if (impl_->renderer) impl_->renderer->set_text_scale(scale);
 }
+void Engine::set_ui_scale(float scale) {  // the callers (ui.scale, ui.set_scale, the project default) check the range
+    ScriptHost::set_ui_scale(scale);
+    if (impl_->renderer) impl_->renderer->set_ui_scale(scale);
+    if (impl_->renderer) impl_->renderStale = true;
+}
+float Engine::default_ui_scale() const { return impl_->project.uiScale; }
 std::string Engine::load_scene_now_with_props(std::string_view scenePath, const Json& props) {
     impl_->nextProps = props;
     return load_scene_now(scenePath);

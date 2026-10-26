@@ -84,6 +84,11 @@ Json ProjectSettings::to_json() const {
     if (!inputSchemes.empty()) input["schemes"] = inputSchemes;
     else input.erase("schemes");
     j["input"] = input;
+    if (uiScale != 1.0f || (j.contains("ui") && j["ui"].is_object())) {
+        Json ui = j.contains("ui") && j["ui"].is_object() ? j["ui"] : Json::object();
+        ui["scale"] = uiScale;
+        j["ui"] = ui;
+    }
     Json plats = Json::array();
     for (const auto& p : platforms) plats.push_back(p);
     j["platforms"] = plats;
@@ -506,6 +511,18 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             s.inputDeadzone = v;
         }
     }
+    if (auto it = j.find("ui"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/ui", "an object like {\"scale\": 1.25}", *it);
+        if (auto sc = it->find("scale"); sc != it->end() && !sc->is_null()) {
+            if (!sc->is_number()) return field_error("/ui/scale", "a number from 0.5 to 3", *sc);
+            const double v = sc->get<double>();
+            if (!(v >= 0.5 && v <= 3.0))
+                return make_error(at("/ui/scale") + ": value " + std::to_string(v) + " must be from 0.5 to 3",
+                                  "1 keeps the interface as authored; 1.25 makes every screen-space widget and its text 25% bigger "
+                                  "(docs/TEXT.md, \"Interface size\"). The Options menu and scripts change it with ui.scale.");
+            s.uiScale = float(v);
+        }
+    }
     if (auto it = j.find("platforms"); it != j.end() && !it->is_null()) {
         if (!it->is_array()) return field_error("/platforms", "an array of platform names", *it);
         for (std::size_t k = 0; k < it->size(); ++k) {
@@ -612,6 +629,18 @@ constexpr const char* kSchemaText =
     "pauseOnSuspend": {
       "type": "boolean",
       "description": "Default true. While the app is in the background (a phone's home button or an incoming call) the engine freezes the game (game.paused becomes true, unless a game.on(\"suspend\") handler paused it already) and silences the music and every sound, and unfreezes both when the app comes back. Set false to decide yourself in game.on(\"suspend\") and game.on(\"resume\") handlers. A window that merely loses the focus is never paused (use game.on(\"blur\")). docs/MOBILE.md, Lifecycle."
+    },
+    "ui": {
+      "type": "object",
+      "description": "Screen-space interface settings.",
+      "properties": {
+        "scale": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 3,
+          "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+        }
+      }
     },
     "display": {
       "type": "object",

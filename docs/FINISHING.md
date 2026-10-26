@@ -60,6 +60,7 @@ const DEFAULTS = {
   bindings: {},          // action -> binding names, only for actions the player rebound
   language: null,        // null: the language the game started in
   textScale: 1,          // ui.textScale, 1 to 2 in steps
+  uiScale: null,         // ui.scale (the interface size); null: the factoria.json "ui": {"scale"}
   assist: { speed: 1, invincible: false },
   shake: true, reducedEffects: false,
 };
@@ -71,6 +72,7 @@ What `apply()` does for each (all of it is in the kit; keep it when you change t
 |---|---|
 | Volumes | `audio.setVolume(bus, value)` for `master`, `music`, `sfx`, `ui` |
 | Text size | `ui.textScale = math.clamp(s.textScale, 0.5, 3)` (the engine never saves it: you do) |
+| Interface size | `ui.scale = math.clamp(s.uiScale, 0.5, 3)` when `s.uiScale` is not null (the engine never saves it either) |
 | Language | `i18n.setLanguage(tag)` (rewrites every Text and widget with a `key` at once) |
 | Controls | `input.rebind(action, bindingNames)` for each saved action |
 | Video | `window.setFullscreen`, `window.setSize`, `window.setVsync`, `window.frameCap`, only when `window.available` (not in headless runs and tests) |

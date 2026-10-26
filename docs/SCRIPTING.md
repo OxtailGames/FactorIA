@@ -737,6 +737,15 @@ A studio intro that any button skips: [MENUS.md](MENUS.md).
   Button, Toggle, Slider and TextField are drawn and measured at `fontSize * ui.textScale`; world-space `Text` is never
   scaled. A value outside the range throws. The engine does not save it (keep it in `storage`), and each test file starts
   at 1. The command is `ui.set_text_scale`. Fonts, languages and right-to-left text: [TEXT.md](TEXT.md).
+- `ui.scale` (get / set, 0.5 to 3) is the interface size option: every screen-space widget and `Text`/`Sprite`/`Shape2D` is
+  laid out in UI units (the design screen divided by the scale) and drawn that many times as big; anchors do not move.
+  It starts at the `"ui": { "scale" }` of `factoria.json` (default 1), each test file starts there again, and a value
+  outside the range throws. `ui.rectOf` and `ui.state` rectangles are in screen pixels (they include it); `ui.measureText`
+  and `Panel.size` are in UI units. The engine does not save it. The command is `ui.set_scale`; details, `Panel.minSize`
+  and `maxSize` and the limits: [TEXT.md](TEXT.md), "Interface size".
+- `ui.on("scale", fn)` and `ui.on("textScale", fn)` call `fn({ type, value, previous })` once per change of `ui.scale`
+  or `ui.textScale` to another value, with the game events of the next frame (like `i18n.on("change")`), and return the
+  function that stops listening. They have no target and end with the scene.
 - `ui.speak(text, { interrupt = true })` says `text` aloud with the system's text to speech, in `i18n.language` (the system
   voice for it when there is one); `interrupt: false` queues it after what is being said. `ui.stopSpeaking()` stops and
   clears the queue. `ui.speechAvailable` is false where the system has no speech (Linux without speech-dispatcher, Android
@@ -1319,7 +1328,7 @@ Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
 behaviours; `game.load` also reseeds. Before each test input overrides, the gamepads (unplugged),
-`input.deadzone` (back to the project's value), `time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
+`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
 `toBeNaN`, `toMatch`, `toBeInstanceOf`, `toMatchObject(subset)` (every field of the subset is in the
 received object with an equal value, recursively; the object may have more). Failures print expected/received and

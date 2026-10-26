@@ -206,6 +206,15 @@ What the command does, file by file; do it by hand when you want to see each fil
   `monitor` as `{ index, name }`: the name finds the monitor again when the numbers change) and restored at start, the
   monitor first so a full screen window covers the right one. A save from an older kit (`fullscreen: true`) is read as
   `windowMode`.
+- **Interface size.** An "Interface size: 100%" button on the Video tab cycles through `UI_SCALES` in `options.js` (75, 100,
+  125, 150 and 200 %) and sets `ui.scale` (docs/TEXT.md, "Interface size"), which makes every screen-space widget, the
+  panel itself included, that many times as big at once. Only the sizes at which the panel (760 x 680 UI units) still fits
+  the screen are offered, plus the one in use: at the 1280 x 720 design size that is 75 % and 100 %, and the button is
+  greyed out when only one is left; a game with a smaller panel `size` in the prefab offers more sizes. The button's text is
+  the string `options.uiScale` ("Interface size: {percent}%").
+  The choice is saved in `settings.js` as `uiScale` (`null` keeps the `ui.scale` of `factoria.json`) and applied by
+  `apply()`; the button writes its percentage again on the `ui.on("scale")` event, so it stays right when a script changes
+  the size. The text size has no button in the kit: set `ui.textScale` from `textScale` of the settings the same way.
 - **Controls.** A click on an action's button waits for the next press (`input.lastPressed()`, skipping the frame of the
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
   `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
@@ -478,7 +487,7 @@ writes.
 
 ```js scripts/settings.js
 // @ts-check
-// The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
+// The player's settings (volumes, video, interface size, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
 
@@ -507,6 +516,7 @@ function defaults() {
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
+    uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
@@ -553,11 +563,12 @@ export function applyScene(s = load()) {
   applySubtitles(s);
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
   ui.textScale = s.textScale;
+  if (s.uiScale !== null) ui.scale = s.uiScale;
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
@@ -992,7 +1003,7 @@ export default class StoreEvents extends Behaviour {
     "name": "Options",
     "components": {
       "Panel": { "size": [760, 680], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "direction": "auto", "align": "start",
-        "spacing": 16, "padding": [24, 24, 24, 24] },
+        "spacing": 12, "padding": [20, 20, 20, 20] },
       "Script": { "path": "scripts/ui/options.js" }
     },
     "children": [
@@ -1006,13 +1017,14 @@ export default class StoreEvents extends Behaviour {
           { "id": "tab_language", "components": { "Button": { "autoSize": true, "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
         ] },
       { "id": "video_section",
-        "components": { "Panel": { "size": [712, 400], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 12 } },
+        "components": { "Panel": { "size": [712, 424], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 8 } },
         "children": [
           { "id": "window_mode", "components": { "Button": { "autoSize": true, "text": "Window mode", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "monitor", "components": { "Button": { "autoSize": true, "text": "Monitor", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "resolution", "components": { "Button": { "autoSize": true, "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "vsync", "components": { "Toggle": { "autoSize": true, "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
           { "id": "frame_cap", "components": { "Button": { "autoSize": true, "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "ui_scale", "components": { "Button": { "autoSize": true, "text": "Interface size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "color_filter", "components": { "Button": { "autoSize": true, "text": "Color filter", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.", "key": "options.videoNote",
             "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "align": "start", "maxWidth": 560, "layer": 302 } } }
@@ -1051,17 +1063,19 @@ export default class StoreEvents extends Behaviour {
 ```js scripts/ui/options.js
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
-// monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
+// monitor, size, vsync, frame cap, the interface size and the colour filter, two accessibility options that work without a window),
 // Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
 // (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
 const TABS = ["video", "audio", "controls", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
+/** Interface sizes (ui.scale) the "Interface size" button cycles through; only the ones this panel still fits the screen at are offered. */
+const UI_SCALES = [0.75, 1, 1.25, 1.5, 2];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
@@ -1119,6 +1133,7 @@ export default class Options extends Behaviour {
     // The monitor row only exists where the game can move between monitors and this computer has more than one.
     world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
     this.refreshVideo();
+    ui.on("scale", () => this.refreshVideo()); // the size changed (here, or a script): write the percentage again
 
     ui.on("click", "window_mode", () => {
       // windowed -> borderless -> fullscreen -> windowed (macOS cannot go from fullscreen straight to borderless); a platform without borderless skips it.
@@ -1143,6 +1158,14 @@ export default class Options extends Behaviour {
       const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
       this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
+    ui.on("click", "ui_scale", () => {
+      const sizes = this.uiScales();
+      const next = sizes.find((k) => k > ui.scale + 1e-3) ?? sizes[0];
+      ui.scale = next; // every widget of every screen, this panel included, at once (docs/TEXT.md, "Interface size")
+      s.uiScale = next;
+      settings.save(s);
+      this.refreshVideo();
+    });
     ui.on("click", "color_filter", () => {
       const all = settings.COLOR_FILTERS;
       s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
@@ -1150,6 +1173,18 @@ export default class Options extends Behaviour {
       settings.save(s);
       this.refreshVideo();
     });
+  }
+
+  /**
+   * The interface sizes to offer: the ones where this panel, drawn ui.scale times as big, still fits the screen (a bigger one
+   * would leave the panel's edges and its Back button off screen), plus the size now in use, whatever it is.
+   */
+  uiScales() {
+    const panel = this.entity.get("Panel").size; // in UI units: the size before ui.scale
+    const screenSize = screen.size;
+    const fits = UI_SCALES.filter((k) => panel.x * k <= screenSize.x && panel.y * k <= screenSize.y);
+    if (!fits.includes(ui.scale)) fits.push(ui.scale);
+    return fits.sort((a, b) => a - b);
   }
 
   /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
@@ -1176,6 +1211,9 @@ export default class Options extends Behaviour {
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
       : i18n.t("options.frameCapOff");
+    const uiScale = world.find("ui_scale").get("Button");
+    uiScale.text = i18n.t("options.uiScale", { percent: Math.round(ui.scale * 100) });
+    uiScale.interactable = this.uiScales().length > 1; // nothing to choose when no other size fits
     world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
 
@@ -2377,6 +2415,7 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "uiScale": "Interface size: {percent}%",
     "colorFilter": "Color filter: {filter}",
     "filter": { "none": "off", "greyscale": "greyscale", "highContrast": "high contrast", "protanopia": "protanopia (red)", "deuteranopia": "deuteranopia (green)", "tritanopia": "tritanopia (blue)" },
     "videoNote": "Video settings apply when the game runs in its own window.",
@@ -2471,6 +2510,7 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
     "frameCap": "Límite de fotogramas: {fps} fps",
     "frameCapOff": "Límite de fotogramas: sin límite",
+    "uiScale": "Tamaño de la interfaz: {percent}%",
     "colorFilter": "Filtro de color: {filter}",
     "filter": { "none": "desactivado", "greyscale": "escala de grises", "highContrast": "alto contraste", "protanopia": "protanopia (rojo)", "deuteranopia": "deuteranopia (verde)", "tritanopia": "tritanopia (azul)" },
     "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",

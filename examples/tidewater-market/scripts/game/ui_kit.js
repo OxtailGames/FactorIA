@@ -1,10 +1,9 @@
 // @ts-check
 // Small pieces the panels of ui_hud.js are made of (engine-facing: it creates entities). Nothing here knows the game.
-//   spawn helpers   panel / label / button / rule / icon: one line each instead of a JSON blob per widget
+//   spawn helpers   panel / label / button / icon: one line each instead of a JSON blob per widget
 //   Tooltips        a tooltip after the pointer rests on a registered widget; placed so it never leaves the screen
 //   inside          is a screen point inside the rectangle of a widget?
-//   setUiScale      the "UI scale" option: the engine has none (rotation and scale of UI entities are ignored, FB-0042), so the
-//                   helpers scale the sizes, paddings and spacings they were given and remember them to scale again
+//   toUnits         screen pixels (ui.rectOf, the pointer) -> UI units (sizes and positions of widgets), for the interface size option
 // Colours are in COLORS so every panel looks the same; fonts are the default font at FONT sizes (ui.textScale scales them all).
 import { world, ui } from "factoria";
 import { DESIGN } from "./camera_math.js";
@@ -20,7 +19,6 @@ export const COLORS = {
   red: [1, 0.5, 0.45, 1],
   green: [0.55, 0.9, 0.55, 1],
   blue: [0.55, 0.78, 1, 1],
-  rule: [1, 1, 1, 0.14],
 };
 export const FONT = { title: 20, body: 16, small: 14 };
 /**
@@ -29,40 +27,14 @@ export const FONT = { title: 20, body: 16, small: 14 };
  */
 export const TEXT_CAP = 1.5;
 
-// ---- UI scale ------------------------------------------------------------------------------------------------------------------
+// ---- Interface size ------------------------------------------------------------------------------------------------------------
+// The "interface size" option is the engine's ui.scale: every size, offset, padding, spacing, margin and font below is written in
+// UI units and the engine draws them ui.scale times as big, so no widget is registered or resized here. What is measured on the
+// screen (ui.rectOf, the pointer, DESIGN) is in pixels; toUnits() turns such a length into the UI units a position takes.
 
-let uiScale = 1;
-/** @type {{ entity: any, component: string, base: Record<string, any> }[]} what to scale again, with the sizes as the code gave them */
-let tracked = [];
-
-/** The scale the helpers apply now (1 = as written). */
-export function currentUiScale() {
-  return uiScale;
-}
-
-const mul = (list, k) => (Array.isArray(list) ? list.map((n) => Math.round(n * k * 100) / 100) : list);
-
-function applyScaled(rec) {
-  const c = rec.entity.get(rec.component);
-  for (const [field, value] of Object.entries(rec.base)) c[field] = typeof value === "number" ? Math.round(value * uiScale * 100) / 100 : mul(value, uiScale);
-}
-
-/** Remember the sizes of `entity` so setUiScale can scale them again, and apply the scale now. */
-function track(entity, component, base) {
-  if (!Object.keys(base).length) return;
-  const rec = { entity, component, base };
-  tracked.push(rec);
-  if (uiScale !== 1) applyScaled(rec);
-}
-
-/**
- * The UI scale option: every size, padding and spacing the helpers below were given is multiplied by `scale` (widgets grow, so do
- * hit targets). Text follows ui.textScale instead; the two are separate options. Called by settings.apply().
- */
-export function setUiScale(scale) {
-  uiScale = scale > 0 ? scale : 1;
-  tracked = tracked.filter((r) => r.entity.alive);
-  for (const rec of tracked) applyScaled(rec);
+/** A length in screen pixels as UI units at the current ui.scale (what Transform.position and Panel.size are written in). */
+export function toUnits(px) {
+  return px / ui.scale;
 }
 
 /** Layers: the map's own sprites are below 100, the bars at 200, panels 230, notices 240, the drag chip 280, the tooltip 300. */
@@ -89,11 +61,7 @@ export function inside(entity, x, y) {
 export function panel(id, parent, props = {}) {
   const { position = [0, 0, 0], ...rest } = props;
   const spec = { id, components: { Transform: { position }, Panel: { color: COLORS.panel, layer: LAYER.panel, ...rest } } };
-  const entity = world.spawn(spec, parent ? { parent } : undefined);
-  const base = {};
-  for (const field of ["size", "padding", "spacing"]) if (rest[field] !== undefined) base[field] = rest[field];
-  track(entity, "Panel", base);
-  return entity;
+  return world.spawn(spec, parent ? { parent } : undefined);
 }
 
 /** A Text label in screen space. `position` only matters inside a layout "none" panel. */
@@ -103,9 +71,7 @@ export function label(id, parent, text, props = {}) {
     id,
     components: { Transform: { position }, Text: { text, fontSize: FONT.body, space: "screen", layer: LAYER.panel + 5, color: COLORS.text, maxTextScale: TEXT_CAP, ...rest } },
   };
-  const entity = world.spawn(spec, parent ? { parent } : undefined);
-  if (rest.maxWidth) track(entity, "Text", { maxWidth: rest.maxWidth }); // the wrap width grows with the UI scale, like the boxes
-  return entity;
+  return world.spawn(spec, parent ? { parent } : undefined);
 }
 
 /** A text Button (the label may hold line breaks). */
@@ -115,14 +81,7 @@ export function button(id, parent, text, props = {}) {
     id,
     components: { Transform: { position }, Button: { text, size: [120, 30], fontSize: FONT.body, layer: LAYER.panel + 5, color: COLORS.button, autoShrink: true, minFontSize: 8, maxTextScale: TEXT_CAP, ...rest } },
   };
-  const entity = world.spawn(spec, parent ? { parent } : undefined);
-  track(entity, "Button", { size: rest.size || [120, 30] });
-  return entity;
-}
-
-/** A thin line across a column, which also gives a fitted panel its minimum width. */
-export function rule(id, parent, width, height = 2, color = COLORS.rule) {
-  return panel(id, parent, { size: [width, height], color, layout: "none", padding: [0, 0, 0, 0] });
+  return world.spawn(spec, parent ? { parent } : undefined);
 }
 
 /** A sprite from the atlas, drawn in screen space and scaled to fit a box (its aspect ratio stays). */
@@ -139,9 +98,7 @@ export function icon(id, parent, atlas, frameName, box, props = {}) {
       Sprite: { texture: atlas.texture, region: f.rect, size, space: "screen", layer: LAYER.panel + 5, pixelArt: false, ...rest },
     },
   };
-  const entity = world.spawn(spec, parent ? { parent } : undefined);
-  track(entity, "Sprite", { size: rest.size || size });
-  return entity;
+  return world.spawn(spec, parent ? { parent } : undefined);
 }
 
 /** Point the sprite of `entity` at another atlas frame, scaled into the box. */
@@ -151,10 +108,7 @@ export function setIcon(entity, atlas, frameName, box) {
   const k = Math.min(box / w, box / h);
   const s = entity.get("Sprite");
   s.region = f.rect;
-  const size = [Math.round(w * k), Math.round(h * k)];
-  const rec = tracked.find((r) => r.entity.id === entity.id && r.component === "Sprite");
-  if (rec) rec.base = { size };
-  s.size = mul(size, uiScale);
+  s.size = [Math.round(w * k), Math.round(h * k)];
 }
 
 export function setActive(entity, on) {
@@ -256,7 +210,8 @@ export class Tooltips {
     const r = ui.rectOf(this.root);
     const w = r ? r.w : this.width;
     const h = r ? r.h : 60;
-    this.root.position = placeTooltip(mouse, w, h);
+    const at = placeTooltip(mouse, w, h); // pixels on the screen (rectOf and the pointer); the panel's position is in UI units
+    this.root.position = [toUnits(at[0]), toUnits(at[1]), 0];
     this.visible = true;
   }
 }

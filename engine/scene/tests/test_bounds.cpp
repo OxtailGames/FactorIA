@@ -149,6 +149,24 @@ TEST_CASE("bounds: Text uses the measurer it is given, the pivot places it and a
     CHECK(approx_text_size("abcdefgh", 10, 30).y > 12.0f);  // wraps
 }
 
+TEST_CASE("bounds: a Text with maxWidth is as wide as the box it is drawn in unless it is left-aligned") {
+    Fixture f;
+    Entity e = f.make("note", {0, 0, 0});
+    Text& t = f.w.add<Text>(e);
+    t.text = "short";
+    t.fontSize = 10;
+    t.maxWidth = 200;
+    VisualMeasure tight;
+    tight.textSize = [](const Text&) { return Vec2{30, 12}; };  // the widest line
+    check_rect(entity_world_rect(f.w, e, tight), 0, -12, 30, 12);  // left: the box is the text
+    t.align = Align::Right;
+    check_rect(entity_world_rect(f.w, e, tight), 0, -12, 200, 12);  // the renderer aligns inside the maxWidth box
+    t.align = Align::Start;
+    check_rect(entity_world_rect(f.w, e, tight), 0, -12, 30, 12);  // start is left in a left-to-right language...
+    f.w.set_rtl(true);
+    check_rect(entity_world_rect(f.w, e, tight), 0, -12, 200, 12);  // ...and right in a right-to-left one
+}
+
 TEST_CASE("bounds: Sprite size, region, texture size and animator frames") {
     Fixture f;
     VisualMeasure m;
