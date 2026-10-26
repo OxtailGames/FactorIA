@@ -125,8 +125,8 @@ Json export_components_json() {
 }
 
 std::string export_typescript(const ScriptSystem& scripts) {
-    return scripts.typescript_declarations([](const std::string& key) {
-        std::string v = api_since("components", key);
+    return scripts.typescript_declarations([](const std::string& section, const std::string& key) {
+        std::string v = api_since(section, key);
         return v == "0.1.0" ? std::string() : v;
     });
 }
@@ -139,6 +139,7 @@ std::string export_components_markdown() {
          "\"Since 0.1.x.\" line under its heading, and a field added later than its component ends with "
          "\"(since 0.1.x)\"; \"Not released yet\" means it is only on the main branch, in no download. Nothing is printed "
          "for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. "
+         "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. "
          "In scene JSON a component is `\"Name\": { field: value, ... }` "
          "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or `{x, y}`; "
          "colors accept `[r, g, b, a]` (0..1) or `\"#rrggbb\"`.\n\n";
