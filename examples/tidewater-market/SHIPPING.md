@@ -46,44 +46,50 @@ has the facts for the privacy forms (no accounts, no analytics, no network).
 
 | Target | Command | Result |
 |---|---|---|
-| Web | `factoria export --platform web --release --out OUT` | Seconds. Folder 10.9 MB and `tidewater-market-web.zip` 5.7 MB, the file for itch.io. Sizes below. See "Web" for what could and could not be checked. |
+| Web | `factoria export --platform web --release --player build/web-release/player --out OUT` | Seconds. Folder 12.2 MB and `tidewater-market-web.zip` 6.1 MB, the file for itch.io. Played in a browser: new game, build, save, reload, continue. See "Web". |
 | macOS | `factoria export --platform macos --release --out OUT` | `Tidewater Market.app` 33 MB (arm64 executable 30.2 MB, `game.pak` 3.5 MB, icon, notices). Started from its own folder with `--frames 300 --screenshot`: Metal / Apple M5, the menu scene loads, exit 0, no warnings. Not signed or notarized (needs a Developer ID: by hand). |
 | Windows | `factoria export --platform windows --release --out OUT` | REFUSED here: the installed player (`~/.factoria/players/0.2.0/windows`) has no build fingerprint and this `factoria` is a newer build. Not run, not checked. |
 | Linux | `factoria export --platform linux --release --out OUT` | REFUSED here for the same reason. Not run, not checked. |
 
 For Windows and Linux: run `cmake --build <build dir> --target factoria factoria_player` and export with `--player <path>`, or
 export on a machine with a player of this build (a published release). `--allow-player-mismatch` would bundle the old
-player, but a player of another build may lack what the game uses (see "Web": exactly that happened).
+player, but a player of another build may lack what the game uses (the installed web player did exactly that: see FB-0050).
 
 ### Web
 
+Exported with a web player built from this checkout (`cmake --preset web-release && cmake --build --preset web-release`,
+Emscripten 6.0.10 from `~/emsdk`) and `--player build/web-release/player`. Without `--player` the export takes the older
+installed player first (FB-0050), and that one cannot run the game.
+
 | File | Raw | gzip -9 |
 |---|---|---|
-| `game.pak` | 3,483,331 | 2,901,523 |
-| `factoria_player.wasm` | 7,178,969 | 2,735,886 |
-| `factoria_player.js` | 146,782 | 36,672 |
-| `FACTORIA_NOTICES.txt` | 57,982 | 11,240 |
-| `index.html` | 10,026 | 4,021 |
-| Total | 10,877,420 | 5,689,577 |
+| `factoria_player.wasm` | 8,442,650 | 3,156,289 |
+| `game.pak` | 3,494,807 | 2,908,128 |
+| `factoria_player.js` | 153,171 | 38,786 |
+| `FACTORIA_NOTICES.txt` | 57,982 | 11,261 |
+| `index.html` | 10,560 | 4,193 |
+| Total | 12,159,170 | 6,118,657 |
 
-brotli is not installed here, so there is no brotli figure. The zip is 5,705,437 bytes. itch.io serves the files compressed.
+brotli is not installed here, so there is no brotli figure. The zip is 6,131,713 bytes. itch.io serves the files compressed.
 
 Load time in the browser pane over `python3 -m http.server` on localhost (no network, so this is the cost of the page
-itself, not a download): DOMContentLoaded 78 ms, load 175 ms, the wasm and pak fetched in about 140 ms, "60 frames rendered"
-about 1.2 s after the start. On a real connection add the download of 5.7 MB.
+itself, not a download): load event 59 ms, the wasm fetched in about 10 ms, the menu scene loaded 0.06 s after the player
+started and "60 frames rendered" about 1.1 s after it. On a real connection add the download of about 6 MB.
 
-What was checked in the browser: title, Play, the three-slot screen (New game, Rename, Delete) and the scenario list work.
+Played in the browser pane, all of it with the mouse and keyboard: title, Play, slot 1 New game, First Harbour, the build
+menu (Housing, House), a house placed (960 coins left, 0/4 residents), Esc drops the tool and then opens the pause menu,
+Save game to slot 1 (the slot shows the thumbnail, "Played 1 min", 960 coins), page reloaded, Play, Continue: the house and
+the 960 coins are back. No errors in the console.
 
-What could NOT be checked, and why: the web player installed here (`~/.factoria/players/0.2.0/web`, built Oct 22) is older
-than the engine that exported the game, and `factoria export --platform web` did not warn. Playing the unmodified export
-fails: `scripts/ui/options.js` imports `analytics` (missing), `scripts/loading.js` calls `scene.preload` (missing) and the
-game stays on a dark loading screen. A scratch copy of the game with those two uses guarded got further, and then stopped
-at `game.sceneProps` and the audio bus API in `scripts/game/soundscape.js` (the controller's `onStart` aborts). So the flow
-"new game, build, save, reload, continue" was NOT run in a browser. The same flow is covered headless by `tests/save_store.test.js`,
-`tests/save.test.js`, `tests/scenario_game.test.js` and `tests/slots_screen.test.js`. The web player cannot be rebuilt here
-(`emcc` is not installed) and `factoria setup players --force` fails for a development build ("no release v0.2.0").
-To close this: build the web player from this checkout, or install it from the next release, export again and play the
-flow once. The browser also logs "ScriptProcessorNode is deprecated" from the player's audio.
+Seen while playing:
+- The engine's page handed the wasm to the player through `Module.wasmBinary`, which Emscripten 6 no longer reads, so the
+  8.4 MB wasm was downloaded twice on every load. Fixed in the engine (`platforms/web/shell.html` now uses
+  `instantiateWasm`); the export above is from the fixed engine and fetches it once.
+- The tooltip of the building under the pointer stays drawn over the pause menu.
+- The first click on a building card right after switching the build tab did not select it once; the next click did.
+  Not reproduced since.
+- The browser logs "ScriptProcessorNode is deprecated" from the player's audio (FB-0054).
+- `favicon.ico` is a 404: the export writes no icon for the page.
 
 ## Budget
 
@@ -142,7 +148,7 @@ Done: [x]. Not done or not checked: [ ] with the reason.
 
 ## What is left for a real release
 
-- Play the web export once with a web player of this build (see "Web"), and export Windows and Linux with players of this build.
+- Export Windows and Linux with players of this build (the web export was played with one, see "Web").
 - Replace the placeholder URLs and e-mail in `store/en/urls.txt`; write the real privacy policy page.
 - Translations (P8), a log/crash send button, a Steam app id and the Steamworks backend for achievements and cloud saves.
 - Sign and notarize the macOS app (`factoria call sign.macos`), sign the Windows exe; fill each store's forms by hand (`docs/PUBLISHING.md`).
