@@ -1093,10 +1093,13 @@ void register_builtin_components(TypeRegistry& r) {
     {
         auto toggle = r.add<Toggle>("Toggle",
                   "Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the "
-                  "label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.",
+                  "label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}. The box is one line of the "
+                  "label high (fontSize at the player's text size, times 1.2, plus 4 px), centred in the widget and never bigger than "
+                  "its height minus 12: a wrapped label or a taller widget does not make the box bigger. autoShrink and minFontSize "
+                  "shrink the label to the room right of the box.",
                   "UI");
         ui_control_fields(toggle)
-            .field("label", &Toggle::label, "Text to the right of the box.")
+            .field("label", &Toggle::label, "Text to the right of the box, which follows the font size (see the Toggle description).")
             .field("maxWidth", &Toggle::maxWidth,
                    "> 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the "
                    "toggle is at most maxWidth plus the box and margins wide and grows taller instead.").range(0, 100000)

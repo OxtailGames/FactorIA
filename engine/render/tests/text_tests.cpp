@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "fa/render/fonts.h"
+#include "fa/scene/bounds.h"
 #include "text_shaper.h"
 
 using namespace fa;
@@ -436,6 +437,21 @@ TEST_CASE("text: DejaVu Sans is the last font of every chain, and the missing-gl
 
 // ---- one measurement for every kind of text -----------------------------------------------------------------------------------
 
+TEST_CASE("text: a wrapped text measures its widest line, not its maxWidth, with a renderer and headless") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    const Vec2 free = g.renderer.measure_text("VSync", 20);
+    const Vec2 roomy = g.renderer.measure_text("VSync", 20, "", 440);
+    CHECK(roomy.x == doctest::Approx(free.x).epsilon(0.001));
+    CHECK(roomy.x < 100);
+    Text t;
+    t.text = "VSync"; t.fontSize = 20; t.maxWidth = 440;
+    CHECK(fa::approx_text_size(t, 1.0f).x < 440);  // headless: the widest line too
+    const Vec2 wrapped = g.renderer.measure_text("Hello wrapped world of text", 20, "", 100);
+    CHECK(wrapped.x <= 100.5f);
+    CHECK(wrapped.x > 50);
+}
+
 TEST_CASE("text: measure_text is the box Text drawing lays out, wrapped or not, and the ink stays inside it") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
@@ -458,7 +474,7 @@ TEST_CASE("text: measure_text is the box Text drawing lays out, wrapped or not, 
         float widest = 0;
         for (const fr::ShapedLine& l : shaped.lines) widest = std::max(widest, l.width);
         const Vec2 m = g.renderer.measure_text(c.text, c.size, "", c.maxW);
-        CHECK(m.x == doctest::Approx(c.maxW > 0 ? std::max(widest, c.maxW) : widest).epsilon(0.001));
+        CHECK(m.x == doctest::Approx(widest).epsilon(0.001));
         CHECK(m.y == doctest::Approx(lineH * float(shaped.lines.size())).epsilon(0.001));
         // drawn: the ink is inside the measured rectangle (top-left of the Text is world (-120, 70) = pixel (40, 20))
         World w; add_black_camera(w);

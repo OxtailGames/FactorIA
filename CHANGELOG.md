@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A wrapped text measures its widest line; a Toggle's box follows the font size
+
+- With a renderer a wrapped text was at least as wide as its `maxWidth`, so `ui.overflowed`, `ui.check_layout` and
+  `autoShrink` flagged and shrank a short label for nothing, while headless measured the widest line. Both measure the
+  widest line now, so a layout test and the window agree. A wrapped Text with a pivot or centre alignment is placed by that
+  width, so it can sit a little differently than before.
+- A Toggle's box is one line of its label high (`fontSize` at the player's text size, times 1.2, plus 4 px), no longer the
+  widget's height minus 12: a two-line label or a taller toggle keeps the same box. `Toggle.autoShrink` and `minFontSize`
+  fit the label into the room right of that box.
+
 Web exports download the game's code once
 
 - The page of a web export handed the downloaded wasm to the player through `Module.wasmBinary`, which Emscripten 6 no
