@@ -384,7 +384,7 @@
       "suggestion": "Panel.minSize (and maxSize) that also apply when fit is true.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0018",
@@ -718,7 +718,7 @@
       "suggestion": "A ui.scale (or a Canvas scale) that multiplies sizes, offsets and fonts of every screen-space widget, with text scale on top.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0043",
@@ -1079,7 +1079,7 @@
       "suggestion": "An event when ui.textScale changes (ui.on(\"textScale\")), and layout containers that stack Texts of different heights without a script.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0070",

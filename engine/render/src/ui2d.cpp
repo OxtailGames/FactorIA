@@ -1,6 +1,10 @@
 // Draws the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton) into the
 // screen quad list. Where a widget is comes from fa_scene's ui_rect.h (the same code behind layout and hit-testing); how
 // it reacts (focus, hover, values) is fa_ui's, read here from the components' runtime flags.
+//
+// The interface scale (ui.scale, ui_rect.h): a widget is drawn in UI units, the rectangle of ui_layout_rect and fixed margins
+// and line widths included, and every quad is scaled by Ctx::k when it is emitted. Text is rasterized at k times the size
+// (a pixels-per-unit of renderScale * k), so it stays sharp. Scissor rectangles (clip) are in screen pixels.
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -20,13 +24,13 @@ bool screen_clip(const World& world, Entity e, const Frame& f, Rect& clip) {
     return !c->empty();
 }
 
-TextExtent frame_text_extent(Frame& f) {
-    return [&f](const std::string& s, const std::string& font, float px, float wrap) {
+TextExtent frame_text_extent(Frame& f, float ppu) {
+    return [&f, ppu](const std::string& s, const std::string& font, float px, float wrap) {
         Text probe;
         probe.text = s;
         probe.font = font;
         probe.maxWidth = wrap;
-        return f.fonts->layout(probe, px, 1.0f).size;
+        return f.fonts->layout(probe, px, ppu).size;
     };
 }
 
@@ -39,8 +43,15 @@ struct Ctx {
     Rect clip;
     float fade = 1.0f;
     float capScale = 0.0f;  // the widget's maxTextScale (0 = none): line() draws its labels at most at this text scale
+    float k = 1.0f;         // the interface scale: UI units -> screen pixels
     QuadList& list() const { return f.screen; }
+    Mat4 to_screen() const { return Mat4::scale({k, k, 1.0f}); }
 };
+
+// A UI coordinate rounded so it lands on a whole screen pixel once scaled by k.
+float snap(const Ctx& c, float v) { return std::round(v * c.k) / c.k; }
+// A rectangle of UI units as screen pixels (for the scissor).
+Rect to_pixels(const Ctx& c, const Rect& r) { return Rect{r.x * c.k, r.y * c.k, r.w * c.k, r.h * c.k}; }
 
 std::uint32_t pack(Color c, float fade) {
     c.a *= fade;
@@ -50,7 +61,7 @@ std::uint32_t pack(Color c, float fade) {
 // A screen rectangle (y down) with its uv rectangle; skipped when it has no area.
 void quad(const Ctx& c, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, std::uint32_t col) {
     if (x1 <= x0 || y1 <= y0) return;
-    QuadEmitter{c.list(), Mat4::identity(), true, col, kModeTextured, 0}.rect(x0, -y1, x1, -y0, u0, v0, u1, v1);
+    QuadEmitter{c.list(), c.to_screen(), true, col, kModeTextured, 0}.rect(x0, -y1, x1, -y0, u0, v0, u1, v1);
 }
 
 void fill(const Ctx& c, int layer, const Rect& r, Color col, const Rect& clip) {
@@ -73,7 +84,7 @@ void outline(const Ctx& c, int layer, const Rect& r, float t, Color col) {
 }
 
 // The widget's background: the whole rectangle in `tint`, or the texture as a 9-slice. The corners keep their size (one
-// texture pixel = one design pixel), the edges stretch along one axis and the centre along both; borders that do not fit
+// texture pixel = one UI unit), the edges stretch along one axis and the centre along both; borders that do not fit
 // shrink together. Every edge is rounded to a whole pixel so a texture is never resampled between texels.
 void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     const bool textured = !b.texture.empty();
@@ -81,8 +92,8 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     float border[4] = {0, 0, 0, 0}, uvBorder[4] = {0, 0, 0, 0};  // left, top, right, bottom: on screen and in uv
     if (textured)
         nine_slice_fit(b.slice, float(std::max(1, tex->width)), float(std::max(1, tex->height)), r.w, r.h, border, uvBorder);
-    const float xs[4] = {std::round(r.x), std::round(r.x + border[0]), std::round(r.x + r.w - border[2]), std::round(r.x + r.w)};
-    const float ys[4] = {std::round(r.y), std::round(r.y + border[1]), std::round(r.y + r.h - border[3]), std::round(r.y + r.h)};
+    const float xs[4] = {snap(c, r.x), snap(c, r.x + border[0]), snap(c, r.x + r.w - border[2]), snap(c, r.x + r.w)};
+    const float ys[4] = {snap(c, r.y), snap(c, r.y + border[1]), snap(c, r.y + r.h - border[3]), snap(c, r.y + r.h)};
     const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
     c.list().begin_item(b.layer, 0, tex, SamplerKind::Nearest, BlendMode::Alpha, c.clip);
     for (int j = 0; j < 3; ++j)
@@ -107,20 +118,20 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.maxWidth = maxWidth;
     t.align = align;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
-    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale), c.f.renderScale, true);
+    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale), c.f.renderScale * c.k, true);
 }
 
 // The font size of the label of widget `e` in rectangle `r`: autoShrink decides it from the laid-out size (fit_text, the same
 // code as ui.overflowed), else it is the design size at the capped text scale. 0 = no label.
 float label_px(const Ctx& c, const World& world, Entity e, const Rect& r) {
-    const std::optional<UiLabelFit> l = ui_label_fit(world, e, r, c.f.textScale, frame_text_extent(c.f));
+    const std::optional<UiLabelFit> l = ui_label_fit(world, e, r, c.f.textScale, frame_text_extent(c.f, c.f.uiScale));
     return l ? l->fit.px : 0.0f;
 }
 
 void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int layer, const Rect& clip) {
     if (lay.quads.empty()) return;
     c.list().begin_item(layer, 0, c.f.fonts->atlas(), SamplerKind::Linear, BlendMode::Alpha, clip);
-    QuadEmitter em{c.list(), Mat4::translate({std::round(x), std::round(y), 0}), true, pack(col, c.fade), kModeGlyph, 0};
+    QuadEmitter em{c.list(), Mat4::translate({std::round(x * c.k), std::round(y * c.k), 0}) * c.to_screen(), true, pack(col, c.fade), kModeGlyph, 0};
     for (const TextQuad& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
     c.list().end_item();
     c.f.stats->textGlyphs += int(lay.quads.size());
@@ -142,7 +153,7 @@ Color with_alpha(Color k, float a) { return {k.r, k.g, k.b, k.a * a}; }
 void disc(const Ctx& c, int layer, const Rect& r, Color col) {
     if (r.empty()) return;
     c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, c.clip);
-    QuadEmitter{c.list(), Mat4::identity(), true, pack(col, c.fade), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y, -1, -1, 1, 1);
+    QuadEmitter{c.list(), c.to_screen(), true, pack(col, c.fade), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y, -1, -1, 1, 1);
     c.list().end_item();
 }
 
@@ -246,8 +257,8 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
     // whole pixels: the picture must reach those.
     constexpr float kEps = 1e-3f;
     const bool opaque = v.tint.a * c.fade >= 1.0f;
-    const bool hidden = opaque && dst.x <= std::round(r.x) + kEps && dst.y <= std::round(r.y) + kEps &&
-                        dst.x + dst.w >= std::round(r.x + r.w) - kEps && dst.y + dst.h >= std::round(r.y + r.h) - kEps;
+    const bool hidden = opaque && dst.x <= snap(c, r.x) + kEps && dst.y <= snap(c, r.y) + kEps &&
+                        dst.x + dst.w >= snap(c, r.x + r.w) - kEps && dst.y + dst.h >= snap(c, r.y + r.h) - kEps;
     if (!hidden) background(c, b, r, b.color);
     c.list().begin_item(v.layer + 1, 0, tex, SamplerKind::LinearClamp, BlendMode::Alpha, c.clip);
     if (opaque) c.list().set_opaque();  // the same pixels without blending: less work for software rasterizers
@@ -258,7 +269,8 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
 void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBox& b) {
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
-    const Rect r = *ui_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});
+    c.k = ui_scale_clamped(world.ui_scale());
+    const Rect r = *ui_layout_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});  // UI units
     if (kind == UiKind::TouchButton) c.capScale = world.get<TouchButton>(e)->maxTextScale;
     if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
     if (kind == UiKind::Captions) return draw_captions(c, world, *world.get<Captions>(e), b, r);
@@ -278,7 +290,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         // Every line centred (also inside a wrap box); a label that does not fit is cut at the button's edge.
         const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center,
                                     btn.autoShrink ? label_px(c, world, e, r) : 0.0f);
-        const Rect clip = c.clip.empty() ? r : ui_intersect(r, c.clip);
+        const Rect clip = c.clip.empty() ? to_pixels(c, r) : ui_intersect(to_pixels(c, r), c.clip);
         if (!clip.empty())
             text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, clip);
     } else if (kind == UiKind::Toggle) {
@@ -312,7 +324,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     } else if (kind == UiKind::TextField) {
         const TextField& tf = *world.get<TextField>(e);
         const Rect inner{r.x + 12, r.y, std::max(0.0f, r.w - 24), r.h};
-        const Rect clip = c.clip.empty() ? inner : ui_intersect(inner, c.clip);  // the text never leaves the field
+        const Rect clip = c.clip.empty() ? to_pixels(c, inner) : ui_intersect(to_pixels(c, inner), c.clip);  // the text never leaves the field
         if (!clip.empty()) {
             const bool empty = tf.text.empty();
             const TextLayout lay = line(c, empty ? tf.placeholder : tf.text, tf.font, tf.fontSize);

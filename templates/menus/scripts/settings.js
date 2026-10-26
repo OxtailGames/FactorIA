@@ -1,5 +1,5 @@
 // @ts-check
-// The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
+// The player's settings (volumes, video, interface size, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
 
@@ -28,6 +28,7 @@ function defaults() {
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
+    uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
@@ -74,11 +75,12 @@ export function applyScene(s = load()) {
   applySubtitles(s);
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
   ui.textScale = s.textScale;
+  if (s.uiScale !== null) ui.scale = s.uiScale;
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once

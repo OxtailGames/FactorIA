@@ -42,6 +42,7 @@
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "uiScale": "Interface size: {percent}%",
     "colorFilter": "Color filter: {filter}",
     "filter": {
       "none": "off",

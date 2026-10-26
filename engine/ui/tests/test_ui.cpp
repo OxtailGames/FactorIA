@@ -1691,3 +1691,196 @@ TEST_CASE("ui focus: set_focus(null) holds over frames until a navigation press,
     t.click({20, 20});
     CHECK(t.ui.focused() == a);
 }
+
+// ------------------------------------------------------------------------------------------------ interface scale --
+// ui.scale (World::set_ui_scale, ui_rect.h): the UI is laid out in a screen of design size / k and drawn k times as big, so
+// the anchor does not move, every size, offset, padding and spacing is k times as big and the children stay inside.
+TEST_CASE("ui scale: at 1.5 a panel's rectangle, padding and spacing are 1.5 times as big and its children stay inside") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {20, 10}, {200, 120});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Column;
+    panel.spacing = 10;
+    panel.padding = {10, 12, 10, 12};
+    panel.align = UiAlign::Start;
+    Entity a = t.button("a", {0, 0}, {100, 20}, p), b = t.button("b", {0, 0}, {60, 30}, p);
+    t.ui.layout(t.w, t.design, {});
+    const Rect p1 = t.rect(p), a1 = t.rect(a), b1 = t.rect(b);
+    CHECK(a1.x - p1.x == doctest::Approx(10));
+    CHECK(a1.y - p1.y == doctest::Approx(12));
+    CHECK(b1.y - (a1.y + a1.h) == doctest::Approx(10));
+
+    t.w.set_ui_scale(1.5f);
+    t.ui.layout(t.w, t.design, {});
+    const Rect p2 = t.rect(p), a2 = t.rect(a), b2 = t.rect(b);
+    CHECK(p2.x == doctest::Approx(1.5f * p1.x)); CHECK(p2.y == doctest::Approx(1.5f * p1.y));
+    CHECK(p2.w == doctest::Approx(1.5f * p1.w)); CHECK(p2.h == doctest::Approx(1.5f * p1.h));
+    CHECK(a2.x - p2.x == doctest::Approx(1.5f * 10));          // padding
+    CHECK(a2.y - p2.y == doctest::Approx(1.5f * 12));
+    CHECK(b2.y - (a2.y + a2.h) == doctest::Approx(1.5f * 10)); // spacing
+    CHECK(a2.w == doctest::Approx(1.5f * 100)); CHECK(a2.h == doctest::Approx(1.5f * 20));
+    CHECK(b2.w == doctest::Approx(1.5f * 60));  CHECK(b2.h == doctest::Approx(1.5f * 30));
+    for (const Rect& child : {a2, b2}) {                       // the children stay inside the panel
+        CHECK(child.x >= p2.x - 0.01f); CHECK(child.y >= p2.y - 0.01f);
+        CHECK(child.x + child.w <= p2.x + p2.w + 0.01f); CHECK(child.y + child.h <= p2.y + p2.h + 0.01f);
+    }
+    // the layout rectangles, in UI units, did not change
+    CHECK(ui_layout_rect(t.w, a, t.design)->w == doctest::Approx(100));
+    // the stored sizes are the authored ones
+    CHECK(panel.size.x == doctest::Approx(200));
+    // 0.5 shrinks the same way, and back to 1 gives the first rectangles
+    t.w.set_ui_scale(0.5f);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).w == doctest::Approx(50)); CHECK(t.rect(a).x - t.rect(p).x == doctest::Approx(5));
+    t.w.set_ui_scale(1.0f);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(b).y == doctest::Approx(b1.y));
+    // an out-of-range or NaN scale is read as the nearest valid one (the commands refuse it before it gets here)
+    t.w.set_ui_scale(10.0f);
+    CHECK(t.w.ui_scale() == doctest::Approx(10.0f));
+    CHECK(ui_scale_clamped(t.w.ui_scale()) == kMaxUiScale);
+    CHECK(ui_scale_clamped(std::nanf("")) == 1.0f);
+}
+
+TEST_CASE("ui scale: an anchored panel keeps its place; the hit test, ui.state and a slider drag follow the scale") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {0, 0}, {120, 60});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.anchor = {1, 1};
+    panel.pivot = {1, 0};  // its bottom-right corner on the screen's
+    panel.layout = UiLayout::Column;
+    panel.align = UiAlign::Start;
+    panel.padding = {10, 10, 10, 10};
+    Entity b = t.button("b", {0, 0}, {80, 30}, p);
+    t.w.get<Button>(b)->autoFocus = true;
+    t.w.set_ui_scale(2.0f);
+    t.ui.layout(t.w, t.design, {});
+    // the bottom-right corner of the panel stays on the bottom-right corner of the screen
+    CHECK(t.rect(p).x + t.rect(p).w == doctest::Approx(320));
+    CHECK(t.rect(p).y + t.rect(p).h == doctest::Approx(180));
+    CHECK(t.rect(p).w == doctest::Approx(240));
+    CHECK(t.rect(b).w == doctest::Approx(160));
+    CHECK(t.rect(b).x == doctest::Approx(320 - 240 + 20));  // panel left + padding
+    // a click on the doubled button reaches it; a click where it used to be does not
+    t.frame();
+    t.events();
+    t.click({t.rect(b).x + 5, t.rect(b).y + 5});
+    CHECK(t.events() == V{"ui.click:b"});
+    t.click({285, 155});  // where the button was at scale 1: now below it, on the panel
+    CHECK(t.events().empty());
+    // ui.state reports the rectangle on screen
+    const Json st = t.ui.state(t.w, t.design);
+    CHECK(st["uiScale"] == 2.0);
+    const Rect br = t.rect(b);
+    for (const Json& wj : st["widgets"])
+        if (wj["id"] == "b") CHECK(wj["rect"] == Json::array({br.x, br.y, br.w, br.h}));
+
+    // a slider: the drag maps the mouse to the track in UI units
+    Ui s;
+    Entity e = s.add<Slider>("s", {0, 0}, {120, 20});
+    Slider& sl = *s.w.get<Slider>(e);
+    sl.value = 0.5f;
+    sl.step = 0;
+    s.w.set_ui_scale(2.0f);
+    s.frame();
+    const Rect screenRect = s.rect(e);
+    CHECK(screenRect.w == doctest::Approx(240));
+    const auto [left, right] = ui_slider_track(sl, *ui_layout_rect(s.w, e, s.design));  // UI units
+    s.in.on_mouse_move({2 * (left + (right - left) * 0.25f), 10});
+    s.in.on_mouse_button(MouseButton::Left, true);
+    s.frame();
+    CHECK(sl.value == doctest::Approx(0.25f).epsilon(0.02));
+    s.in.on_mouse_button(MouseButton::Left, false);
+    s.frame();
+}
+
+TEST_CASE("ui scale: Panel.minSize and maxSize bound a fit panel and a fixed one, in UI units, min last") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {10, 10}, {10, 10});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Column;
+    panel.fit = true;
+    panel.spacing = 10;
+    panel.padding = {10, 10, 10, 10};
+    panel.align = UiAlign::Start;
+    t.button("a", {0, 0}, {100, 20}, p);
+    t.button("b", {0, 0}, {60, 30}, p);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(120));  // 100 + 2 * 10
+    CHECK(panel.size.y == doctest::Approx(80));   // 20 + 10 + 30 + 2 * 10
+    // minSize keeps a fit panel from shrinking below it (its content is smaller on x and taller on y)
+    panel.minSize = {200, 50};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(200));
+    CHECK(panel.size.y == doctest::Approx(80));
+    // maxSize caps it
+    panel.minSize = {0, 0};
+    panel.maxSize = {100, 60};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(100));
+    CHECK(panel.size.y == doctest::Approx(60));
+    // 0 on an axis means no bound there
+    panel.maxSize = {0, 70};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(120));
+    CHECK(panel.size.y == doctest::Approx(70));
+    // min wins over max
+    panel.minSize = {150, 0};
+    panel.maxSize = {100, 0};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(150));
+    // a panel that is not fit is clamped too, and the clamped size is what is stored
+    Entity q = t.add<Panel>("q", {0, 100}, {300, 20});
+    t.w.get<Panel>(q)->maxSize = {250, 0};
+    t.w.get<Panel>(q)->minSize = {0, 40};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.get<Panel>(q)->size.x == doctest::Approx(250));
+    CHECK(t.w.get<Panel>(q)->size.y == doctest::Approx(40));
+    // at ui.scale 1.5 the bounds are UI units too: the rectangle on screen is 1.5 times as big
+    t.w.set_ui_scale(1.5f);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(q).w == doctest::Approx(1.5f * 250));
+    CHECK(t.rect(p).w == doctest::Approx(1.5f * 150));
+}
+
+TEST_CASE("ui scale: a fit Panel with minSize keeps it at ui.scale 1.5 and the children stay inside") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity p = t.add<Panel>("p", {100, 100}, {10, 10});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Row;
+    panel.fit = true;
+    panel.spacing = 8;
+    panel.padding = {16, 16, 16, 16};
+    panel.minSize = {400, 0};
+    Entity a = t.button("a", {0, 0}, {80, 40}, p), b = t.button("b", {0, 0}, {80, 40}, p);
+    t.w.set_ui_scale(1.5f);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(panel.size.x == doctest::Approx(400));  // the content is 8 + 80 + 80 + 32 = 200 wide
+    CHECK(panel.size.y == doctest::Approx(72));
+    const Rect pr = t.rect(p);
+    CHECK(pr.w == doctest::Approx(600));
+    for (Entity c : {a, b}) {
+        const Rect r = t.rect(c);
+        CHECK(r.x >= pr.x - 0.01f); CHECK(r.x + r.w <= pr.x + pr.w + 0.01f);
+        CHECK(r.y >= pr.y - 0.01f); CHECK(r.y + r.h <= pr.y + pr.h + 0.01f);
+    }
+}
+
+TEST_CASE("ui scale: autoSize and text overflow are measured in UI units, so a label's box grows with k and still fits") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity b = t.button("b", {10, 10}, {240, 56});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Volver al menu principal";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const float width = btn.size.x;
+    const Rect r1 = t.rect(b);
+    t.w.set_ui_scale(2.0f);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(width));  // the authored size: unchanged
+    CHECK(t.rect(b).w == doctest::Approx(2 * r1.w));
+    CHECK(t.rect(b).h == doctest::Approx(2 * r1.h));
+    CHECK(!ui_text_overflowed(t.w, b, t.design, measure_at(1.0f)));
+}

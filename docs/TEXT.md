@@ -193,6 +193,56 @@ the renderers all use the same size, so what a test measures is what is drawn:
 - **`ui.check_layout`** runs that test for you on every scene, language and text scale (and a pseudo-localized pass), and
   also lists overlapping and off-screen texts (`steps` opens a panel first; a `ScrollList` row is judged by its visible part): see [LOCALIZATION.md](LOCALIZATION.md), section 7.
 
+## Interface size (`ui.scale`)
+
+`ui.textScale` makes the text bigger and leaves the boxes alone. `ui.scale` (a number from 0.5 to 3, 1 = as authored)
+makes the whole interface bigger or smaller, as a player with a small screen or poor eyesight asks for: it multiplies
+the `size`, `position` offset, `padding`, `spacing`, margins and font size of every screen-space widget (`Panel`,
+`Button`, `Toggle`, `Slider`, `TextField`, `ScrollList`, `TouchStick`, `TouchButton`, `Captions`) and of every
+screen-space `Text`, `Sprite` and `Shape2D`. `ui.textScale` comes on top of it for text, so at `ui.scale` 1.5 and
+`ui.textScale` 2 a font is drawn 3 times as big.
+
+A screen is laid out in **UI units**: a virtual screen of the design size divided by `ui.scale` (1280 x 720 at 1.5 is
+853 x 480 UI units), with the safe-area insets divided the same way, and drawn `ui.scale` times as big. So the sizes you
+write in scenes stay design pixels at scale 1; and the anchor does not move: a widget anchored to a corner stays in that
+corner, a centred panel stays centred, and the children of a `Panel` stay inside it.
+
+```js
+import { ui, storage, math } from "factoria";
+ui.scale = math.clamp(storage.get("uiScale") ?? ui.scale, 0.5, 3);  // at start; ui.scale is the factoria.json default until then
+// in the options menu:
+ui.scale = 1.5;
+storage.set("uiScale", ui.scale);
+```
+
+- **Project default.** `"ui": { "scale": 1.25 }` in `factoria.json` is the size a game starts with (and the value of
+  `ui.scale` at the start of every test file). A reload of the project applies it only if the file changed, so it never
+  undoes the player's choice. The engine does not save the player's choice: the game keeps it in `storage` and sets it at
+  start, as for `ui.textScale`. Setting a number outside 0.5 to 3 throws. Over MCP or `factoria call` the command is
+  `ui.set_scale {"scale": 1.5}`; `ui.state` reports `uiScale`.
+- **Units.** `Panel.size`, `Button.size`, the results of `ui.layout()` and `ui.measureText` are in UI units. `ui.rectOf`,
+  the rectangles of `ui.state` and of the `ui.check_layout` warnings, the hit test, `game.input` clicks and the screenshot
+  are on the screen, in design pixels, so they already include the scale: at 1.5 a button of `size` 100 has a `rectOf`
+  width of 150. `screen.size` and `screen.safeArea` are the screen's design size and safe area, never divided by the scale
+  (a panel of `size` 760 x 680 fits when `760 * ui.scale <= screen.size.x` and `680 * ui.scale <= screen.size.y`).
+- **Panel limits.** `Panel.minSize` and `Panel.maxSize` (UI units, 0 = no limit on that axis) bound the size of a
+  `Panel` with `fit: true` too: a `fit` Panel never shrinks below `minSize` or grows above `maxSize` (a column `Panel`
+  that is "as tall as its rows, at least 300 and at most the screen" is `"minSize": [0, 300]`). When the two cross,
+  `minSize` wins. This is what keeps a window of a fixed look when the labels are short or the language changes.
+- **Events.** `ui.on("scale", (e) => ...)` and `ui.on("textScale", (e) => ...)` run once per change to another value
+  with `{ type, value, previous }`, like `i18n.on("change")`, with the game events of the next frame; use them to redo
+  what depends on the size of the interface (a layout your script computes, an `ui.measureText`) instead of keeping a
+  list of widgets to resize. They end with the scene. Setting the value it already has sends nothing.
+- **Laying out for every size.** The screen shrinks (in UI units) as the scale grows: a 760 x 680 panel fits 1280 x 720 at
+  1 and 0.75 but not at 1.25. Give a panel that must fit a `ScrollList` with `fill`, or a `fallbackLayout`, check each
+  size you offer with `ui.check_layout {"uiScales": [1, 1.25, 1.5]}` (crossed with `languages` and `textScales`) and look
+  at it with `game.screenshot`. The menu kit's Options "Interface size" button offers only the sizes at which its own
+  panel still fits.
+- **Limits.** Screen-space particle emitters (`ParticleEmitter` with `space: "screen"`) are not scaled. A 9-slice border
+  is scaled with the widget, so a themed button's border grows with it. At a scale under 1 a widget that was
+  authored as large as the screen no longer covers it (its size is multiplied by the scale), so draw a backdrop with the
+  camera clear colour or make it larger than the screen. World-space entities, and `Text` with `space: "world"`, are never scaled.
+
 ## Captions
 
 Subtitles for sounds and hints. One `Captions` component (a UI widget: `anchor`, `pivot`, `safeArea`, `size`, `layer`)

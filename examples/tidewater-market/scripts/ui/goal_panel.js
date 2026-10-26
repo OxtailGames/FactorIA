@@ -78,7 +78,7 @@ export class GoalPanel {
     const column = world.find("palette");
     const rect = column && ui.rectOf(column);
     if (!rect) return;
-    const top = Math.round(rect.y + rect.h + 10);
+    const top = Math.round(rect.y / ui.scale + rect.h / ui.scale + 10); // the rectangle is in screen pixels, the position in UI units
     if (top === this.placedAt) return;
     this.placedAt = top;
     this.panel.position = [-8, top, 0];

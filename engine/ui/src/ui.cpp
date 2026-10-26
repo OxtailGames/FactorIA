@@ -120,7 +120,7 @@ void reading_order(std::vector<Item>& items) {
 // Does a ScrollList have more content than it shows? Its children sit scroll pixels above their unscrolled place.
 bool scrollable(const World& w, Entity e, Vec2 design, const VisualMeasure& measure) {
     const ScrollList& s = *w.get<ScrollList>(e);
-    const Rect r = *ui_rect(w, e, design);
+    const Rect r = *ui_layout_rect(w, e, design);  // UI units, like screen_rect, padding and scroll
     float bottom = -1e30f;
     for (Entity c : w.children(e))
         if (w.active_in_hierarchy(c))
@@ -431,8 +431,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     if (press_) {
         if (Slider* s = w.get<Slider>(press_)) {
             const Item* it = find(press_);
-            const auto [left, right] = ui_slider_track(*s, it->rect);
-            const float t = right > left ? std::clamp((mouse.x - left) / (right - left), 0.0f, 1.0f) : 0.0f;
+            const float k = ui_scale_clamped(w.ui_scale());  // the track is laid out in UI units, the pointer is in pixels
+            const Rect unitRect{it->rect.x / k, it->rect.y / k, it->rect.w / k, it->rect.h / k};
+            const auto [left, right] = ui_slider_track(*s, unitRect);
+            const float t = right > left ? std::clamp((mouse.x / k - left) / (right - left), 0.0f, 1.0f) : 0.0f;
             const float v = snap_slider(*s, s->min + t * (std::max(s->min, s->max) - s->min));
             if (v != s->value) {
                 s->value = v;
@@ -566,7 +568,7 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
     for (Entity e : w.entities()) {
         const Text* t = w.get<Text>(e);
         if (!t || t->space != RenderSpace::Screen || !w.active_in_hierarchy(e)) continue;
-        if (const std::optional<Rect> r = ui_detail::screen_rect(w, e, design, measure)) texts.push_back({*r, e});
+        if (const std::optional<Rect> r = ui_screen_rect(w, e, design, measure)) texts.push_back({*r, e});
     }
     std::stable_sort(texts.begin(), texts.end(), [](const auto& a, const auto& b) {
         return a.first.y != b.first.y ? a.first.y < b.first.y : a.first.x < b.first.x;
@@ -582,6 +584,7 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
     }
     return Json::object({{"focused", focus_ && w.alive(focus_) ? Json(w.id_of(focus_)) : Json(nullptr)},
                          {"hovered", hover_ && w.alive(hover_) ? Json(w.id_of(hover_)) : Json(nullptr)},
+                         {"uiScale", ui_scale_clamped(w.ui_scale())},
                          {"widgets", std::move(list)}});
 }
 

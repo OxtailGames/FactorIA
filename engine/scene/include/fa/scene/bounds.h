@@ -32,7 +32,8 @@ struct VisualMeasure {
     std::function<Vec2(const std::string& path)> textureSize;
     // Size {w, h} of `text` laid out like the renderer does, with the player's text size (ui.textScale), the Text's
     // maxTextScale cap and its autoShrink already applied (the renderer's Renderer::measure_text(Text), or
-    // approx_text_size(Text, textScale) without a renderer). Empty: approx_text_size().
+    // approx_text_size(Text, textScale) without a renderer). Empty: approx_text_size(). Screen-space text is measured in UI
+    // UNITS (ui_rect.h): at the interface scale k it is drawn k times as big, so the measure is for fontSize, not fontSize * k.
     std::function<Vec2(const Text& text)> textSize;
     // The player's text size option (ui.textScale) at the moment of the measurement. UI code that fits labels itself
     // (text_fit.h) reads it; textSize already includes it for a Text.
@@ -66,7 +67,10 @@ struct VisualFootprint {
 //
 // Screen space: the renderer draws these with local y negated and the translation moved by the anchor point, so a
 // point (lx, ly) of the box lands at world_matrix * (lx, -ly) + anchor_point(anchor, safeArea, designSize, insets)
-// (ui_rect.h; plain anchor * designSize without safeArea). Callers that need that do it themselves.
+// (ui_rect.h; plain anchor * designSize without safeArea). Callers that need that do it themselves. With an interface scale k
+// (World::ui_scale()) the box and the matrix are in UI units: on the screen the point lands at
+// k * world_matrix * (lx, -ly) + anchor_point(...), the anchor point not scaled (ui_layout_screen / ui_layout_insets give
+// the same point in UI units, which is what layout uses).
 std::vector<VisualFootprint> visual_footprints(const World& w, Entity e, const VisualMeasure& measure = {},
                                                bool includeScreenSpace = true);
 

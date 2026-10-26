@@ -3,11 +3,13 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/project.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -251,6 +253,112 @@ TEST_CASE("ui.set_text_scale is the text size option: ui.textScale and ui.state 
         CHECK_FALSE(r.error["hint"].get<std::string>().empty());
     }
     CHECK(e.text_scale() == 2.0f);  // a rejected value changes nothing
+    e.shutdown();
+}
+
+TEST_CASE("ui.set_scale is the interface scale: ui.scale, ui.state and the rectangles see it, a bad value teaches") {
+    TempProject p("uiscale");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("ui.set_scale");
+    REQUIRE(info != nullptr);
+    CHECK_FALSE(info->readOnly);
+    CHECK(info->description.find("Example") != std::string::npos);
+    CHECK(info->description.find("not save") != std::string::npos);  // it says the game stores the option
+    CHECK(e.commands().call("ui.state", Json::object()).result["uiScale"] == 1.0);
+    auto r1 = e.commands().call("ui.state", Json::object());
+    Json before;
+    for (const Json& w : r1.result["widgets"])
+        if (w["id"] == "play") before = w["rect"];
+    REQUIRE(before.is_array());
+    auto r = e.commands().call("ui.set_scale", Json{{"scale", 1.5}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["uiScale"] == 1.5);
+    CHECK(e.ui_scale() == 1.5f);
+    CHECK(e.world().ui_scale() == 1.5f);
+    auto st = e.commands().call("ui.state", Json::object());
+    CHECK(st.result["uiScale"] == 1.5);
+    for (const Json& w : st.result["widgets"])
+        if (w["id"] == "play") {
+            CHECK(w["rect"][2].get<float>() == doctest::Approx(1.5f * before[2].get<float>()));  // the size of the button on screen
+            CHECK(w["rect"][3].get<float>() == doctest::Approx(1.5f * before[3].get<float>()));
+        }
+    CHECK(e.commands().call("script.eval", Json{{"code", "ui.scale"}}).result["value"] == 1.5);  // a script sees the same option
+    e.commands().call("script.eval", Json{{"code", "ui.scale = 2"}});
+    CHECK(e.ui_scale() == 2.0f);                                                                  // and a script sets it
+    for (auto [bad, what] : {std::pair{0.1, "minimum 0.5"}, std::pair{3.5, "maximum 3"}, std::pair{100.0, "maximum 3"}}) {
+        r = e.commands().call("ui.set_scale", Json{{"scale", bad}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find(what) != std::string::npos);
+        CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+    }
+    CHECK(e.ui_scale() == 2.0f);  // a rejected value changes nothing
+    e.shutdown();
+}
+
+TEST_CASE("project: ui.scale is the interface scale a run starts with, it validates, and a test file starts from it") {
+    TempProject p("uiscale_project", R"({
+  "format": "factoria.project/1", "name": "Ui Scale", "mainScene": "scenes/main.scene.json",
+  "display": { "width": 320, "height": 180 }, "ui": { "scale": 1.25 }
+})");
+    auto proj = load_project(p.dir.generic_string());
+    REQUIRE(proj.ok());
+    CHECK(proj->uiScale == doctest::Approx(1.25f));
+    CHECK(proj->to_json()["ui"]["scale"].get<double>() == doctest::Approx(1.25));
+    TempProject none("uiscale_project_none");
+    CHECK(load_project(none.dir.generic_string())->uiScale == 1.0f);
+    int n = 0;
+    for (const char* bad : {R"({"name":"x","ui":{"scale":"big"}})", R"({"name":"x","ui":{"scale":4}})", R"({"name":"x","ui":{"scale":0.2}})",
+                            R"({"name":"x","ui":3})"}) {
+        TempProject b("uiscale_project_bad" + std::to_string(n++), bad);
+        auto e = load_project(b.dir.generic_string());
+        REQUIRE_FALSE(e.ok());
+        CHECK(e.error().message.find("/ui") != std::string::npos);
+        CHECK_FALSE(e.error().hint.empty());
+    }
+
+    p.write("tests/scale.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { ui } from "factoria";
+test("starts at the project's ui.scale, even after another file changed it", () => {
+  expect(ui.scale).toBe(1.25);
+  ui.scale = 2;
+});
+)JS");
+    p.write("tests/scale2.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { ui } from "factoria";
+test("a second file starts at the project's value again", () => { expect(ui.scale).toBe(1.25); });
+)JS");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    CHECK(e.ui_scale() == 1.25f);
+    CHECK(e.default_ui_scale() == 1.25f);
+    CHECK(e.world().ui_scale() == 1.25f);
+    // the start-up change is no event: nothing waits for the first frame's listeners
+    for (const GameEvent& ev : e.world().events().game) CHECK(ev.name != "ui.scale");
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
+    CHECK(t.result["passed"].get<int>() == 2);
+    CHECK(e.ui_scale() == 1.25f);
+
+    // The player's choice survives a reload of factoria.json for another setting; a new project value replaces it.
+    e.commands().call("ui.set_scale", Json{{"scale", 2.0}});
+    auto rewrite = [&](const char* text, int seconds) {
+        p.write("factoria.json", text);
+        stdfs::last_write_time(p.dir / "factoria.json", stdfs::file_time_type::clock::now() + std::chrono::seconds(seconds));
+        auto reload = e.commands().call("scene.reload", Json::object());
+        REQUIRE_MESSAGE(reload.ok, reload.error.dump());
+    };
+    rewrite(R"({"format":"factoria.project/1","name":"Ui Scale","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180},
+               "physics":{"fixedHz":30},"ui":{"scale":1.25}})", 10);
+    CHECK(e.ui_scale() == 2.0f);
+    rewrite(R"({"format":"factoria.project/1","name":"Ui Scale","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180},
+               "ui":{"scale":1.5}})", 20);
+    CHECK(e.ui_scale() == 1.5f);
     e.shutdown();
 }
 

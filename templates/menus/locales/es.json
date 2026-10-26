@@ -42,6 +42,7 @@
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
     "frameCap": "Límite de fotogramas: {fps} fps",
     "frameCapOff": "Límite de fotogramas: sin límite",
+    "uiScale": "Tamaño de la interfaz: {percent}%",
     "colorFilter": "Filtro de color: {filter}",
     "filter": {
       "none": "desactivado",
