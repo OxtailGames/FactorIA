@@ -105,6 +105,11 @@
           "minimum": 1,
           "description": "How many times this gap was hit/reported. Incremented when a similar open entry is reported again."
         },
+        "distinctFrom": {
+          "type": "array",
+          "description": "Ids of entries this one is a different gap from (\"FB-0011\", or \"<project>/FB-0011\" for another project's). `feedback collect` never puts them in one group, however alike the titles are.",
+          "items": { "type": "string" }
+        },
         "notes": {
           "type": "array",
           "description": "Extra workaround descriptions from repeated reports, each prefixed with its date.",

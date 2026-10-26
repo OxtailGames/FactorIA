@@ -281,6 +281,9 @@ struct HeadlessRunOptions {
     // ffmpeg from that, so it needs `ffmpegPath` (the CLI looks it up); without it a .mp4 request fails before the run.
     std::string videoOutPath;
     std::string ffmpegPath;
+    // Called after each frame is written to the video, with the frames written so far and the frames the run was asked
+    // for (a run that quits early ends below the total). The CLI prints it as progress lines.
+    std::function<void(int written, int total)> videoProgress;
     bool failOnScriptError = true;
     // Profile the run (fa/core/profiler.h): report["profile"] summarises the frames after `profileWarmup` (the first frames
     // load assets and warm caches): per system and per behaviour class ms, GPU ms or null + reason, memory. Wall-clock
