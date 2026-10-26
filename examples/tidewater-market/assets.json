@@ -1,0 +1,204 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/atlas.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-26",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces; the rest drawn by assets/src/make_atlas.py",
+        "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the rock tile and the goods icons)"
+      }
+    },
+    "assets/src/kenney/beach.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferAltShort.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferAltTall.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferShort.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferTall.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroad.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadESW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadNES.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadNEW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadNSW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/grass.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/road.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadES.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadEW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadNE.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadNS.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadNW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadSW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/treeShort.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/treeTall.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/water.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    }
+  }
+}
