@@ -815,8 +815,9 @@ Left open:
 - Workarounds Burrow Brigade keeps on purpose (their "Fixed in" notes say why): the music layers and bus effects are
   still its own emulation (BB/FB-0025, BB/FB-0026: moving to `musicLayers`, filters and reverb means re-rendering the
   one-bar loops and listening); the store scenes are generated and the bot replays kept (BB/FB-0030); the capsules were
-  not redrawn (BB/FB-0034); the exported builds were not checked by hand (BB/FB-0029, BB/FB-0033); the cloud revision
-  counter stays because Apple has no modified time (BB/FB-0018); unmarked Thai needs a dictionary (BB/FB-0036).
+  not redrawn (BB/FB-0034); the exported builds were checked on macOS only, and not played by hand (BB/FB-0029,
+  BB/FB-0033, see "Manual checks on macOS" below); the cloud revision counter stays because Apple has no modified time
+  (BB/FB-0018); unmarked Thai needs a dictionary (BB/FB-0036).
 - Out of M29, as planned: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary), a cloud conflict event,
   mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling plugins from the Mac, and WebSocket.
 - M29.1: the light budget it reports against is M29.14's 256 per frame, not 16 (its test expects 17 lights kept).
@@ -837,18 +838,35 @@ Left open:
   and Burrow's tests cover it).
 - M29.16: effects persist across scene loads; attack and release are time constants; the CPU costs are estimates; only
   macOS tested.
-- M29.17: no manual check on any OS; the Windows and Linux code is not compiled here; borderless and full screen are the
-  same on Windows and Linux; macOS borderless is untested.
+- M29.17: checked by hand on macOS only (below); no second monitor was connected, so moving between monitors is
+  untested; the Windows and Linux code is not compiled here; borderless and full screen are the same on Windows and
+  Linux; macOS borderless covers the notch (a 16:9 game is letterboxed clear of it, a 16:10 one would draw under it).
 - M29.18: only the Steam mock is tested (no real Steam, Google Play or iCloud); the Windows, Linux, Android and Swift code
   is not compiled here; no mapping of a session to a pad and no conflict event.
 - M29.19: only Metal ran; screen-space `lit` visuals get only ambient light in a frame with several cameras; the editor's
   outlines and gizmos project through the first camera only; no `api_since` rows for the new script functions (the file
-  lists components and commands only).
+  lists components and commands only). Burrow Brigade's HUD is screen space, so in a top/bottom split its top-left text
+  covers a miner standing at the top-left of the upper view.
 - M29.20: the other platforms are not compiled here; Win32 disables cookies and automatic authentication; Android sends
   PATCH as POST with an override header and plain `http://localhost` does not work there; CORS applies on the web; the
   translated docs are not updated; no `api_since` rows; requests still in flight when a recording stops are not recorded.
 - M29.21: Burrow's server URLs are placeholders (`burrow-brigade.example`, explained in its README); the iOS export's
   analytics privacy entry is untested; retries on network errors, 408, 429 and 5xx with backoff.
+- Manual checks on macOS (2026-10-26, MacBook Air M5, the `m29/player-size` build, one built-in display):
+  - M29.17 window modes, from a script in a windowed `factoria run`: windowed 1280x720 comes back to the same frame and
+    position after borderless and after full screen; borderless fills the display (1470x956 points) and hides the menu bar
+    and Dock; full screen gets its own Space (1470x923, below the notch); full screen to borderless and `setMonitor` in full
+    screen throw messages that say what to do; borderless to full screen and `setMonitor(0)` in borderless work;
+    `setSize(960, 540)` keeps the top-left corner.
+  - Burrow Brigade's macOS export (`--release`): a 15 MB app (16 MB before `-dead_strip`) with a 10.5 MB arm64 binary;
+    `codesign --verify --deep --strict` passes; `store/replays/join.json` replayed for 200 frames by the exported player
+    gives the same state dump and the same screenshot, byte for byte, as `factoria run --headless`, with all four players
+    joined (BB/FB-0029); a windowed `--frames 300` run exits 0; the `publish.steam` dry run with app 480 is accepted
+    with the Spacewar warning (BB/FB-0033). Not done: a real upload with 480 (to see it refused) and playing the app by
+    hand.
+  - M29.19 split screen, windowed on Metal with two players and the option on: together, one camera with the full
+    viewport; parted across, two side-by-side views with the dark gap, each following its miner; parted down, two views
+    one above the other, the higher miner on top. Each view stays inside the mine.
 - Clockwork Courier's tests `rooftops_3` and `market_3 > the expert shortcut wins too` are close to their 60 s limit and
   time out when the machine is loaded (they did on `main` too).
 
