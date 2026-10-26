@@ -5,10 +5,12 @@
 //   GameState  (state.js)   all rules and all state; never touches the engine.
 //   MapView    (map_view.js) sprites for the state; this controller asks it for the highlight diamonds and the ghost.
 //   CameraRig  (camera_rig.js) the strategy camera on the "camera" entity; this controller asks it which cell is under the mouse.
-//   this file               tools (build / road / demolish), hover, drag, hotkeys, palette buttons, top bar, status line, toasts.
+//   Hud        (ui_hud.js)  the panels: build menu, inspector, goods table, charts, help, notifications, tooltips, overlays.
+//   this file               tools (build / road / demolish), hover, drag, hotkeys, top bar, status line, toasts.
 //
 // Later packages: `controller.state` is the state, `controller.state.events` is the event bus (README, "Contracts"). Add new
-// HUD items to the bar with `controller.addHudItem`, new palette buttons by adding a building to data/buildings.json.
+// HUD items to the bar with `controller.addHudItem`; new build-menu items come from data/buildings.json (its `category`);
+// new panels, tooltips, notifications and overlays go through `controller.hud` (README, "Interface (P3)").
 import { Behaviour, ui, input, i18n, game } from "factoria";
 import { getData } from "./data.js";
 import { createGame } from "./state.js";
@@ -21,6 +23,8 @@ import { SPEEDS } from "./clock.js";
 import { footprintCells, roadPath } from "./rules.js";
 import { cellToWorld, mapBounds } from "./iso.js";
 import { amountText, buildingName, dateText, reasonText, stepText } from "./format.js";
+import { Hud } from "./ui_hud.js";
+import { formatCompact } from "./ui_model.js";
 
 const COLOR_BUTTON = [0.17, 0.21, 0.28, 1];
 const COLOR_BUTTON_ACTIVE = [0.33, 0.52, 0.72, 1];
@@ -92,8 +96,10 @@ export default class GameController extends Behaviour {
     this.uiPanels = [this.hudBar, this.palette, this.statusBar, this.dateTextEntity, this.speedBar];
     this.world.find("coin_icon").get("Sprite").region = this.data.atlas.frames["icon.coin"].rect;
     this.buildHud();
-    this.buildPalette();
     this.buildSpeedBar();
+    /** The panels (ui_hud.js). It owns the right-hand column, the build menu and the inspector. */
+    this.hud = new Hud(this);
+    this.buttons = this.hud.rightButtons;
 
     const ev = this.state.events;
     this.off = [
@@ -102,10 +108,7 @@ export default class GameController extends Behaviour {
       ev.on("clock.season", (e) => this.toast(i18n.t("toast.season", { season: i18n.t(`season.${e.date.season}`) }))),
       ev.on("villager.left", (e) => this.toast(i18n.t("toast.left", { reason: i18n.t(`sim.leftReason.${e.reason}`) }))),
       ev.on("payday", (e) => e.broke && this.toast(i18n.t("toast.broke"))),
-      i18n.on("change", () => {
-        this.buildPaletteLabels();
-        this.buildSpeedLabels();
-      }),
+      i18n.on("change", () => this.buildSpeedLabels()),
       ui.on("click", (e) => this.onClick(e.id)),
     ];
     this.refreshButtons();
@@ -116,6 +119,7 @@ export default class GameController extends Behaviour {
   onDestroy() {
     for (const off of this.off || []) off();
     this.off = [];
+    if (this.hud) this.hud.destroy();
     if (this.musicDirector) this.musicDirector.destroy();
     if (this.view) this.view.destroy();
   }
@@ -138,7 +142,7 @@ export default class GameController extends Behaviour {
     this.speedButtons = [];
     SPEED_LABELS.forEach((label, i) => {
       const e = this.world.spawn(
-        { id: `speed_${i}`, components: { Button: { text: i18n.t(label), size: [50, 30], fontSize: 18, layer: 210, color: COLOR_BUTTON } } },
+        { id: `speed_${i}`, components: { Button: { text: i18n.t(label), size: [50, 30], fontSize: 16, layer: 210, color: COLOR_BUTTON } } },
         { parent: this.speedBar },
       );
       this.speedButtons.push(e);
@@ -166,51 +170,14 @@ export default class GameController extends Behaviour {
       { parent: this.hudBar },
     );
     return this.world.spawn(
-      { id: `${id}_text`, components: { Text: { text, fontSize: 22, space: "screen", layer: 210 } } },
+      { id: `${id}_text`, components: { Text: { text, fontSize: 18, space: "screen", layer: 210 } } },
       { parent: this.hudBar },
     );
   }
 
-  /** The right-hand palette: one button per building (data/buildings.json order), then Demolish, Rotate, Undo, Redo. */
-  buildPalette() {
-    this.buttons = {};
-    const make = (id, interactable = true) => {
-      const e = this.world.spawn(
-        {
-          id,
-          components: {
-            Button: { text: id, size: [236, 29], fontSize: 18, layer: 210, color: COLOR_BUTTON, interactable },
-          },
-        },
-        { parent: this.palette },
-      );
-      this.buttons[id] = e;
-      return e;
-    };
-    for (const type of this.data.buildingIds) make(`tool_${type}`);
-    make("tool_demolish");
-    make("btn_rotate");
-    make("btn_undo");
-    make("btn_redo");
-    this.buildPaletteLabels();
-  }
-
-  buildPaletteLabels() {
-    for (const type of this.data.buildingIds) {
-      const coins = this.data.buildings[type].cost.coins || 0;
-      this.buttons[`tool_${type}`].get("Button").text = i18n.t("hud.item", { name: buildingName(type), coins });
-    }
-    this.buttons.tool_demolish.get("Button").text = i18n.t("hud.demolish");
-    this.buttons.btn_rotate.get("Button").text = i18n.t("hud.rotate");
-    this.buttons.btn_undo.get("Button").text = i18n.t("hud.undo");
-    this.buttons.btn_redo.get("Button").text = i18n.t("hud.redo");
-  }
-
-  /** Highlight the active tool's button; grey Undo / Redo out when there is nothing to undo / redo. */
+  /** Highlight the active tool's buttons (build menu, Demolish); grey Undo / Redo out when there is nothing to undo / redo. */
   refreshButtons() {
-    for (const type of this.data.buildingIds) {
-      this.buttons[`tool_${type}`].get("Button").color = this.tool.kind === "build" && this.tool.type === type ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON;
-    }
+    this.hud.refreshBar();
     this.buttons.tool_demolish.get("Button").color = this.tool.kind === "demolish" ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON;
     this.buttons.btn_undo.get("Button").interactable = this.state.canUndo();
     this.buttons.btn_redo.get("Button").interactable = this.state.canRedo();
@@ -219,13 +186,13 @@ export default class GameController extends Behaviour {
   /** Write the numbers into the bar; a Text is only touched when its string changed. */
   refreshHud(force = false) {
     const eco = this.state.economy;
-    const coins = String(eco.coins);
+    const coins = formatCompact(eco.coins);
     if (force || coins !== this.shown.coins) {
       this.shown.coins = coins;
       this.coinsText.get("Text").text = coins;
     }
     for (const id of Object.keys(this.goodTexts)) {
-      const n = String(eco.get(id));
+      const n = formatCompact(Math.floor(eco.get(id)));
       if (force || n !== this.shown.goods[id]) {
         this.shown.goods[id] = n;
         this.goodTexts[id].get("Text").text = n;
@@ -237,16 +204,48 @@ export default class GameController extends Behaviour {
       this.dateTextEntity.get("Text").text = date;
     }
     const sum = this.state.sim.summary();
-    let pop = i18n.t("hud.popItem", { count: sum.population, housing: sum.housing });
-    if (sum.hungry > 0) pop += `  ${i18n.t("hud.hungry", { count: sum.hungry })}`;
+    let pop = i18n.t("hud.popItem", { count: formatCompact(sum.population), housing: formatCompact(sum.housing) });
+    if (sum.hungry > 0) pop += `  ${i18n.t("ui.hungryShort", { count: formatCompact(sum.hungry) })}`;
     if (force || pop !== this.shown.pop) {
       this.shown.pop = pop;
       this.popText.get("Text").text = pop;
     }
+    this.fitTopBar(force);
     const speed = this.state.clock.speed;
     if (force || speed !== this.shown.speed) {
       this.shown.speed = speed;
       this.speedButtons.forEach((e, i) => (e.get("Button").color = i === speed ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON));
+    }
+  }
+
+  /**
+   * Keep the numbers of the top bar clear of the date. Large numbers or a larger text size (ui.textScale) can make the row longer than
+   * the room left of the date: then the goods at the end of the list are hidden (the goods table, key G, always has them all), one by one,
+   * until the row fits. Only redone when a text or the text size changed.
+   */
+  fitTopBar(force = false) {
+    const rep = this.world.find("rep_text");
+    const sig = `${ui.textScale}|${this.shown.coins}|${this.shown.pop}|${rep ? rep.get("Text").text : ""}|${Object.values(this.shown.goods).join(",")}`;
+    if (!force && sig === this.fitSignature) return;
+    this.fitSignature = sig;
+    const ids = Object.keys(this.goodTexts);
+    const show = (id, on) => {
+      for (const part of ["icon", "text"]) {
+        const e = this.world.find(`good_${id}_${part}`);
+        if (e && e.active !== on) e.active = on;
+      }
+    };
+    ids.forEach((id) => show(id, true));
+    ui.layout();
+    const date = ui.rectOf(this.dateTextEntity);
+    // the last item of the row: items other packages add after the villagers (reputation) come last
+    const lastItem = this.world.find("rep_text") || this.popText;
+    if (!date || !ui.rectOf(lastItem)) return;
+    const limit = date.x - 12;
+    const right = () => ui.rectOf(lastItem).x + ui.rectOf(lastItem).w;
+    for (let n = ids.length - 1; n >= 0 && right() > limit; n--) {
+      show(ids[n], false);
+      ui.layout();
     }
   }
 
@@ -300,8 +299,15 @@ export default class GameController extends Behaviour {
     this.refreshButtons();
   }
 
+  /** R: turn the selected building when one is selected and no tool is held, else the building about to be placed. */
   rotate() {
+    if (this.tool.kind === "none" && this.hud.rotateSelected()) return;
     this.tool.rot = (this.tool.rot + 1) % 4;
+  }
+
+  /** Esc, Q and a right-click: put away the newest thing the player opened. @returns {boolean} something was put away */
+  escape() {
+    return this.hud.escape();
   }
 
   undo() {
@@ -319,6 +325,7 @@ export default class GameController extends Behaviour {
   }
 
   onClick(id) {
+    if (this.hud.onClick(id)) return;
     if (id.startsWith("tool_") && id !== "tool_demolish") this.selectBuilding(id.slice(5));
     else if (id === "tool_demolish") this.selectDemolish();
     else if (id === "btn_rotate") this.rotate();
@@ -331,7 +338,7 @@ export default class GameController extends Behaviour {
 
   /** Is the point over the HUD (a widget or a bar)? Then a click is not meant for the map. */
   overUi(m) {
-    if (ui.hovered) return true;
+    if (ui.hovered || this.hud.over(m)) return true;
     for (const e of this.uiPanels) {
       const r = ui.rectOf(e);
       if (r && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h) return true;
@@ -358,6 +365,7 @@ export default class GameController extends Behaviour {
     this.mouse(m, onUi);
     this.draw();
     this.refreshHud();
+    this.hud.update(dt, m);
     this.refreshStatus(onUi);
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
@@ -370,7 +378,8 @@ export default class GameController extends Behaviour {
     if (input.pressed("redo")) this.redo();
     if (input.pressed("rotate")) this.rotate();
     if (input.pressed("tool_demolish")) this.selectDemolish();
-    if (input.pressed("tool_cancel")) this.clearTool();
+    if (input.pressed("tool_cancel")) this.escape();
+    this.hud.keys();
     if (input.pressed("tool_next")) this.cycleTool(1);
     if (input.pressed("tool_prev")) this.cycleTool(-1);
     ["speed_pause", "speed_1", "speed_2", "speed_3"].forEach((action, i) => input.pressed(action) && this.setSpeed(i));
@@ -398,7 +407,7 @@ export default class GameController extends Behaviour {
     }
     if (input.released("pan_drag") && this.rightPress) {
       const moved = Math.hypot(m.x - this.rightPress.x, m.y - this.rightPress.y);
-      if (moved < CLICK_SLOP && !this.rightConsumed && this.tool.kind !== "none") this.clearTool();
+      if (moved < CLICK_SLOP && !this.rightConsumed) this.escape();
       this.rightPress = null;
     }
 
@@ -424,6 +433,8 @@ export default class GameController extends Behaviour {
       if (res.ok) this.toast(i18n.t("toast.built", { name: buildingName(tool.type) }));
     } else if (tool.kind === "demolish") {
       this.drag = { kind: "demolish", cells: [[c, r]], last: [c, r] };
+    } else {
+      this.hud.pickAt(input.mouse.position, [c, r]);
     }
   }
 
@@ -490,6 +501,7 @@ export default class GameController extends Behaviour {
     }
     if (ghost) view.setGhost(tool.type, ghost.x, ghost.y, tool.rot, ghost.ok);
     else view.setGhost(null);
+    this.hud.drawOverlay(view);
     view.endOverlay();
   }
 

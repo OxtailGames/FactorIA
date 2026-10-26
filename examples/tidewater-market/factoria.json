@@ -29,6 +29,14 @@
       "speed_2": ["3"],
       "speed_3": ["4"],
       "pause_toggle": ["Space"],
+      "build_menu": ["B"],
+      "delete": ["Delete"],
+      "goods_table": ["G"],
+      "charts": ["T"],
+      "overlay": ["M"],
+      "notice_jump": ["N"],
+      "help": ["F1"],
+      "escape": ["Escape"],
       "order_board": ["O"],
       "pause": ["Escape", "P", "GamepadStart"]
     }
