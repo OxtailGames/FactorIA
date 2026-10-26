@@ -212,7 +212,7 @@
     "prev": "Previous"
   },
   "status": {
-    "idle": "Pick something to build on the right. Right-drag or screen edges move the map, the wheel zooms.",
+    "idle": "B builds. Click a building or villager to look at it. Right-drag pans, the wheel zooms. F1 for help.",
     "terrain": "{terrain}  ({c}, {r})",
     "building": "{name}  ({c}, {r})",
     "placing": "{name}: {cost}.  Click to build, R to turn, Q or right-click to stop.",
@@ -251,7 +251,8 @@
   "history": {
     "place": "build {name}",
     "road": "roads",
-    "demolish": "demolish {name}"
+    "demolish": "demolish {name}",
+    "rotate": "turn {name}"
   },
   "sim": {
     "leftReason": {
@@ -668,6 +669,227 @@
     },
     "key": {
       "orders": "Order board"
+    }
+  },
+  "ui": {
+    "hungryShort": "{count} hungry",
+    "btn": {
+      "build": "Build  (B)",
+      "goods": "Goods  (G)",
+      "charts": "Charts  (T)",
+      "help": "Help  (F1)",
+      "overlay": "Map  (M)",
+      "overlayTitle": "Map overlay"
+    },
+    "cat": {
+      "infrastructure": "Roads",
+      "housing": "Housing",
+      "production": "Production",
+      "storage": "Storage",
+      "trade": "Trade",
+      "hint": {
+        "infrastructure": "Roads carry villagers and carriers. Drag to lay a line.",
+        "housing": "Villagers live here and work in the buildings around.",
+        "production": "Farms, camps, mills and workshops: they make the goods.",
+        "storage": "Warehouses hold the goods and send carriers out.",
+        "trade": "Markets sell food to the villagers and bring in coins."
+      }
+    },
+    "key": {
+      "B": "Key: B",
+      "Del": "Key: Delete",
+      "R": "Key: R",
+      "Z": "Key: Z",
+      "Y": "Key: Y",
+      "G": "Key: G",
+      "T": "Key: T",
+      "M": "Key: M",
+      "F1": "Key: F1",
+      "speed0": "Key: 1 or Space",
+      "speed1": "Key: 2",
+      "speed2": "Key: 3",
+      "speed3": "Key: 4"
+    },
+    "tip": {
+      "build": "Open the build menu: pick a category, then a building.",
+      "demolish": "Click or drag over buildings to demolish them (you get part of the coins back).",
+      "rotate": "Turn the selected building, or the one you are about to place.",
+      "undo": "Take back your last build or demolish.",
+      "redo": "Do again what you just undid.",
+      "goods": "Stock, production, use and price of every good.",
+      "charts": "Coins and production over the last days.",
+      "overlay": "Cycle the map overlays: desirability, market, warehouse, traffic.",
+      "help": "Every key and mouse shortcut.",
+      "cost": "Cost: {cost}",
+      "terrain": "on {terrain}",
+      "nearWater": "next to the water",
+      "road": "a road at its door",
+      "needs": "Needs: {needs}",
+      "housing": "Houses {count} villagers.",
+      "workers": "{count} workers, upkeep {upkeep} coins a day.",
+      "recipe": "Makes {outputs} from {inputs} in {seconds} s.",
+      "nothing": "nothing",
+      "storage": "Holds {count} of each good.",
+      "madeIn": "Made in: {list}",
+      "usedIn": "Used in: {list}",
+      "nowhere": "nowhere yet",
+      "eaten": "Villagers eat it (feeds {n}).",
+      "basePrice": "Usual price: {price} coins",
+      "coinsTitle": "Coins",
+      "coins": "You have {n} coins.",
+      "coinsFlow": "Today so far: sales {sales}, wages and upkeep {wages}.",
+      "stock": "In stock: {n} (a warehouse network holds {cap} of each)",
+      "rates": "Made {made} a day, used {used} a day.",
+      "price": "Price now: {price} coins (usual {base})",
+      "popTitle": "Villagers",
+      "pop": "{pop} villagers, room for {housing}. {employed} of {jobs} jobs filled.",
+      "popHungry": "Hungry now: {n}",
+      "speed0": "Pause the clock.",
+      "speed1": "Normal speed.",
+      "speed2": "Twice as fast.",
+      "speed3": "Four times as fast.",
+      "noticeTitle": "Notification",
+      "notice": "Click to go there and select it.",
+      "chipTitle": "Villager #{id}",
+      "chip": "Click to inspect. Drag onto another workplace to move this worker there.",
+      "clickInspect": "Click to inspect."
+    },
+    "goods": {
+      "title": "Goods",
+      "sortHint": "Click to sort, click again to reverse.",
+      "col": {
+        "name": "Good",
+        "stock": "Stock",
+        "made": "Made/day",
+        "used": "Used/day",
+        "price": "Price"
+      },
+      "colHint": {
+        "name": "The good.",
+        "stock": "How many are in the warehouses.",
+        "made": "Made per game day over the last days.",
+        "used": "Used by workshops and eaten per game day.",
+        "price": "What a unit sells for now."
+      }
+    },
+    "charts": {
+      "title": "Charts",
+      "money": "Coins at the start of each day",
+      "made": "{name} made each day",
+      "good": "Good: {name}",
+      "pick": "Pick the good",
+      "pickHint": "Click to show the next good.",
+      "since": "last {n} days",
+      "dayTip": "Day {day}",
+      "coinsTip": "{n} coins",
+      "madeTip": "{n} made"
+    },
+    "help": {
+      "title": "How to play",
+      "hint": "Right-drag moves the map, the wheel zooms. Click a building or a villager to inspect it. Hover anything for a tip.",
+      "build": "Open the build menu",
+      "cycle": "Next / previous building",
+      "rotate": "Turn the selected or the next building",
+      "delete": "Demolish the selected building",
+      "demolish": "Demolish tool",
+      "cancel": "Put away tool, panel or selection",
+      "undo": "Undo / redo",
+      "goods": "Goods table",
+      "charts": "Charts",
+      "overlay": "Cycle map overlays",
+      "notice": "Jump to the newest notification",
+      "speed": "Pause / game speed",
+      "camera": "Move and zoom the camera",
+      "help": "This help"
+    },
+    "overlay": {
+      "none": "off",
+      "desirability": "desirability",
+      "market": "market reach",
+      "warehouse": "warehouse reach",
+      "traffic": "traffic",
+      "hint": {
+        "desirability": "greener = a nicer place to build a house",
+        "market": "brighter = closer to a market",
+        "warehouse": "brighter = closer to a warehouse",
+        "traffic": "brighter = more walkers"
+      },
+      "legend": "Overlay: {name} ({hint}). M for the next one.",
+      "value": "{name} {percent}%"
+    },
+    "insp": {
+      "title": "{name} at {c}, {r}",
+      "noRoad": "No road reaches the door.",
+      "status": "Status: {state}",
+      "workers": "Workers: {count} of {max} ({present} at work)",
+      "dragHint": "Drag a villager onto a workplace.",
+      "residents": "Residents: {count} of {max}",
+      "makes": "Makes {out} every {seconds} s ({percent}% done)",
+      "needs": "Needs {goods}",
+      "inbox": "Waiting inside: {goods}",
+      "outbox": "Ready to carry: {goods}",
+      "shelf": "On the shelf: {goods}",
+      "money": "Upkeep {upkeep}/day, refund {refund}.",
+      "villager": "Villager #{id}",
+      "walking": "Walking: {purpose}",
+      "at": "Inside {place}",
+      "home": "Home: {name} at {c}, {r}",
+      "homeless": "No home.",
+      "job": "Works at {name} at {c}, {r}",
+      "jobPinned": "Works at {name} at {c}, {r} (set by you)",
+      "noJob": "No job.",
+      "carrying": "Carrying {goods}",
+      "carrierEmpty": "A carrier on the way to fetch goods.",
+      "hungry": "Hungry!",
+      "fed": "Fed (food {food})",
+      "btn": {
+        "rotate": "Rotate",
+        "demolish": "Demolish",
+        "home": "Go home",
+        "job": "Go to job",
+        "release": "Release",
+        "close": "Close"
+      },
+      "btnHint": {
+        "rotate": "Turn this building (free, can be undone).",
+        "demolish": "Demolish this building.",
+        "home": "Move the camera to this villager's home.",
+        "job": "Move the camera to this villager's workplace.",
+        "release": "Let the town choose this villager's job again.",
+        "close": "Close the inspector."
+      }
+    },
+    "purpose": {
+      "idle": "nowhere",
+      "work": "to work",
+      "shop": "to the market",
+      "home": "home",
+      "carry": "carrying goods"
+    },
+    "notice": {
+      "noRoad": "{name} has no road to its door.",
+      "noWorkers": "{name} has no workers.",
+      "noInput": "{name} waits for {goodName}.",
+      "hungry": "{count} villagers are hungry.",
+      "storageFull": "The warehouses are full of {goodName}.",
+      "broke": "Not enough coins for wages and upkeep.",
+      "left": "A villager left: {reasonText}."
+    },
+    "drag": {
+      "villager": "Villager #{id}",
+      "done": "Villager #{id} now works at {name}.",
+      "no": "Cannot move there: {reason}",
+      "reason": {
+        "gone": "the villager left",
+        "no_jobs": "no jobs there",
+        "same": "already works there",
+        "no_road": "no road between home and there",
+        "full": "no free place",
+        "none": "drop it on a workplace"
+      }
+    },
+    "toast": {
+      "rotated": "Turned {name}."
     }
   }
 }

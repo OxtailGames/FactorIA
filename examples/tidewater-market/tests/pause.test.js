@@ -6,8 +6,17 @@ test("pause menu: Escape opens it, Resume closes it, and a click on the panel bu
   game.load("scenes/game.scene.json", { testMap: true });
   game.step(3);
   const ctl = game.find("controller").behaviour;
-  game.click("tool_house");
-  expect(ctl.tool.kind).toBe("build");
+  game.click("btn_build");
+  expect(game.find("build_bar").active).toBe(true);
+  // the first Escape only puts the open build menu away
+  game.press("pause");
+  game.press("escape"); // the Escape key is both actions
+  game.step(2);
+  game.release("pause");
+  game.release("escape");
+  game.step(1);
+  expect(game.paused).toBe(false);
+  expect(game.find("build_bar").active).toBe(false);
   game.press("pause");
   game.step(2);
   game.release("pause");
