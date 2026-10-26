@@ -1711,7 +1711,7 @@ Not released yet (on main after 0.2.0).
 
 Find a path over the cells of a Tilemap (or a plain cost grid) with A*.
 
-Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in solidTiles block, every other cell costs 1, `costs` {"<tile index>": cost | null} overrides per tile, null = blocked, key "-1" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] (cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. Deterministic. Scripts: nav.findTilePath(map, from, to, opts). Example: nav.find_tile_path {"tilemap":"ground","from":[0,0],"to":[5,3],"diagonals":true}
+Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in solidTiles block, every other cell costs 1, `costs` {"<tile index>": cost | null} overrides per tile, null = blocked, key "-1" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] (cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. Deterministic. Scripts: nav.findTilePath(map, from, to, opts); a script that asks many times on one map keeps it with nav.createGrid (the command is stateless: it reads the map you give it on every call). nav.flow_field is the one-to-many form. Example: nav.find_tile_path {"tilemap":"ground","from":[0,0],"to":[5,3],"diagonals":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1724,6 +1724,23 @@ Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an ent
 | `maxNodes` | integer | no | Most cells the search expands before it gives up (too_far). Default 100000. |
 | `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
 | `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
+
+### `nav.flow_field`
+
+Not released yet (on main after 0.2.0).
+
+Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells.
+
+The cost of the cheapest route from every cell to the nearest goal, with the same rules as nav.find_tile_path (entering a cell costs its cost, 4-way or diagonals=true, no corner cutting, null or negative blocks). A blocked goal is entered at cost 1. Pass `tilemap` or `grid` like nav.find_tile_path, `goals` [[col,row],...] and optionally `from`. Result {width, height, distance: [width*height numbers, row-major, row 0 = top; null where no goal can be reached]} and, with `from`: {reachable, cost, next: [col,row] | null (the cell to walk to; null at a goal or when unreachable), path: [[col,row]...] (from `from` to the goal it reaches)}. Deterministic. Scripts: nav.flowField(grid, goals) keeps the field and answers field.stepToward(col, row) in O(1). Example: nav.flow_field {"tilemap":"ground","goals":[[9,4]],"from":[0,0]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `tilemap` | string | no | Id of the entity with the Tilemap. Give this or `grid`. |
+| `grid` | object | no | A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number \| [w,h]}. |
+| `goals` | array | yes | Goal cells [[col,row],...]; at least one. |
+| `from` | array | no | A cell to read the next step and the path for. |
+| `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}; null or negative blocks. |
+| `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
 
 ### `nav.info`
 
@@ -3951,6 +3968,134 @@ declare module "factoria" {
   }
 
   /**
+   * Options of nav.createGrid.
+   * @since unreleased
+   */
+  export interface NavGridOptions {
+    /**
+     * Cells per row (a whole number, at least 1).
+     * @since unreleased
+     */
+    width: number;
+    /**
+     * Number of rows (a whole number, at least 1).
+     * @since unreleased
+     */
+    height: number;
+    /**
+     * width * height numbers, row-major, row 0 = top: the cost of ENTERING each cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined blocks it. Default: every cell costs 1.
+     * @since unreleased
+     */
+    cost?: readonly (number | null | undefined)[];
+    /**
+     * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     * @since unreleased
+     */
+    origin?: Vec2Like;
+    /**
+     * Size of a cell in the world (default 1); used for `points` and `length`.
+     * @since unreleased
+     */
+    cellSize?: number | Vec2Like;
+  }
+
+  /**
+   * A cost grid kept natively (nav.createGrid). nav.findTilePath(grid, from, to) and nav.flowField(grid, goals) reuse it, so a short route no longer costs the whole map; change a cell with setCost instead of building a new array. Freed when the script drops it; nothing to release.
+   * @since unreleased
+   */
+  export interface NavGrid {
+    /**
+     * Cells per row.
+     * @since unreleased
+     */
+    readonly width: number;
+    /**
+     * Number of rows.
+     * @since unreleased
+     */
+    readonly height: number;
+    /**
+     * Counts the changes made with setCost / setCosts (writing the cost a cell already has is not a change). A flow field compares it to know it is stale.
+     * @since unreleased
+     */
+    readonly version: number;
+    /**
+     * Changes the cost of entering one cell (>= 0; Infinity, a negative number or null blocks it). Throws for a cell outside the grid. Flow fields built on this grid are rebuilt the next time they are asked. Example: grid.setCost(3, 4, Infinity); // a wall went up
+     * @since unreleased
+     */
+    setCost(col: number, row: number, cost: number | null): void;
+    /**
+     * The cost of entering the cell, Infinity when it is blocked. Throws for a cell outside the grid.
+     * @since unreleased
+     */
+    getCost(col: number, row: number): number;
+    /**
+     * Replaces every cost at once (width * height numbers, row-major, row 0 = top).
+     * @since unreleased
+     */
+    setCosts(cost: readonly (number | null | undefined)[]): void;
+    /**
+     * The same as nav.findTilePath(grid, from, to, opts).
+     * @since unreleased
+     */
+    findPath(from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+  }
+
+  /**
+   * Options of nav.flowField.
+   * @since unreleased
+   */
+  export interface NavFlowFieldOptions {
+    /**
+     * Allow 8-way steps (default false), with the same rules as nav.findTilePath: a diagonal costs sqrt(2) times the cell entered and never cuts a corner.
+     * @since unreleased
+     */
+    diagonals?: boolean;
+  }
+
+  /**
+   * The cost to the nearest of some goal cells, for every cell of a NavGrid (nav.flowField). One search serves every walker heading for those goals. It reads the grid it was made on: after grid.setCost, the next question rebuilds it.
+   * @since unreleased
+   */
+  export interface NavFlowField {
+    /**
+     * The grid the field reads.
+     * @since unreleased
+     */
+    readonly grid: NavGrid;
+    /**
+     * The goal cells.
+     * @since unreleased
+     */
+    readonly goals: readonly NavCell[];
+    /**
+     * Whether steps may be diagonal.
+     * @since unreleased
+     */
+    readonly diagonals: boolean;
+    /**
+     * How many times the field has been searched so far (1 after the first question, +1 for every question that follows a change of the grid).
+     * @since unreleased
+     */
+    readonly rebuilds: number;
+    /**
+     * The cost of the cheapest route from the cell to the nearest goal (the entering costs of the cells after it; 0 at a goal), Infinity when no goal can be reached or the cell is outside the grid.
+     * @since unreleased
+     */
+    distance(col: number, row: number): number;
+    /**
+     * The next cell on the cheapest route to the nearest goal, in O(1) (ties go east, south, west, north, then the diagonals), or null at a goal, where no goal can be reached and outside the grid. Example: const n = field.stepToward(this.col, this.row); if (n) { this.col = n.col; this.row = n.row; }
+     * @since unreleased
+     */
+    stepToward(col: number, row: number): NavCell | null;
+    /**
+     * All the cells from this one to the goal it reaches, both ends included (what repeated stepToward gives); empty when no goal can be reached.
+     * @since unreleased
+     */
+    pathFrom(col: number, row: number): NavCell[];
+  }
+
+  /**
    * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
    * @since unreleased
    */
@@ -3961,10 +4106,20 @@ declare module "factoria" {
      */
     findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
     /**
-     * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost }. 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     * Builds a cost grid that stays native: nav.findTilePath(grid, from, to) and nav.flowField(grid, goals) reuse it, and grid.setCost(col, row, cost) changes one cell. Use it when you ask for many routes on one map (hundreds of walkers on a road grid). Throws when width / height are not whole numbers >= 1 or cost does not hold width * height entries. Example: const grid = nav.createGrid({ width: 60, height: 60, cost: roads.map((r) => (r ? 1 : Infinity)) }); grid.setCost(3, 4, 1); // a road was built
      * @since unreleased
      */
-    findTilePath(map: Entity | string | NavTileGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    createGrid(opts: NavGridOptions): NavGrid;
+    /**
+     * The cost to the nearest of one or more goal cells from every cell of the grid, computed once (when first asked, again after the grid changed): field.stepToward(col, row) then gives the next cell in O(1), field.distance(col, row) the cost, field.pathFrom(col, row) the whole way. Many walkers heading for the same goal share one field, which is much cheaper than one findTilePath per walker. Same cost rules as findTilePath; a blocked goal cell is entered at cost 1. Throws for a grid that is not from nav.createGrid, no goals, or a goal outside the grid. Example: const field = nav.flowField(grid, [{ col: 9, row: 4 }]); const n = field.stepToward(this.col, this.row);
+     * @since unreleased
+     */
+    flowField(grid: NavGrid, goals: NavCell | readonly [number, number] | readonly (NavCell | readonly [number, number])[], opts?: NavFlowFieldOptions): NavFlowField;
+    /**
+     * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost } or a grid kept natively by nav.createGrid (the fast form for many queries on one map: the array form converts and sweeps the whole map on every call). 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     * @since unreleased
+     */
+    findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
     /**
      * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
      * @since unreleased
