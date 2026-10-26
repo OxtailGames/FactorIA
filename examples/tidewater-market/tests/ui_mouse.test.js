@@ -261,6 +261,7 @@ test("notifications: a building with no road is reported, stacks without repeati
   game.step(2);
   game.click(`notice_${slot}`);
   expect(hud.sel).toEqual({ kind: "building", id: lonely.id });
+  game.step(30); // the camera eases over a third of a second (instant with the reduced motion option, tests/options.test.js)
   expect(Math.abs(rig.view.x - wx)).toBeLessThan(80);
   expect(Math.abs(rig.view.y - wy)).toBeLessThan(80);
   expect(texts().some((t) => t.includes("Sawmill"))).toBe(false); // the message is taken away

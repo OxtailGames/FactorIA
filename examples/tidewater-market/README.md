@@ -28,6 +28,7 @@ factoria call --project . project.validate_data               # check data/*.jso
 | P7 | Finished art and sound under the same frame names | planned |
 | P8 | Translations (es, fr, zh-Hans), accessibility, polish | planned |
 | P4 (progress) | Three save slots with autosave, save format v2 with the v1 migration, cloud copies, four scenarios with goals and a win screen, the slot screen and the pause menu's Save | done |
+| P6 (sound, options) | Ambience beds that follow the camera, building work and walker sounds with a voice cap, UI sounds, five volume buses, the options screen (sizes, window, key rebinding, colour-blind safe signals, reduced motion, hold-free controls) and the gamepad cursor | done |
 
 ## How to play (P1, P2)
 
@@ -318,8 +319,8 @@ Other changes the interface made: `camera_rig.js` ignores the wheel while `rig.w
 panel rectangles); the date and speed buttons moved a little so the bar has room; goods that do not fit left of the date are
 hidden from the end of the top bar (`fitTopBar` in `game_controller.js`; the goods table has them all). The simulation is only
 changed through the same actions as before: `place`, `demolish`, `rotateBuilding` (new, refuses roads and housing),
-`people.reassign` and `people.release`. At a text size of 150 % the inspector grows tall enough to overlap the right-hand
-buttons (known; the tests check 1280 x 720 at 100 %, and the top bar at 150 %).
+`people.reassign` and `people.release`. At a text size of 150 % or the largest interface size the panels move out of each
+other's way (P6, below; `ui_layout.test.js` checks 1280 x 720 with the inspector open).
 
 Tests: `ui_mouse.test.js` (mouse only), `ui_keys.test.js` (keyboard only), `ui_dragdrop.test.js`, `ui_layout.test.js`. Engine gaps
 found while building it are FB-0007 to FB-0018 in `ENGINE_FEEDBACK.json`.
@@ -365,6 +366,42 @@ a fingerprint for tests. The trade uses its own `Rng` (mulberry32, `scripts/game
 `no_debt_year`, `story_first_harbour`, `story_river_mills`, `story_winter_trade`, and stats `ships_docked`, `orders_filled`,
 `orders_missed`, `events_resolved`, `coins_earned`, `stories_finished`. `achievements.js` forwards them; with no store
 (`platform.has` false or a refused call) the game plays on and the trade keeps its own `unlocked` list.
+
+## Sound, options and accessibility (P6)
+
+**Buses.** The engine has four (`master`, `music`, `sfx`, `ui`); the game adds a fifth, `ambience`, which is not an engine bus:
+the beds play on `sfx` and are multiplied by `settings.live().ambience` (FB-0041). The Audio tab of the options screen sets the five
+volumes; `settings.apply()` sends the four engine ones to `audio.setVolume`. Sound only reads the simulation: options and audio never
+change the state hash (`6dee2f92` for the bot).
+
+**Sounds.** `data/sounds.json` lists every clip by role (`ui`, `ambience`, `work`, `walkers`, plus the `mix` and `voices` knobs) with its own level and, for one-shots,
+`seconds` (how long the voice cap counts it as playing; the engine reports no end of voice, FB-0045). To add a UI sound: put the CC0
+clip in `assets/sfx/`, record it in `assets.json` (`project.validate_data` fails when a clip is not recorded), add it under `ui` and
+call `playUi("name")` from `scripts/game/sfx.js`. To add an ambience emitter: add the clip under `ambience` and a rule to
+`scripts/game/soundscape.js` that returns its wanted level from what the camera sees; `soundmix.js` has the pure maths (zoom gain,
+screen margin, `VoiceBook`, the voice cap) the tests call. `GameSfx` plays work sounds of buildings in view and a cart or walker sound,
+at most the voice cap at once (the stress town stays under it: `sound.test.js`). P2's music director is unchanged.
+
+**Options.** `scripts/ui/options.js` (prefab `prefabs/ui/options.prefab.json`) opens from the title and the pause menu; tabs Audio,
+Video, Controls, Access and Language. It edits one object saved in `storage` under `"settings"` (`scripts/settings.js`: `volume` per
+bus, `windowMode`, `vsync`, `frameCap`, `colorFilter`, `bindings` (action to binding names, only the ones the player changed), `textScale`
+and `uiScale` (1, 1.25, 1.5), `reducedMotion`, `safeColors`, `holdFree`, `language`, `subtitles`). `applyOnce()` applies it when the first
+scene starts. Key rebinding refuses a key another action already has, says which, and keeps the old binding. Safe colours add patterns to
+the overlays and a mark before each notice; reduced motion turns off camera easing, notice fades and the moving title picture; hold-free
+turns roads and demolishing into two clicks, workers into click-to-carry and the pan into a toggle. Interface size is a registry in
+`ui_kit.js` (FB-0042); the HUD moves the inspector, goods table, charts and help clear of the right column and the build bar.
+
+**Gamepad cursor.** The first move of a stick or press of a button makes `input.lastDevice` `"gamepad"`; `scripts/ui/pad_cursor.js` then
+draws a reticle and `scripts/game/pointer.js` moves it with the left stick (faster the further it is pushed). A clicks the widget or map
+cell under it, B is Escape and puts the tool away, the shoulders open the build menu and switch its tabs, the right stick pans and the triggers
+zoom. The widget under the cursor takes the focus, so it works on every panel, the title and the options screen; over nothing the focus
+rests on an invisible sink widget (FB-0044). The pointer has two clicks where a mouse drags (see hold-free). `gamepad_game.test.js` plays
+build, inspect, fill an order and answer an event card with the pad only.
+
+Fix in P6: a notice that repeats (`x3`) shows the number as it is now, not the number of the day it was first pushed.
+
+Tests: `sound.test.js`, `options.test.js`, `gamepad_game.test.js`, and the two layout tests in `ui_layout.test.js`. Engine gaps found:
+FB-0040 to FB-0046 in `ENGINE_FEEDBACK.json`; FB-0015 was withdrawn (the documented behaviour).
 
 ## Plug-in points
 

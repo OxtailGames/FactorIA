@@ -18,7 +18,8 @@
         "props": {
           "actions": [
             "pan_left", "pan_right", "pan_up", "pan_down", "pan_drag", "zoom_in", "zoom_out",
-            "rotate", "undo", "redo", "tool_demolish", "tool_cancel", "pause"
+            "rotate", "undo", "redo", "tool_demolish", "tool_cancel", "pause", "tool_next",
+            "tool_prev", "cat_prev", "cat_next"
           ]
         }
       }
@@ -81,6 +82,18 @@
                 "autoSize": true,
                 "text": "Controls",
                 "key": "options.tab.controls",
+                "size": [160, 48],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "tab_access",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Access",
+                "key": "options.tab.access",
                 "size": [160, 48],
                 "layer": 302
               }
@@ -240,6 +253,18 @@
             }
           },
           {
+            "id": "ambience_volume",
+            "components": {
+              "Slider": {
+                "autoSize": true,
+                "label": "Ambience",
+                "key": "options.volume.ambience",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
             "id": "sfx_volume",
             "components": {
               "Slider": {
@@ -305,12 +330,13 @@
           {
             "id": "bindings",
             "components": {
-              "Panel": {
+              "ScrollList": {
+                "size": [640, 216],
+                "pivot": [0.5, 0.5],
                 "layer": 301,
-                "color": [0, 0, 0, 0],
-                "layout": "column",
-                "padding": [0, 0, 0, 0],
-                "fit": true
+                "color": [0, 0, 0, 0.2],
+                "spacing": 8,
+                "padding": [8, 8, 8, 8]
               }
             }
           },
@@ -324,6 +350,109 @@
                 "size": [560, 44],
                 "layer": 302,
                 "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "controls_note",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "space": "screen",
+                "layer": 302,
+                "maxWidth": 640,
+                "color": [1, 0.55, 0.45, 1]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "access_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "text_scale",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Text size",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "ui_scale",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Interface size",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "safe_colors",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Colour-blind safe signals",
+                "key": "options.safeColors",
+                "value": false,
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "reduced_motion",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Reduced motion",
+                "key": "options.reducedMotion",
+                "value": false,
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "hold_free",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Hold-free controls",
+                "key": "options.holdFree",
+                "value": false,
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "access_note",
+            "components": {
+              "Text": {
+                "text": "Each change applies at once and is saved.",
+                "key": "options.accessNote",
+                "fontSize": 18,
+                "space": "screen",
+                "layer": 302,
+                "maxWidth": 640
               }
             }
           }
