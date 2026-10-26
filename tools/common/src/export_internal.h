@@ -131,7 +131,7 @@ Result<std::string> select_sections(const std::string& text, bool source, const 
 
 Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platform);
 // The player must come from the same build as this factoria (fa/core/build_info.h): its fingerprint is read from the file's
-// bytes. A different one stops the export unless ExportOptions::allowPlayerMismatch (then `warnings` says so). Files that
+// bytes (the desktop executable, the web .wasm, the Android .so, the iOS .a). A different one stops the export unless ExportOptions::allowPlayerMismatch (then `warnings` says so). Files that
 // are no executable (a test's stand-in) and a factoria or player built outside git ("unknown") are not compared; the same
 // commit with "-dirty" on one side only is a warning.
 Result<void> check_player_build(const ExportOptions& o, const stdfs::path& player, const std::string& platform,
@@ -164,8 +164,10 @@ struct WebPlayer {
                        // "build" (a web build of the engine source)
 };
 
-// --player (a folder or factoria_player.js), else <factoria dir>/web, else `factoria setup players --platforms web`, else a
-// web build next to the factoria binary or in the checkout `sourceRoot`; an error that says how to get one.
+// --player (a folder or factoria_player.js), else the web player whose build fingerprint is this factoria's among
+// <factoria dir>/web, the web build in the checkout `sourceRoot` (build/web-release) and the one `factoria setup players
+// --platforms web` installed, else the first of those found (check_player_build then stops on the mismatch); an error that
+// says how to get one when there is none.
 Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sourceRoot);
 
 // <outRoot>/{index.html, factoria_player.js, factoria_player.wasm, game.pak}. The page is platforms/web/shell.html with its

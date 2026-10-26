@@ -9,6 +9,7 @@
 
 #include "export_internal.h"
 #include "export_zip.h"
+#include "fa/core/build_info.h"
 #include "fa/core/pack.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/bundle.h"
@@ -88,19 +89,30 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
         }
         return player_in(given, "explicit");
     }
+    // Every web player there is, in the order of preference when they all match: the download's web/ next to factoria, a web
+    // build of the engine source (Emscripten, preset web-release) in the checkout factoria was built from, then the one
+    // `factoria setup players` installed. The first whose build fingerprint is this factoria's wins, so a checkout's fresh
+    // build is used before an installed player of an older release; when none matches the first found is returned and the
+    // export then stops on the mismatch (check_player_build).
     std::vector<std::string> searched;
+    std::vector<WebPlayer> found;
     const stdfs::path exeDir = executable_dir();
-    // The download carries web/ next to factoria, like mobile/.
-    if (has_player(exeDir / "web")) return player_in(exeDir / "web", "package");
+    if (has_player(exeDir / "web"))
+        if (auto w = player_in(exeDir / "web", "package"); w.ok()) found.push_back(*w);
     searched.push_back(generic(exeDir / "web"));
-    if (const std::string installed = installed_player("web"); !installed.empty()) return player_in(stdfs::path(installed).parent_path(), "installed");
-    searched.push_back("<FactorIA home>/players/<version>/web (`factoria setup players --platforms web`)");
-    // A web build of the engine source (Emscripten, preset web-release) in the checkout factoria was built from.
     if (!sourceRoot.empty())
         for (const char* build : {"web-release", "web"})
             if (const stdfs::path dir = stdfs::path(sourceRoot) / "build" / build / "player"; has_player(dir))
-                return player_in(dir, "build");
+                if (auto w = player_in(dir, "build"); w.ok()) found.push_back(*w);
+    if (const std::string installed = installed_player("web"); !installed.empty())
+        if (auto w = player_in(stdfs::path(installed).parent_path(), "installed"); w.ok()) found.push_back(*w);
+    searched.push_back("<FactorIA home>/players/<version>/web (`factoria setup players --platforms web`)");
     searched.push_back(generic(stdfs::path(sourceRoot) / "build" / "web-release" / "player") + " (a web build of the engine source)");
+    const std::string mine = build_fingerprint();
+    if (mine != "unknown")
+        for (const WebPlayer& w : found)
+            if (const auto data = read_file(w.wasm); data && find_build_fingerprint(*data) == mine) return w;
+    if (!found.empty()) return found.front();
     return err("export: no web player found: factoria_player.js and factoria_player.wasm are not in " + join(searched, ", "),
                "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the web player of this FactorIA "
                "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ folder with --player <folder>");
