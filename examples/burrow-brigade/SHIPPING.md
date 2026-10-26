@@ -79,7 +79,7 @@ factoria export --platform linux --release --allow-player-mismatch
 
 | Platform | Folder (git-ignored, under `build/export/`) | Size | Made with |
 |---|---|---|---|
-| macOS (arm64) | `burrow-brigade-macos/Burrow Brigade.app` | 16 MB | the player of this factoria build |
+| macOS (arm64) | `burrow-brigade-macos/Burrow Brigade.app` | 15 MB (16 MB before the player dropped unused code) | the player of this factoria build |
 | Windows | `burrow-brigade-windows/` (`burrow-brigade.exe`, `game.pak`) | 13 MB | the installed 0.2.0 player, `--allow-player-mismatch` |
 | Linux | `burrow-brigade-linux/` (`burrow-brigade`, `.desktop`, `game.pak`) | 18 MB | the installed 0.2.0 player, `--allow-player-mismatch` |
 
@@ -88,18 +88,19 @@ The whole game is in `game.pak` (167 files, scripts compiled to bytecode). The e
 ### The macOS run (checked on this Mac)
 
 1. `"build/export/burrow-brigade-macos/Burrow Brigade.app/Contents/MacOS/burrow-brigade" --version` prints
-   `factoria_player 0.2.0 (build e9384f7e82ee)`.
+   `factoria_player 0.2.0 (build 1a7977932207)`, and `codesign --verify --deep --strict` passes on the app.
 2. The same binary with `--frames 300` opens a 2560x1440 Metal window, opens the audio device, loads
    `scenes/menu.scene.json` (98 entities), renders the frames and exits 0. With `--scene scenes/join.scene.json` it loads the
    join screen (17 entities) the same way. The app is an ad hoc signed arm64 bundle; sign and notarize it with
    `sign.macos` before it leaves this machine.
-3. **Input.** The exported player now takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` with `--frames`
-   like `factoria run` (FB-0029; EXPORTING.md, "checking an exported build"). The check below was made before that, with the
-   engine's own runtime on the same project and scripts, and was not repeated on the exported binary: `factoria run --headless --scene scenes/join.scene.json
-   --input store/replays/join.json --frames 200 --state-out build/proof/join_state.json` presses A on four gamepads one
-   after the other. Without `--input` the state dump shows "Nobody has joined yet." and four "press A to join" slots; with
-   it, the slots read "P1 - Gamepad 1 - Start begins the shift", "P2 - Gamepad 2", "P3 - Gamepad 3", "P4 - Gamepad 4". The
-   floors of the screenshots and the trailer are four bots playing from replays, the same input path.
+3. **Input.** The exported player takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` with `--frames`
+   like `factoria run` (FB-0029; EXPORTING.md, "checking an exported build"). `factoria run --headless --scene
+   scenes/join.scene.json --input store/replays/join.json --frames 200 --state-out build/proof/join_state.json` presses A
+   on four gamepads one after the other. Without `--input` the state dump shows "Nobody has joined yet." and four "press A
+   to join" slots; with it, the slots read "P1 - Gamepad 1 - Start begins the shift", "P2 - Gamepad 2", "P3 - Gamepad 3",
+   "P4 - Gamepad 4". The exported binary given the same replay, scene and frame count (`--input`, `--dump-state`,
+   `--screenshot`) writes the same state dump and the same screenshot, byte for byte (checked on 2026-10-26). The floors
+   of the screenshots and the trailer are four bots playing from replays, the same input path.
 4. **By hand, once:** double-click the app, press Enter on the title, Enter to join, and dig. This is the one thing a script
    cannot do on the exported binary.
 
@@ -130,8 +131,8 @@ Steam keeps a file's executable bit only from a macOS or Linux machine: upload t
   library. Before the real Steam build, on each export machine:
   `factoria call platform.add_backend '{"backend":"steam","sdk":"~/Downloads/steamworks_sdk_<version>.zip","appId":<your app id>}'`.
 - **Publish dry run**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. Valve's test app 480 is accepted
-  in a dry run with a warning and refused for a real upload (FB-0033, fixed in the engine; the command below was run before
-  that change and with another id). To see the plan with any id:
+  in a dry run with a warning and refused for a real upload (FB-0033, fixed in the engine). The dry run with 480 was run on
+  2026-10-26 and accepted with the Spacewar warning; the refusal of a real upload was not tried. To see the plan with any id:
   `factoria call publish.steam '{"dryRun":true,"appId":1234567}'` returned the three depots (windows 9000001, macos
   9000002, linux 9000003), `steamcmd +login FAKE_steam_build_account +run_app_build .../app_build_1234567.vdf +quit`, with
   `steamcmd` not found on this Mac named as a warning (nothing ran, `ran: false`).
@@ -167,5 +168,6 @@ The render test reads `renderStats().lights2d` (more than 16 on the busiest floo
 - Anything that needs Valve's library: the plugin build, app 480, the overlay, Remote Play Together, the real
   `steamcmd` upload, achievements on a real Steam account.
 - Signing and notarizing the macOS app (needs a Developer ID).
-- Keyboard and pad input on the exported binary (the exported player has `--input` now, FB-0029, but it was not run): proven with the headless runtime instead.
+- Keyboard and pad input on the exported binary by hand: a replay of four pads joining runs on it and matches the headless
+  runtime byte for byte (section 3), but nobody has pressed a key on it.
 - The Russian and Thai store texts by a native reader, and the games' own Russian and Thai (package P8).
