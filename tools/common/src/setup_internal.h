@@ -4,6 +4,7 @@
 //   setup_core.cpp     downloading (curl), checksums, unpacking, moving into place, the install bookkeeping
 //   setup_android.cpp  JDK + Android SDK
 //   setup_players.cpp  factoria_player of the other OSes + prebuilt mobile libraries
+//   setup_webplayer.cpp the web player built from the checkout (Emscripten)
 //   setup_cmake.cpp    CMake for the iOS export
 //   setup_xcode.cpp    Xcode: status and guidance
 //   setup_appimage.cpp appimagetool + the AppImage runtime (Linux x86_64)
@@ -136,6 +137,9 @@ SetupComponent players_status(const SetupContext& ctx);
 std::string installed_player_path(const SetupContext& ctx, const std::string& platform);  // "" when not installed
 std::string installed_mobile_path(const SetupContext& ctx);                              // "" when not installed
 SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& options);
+
+SetupComponent webplayer_status(const SetupContext& ctx);
+SetupResult webplayer_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 SetupComponent cmake_status(const SetupContext& ctx);
 std::string find_cmake_path(const SetupContext& ctx);  // the first CMake 3.24+ found, "" when none

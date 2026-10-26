@@ -77,6 +77,9 @@ the same components with your package manager.
   source ./emsdk_env.sh                                  # emsdk_env.bat on Windows: sets EMSDK and puts emcc on PATH
   ```
 
+- `factoria setup webplayer` does the two steps above and the build for you: it uses an SDK it finds (`$EMSDK`, `emcc` on
+  `PATH`, `.cache/emsdk` of the checkout, `~/emsdk`) or fetches the pinned one into `.cache/emsdk`, then runs the `web-release`
+  preset (docs/EXPORTING.md, "A development build"). `emsdk` needs Python 3.10+ (`EMSDK_PYTHON` names one; a Mac's system Python is older).
 - CMake 3.24+ and Ninja on the host (any host OS). The presets read the toolchain file from `$EMSDK`
   (`$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`), so `EMSDK` must be set (`emsdk_env` does it).
 - No Python, Node or browser is needed to build. To look at the result you serve the folder and open it in a browser
@@ -247,6 +250,8 @@ source emsdk/emsdk_env.sh                  # once per shell (emsdk_env.bat on Wi
 cmake --preset web-release
 cmake --build --preset web-release         # build/web-release/player/factoria_player.js + .wasm
 ```
+
+or `factoria setup webplayer`, which finds or fetches the SDK and runs the two presets (the export prefers this folder).
 
 The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
 and the game's `game.pak`; docs/EXPORTING.md). A release build is about 8 MB of wasm (about 3 MB gzipped, which is what
