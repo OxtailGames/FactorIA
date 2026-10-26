@@ -244,7 +244,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [script](commands/script.md)
 
 - [`script.errors`](commands/script.md#scripterrors): List script errors (load/runtime) and scene load problems.
-- [`script.eval`](commands/script.md#scripteval-modifies-state): Evaluate JavaScript in the running game context (REPL) and return the value.
+- [`script.eval`](commands/script.md#scripteval-modifies-state): Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
 - [`script.reload`](commands/script.md#scriptreload-modifies-state): Re-import script modules edited on disk and restart the behaviours (the world is kept).
 - [`script.trace`](commands/script.md#scripttrace): Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run. _Since 0.2.0._
 

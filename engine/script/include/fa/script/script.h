@@ -340,7 +340,8 @@ public:
     // error entry too when the module cannot be loaded. Empty = all good. Used by `factoria validate`.
     std::vector<std::string> check_props(std::string_view modulePath, const Json& props);
     // Methods of a behaviour module's class that look like misspelled lifecycle hooks (`update()`, `onupdate()`,
-    // `onStrat()`), which the engine never calls: one message per method with "did you mean". Empty when all is fine,
+    // `onStrat()`), which the engine never calls: one message per method with "did you mean"; plus one per instance field
+    // that shadows a Behaviour method or getter (`on`, `after`, `every`, `world`; found on a throw-away instance). Empty when all is fine,
     // or when the module is not a behaviour or does not load (check_syntax reports that). Used by `factoria validate`;
     // a running game logs the same warning once per class when the first behaviour of it is created.
     std::vector<std::string> check_hooks(std::string_view modulePath);

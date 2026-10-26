@@ -221,6 +221,50 @@ export default {
 
 Use `throw new ToolError(...)` when the failure is a single fact and the hint can carry the whole fix, for example a missing scene file.
 
+### A.6 Validating the cross references of your data tables
+
+A game's `data/*.json` tables name each other (a recipe names goods, a ship names a port). A typo there is found at play
+time by the game's own code, unless a project tool checks it. `didYouMean(word, choices)` from `"factoria"` returns the
+closest choice (or `""`), so the tool can say what was meant. Report every problem in one result (A.5), with the file, the
+JSON pointer and a hint; throw a `ToolError` when the tables cannot even be read:
+
+```js
+// tools/validate_data.js
+import { ToolError, didYouMean } from "factoria";
+import goods from "../data/goods.json";
+import recipes from "../data/recipes.json";
+
+export default {
+  name: "validate_data",
+  summary: "Check that every recipe names goods that exist.",
+  description: "Read-only. Returns ok and a list of problems, each with file, pointer, message and hint.",
+  input: { type: "object", properties: {} },
+  readOnly: true,
+  run() {
+    if (!Array.isArray(recipes)) {
+      throw new ToolError("data/recipes.json must be an array of recipes", 'Start the file with [ { "id": "plank", "needs": ["wood"] } ]');
+    }
+    const ids = Object.keys(goods);
+    const problems = [];
+    recipes.forEach((recipe, i) => {
+      (recipe.needs ?? []).forEach((good, j) => {
+        if (ids.includes(good)) return;
+        const near = didYouMean(good, ids);
+        problems.push({
+          file: "data/recipes.json",
+          pointer: `/${i}/needs/${j}`,
+          message: `recipe '${recipe.id}' needs '${good}', which is not in data/goods.json`,
+          hint: near ? `Did you mean '${near}'?` : `Goods: ${ids.join(", ")}.`,
+        });
+      });
+    });
+    return { ok: problems.length === 0, problems };
+  },
+};
+```
+
+Call it with `factoria call project.validate_data`, or from a test with `fa.call("project.validate_data")`.
+
 ## B. C++ commands in the engine
 
 A command is a named function from JSON to JSON, registered in `CommandRegistry` (`engine/core/include/fa/core/command.h`).

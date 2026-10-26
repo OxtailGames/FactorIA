@@ -2100,7 +2100,7 @@ Tests run inside this engine instance and change the world; reload the scene aft
 
 Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
 
-Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in `notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, `notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Example: {} Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()).
+Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in `notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, `notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Example: {} Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world).
 
 ## publish
 
@@ -2412,13 +2412,16 @@ Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}
 
 ### `script.eval` (modifies state)
 
-Evaluate JavaScript in the running game context (REPL) and return the value.
+Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
 
-The last expression is returned as JSON. Example: script.eval {"code":"world.find('player').get('Transform').position"}
+The last expression is returned as JSON. Example: script.eval {"code":"world.find('player').get('Transform').position"}. With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, "default" for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is awaited if it settles without time passing. Example: script.eval {"module":"scripts/game/rules.js","call":"price","args":["wood",3]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `code` | string | yes | JavaScript source. |
+| `code` | string | no | JavaScript source. Required unless `module` is given. |
+| `module` | string | no | Project path of a script module to import (scripts/game/rules.js); use with `call`. |
+| `call` | string | no | Name of the exported function of `module` to call ("default" for the default export). |
+| `args` | array | no | Arguments (JSON values) for the call. |
 
 ### `script.reload` (modifies state)
 
@@ -4430,6 +4433,11 @@ declare module "factoria" {
      */
     shuffle<T>(items: readonly T[]): T[];
     /**
+     * The generator's 32-bit state, an integer from 0 to 4294967295: one number that is the whole stream. Store it in a save and assign it later (or create the generator with it as the seed: rng.create(state) continues exactly where state was read) to resume the sequence. STABLE across engine versions like the algorithm. Assigning anything that is not such an integer throws. Example: const saved = r.state; r.float(); r.state = saved; r.float() // the same number again.
+     * @since unreleased
+     */
+    state: number;
+    /**
      * Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG.
      */
     seed(n: number): void;
@@ -6284,6 +6292,12 @@ declare module "factoria" {
    * @since 0.2.0
    */
   export const ease: EaseAPI;
+
+  /**
+   * The choice closest to `word` (case-insensitive edit distance, accepted when within about a third of the word's length, at least 2), or "" when none is near. For errors that teach: `const near = didYouMean(id, goodIds); throw new ToolError(`unknown good '${id}'`, near ? `Did you mean '${near}'?` : "")`. Example: didYouMean("woood", ["wood", "stone"]) is "wood".
+   * @since unreleased
+   */
+  export function didYouMean(word: string, choices: readonly string[]): string;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
