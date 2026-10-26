@@ -1,8 +1,8 @@
-// The behaviour tree (scripts/game/behavior_tree.js): each node, and the way a running node is interrupted.
+// The behaviour tree (`bt` from "factoria", engine/script/src/js/factoria.js): each node, and the way a running node is interrupted.
 import { test, describe, expect } from "factoria:test";
-import {
-  Tree, SUCCESS, FAILURE, RUNNING, sequence, selector, condition, action, wait, cooldown, inverter, succeeder,
-} from "../scripts/game/behavior_tree.js";
+import { bt } from "factoria";
+
+const { Tree, SUCCESS, FAILURE, RUNNING, sequence, selector, condition, action, wait, cooldown, inverter, succeeder } = bt;
 
 const ok = action(() => SUCCESS);
 const no = action(() => FAILURE);

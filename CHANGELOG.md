@@ -4,6 +4,66 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The exported player checks a build
+
+- `factoria_player` (the exported game) takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` together
+  with `--frames N`: the game runs headless through the same code as `factoria run --headless --frames N`, plays the replay
+  `input.record` writes, writes the world state after the last frame and a PNG of the last frame. Both equal what
+  `factoria run` writes for the same replay and frame count. Exit codes: 0, 1 after a script error, 2 for a missing replay,
+  an unwritable output or a missing `--frames`. New test `cli_player_replay`; EXPORTING.md has "Checking an exported build".
+
+Tile pathfinding and behaviour trees
+
+- `nav.findTilePath(map, from, to, {costs, diagonals, maxNodes, closest, allowBlockedGoal})` and the command
+  `nav.find_tile_path`: deterministic A* over the cells of a `Tilemap` (solid tiles block, `costs` per tile index) or of a
+  `{width, height, cost}` grid for games that keep their own map. Diagonals never cut corners; `closest` returns the nearest
+  reachable cell. The result lists `cells` and the world `points` of their centres. `nav.tileVersion(tilemap)` counts the
+  `setTile` writes so a script knows a kept path is stale. NAVIGATION.md, section 7.
+- `import { bt } from "factoria"`: behaviour trees in plain JS (`Tree`, `sequence`, `selector`, `condition`, `action`,
+  `wait`, `cooldown`, `inverter`, `succeeder`, `SUCCESS`, `FAILURE`, `RUNNING`), ticked by the script with its own `dt`.
+  SCRIPTING.md, "AI: behaviour trees", and an enemies recipe in the AI guide (section 9.27).
+
+Steam Remote Play guests and `platform.cloud.stat`
+
+- New platform service `remotePlay`: `platform.remotePlay.sessions()` lists the guests connected through Remote Play
+  Together (`[{ id, guestName, guestId, deviceName, formFactor, resolution }]`) and `platform.on("remotePlay", ...)` gets
+  `{ status: "connected" | "disconnected", session }` as each comes or goes. The Steam plugin offers it when the Steam
+  library has `ISteamRemotePlay`. A guest's controls arrive as one more gamepad; the engine does not say which pad is which
+  guest. The fake store has `game.platform.remotePlayConnect(info)` and `remotePlayDisconnect(id)` (commands
+  `platform.remote_play_connect` and `platform.remote_play_disconnect`).
+- New `platform.cloud.stat(key)`: `{ exists: false }` for a missing key, else `{ exists: true, size, modified }` without
+  returning the text (`modified` in Unix seconds, `null` on Apple, which keeps no time). Steam answers the file's time,
+  Google Play the snapshot's last-modified time (it opens the snapshot to count the bytes), the fake a deterministic
+  counter (`game.platform.set({ cloudClock })` sets it). To tell which save is newer keep a revision counter in the saved
+  value; PLATFORM.md says why.
+- The Steam, Apple and Google Play code for both was checked against the mock (Steam) and by reading (Apple, Google Play)
+  only: no real Remote Play session or real store was tried.
+
+Light2D on a light buffer: shadows from solid tiles and no 16-light cap
+
+- Point lights are now added up in a light buffer (one draw call, RGBA16F, or RGBA8 at half range on a GPU that cannot
+  blend half floats) that lit sprites, tiles and shapes read, instead of every pixel looping over 16 lights. A frame keeps
+  up to 256 lights (it was 16): the same choice as before (directional first, then the lights that reach the view, more of
+  their radius in view first, then the brighter), the same stats (`lights2d`, `lights2dDropped`) and the same
+  `perf.measure` `lights`. The look of a scene with 16 lights or fewer is unchanged (the render goldens still match).
+  A lit sprite or tile WITH a normal map is still shaded per pixel by the first 16 lights, because its shading depends on
+  the direction of each light; flat surfaces get all of them. A scene without Light2D, or without lit visuals, draws no
+  light pass; one with them adds one draw call (the perf baselines of Burrow Brigade went from 10 to 11 draw calls).
+  The light pass needs an orthographic camera; a perspective camera shades per pixel with 16 lights as before.
+- New field `SceneSettings.lightScale` (0.25 to 1, default 1): the size of the light buffer as a fraction of the
+  picture. 0.5 quarters the fill cost of the lights, a good setting for phones and the web.
+- New `Light2D.castShadows` and `Tilemap.occludesLight` (both default false). A Tilemap with `occludesLight` makes the
+  tiles of its `solidTiles` block the light of every point Light2D with `castShadows`: the far side of a wall stays
+  dark, the wall's own face stays lit, and a light inside a solid tile shines out of it. Editing a tile at run time
+  (`tilemap.setTile`, the command `tilemap.set_tile`) moves the shadows on the next frame. The
+  shadows are traced on the CPU per light (1024 rays) and looked up on the GPU; a light that does not move reuses its rays.
+  At most 32 point lights per frame cast shadows (the ones ranked first); the others shine through walls, with one
+  warning per scene. The new stat `lights2dShadowed` (`renderStats()`, `game.render_stats`) counts the ones with a shadow.
+- docs/PERFORMANCE.md has the cost per light and per shadow-casting light measured on a Mac, and advice for mobile and
+  the web; docs/AI_GUIDE.md a recipe for lights with tile shadows. The doc strings and docs no longer say "16 lights".
+- `FA_LIGHT_FORMAT=rgba16f|rgba8|none` picks the light buffer format at start-up (testing the fallbacks; `none` uses the
+  per-pixel loop over 16 lights, the same as a GPU that cannot render to either format).
+
 Analytics with consent and remote config
 
 - New `analytics` and `remoteConfig` in `factoria`, on top of `http.fetch` (docs/ANALYTICS.md). `analytics.event(name,
@@ -141,12 +201,12 @@ Thai line breaks and the sara am check
 Light2D in the stats and the perf budget
 
 - `RenderStats` (`game.render_stats`, `game.renderStats()`) gets `lights2d` and `lights2dDropped`: the Light2D lights
-  that shade a frame (at most 16) and the ones left out. `lights` and `lightsDropped` stay the 3D lights.
+  that shade a frame (at most 256 since the light buffer, see above) and the ones left out. `lights` and `lightsDropped` stay the 3D lights.
 - `perf.measure`'s `lights`, and so the `maxLights` budget, is now the most 2D plus 3D lights of any frame: a budget
   written for a 2D game used to watch nothing.
-- The 16 Light2D lights of a frame are the ones that light the view: directional lights first, then the point lights whose
+- The Light2D lights of a frame are the ones that light the view: directional lights first, then the point lights whose
   radius reaches the camera's visible rectangle (more of their radius in view first, then the more intense ones). A light
-  entirely off-view is never kept over one in view. More than 16 in view logs one warning per scene naming the count.
+  entirely off-view is never kept over one in view. More than the budget (256) in view logs one warning per scene naming the count.
 
 Clipboard and window close
 

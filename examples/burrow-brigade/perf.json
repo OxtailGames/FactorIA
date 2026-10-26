@@ -9,7 +9,7 @@
       "cpuMsP95": 2.335,
       "cpuMsMax": 45.605,
       "peakMemoryMB": 47.3,
-      "drawCalls": 10,
+      "drawCalls": 11,
       "entities": 134,
       "graphics": "Metal / Apple M5",
       "triangles": 0,

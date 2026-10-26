@@ -132,11 +132,15 @@ void update_parallax(World& world, Vec2 camPos) {
 namespace {
 
 // Collects the Light2D entities of the frame into f.lights2d, at most kMaxLights2D: directional lights first, then the
-// point lights that light the view. A point light whose radius reaches the camera's visible rectangle is always kept
-// over one that does not; among those in view the ones with more of their radius inside the rectangle come first, then
-// the more intense ones, then the nearest to the camera. Counts what it kept and dropped in the frame's stats.
+// point lights that light the view. A point light whose radius does not reach the camera's visible rectangle shades nothing
+// on screen: it is left out and counted as dropped. Among those in view the ones with more of their radius inside the
+// rectangle come first, then the more intense ones, then the nearest to the camera, so the lights over the budget are the
+// ones that matter least. Counts what it kept and dropped in the frame's stats, then gives the lights with castShadows
+// their shadow rows (light2d.cpp).
 void gather_lights(World& world, Frame& f) {
     f.lights2d.clear();
+    f.shadowData.clear();
+    f.shadowRows = 0;
     f.ambient2d = world.settings().ambientLight;
     struct Candidate {
         Light2DData data;
@@ -172,6 +176,7 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[1] = p.y;
             c.data.pos[2] = std::max(l.height, 0.0f);
             c.data.pos[3] = l.radius;
+            c.data.extra[1] = l.castShadows ? 1.0f : 0.0f;
             c.dist2 = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
             if (useView) {
                 // The light must reach the rectangle itself; "inside" is its bounding square against the view.
@@ -196,7 +201,8 @@ void gather_lights(World& world, Frame& f) {
     int inViewCount = 0;
     for (const Candidate& c : found) inViewCount += (c.directional || c.inView) ? 1 : 0;
     const int total = int(found.size());
-    if (found.size() > std::size_t(kMaxLights2D)) found.resize(std::size_t(kMaxLights2D));
+    // The off-view lights come last and shade nothing on screen, so they never take a place.
+    found.resize(std::size_t(std::min(inViewCount, kMaxLights2D)));
     for (const Candidate& c : found) f.lights2d.push_back(c.data);
     if (f.stats) {
         f.stats->lights2d = int(f.lights2d.size());
@@ -208,6 +214,7 @@ void gather_lights(World& world, Frame& f) {
                 "their radius in view, then the dimmest) are left out. Use fewer or smaller lights, or move them out of view",
                 inViewCount, kMaxLights2D);
     }
+    assign_shadow_rows(world, f);
 }
 
 }  // namespace

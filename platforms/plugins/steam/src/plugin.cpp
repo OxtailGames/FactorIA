@@ -1,6 +1,6 @@
 /* The Steamworks backend of FactorIA's `platform` API (docs/PLATFORM.md, "Steam"): a native plugin (docs/EXTENDING.md,
  * "Native plugins") that registers the backend "steam" and answers the game's achievements, stats, leaderboards, cloud saves,
- * purchases (DLC), overlay and rich presence requests with the Steamworks flat C API.
+ * purchases (DLC), overlay, rich presence and Remote Play guests requests with the Steamworks flat C API.
  *
  * It contains no code or header of Valve's: steam_loader.cpp loads the Steamworks redistributable at run time (steam_api64.dll,
  * libsteam_api.dylib, libsteam_api.so), looked for next to this plugin first, and calls it through function pointers that
@@ -12,6 +12,7 @@
  *   text_input.cpp     Steam's own keyboard on a Steam Deck or in Big Picture (plugin API 3)
  *   methods_game.cpp   sign-in, achievements, stats, leaderboards, cloud saves
  *   methods_store.cpp  purchases (DLC), overlay, rich presence
+ *   remote_play.cpp    Remote Play Together guests (sessions and the connect and disconnect events)
  */
 #include <cstdlib>
 #include <string>
@@ -86,6 +87,7 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     b.started = true;
     SteamApi& s = b.steam;
     b.selfId = s.SteamAPI_ISteamUser_GetSteamID(s.user);
+    remember_remote_play_sessions();
     b.appId = s.SteamAPI_ISteamUtils_GetAppID(s.utils);
     if (s.needsStatsRequest) {  // SDK 1.60 and older load the stats on request; newer ones before the game starts
         b.stats = Backend::Stats::Loading;
@@ -99,8 +101,13 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
                              "ones newer than the SDKs checkedSdk names: used, with a warning), checkedSdk, overlayEnabled, "
                              "cloudEnabledForAccount, cloudEnabledForApp, statsLoaded, dlc}. Example: {}.",
                              nullptr, 1, status, nullptr};
-    FaBackendDesc desc = {"steam", "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\",\"presence\"]",
-                             on_request, on_frame, nullptr};
+    // remotePlay only when the library has ISteamRemotePlay (every SDK from 1.49 does): the service is then declared, and the
+    // engine answers "unavailable" to remotePlay.sessions on a library that has not.
+    const std::string services = s.remotePlay ? "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\","
+                                                "\"presence\",\"remotePlay\"]"
+                                              : "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\","
+                                                "\"presence\"]";
+    FaBackendDesc desc = {"steam", services.c_str(), on_request, on_frame, nullptr};
     // Plugin API 3: the Steam Deck's own keyboard for a TextField a gamepad player focuses (an older engine has no hook).
     const bool keyboardHook = api->version >= 3 && api->add_text_input && api->submit_text;
     if (api->add_command(api, &command) != 0 || api->add_backend(api, &desc) != 0 ||
