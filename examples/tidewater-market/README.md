@@ -27,6 +27,7 @@ factoria call --project . project.validate_data               # check data/*.jso
 | P6 | Saving, loading, the shop menu | planned |
 | P7 | Finished art and sound under the same frame names | planned |
 | P8 | Translations (es, fr, zh-Hans), accessibility, polish | planned |
+| P4 (progress) | Three save slots with autosave, save format v2 with the v1 migration, cloud copies, four scenarios with goals and a win screen, the slot screen and the pause menu's Save | done |
 
 ## How to play (P1, P2)
 
@@ -220,6 +221,60 @@ an Apple M5 (Metal): `cpuMsAvg` 29.8, `cpuMsP95` 30.0, `cpuMsMax` 1325 (the fram
 `entities` 4682, `peakMemoryMB` 91.4. These are not budgets: P7 sets them on a release build and the CI runners.
 Walker routes: the distance fields cost 442 ms for 75 steps of 600 walkers against 5978 ms through `nav.findTilePath` on the
 same 60 x 60 map (see FB-0006 in `ENGINE_FEEDBACK.json`), which is why the game uses the fields.
+
+## Saves and scenarios (P4)
+
+**Slots.** Play on the title opens the slot screen: three slots, each with a manual save and an autosave, showing name, scenario,
+in-game date, play time and a small map of the town (the engine cannot give a script a screenshot as a texture: FB-0020). An empty
+slot starts a new game (pick one of the scenarios); a taken one loads; Continue loads the newest entry; Rename and Delete (asks
+first) work on a slot. The pause menu's Save game saves into a slot (asks before replacing one) and the game then belongs to that
+slot. Everything works with the mouse alone and with the keyboard alone (`tests/slots_screen.test.js`).
+A game sent to the game scene is described by `session.boot`: `{ slot, kind }` loads, `{ slot, scenario, name }` starts a new game.
+
+**Autosave** (`scripts/game/autosave.js`, wired by `scripts/save_controller.js`) writes the autosave entry of the game's slot when a
+season ends (at the end of the frame, never inside a clock step), every 120 s of play when the town changed, when a goal is won, and
+when the window loses the focus, the app is suspended or the desktop window closes. A game with no slot (slot 0) is never
+autosaved. Play time counts real seconds (a frame counts at most 1 s) and stops while the window has no focus. A write that fails
+(storage full or refused) keeps the old entry and shows a toast.
+
+**Save format** (`scripts/game/savegame.js`, the only file that knows the layout). `tidewater.save`, `VERSION = 2`: the map with its
+terrain as run lengths, the clock, the economy, the buildings (roads laid in a line are one array each), the simulation (villagers,
+walkers where they stand, the ledger) and the scenario with its goal progress. A loaded game continues exactly as the saved one
+(same `state.hash()` after any number of days; `tests/save.test.js`). Not saved: undo history, camera, current tool.
+A damaged file, a file that is not a save, one with an unknown format, one written by a newer game (`future_version`) or one too
+old to migrate is refused with a sentence, a hint and a JSON pointer; nothing starts and the slot is left as it was.
+Measured for the stress town (640 villagers, 532 walking): 281 KB, 143 ms to write and 75 ms to read and restore, in a debug build
+(`tests/stress.test.js` prints them; FB-0022).
+
+**Ships and events in a save (P5).** While the trade is on, the save has a top-level `trade` field: `state.trade.snapshot()` (its own
+`v: 1`; ships, orders, reputation, the open event card, the story, achievements and the state of its three random streams). It is
+restored last, after the buildings and the clock, with `state.trade.restore`; a snapshot the trade refuses (another `v`) refuses the
+whole save at `/trade`. A loaded game keeps its trade: `trade_ui.js` only starts a new one when the state has none, and starts it
+for the scenario the slot screen picked (`controller.run.scenario`; the scene prop `scenario` still wins). A save made with the trade off (or by
+the first v2 builds) has no `trade` field and loads with it off, and the game screen then starts it fresh from the day of the load.
+A game saved while an event card was open comes back at speed 0 with the card open and goes on at x1 after the answer
+(`tests/save.test.js` pins `state.trade.hash()` equal after more days; `tests/scenario_game.test.js` checks the screen).
+
+**How to bump the version.** 1. Change the layout in `serializeGame` / `restoreGame` and raise `VERSION`. 2. Add `MIGRATIONS[n]` (the
+old version n) that returns a save of version n + 1; `readSave` runs the steps in order. 3. Write a new fixture with
+`tools/save_fixture.js` (`tests/fixtures/save_vN.json`, `slot_vN.json`) and a test that loads it. 4. NEVER regenerate an old fixture:
+it is the proof that old saves still load.
+
+**What later packages add to a save.** `serializeGame(state, extra)` keeps the fields of `extra` at the top level of the save and
+`readSave` ignores fields it does not know, so a package that adds state (ships and events, prices, translations of names) puts its
+own field there, restores it in `restoreGame` after the buildings and the clock, and adds a `MIGRATIONS` step for saves that lack it.
+`GoalTracker.saveFields()` is the model.
+
+**Cloud copies** (`scripts/game/cloud_sync.js`) go through `platform.cloud` when `platform.has("cloudSave")`: every entry written is
+pushed (`tm_slot_N`, `tm_slot_N_auto` = `{ revision, meta, save }`), and the slot screen syncs when it opens. The rule when device
+and cloud differ: the higher `revision` (a counter of device writes that a pull raises) wins; equal: the greater play time; equal:
+the device. The copy that lost is kept in `tm.conflict.<slot>`. No cloud (no store backend) means the game saves on the device only.
+
+**Scenarios** (`data/scenarios.json`, `scripts/game/scenarios.js`). Ids are the contract for later packages: `first_harbour`,
+`river_mills`, `winter_trade`, `sandbox` (no goals). A goal is `population`, `coins` or `produced_in_season` (a good made in one
+season), is sticky once reached, and emits `goal.done`; the last one emits `scenario.won`, which shows the win screen (keep playing
+or back to the title) and writes the autosave. The goal panel sits under the right-hand menu column. The tracker only reads the game, so
+goals never change the state hash. The bot reaches every scenario (`tests/scenarios.test.js`).
 
 ## Interface (P3)
 

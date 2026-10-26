@@ -41,7 +41,9 @@ export default class TradeUi extends Behaviour {
     if (!this.controller || !this.controller.state || !this.controller.uiPanels) return;
     const props = game.sceneProps();
     const quiet = !!(props.testMap || props.stress);
-    const wantOn = props.trade !== undefined ? props.trade : this.enabled && !quiet;
+    // P4: a game loaded from a save slot brings its trade with it (savegame.js restores it): keep it, do not start a new one
+    const brought = this.controller.state.trade.enabled;
+    const wantOn = props.trade !== undefined ? props.trade : brought || (this.enabled && !quiet);
     this.ready = true;
     if (!wantOn) return;
     this.tradeOn = true;
@@ -49,7 +51,9 @@ export default class TradeUi extends Behaviour {
     this.trade = this.state.trade;
     this.atlas = this.state.data.atlas;
     this.sceneId = scene.current;
-    this.trade.start(props.scenario || this.scenario);
+    // the scenario of the game: the scene prop, else the one the slot screen picked (controller.run), else this script's own
+    const run = this.controller.run;
+    if (!brought) this.trade.start(props.scenario || (run && run.tracker ? run.scenario : this.scenario));
     this.ships = new ShipView(this.state);
     this.store = new StoreBridge(this.state);
     this.repText = this.controller.addHudItem("rep", "icon.star", "");
@@ -77,7 +81,11 @@ export default class TradeUi extends Behaviour {
       ui.on("click", (e) => this.onClick(e.id)),
     ];
     this.refreshHud();
-    if (this.trade.card) this.openCard();
+    if (this.trade.card) {
+      // a game saved with a card open was saved at speed 0 (the card holds the clock): go on at x1 after the answer
+      if (brought && this.state.clock.speed === 0 && this.heldSpeed < 0) this.heldSpeed = 1;
+      this.openCard();
+    }
   }
 
   onDestroy() {

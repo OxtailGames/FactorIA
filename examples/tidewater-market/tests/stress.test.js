@@ -4,6 +4,9 @@ import { test, expect, game } from "factoria:test";
 import { createGame } from "../scripts/game/state.js";
 import { buildStressTown, stressRows } from "../scripts/game/stress_town.js";
 import { navFinder } from "../scripts/game/nav_backend.js";
+import { storage } from "factoria";
+import { getData } from "../scripts/game/data.js";
+import { writeEntry, loadEntry, entryBytes } from "../scripts/game/save_store.js";
 
 function crowd(villagers = 640) {
   const state = createGame({ rows: stressRows(60) });
@@ -61,4 +64,21 @@ test("walker routes: the engine's nav.findTilePath finds the same ways as the di
     expect(withNav[i]).not.toBe(null);
     expect(withNav[i]).toBeGreaterThanOrEqual(withFields[i]);
   }
+});
+
+test("stress: saving and loading the 640-villager town is exact and its cost is printed", () => {
+  const { state } = crowd();
+  for (let i = 0; i < state.clock.ticksPerDay * 0.25; i++) state.clock.tick(state.clock.step); // walkers on the roads
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  storage.clear();
+  const t0 = now();
+  const res = writeEntry(1, "manual", state, { scenario: "sandbox", name: "Stress", playSeconds: 1 });
+  const t1 = now();
+  expect(res.ok).toBe(true);
+  const bytes = entryBytes(1, "manual");
+  const back = loadEntry(1, "manual", getData());
+  const t2 = now();
+  expect(back.ok).toBe(true);
+  expect(back.state.hash()).toBe(state.hash());
+  console.log("stress save: bytes", bytes, "write ms", (t1 - t0).toFixed(1), "read+restore ms", (t2 - t1).toFixed(1), "walkers", state.sim.walkers.count);
 });
