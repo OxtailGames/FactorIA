@@ -2,23 +2,29 @@
 // The save format (pure, no engine calls): a GameState <-> a plain JSON object. This file is the ONLY place that knows the layout of a
 // save, and its version. The slots, the autosave and the cloud copies (save_store.js, cloud_sync.js) only move the object around.
 //
-//   const save = serializeGame(state);                 // -> { format: "tidewater.save", version: 1, ... }
+//   const save = serializeGame(state);                 // -> { format: "tidewater.save", version: 2, ... }
 //   const res = loadGame(JSON.parse(text), data);      // -> { ok: true, state, save } | { ok: false, error: SaveProblem }
 //
-// FORMAT VERSION 1 (README, "Saves and scenarios (P4)", says how to bump the version):
-//   map        the terrain as one digit per cell (the index in data/terrain.json), row by row, plus the hash of it. The save carries
-//              its own map, so a change of the map generator never breaks an old save.
+// FORMAT VERSION 2 (README, "Saves and scenarios (P4)", says how to bump the version):
+//   scenario   the id of the scenario the game belongs to ("sandbox" for none); progress  its goals: { goals: { id: day done }, won, wonDay, base }
+//   map        width, height, seed, the terrain as run lengths [kind, count, kind, count, ...] (kind = index in data/terrain.json, cells
+//              row by row) and the map hash. The save carries its own map, so a change of the map generator never breaks an old save.
 //   clock      day, dayTick, speed, pending, ticks             economy  coins and stock
-//   buildings  every building and road as { id, type, x, y, rot, w, h }, in the order the game keeps them; nextId
+//   buildings  in the order the game keeps them; nextId. A building is { id, type, x, y, rot, w, h }; a run of roads laid in a line
+//              (consecutive ids, neighbouring cells) is one array [firstId, x, y, dir, length]: dir 0 goes right, 1 goes down
 //   sim        the town's life: runtime state of each building (rt), villagers (with a carrier's trip), walkers on the road, the
 //              ledger, timers. A walker is saved where it stands, so a loaded game continues EXACTLY as the saved one would have:
 //              the same state hash after any number of days (tests/save.test.js).
+// VERSION 1 (the first commit of the format, fixtures tests/fixtures/*_v1.json) had no progress, one digit per terrain cell and
+// every road as an object; MIGRATIONS[1] turns it into version 2.
+// Fields a package adds (serializeGame's `extra`) are top-level and kept as they are; readSave does not look at fields it does not know.
 // What is not saved: the undo and redo history (a loaded game starts with an empty one), the camera, the current tool.
 import { createGame } from "./state.js";
+import { didYouMean } from "./data.js";
 
 export const FORMAT = "tidewater.save";
 /** The version this file writes. Bump it when the layout changes and add the step to MIGRATIONS (README explains). */
-export const VERSION = 1;
+export const VERSION = 2;
 
 /**
  * @typedef {{ code: string, message: string, hint: string, pointer: string, detail?: any }} SaveProblem
@@ -52,17 +58,60 @@ export function serializeGame(state, extra = {}) {
   const clock = state.clock;
   const map = state.map;
   const save = {
+    ...clone(extra),
     format: FORMAT,
     version: VERSION,
     scenario: extra.scenario || "sandbox",
-    map: { width: map.width, height: map.height, seed: map.seed, terrain: Array.from(map.terrain).join(""), hash: map.hash() },
+    progress: extra.progress || emptyProgress(sim.ledger.produced),
+    map: { width: map.width, height: map.height, seed: map.seed, terrain: runLengths(map.terrain), hash: map.hash() },
     clock: { day: clock.day, dayTick: clock.dayTick, speed: clock.speed, pending: clock.pending, ticks: clock.ticks },
     economy: { coins: state.economy.coins, stock: { ...state.economy.stock } },
     nextId: state.nextId,
-    buildings: [...state.buildings.values()].map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, rot: b.rot, w: b.w, h: b.h })),
+    buildings: packBuildings([...state.buildings.values()]),
     sim: serializeSim(state),
   };
   return save;
+}
+
+/** The progress of a game with no goals (a sandbox, or a version 1 save brought up to date). */
+function emptyProgress(produced) {
+  return { goals: {}, won: false, wonDay: null, base: { ...produced } };
+}
+
+/** [kind, count, kind, count, ...] for a list of small numbers. */
+function runLengths(cells) {
+  const out = [];
+  for (let i = 0; i < cells.length; i++) {
+    if (out.length && out[out.length - 2] === cells[i]) out[out.length - 1]++;
+    else out.push(cells[i], 1);
+  }
+  return out;
+}
+
+/** Roads laid in a line become one [firstId, x, y, dir, length]; everything else stays an object. The order of the list is kept. */
+function packBuildings(list) {
+  const out = [];
+  let run = null; // the run being extended: [id, x, y, dir, length] (an element of `out`)
+  for (const b of list) {
+    if (b.type !== "road") {
+      out.push({ id: b.id, type: b.type, x: b.x, y: b.y, rot: b.rot, w: b.w, h: b.h });
+      run = null;
+      continue;
+    }
+    if (run && b.id === run[0] + run[4]) {
+      const dir = run[4] === 1 ? (b.x === run[1] + 1 && b.y === run[2] ? 0 : b.x === run[1] && b.y === run[2] + 1 ? 1 : -1) : run[3];
+      const nextX = run[1] + (dir === 0 ? run[4] : 0);
+      const nextY = run[2] + (dir === 1 ? run[4] : 0);
+      if (dir >= 0 && b.x === nextX && b.y === nextY) {
+        run[3] = dir;
+        run[4]++;
+        continue;
+      }
+    }
+    run = [b.id, b.x, b.y, 0, 1];
+    out.push(run);
+  }
+  return out;
 }
 
 function serializeSim(state) {
@@ -98,7 +147,23 @@ function serializeSim(state) {
  * Migration steps: MIGRATIONS[n] turns a save of version n into version n + 1. Empty while there is only version 1.
  * @type {Record<number, (save: any) => any>}
  */
-export const MIGRATIONS = {};
+export const MIGRATIONS = {
+  // 1 -> 2: scenario progress (a version 1 game had no goals), terrain as run lengths, roads packed in runs
+  1(save) {
+    if (!save.map || typeof save.map.terrain !== "string") fail("invalid", "/map/terrain", "a version 1 save keeps the terrain as one text of digits", "the file is damaged");
+    const cells = Array.from(save.map.terrain, (ch) => ch.charCodeAt(0) - 48);
+    if (cells.some((k) => !(k >= 0 && k <= 9))) fail("invalid", "/map/terrain", "the terrain must be digits", "the file is damaged");
+    const produced = save.sim && save.sim.ledger && save.sim.ledger.produced ? save.sim.ledger.produced : {};
+    return {
+      ...save,
+      version: 2,
+      scenario: typeof save.scenario === "string" ? save.scenario : "sandbox",
+      progress: emptyProgress(produced),
+      map: { ...save.map, terrain: runLengths(cells) },
+      buildings: packBuildings(Array.isArray(save.buildings) ? save.buildings.filter((b) => b && typeof b === "object") : []),
+    };
+  },
+};
 
 /**
  * Parse (when given text), check the version, migrate to the current version and check the shape. Never throws.
@@ -143,6 +208,7 @@ function problemOf(e) {
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isInt = (v) => Number.isInteger(v);
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+const sumOfCounts = (runs) => runs.reduce((n, v, i) => (i % 2 ? n + v : n), 0);
 
 /** Throw a SaveError for the first thing that is not shaped like a save (types and ranges; references are checked while restoring). */
 function checkShape(s) {
@@ -151,13 +217,18 @@ function checkShape(s) {
   };
   need(typeof s.scenario === "string", "/scenario", "scenario must be a text");
   need(isObject(s.map) && isInt(s.map.width) && isInt(s.map.height) && s.map.width >= 4 && s.map.height >= 4 && s.map.width <= 256 && s.map.height <= 256, "/map", "map needs a width and a height (whole numbers from 4 to 256)");
-  need(typeof s.map.terrain === "string" && s.map.terrain.length === s.map.width * s.map.height, "/map/terrain", `terrain must be one digit per cell (${s.map.width * s.map.height} of them)`);
+  need(Array.isArray(s.map.terrain) && s.map.terrain.length % 2 === 0 && s.map.terrain.every((n) => isInt(n) && n >= 0), "/map/terrain", "terrain must be a list of [kind, count] pairs");
+  need(sumOfCounts(s.map.terrain) === s.map.width * s.map.height, "/map/terrain", `the terrain runs must add up to ${s.map.width * s.map.height} cells (width x height)`);
+  need(isObject(s.progress) && isObject(s.progress.goals) && isObject(s.progress.base), "/progress", "progress needs goals and base");
   need(isObject(s.clock) && ["day", "dayTick", "speed", "ticks"].every((k) => isInt(s.clock[k]) && s.clock[k] >= 0) && isNum(s.clock.pending), "/clock", "clock needs day, dayTick, speed, ticks (whole numbers) and pending (a number)");
   need(isObject(s.economy) && isNum(s.economy.coins) && isObject(s.economy.stock), "/economy", "economy needs coins and stock");
   for (const [g, n] of Object.entries(s.economy.stock)) need(isNum(n) && n >= 0, `/economy/stock/${g}`, `stock of ${g} must be a number, 0 or more`);
   need(isInt(s.nextId) && s.nextId >= 1, "/nextId", "nextId must be a whole number from 1");
   need(Array.isArray(s.buildings), "/buildings", "buildings must be a list");
-  s.buildings.forEach((b, i) => need(isObject(b) && isInt(b.id) && b.id >= 1 && typeof b.type === "string" && isInt(b.x) && isInt(b.y) && isInt(b.rot) && isInt(b.w) && isInt(b.h), `/buildings/${i}`, "a building needs id, type, x, y, rot, w, h"));
+  s.buildings.forEach((b, i) => {
+    if (Array.isArray(b)) need(b.length === 5 && b.every(isInt) && b[0] >= 1 && (b[3] === 0 || b[3] === 1) && b[4] >= 1, `/buildings/${i}`, "a run of roads is [firstId, x, y, dir, length] (dir 0 or 1, length 1 or more)");
+    else need(isObject(b) && isInt(b.id) && b.id >= 1 && typeof b.type === "string" && isInt(b.x) && isInt(b.y) && isInt(b.rot) && isInt(b.w) && isInt(b.h), `/buildings/${i}`, "a building needs id, type, x, y, rot, w, h");
+  });
   need(isObject(s.sim) && isObject(s.sim.ledger) && Array.isArray(s.sim.rt) && Array.isArray(s.sim.villagers) && Array.isArray(s.sim.walkers) && isObject(s.sim.people) && isObject(s.sim.logistics), "/sim", "sim needs ledger, rt, villagers, walkers, people and logistics");
 }
 
@@ -187,19 +258,17 @@ export function loadGame(input, data) {
 }
 
 function restore(s, data) {
-  // 1. the map. A digit string becomes rows of terrain characters, which createGame turns into a map like any other.
+  // 1. the map. The runs become rows of terrain characters, which createGame turns into a map like any other.
   const ids = data.terrainIds;
   const chars = ids.map((id) => data.terrain[id].char);
-  const rows = [];
-  for (let r = 0; r < s.map.height; r++) {
-    let row = "";
-    for (let c = 0; c < s.map.width; c++) {
-      const k = s.map.terrain.charCodeAt(r * s.map.width + c) - 48;
-      if (!(k >= 0 && k < ids.length)) fail("invalid", "/map/terrain", `cell (${c}, ${r}) holds the terrain number ${JSON.stringify(s.map.terrain[r * s.map.width + c])}, but there are only ${ids.length} kinds of terrain`, "the file is damaged");
-      row += chars[k];
-    }
-    rows.push(row);
+  let text = "";
+  for (let i = 0; i < s.map.terrain.length; i += 2) {
+    const kind = s.map.terrain[i];
+    if (kind >= ids.length) fail("invalid", `/map/terrain/${i}`, `terrain kind ${kind}, but there are only ${ids.length} kinds of terrain (${ids.join(", ")})`, "the file is damaged");
+    text += chars[kind].repeat(s.map.terrain[i + 1]);
   }
+  const rows = [];
+  for (let r = 0; r < s.map.height; r++) rows.push(text.slice(r * s.map.width, (r + 1) * s.map.width));
   const state = createGame({ data, rows });
   state.map.seed = isInt(s.map.seed) ? s.map.seed : 0;
   if (typeof s.map.hash === "string" && state.map.hash() !== s.map.hash) {
@@ -221,19 +290,29 @@ function restore(s, data) {
   }
 
   // 3. the buildings, in the order the game kept them. restoreBuilding fills the map and tells the simulation (it makes the rt entries).
-  s.buildings.forEach((b, i) => {
+  let highest = 0;
+  const put = (b, i) => {
     const def = data.buildings[b.type];
-    if (!def) fail("invalid", `/buildings/${i}/type`, `unknown building '${b.type}'`, `the buildings are: ${data.buildingIds.join(", ")}`);
-    if (state.buildings.has(b.id)) fail("invalid", `/buildings/${i}/id`, `two buildings have the id ${b.id}`, "the file is damaged");
+    if (!def) {
+      const near = didYouMean(b.type, data.buildingIds);
+      fail("invalid", `/buildings/${i}/type`, `unknown building '${b.type}'${near ? `; did you mean '${near}'?` : ""}`, `the buildings are: ${data.buildingIds.join(", ")}`);
+    }
+    if (state.buildings.has(b.id)) fail("invalid", `/buildings/${i}`, `two buildings have the id ${b.id}`, "the file is damaged");
     if (b.x < 0 || b.y < 0 || b.x + b.w > state.map.width || b.y + b.h > state.map.height) fail("invalid", `/buildings/${i}`, `${b.type} ${b.id} stands outside the map`, "the file is damaged");
     for (let r = b.y; r < b.y + b.h; r++) {
       for (let c = b.x; c < b.x + b.w; c++) {
         if (state.map.occupantAt(c, r)) fail("invalid", `/buildings/${i}`, `${b.type} ${b.id} overlaps building ${state.map.occupantAt(c, r)} at (${c}, ${r})`, "the file is damaged");
       }
     }
+    highest = Math.max(highest, b.id);
     state.restoreBuilding({ id: b.id, type: b.type, x: b.x, y: b.y, rot: b.rot, w: b.w, h: b.h }, "load");
+  };
+  s.buildings.forEach((b, i) => {
+    if (!Array.isArray(b)) return put(b, i);
+    const [id, x, y, dir, length] = b; // a run of roads
+    for (let k = 0; k < length; k++) put({ id: id + k, type: "road", x: x + (dir === 0 ? k : 0), y: y + (dir === 1 ? k : 0), rot: 0, w: 1, h: 1 }, i);
   });
-  state.nextId = Math.max(s.nextId, 1 + Math.max(0, ...s.buildings.map((b) => b.id)));
+  state.nextId = Math.max(s.nextId, highest + 1);
 
   // 4. the town's life
   restoreSim(state, s.sim);

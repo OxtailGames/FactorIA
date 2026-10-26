@@ -5,6 +5,7 @@ import { serializeGame, readSave, loadGame, FORMAT, VERSION } from "../scripts/g
 import { makeThumbnail, thumbRuns } from "../scripts/game/thumbnail.js";
 import { createGame } from "../scripts/game/state.js";
 import fixtureV1 from "./fixtures/save_v1.json";
+import fixtureV2 from "./fixtures/save_v2.json";
 import { smallTown, fillHouses, runDays } from "./town_helper.js";
 
 /** Stringify with sorted keys: two equal states give equal text whatever order the fields were made in. */
@@ -93,21 +94,52 @@ test("damaged saves are refused with a code, a pointer and a hint, never a crash
     expect(res.error.code).toBe(code);
     return res.error;
   };
-  expect(bad((s) => (s.buildings[0].type = "hosue"), "invalid").pointer).toBe("/buildings/0/type");
+  const first = (s) => s.buildings.findIndex((b) => !Array.isArray(b));
+  const at = first(good);
+  expect(bad((s) => (s.buildings[first(s)].type = "hosue"), "invalid").pointer).toBe(`/buildings/${at}/type`);
   bad((s) => (s.map.hash = "deadbeef"), "map_mismatch");
-  bad((s) => s.buildings.push({ ...s.buildings[0] }), "invalid");
+  bad((s) => s.buildings.push({ ...s.buildings[first(s)] }), "invalid");
   bad((s) => (s.sim.rt[0].id = 9999), "invalid");
   bad((s) => (s.economy.stock.gold = 5), "invalid");
   bad((s) => (s.clock.dayTick = 999999), "invalid");
 });
 
-test("the version 1 fixture (made by the first commit of the format) still loads, to the same town", () => {
+test("the version 1 fixture (made by the first commit of the format) migrates to version 2 and loads to the same town", () => {
   expect(fixtureV1.save.version).toBe(1);
+  const read = readSave(fixtureV1.save);
+  expect(read.ok).toBe(true);
+  expect(read.migratedFrom).toBe(1);
+  expect(read.save.version).toBe(VERSION);
+  expect(read.save.scenario).toBe("sandbox"); // a version 1 save had no scenario
+  expect(read.save.progress.won).toBe(false);
+  expect(typeof fixtureV1.save.map.terrain).toBe("string"); // the old layout: one digit a cell
+  expect(Array.isArray(read.save.map.terrain)).toBe(true); // the new one: runs
+  expect(fixtureV1.save.version).toBe(1); // reading did not touch the caller's object
   const res = loadGame(fixtureV1.save, smallTown().game.data);
   expect(res.ok).toBe(true);
+  expect(res.migratedFrom).toBe(1);
   expect(res.state.hash()).toBe(fixtureV1.hash);
   runDays(res.state, 3); // and it plays on
   expect(res.state.clock.day).toBe(fixtureV1.save.clock.day + 3);
+  // saving it again writes version 2, smaller than the old file
+  const again = serializeGame(res.state);
+  expect(again.version).toBe(2);
+  expect(JSON.stringify(again).length).toBeLessThan(JSON.stringify(fixtureV1.save).length);
+});
+
+test("the version 2 fixture loads as it is, with its scenario progress, and plays on identically", () => {
+  expect(fixtureV2.save.version).toBe(2);
+  const read = readSave(fixtureV2.save);
+  expect(read.ok).toBe(true);
+  expect(read.migratedFrom).toBe(null);
+  expect(read.save.scenario).toBe("first_harbour");
+  const res = loadGame(fixtureV2.save, createGame({ seed: 20261026 }).data);
+  expect(res.ok).toBe(true);
+  expect(res.state.hash()).toBe(fixtureV2.hash);
+  const other = loadGame(JSON.stringify(fixtureV2.save), res.state.data);
+  runDays(res.state, 5);
+  runDays(other.state, 5);
+  expect(other.state.hash()).toBe(res.state.hash());
 });
 
 test("a thumbnail is a small run-length map: terrain, roads, houses and other buildings", () => {

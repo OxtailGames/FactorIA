@@ -262,5 +262,86 @@
       "season": "out of season"
     },
     "running": "working"
+  },
+  "scenario": {
+    "first_harbour": {
+      "name": "First Harbour",
+      "blurb": "A quiet bay and an empty shore. Grow a small fishing town."
+    },
+    "river_mills": {
+      "name": "River Mills",
+      "blurb": "A river valley with timber and stone. Feed a growing town with bread."
+    },
+    "winter_trade": {
+      "name": "Winter Trade",
+      "blurb": "The year turns to autumn. Smoke fish and bake bread before the cold."
+    },
+    "sandbox": {
+      "name": "Sandbox",
+      "blurb": "Plenty of money and goods, and no goals. Build as you like."
+    }
+  },
+  "goal": {
+    "title": "Goals",
+    "population": "Have {n} villagers",
+    "coins": "Save {n} coins",
+    "produced_in_season": "Make {n} {good} in one season",
+    "progress": "{value} / {target}",
+    "done": "done",
+    "toast": "Goal reached: {goal}",
+    "won": {
+      "title": "{scenario} complete!",
+      "body": "Every goal was reached on day {day}. You can keep building, or go back to the title.",
+      "keep": "Keep playing",
+      "menu": "Main menu"
+    }
+  },
+  "slots": {
+    "title": "Choose a save slot",
+    "titleSave": "Save the game",
+    "slot": "Slot {n}",
+    "continue": "Continue",
+    "back": "Back",
+    "empty": "Empty",
+    "new": "New game",
+    "load": "Load",
+    "save": "Save here",
+    "auto": "Autosave",
+    "rename": "Rename",
+    "delete": "Delete",
+    "damaged": "This save is damaged",
+    "info": "{scenario}, {date}",
+    "stats": "{coins} coins, {population} villagers",
+    "goals": "{done} of {total} goals",
+    "completed": "Completed",
+    "autoInfo": "Autosave: {date}",
+    "playTime": "Played {hours} h {minutes} min",
+    "playTimeShort": "Played {minutes} min",
+    "pick": "Pick a scenario",
+    "confirmDelete": "Delete \"{name}\"? This cannot be undone.",
+    "confirmOverwrite": "Replace \"{name}\" with the game you are playing?",
+    "yes": "Yes",
+    "no": "No",
+    "renameTitle": "Name this save",
+    "renameOk": "OK",
+    "saved": "Saved to slot {n}",
+    "deleted": "Slot deleted",
+    "renamed": "Renamed",
+    "loadFailed": "The save could not be loaded: {problem}",
+    "migrated": "An older save was updated to the current version.",
+    "cloudConflict": "Another device saved this slot too. Your copy was kept as a backup."
+  },
+  "save": {
+    "error": {
+      "bad_json": "This file is not a save (it is not readable text). Pick another slot.",
+      "not_a_save": "This slot has no save in it.",
+      "unknown_format": "This file was not made by Tidewater Market.",
+      "future_version": "This save comes from a newer version of the game. Update the game to open it.",
+      "too_old": "This save is too old to open.",
+      "invalid": "This save is damaged and cannot be opened.",
+      "map_mismatch": "This save was made on a map this version cannot rebuild.",
+      "storage": "The game could not be saved. Free some disk space and try again.",
+      "bad_slot": "There is no such slot."
+    }
   }
 }
