@@ -11,7 +11,7 @@
 // Later packages: `controller.state` is the state, `controller.state.events` is the event bus (README, "Contracts"). Add new
 // HUD items to the bar with `controller.addHudItem`; new build-menu items come from data/buildings.json (its `category`);
 // new panels, tooltips, notifications and overlays go through `controller.hud` (README, "Interface (P3)").
-import { Behaviour, ui, input, i18n, game } from "factoria";
+import { Behaviour, ui, input, i18n, game, world } from "factoria";
 import { getData } from "./data.js";
 import { createGame } from "./state.js";
 import { takeBoot } from "./boot.js";
@@ -26,6 +26,7 @@ import { pointer } from "./pointer.js";
 import { live, preview } from "../settings.js";
 import { harbourCell } from "./harbour.js";
 import { stressRows, stressTownSteps } from "./stress_town.js";
+import { Bot } from "./bot.js";
 import { SPEEDS } from "./clock.js";
 import { footprintCells, roadPath } from "./rules.js";
 import { cellToWorld, mapBounds } from "./iso.js";
@@ -73,6 +74,13 @@ export default class GameController extends Behaviour {
     this.world.spawn({ id: "save_controller", components: { Script: { path: "scripts/save_controller.js" } } });
     /** The stress town is laid out one step per frame (a callback may not run over 2 s), the clock waits for it. */
     this.stressSteps = stress ? stressTownSteps(this.state, { villagers: stress }).steps : [];
+    // store renders (store/make_store_images.py): scene prop `grow` = days the bot plays before the first frame, one day a frame
+    this.photo = !!props.photo; // scene prop `photo`: no interface at all, the world alone (key art and capsules)
+    /** Scene prop `timelapse` = frames per game day while the bot's days run (0 = all before the first frame): the trailer shows the town growing. */
+    this.timelapse = props.timelapse || 0;
+    this.lapse = 0;
+    const grow = props.grow || 0;
+    if (grow && !boot.state) this.stressSteps.push(...this.growSteps(grow));
     this.view = new MapView(this.state);
     this.cameraEntity = this.world.find("camera");
     /** @type {import("./camera_rig.js").default} */
@@ -82,7 +90,7 @@ export default class GameController extends Behaviour {
     // the camera starts on the harbour, so the shore and the water are in view
     const [hc, hr] = harbourCell(map);
     const [cx, cy] = cellToWorld(hc, hr);
-    this.rig.setView(cx, cy, this.rig.startZoom);
+    this.rig.setView(cx, cy, props.zoom !== undefined ? props.zoom : this.rig.startZoom); // a scene prop `zoom`: store renders
     this.walkerView = new WalkerView(this.state);
     if (!boot.state) this.state.clock.setSpeed(props.speed !== undefined ? props.speed : this.startSpeed); // a loaded game keeps its saved speed
 
@@ -366,10 +374,68 @@ export default class GameController extends Behaviour {
     return false;
   }
 
+  /** The bot's days as one step per game day (a callback may not run over 2 s); the last step stops the bot. */
+  growSteps(days) {
+    const clock = this.state.clock;
+    const bot = new Bot(this.state);
+    const steps = [() => bot.act()];
+    for (let d = 0; d < days; d++) {
+      steps.push(() => {
+        for (let i = 0; i < clock.ticksPerDay; i++) clock.tick(clock.step);
+        this.answerCards();
+        if (d === days - 1) {
+          bot.stop();
+          this.hud.notices.items = []; // the bot's complaints are not the player's
+          this.toastTimer = 0;
+          this.toastText.get("Text").text = "";
+          if (!this.timelapse) this.frameTown();
+        }
+      });
+    }
+    return steps;
+  }
+
+  /** The camera on the middle of the buildings (a grown town for a store render), at the zoom of the scene prop `zoom`. */
+  frameTown() {
+    let c = 0, r = 0, n = 0;
+    for (const b of this.state.buildings.values()) {
+      c += b.x;
+      r += b.y;
+      n++;
+    }
+    if (!n) return;
+    const [x, y] = cellToWorld(c / n, r / n);
+    this.rig.setView(x, y, this.rig.view.zoom);
+  }
+
+  /** Photo mode: the frame is drawn without the interface (every top-level screen-space entity is switched off after the HUD's update). */
+  onLateUpdate() {
+    if (!this.photo || (this.stressSteps.length && !this.timelapse)) return;
+    for (const e of world.entities()) {
+      if (e.parent || e.hasTag("caption")) continue; // a trailer caption stays
+      const t = e.get("Text");
+      if (e.get("Panel") || e.get("Button") || (t && t.space === "screen") || e.get("Sprite") && e.get("Sprite").space === "screen") e.active = false;
+    }
+  }
+
+  /** The bot answers the event cards the town draws (the first choice it can pay, else the last one) so no card is open. */
+  answerCards() {
+    const trade = this.state.trade;
+    for (let guard = 0; guard < 8 && trade.card; guard++) {
+      if (trade.card.stage === "choose") {
+        const { def } = trade.cardDef(trade.card);
+        const pick = def.choices.find((c) => trade.canChoose(c).ok) || def.choices[def.choices.length - 1];
+        trade.choose(pick.id);
+      }
+      trade.dismiss();
+    }
+  }
+
   onUpdate(dt) {
     if (this.stressSteps.length) {
       this.sfx.muted = true; // the town being laid out is not a player building 300 houses
-      this.stressSteps.shift()();
+      if (!this.timelapse || this.lapse++ % this.timelapse === 0) this.stressSteps.shift()();
+      if (this.timelapse) this.walkerView.update();
       return;
     }
     this.sfx.muted = false;

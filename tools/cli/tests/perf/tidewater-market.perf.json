@@ -1,0 +1,27 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "scene": "scenes/stress.scene.json",
+  "budgets": {
+    "maxDrawCalls": 40,
+    "maxLights": 4,
+    "maxTextureMB": 32,
+    "maxEntities": 6500,
+    "maxTriangles": 1000
+  },
+  "runners": {
+    "macos-clang-metal-debug": {
+      "frames": 300,
+      "cpuMsAvg": 40.998,
+      "cpuMsP95": 49.091,
+      "cpuMsMax": 1616.988,
+      "peakMemoryMB": 137.9,
+      "drawCalls": 19,
+      "entities": 4980,
+      "graphics": "Metal / Apple M5",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 21.33
+    }
+  }
+}

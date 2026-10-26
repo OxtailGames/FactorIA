@@ -16,7 +16,7 @@ import { world, ui, input, i18n } from "factoria";
 import { pointer } from "./pointer.js";
 import { live } from "../settings.js";
 import { cellToWorld } from "./iso.js";
-import { COLORS as MAP_COLORS } from "./map_view.js";
+import { COLORS as MAP_COLORS, LAYER as MAP_LAYER } from "./map_view.js";
 import { footprintCells } from "./rules.js";
 import { amountText, buildingName, dateText } from "./format.js";
 import { DESIGN } from "./camera_math.js";
@@ -37,13 +37,14 @@ const NOTICE_SLOTS = 5;
 const CHART_POINTS = 40;
 /** A press that moves more than this many pixels before the release is a drag. */
 const DRAG_SLOP = 6;
-/** The most diamonds an overlay draws in one frame (the ones in view; the map has 100 x 100 cells). */
-const OVERLAY_BUDGET = 900;
+/** The most shapes an overlay draws in one frame (the cells in view; the map has 100 x 100 cells; a safe-colours cell takes three). */
+const OVERLAY_BUDGET = 1500;
 const COLUMN_WIDTHS = { name: 170, stock: 100, made: 100, used: 100, price: 90 };
 const ROW_H = 24;
 const ROWS_SHOWN = 7;
-/** The pip an overlay cell gets in the colour-blind safe mode (a white mark on any tint). */
-const PIP = [1, 1, 1, 0.9];
+/** The pip an overlay cell gets in the colour-blind safe mode: a white mark on a dark plate, so it reads on any tint and any roof. */
+const PIP = [1, 1, 1, 1];
+const PIP_PLATE = [0.04, 0.05, 0.1, 0.9];
 /** Pixels between the bottom of the inspector and the bottom of the screen (the status line sits there). */
 const INSPECTOR_BOTTOM = 38;
 const SEV_COLORS = { warn: [0.62, 0.45, 0.12, 1], bad: [0.6, 0.2, 0.18, 1] };
@@ -1167,18 +1168,25 @@ export class Hud {
     const [c0, r0, c1, r1] = this.visibleCells();
     let used = 0;
     const col = spec.color;
-    // colour-blind safe: the value is also a PATTERN, a white pip in the cell that grows by tier (low: dot, middle: small
-    // diamond, high: big diamond), so the overlays read in greyscale; two shapes per cell halve the cells in view
+    // The field is drawn OVER the buildings and the walkers (MAP_LAYER.field): under them a dense town hides it. The tint grows
+    // with the value. Colour-blind safe: the value is also a PATTERN, a white pip on a dark plate that grows by tier (low: dot,
+    // middle: small diamond, high: big diamond), so the overlays read in greyscale and over any roof; a safe cell is three shapes.
     const pips = live().safeColors;
-    const budget = pips ? OVERLAY_BUDGET / 2 : OVERLAY_BUDGET;
+    const budget = pips ? Math.floor(OVERLAY_BUDGET / 3) : OVERLAY_BUDGET;
     for (const i of cells) {
       const c = i % width;
       const r = (i - c) / width;
       if (c < c0 || c > c1 || r < r0 || r > r1) continue;
       if (used++ >= budget) break;
       const v = values[i];
-      view.diamond(c, r, [col[0], col[1], col[2], 0.14 + 0.4 * v]);
-      if (pips) view.diamond(c, r, PIP, v >= 0.67, v >= 0.67 ? 0.7 : v >= 0.34 ? 0.4 : 0.18);
+      // dark for a low value, the full colour for a high one: the brightness carries the value where the hue cannot be told
+      const shade = 0.12 + 0.88 * v;
+      view.diamond(c, r, [col[0] * shade, col[1] * shade, col[2] * shade, 0.38 + 0.4 * v], false, 1, MAP_LAYER.field);
+      if (pips) {
+        const size = v >= 0.67 ? 0.52 : v >= 0.34 ? 0.3 : 0.14;
+        view.diamond(c, r, PIP_PLATE, false, size + 0.1, MAP_LAYER.fieldPlate);
+        view.diamond(c, r, PIP, v >= 0.67, size, MAP_LAYER.fieldMark);
+      }
     }
   }
 

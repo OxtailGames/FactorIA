@@ -29,6 +29,13 @@ factoria call --project . project.validate_data               # check data/*.jso
 | P8 | Translations (es, fr, zh-Hans), accessibility, polish | planned |
 | P4 (progress) | Three save slots with autosave, save format v2 with the v1 migration, cloud copies, four scenarios with goals and a win screen, the slot screen and the pause menu's Save | done |
 | P6 (sound, options) | Ambience beds that follow the camera, building work and walker sounds with a voice cap, UI sounds, five volume buses, the options screen (sizes, window, key rebinding, colour-blind safe signals, reduced motion, hold-free controls) and the gamepad cursor | done |
+| P7 (shipping) | Icon, key art, capsules, store texts, six screenshots and a trailer rebuilt by scripts from the game's own renders; the web and macOS exports; perf budgets; the dense-overlay fix | done; Windows, Linux and a full web play-through not checked, see SHIPPING.md |
+
+## Shipping (P7)
+
+The store assets (icon, key art, capsules, screenshots, texts, trailer), how to rebuild each of them, the export commands with
+measured sizes, the performance budgets, the finishing checklist and what is still open for a real release are in
+[SHIPPING.md](SHIPPING.md).
 
 ## How to play (P1, P2)
 
