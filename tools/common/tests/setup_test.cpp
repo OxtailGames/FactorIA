@@ -7,14 +7,18 @@
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <map>
 #include <set>
 
+#include "fa/core/build_info.h"
 #include "fa/core/command.h"
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/setup_parse.h"
+#include "fa_test_paths.h"
 #include "test_helpers.h"
 
 #ifndef _WIN32
@@ -149,6 +153,8 @@ struct World {
     bool unpackWeb = true;                           // every package carries web/ (false: a release older than the web export)
     bool unpackIosLibs = true;                       // the macOS package carries mobile/ios (false: a broken release)
     bool pinnedListed = true;                        // Google's listing still has cmdline-tools;22.0 (false: only `latest`)
+    std::string sourceRoot;                          // the checkout `setup webplayer` builds in (a temporary folder; "" = none)
+    std::function<Result<ProcessResult>(const ProcessOptions&)> onOther;  // programs the world does not know (bash, emsdk)
     std::string jdkContent = std::string(400, 'J');
     std::string toolsContent = std::string(500, 'T');
 
@@ -214,6 +220,7 @@ struct World {
         c.hostArch = arch;
         c.engineVersion = "0.1.3";
         c.executableDir = exeDir;
+        c.sourceRoot = sourceRoot.empty() ? tmp.sub("no-checkout") : sourceRoot;
         c.applicationsDir = apps;
         c.download = [this](const DownloadRequest& rq) { return download(rq); };
         c.run = [this](const ProcessOptions& o) { return run(o); };
@@ -292,6 +299,7 @@ struct World {
             return r;
         }
         if (exe == "open") return r;
+        if (onOther) return onOther(o);
         return make_error("unexpected program in the test: " + o.argv[0]);
     }
 
@@ -323,6 +331,9 @@ struct World {
             }
             if (name.find("macos") != std::string::npos && unpackIosLibs)
                 for (const char* sdk : {"iphoneos", "iphonesimulator"}) put(d / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
+        } else if (starts_with(name, "emsdk")) {
+            put(d / "emsdk-main" / "emsdk", "#!/bin/sh\n");
+            put(d / "emsdk-main" / "emsdk_env.sh", "# env\n");
         } else if (starts_with(name, "cmake-")) {
             const std::string top = name.substr(0, name.find(".tar.gz"));
             if (name.find("macos") != std::string::npos) put(d / top / "CMake.app" / "Contents" / "bin" / "cmake");
@@ -422,7 +433,9 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     SetupContext c = w.ctx();
 
     SetupStatus all = setup_status(c, {}, false);
-    REQUIRE(all.components.size() == 8);
+    REQUIRE(all.components.size() == 9);
+    CHECK(all.components[8].id == "webplayer");
+    CHECK(all.components[8].state == "unsupported");  // the test world has no checkout
     CHECK(all.components[6].id == "vscode");
     CHECK(all.components[7].id == "ffmpeg");
     CHECK(all.components[0].id == "android");
@@ -454,7 +467,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
 
     const Json j = all.to_json();
     CHECK(j.at("home").get<std::string>() == w.home);
-    CHECK(j.at("components").size() == 8);
+    CHECK(j.at("components").size() == 9);
     CHECK(j.at("components")[0].at("state").get<std::string>() == "missing");
 }
 
@@ -1155,27 +1168,54 @@ TEST_CASE("setup players: a wrong checksum installs nothing") {
     CHECK_FALSE(is_there(w.h() / "staging"));
 }
 
-TEST_CASE("setup players: a version without a release says what is the newest") {
+TEST_CASE("setup players: a development build with no release takes the newest release's players and says they will not match") {
     World w;
-    w.failing[kTagsUrl] = 404;
-    w.served[kLatestUrl] = release_json("v0.1.2", {});
+    w.failing[kTagsUrl] = 404;  // v0.1.3 was never released
+    std::vector<Asset> assets;
+    for (const char* name : {"FactorIA-windows-x64.zip", "FactorIA-linux-x64.tar.gz", "FactorIA-macos-universal.tar.gz"}) {
+        Asset a;
+        a.name = name;
+        a.content = std::string("package ") + name + std::string(300, 'x');
+        assets.push_back(a);
+        w.served["https://github.com/OxtailGames/FactorIA/releases/download/v0.1.2/" + a.name] = a.content;
+    }
+    w.served[kLatestUrl] = release_json("v0.1.2", assets);
     SetupContext c = w.ctx();
     SetupInstallOptions o;
     o.component = "players";
+    o.platforms = {"windows"};
     const SetupResult r = setup_install(o, c);
-    REQUIRE_FALSE(r.ok);
-    CHECK(r.code == "no_release");
-    CHECK(r.error.message.find("no release v0.1.3") != std::string::npos);
-    CHECK(r.error.message.find("The newest published release is v0.1.2") != std::string::npos);
-    CHECK(r.error.hint.find("--player") != std::string::npos);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    CHECK(steps_of(r.report) == "player-windows=installed");
+    // Installed under this version's folder, where the export looks, from the newest release.
+    CHECK(installed_player(c, "windows") == (w.h() / "players" / "0.1.3" / "windows" / "factoria_player.exe").string());
+    REQUIRE(r.report.warnings.size() == 1);
+    CHECK(r.report.warnings[0].find("development build") != std::string::npos);
+    CHECK(r.report.warnings[0].find("v0.1.2") != std::string::npos);
+    CHECK(r.report.warnings[0].find("fingerprint will not match") != std::string::npos);
+    CHECK(r.report.warnings[0].find("allowPlayerMismatch") != std::string::npos);
+    CHECK(r.report.nextSteps.back().find("--allow-player-mismatch") != std::string::npos);
+    bool said = false;
+    for (const std::string& line : w.said) said = said || line.find("fingerprint will not match") != std::string::npos;
+    CHECK(said);  // the CLI prints it while it runs
+    CHECK(std::find(w.requested.begin(), w.requested.end(), package_url("FactorIA-windows-x64.zip")) == w.requested.end());
 
-    World w2;  // and when even the newest release cannot be asked
-    w2.failing[kTagsUrl] = 404;
+    // A released version has no such warning.
+    World w2;
+    w2.serve_release();
     SetupContext c2 = w2.ctx();
-    const SetupResult r2 = setup_install(o, c2);
-    REQUIRE_FALSE(r2.ok);
-    CHECK(r2.code == "no_release");
-    CHECK(r2.error.message.find("newest published") == std::string::npos);
+    const SetupResult plain = setup_install(o, c2);
+    REQUIRE_MESSAGE(plain.ok, plain.error.message);
+    CHECK(plain.report.warnings.empty());
+
+    World w3;  // and when even the newest release cannot be asked
+    w3.failing[kTagsUrl] = 404;
+    SetupContext c3 = w3.ctx();
+    const SetupResult r3 = setup_install(o, c3);
+    REQUIRE_FALSE(r3.ok);
+    CHECK(r3.code == "no_release");
+    CHECK(r3.error.message.find("no release v0.1.3") != std::string::npos);
+    CHECK(r3.error.hint.find("--player") != std::string::npos);
 }
 
 TEST_CASE("setup players: other failures keep their kind") {
@@ -1705,6 +1745,217 @@ TEST_CASE("curl downloader: the real curl copies a file:// URL, with progress, a
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------
+// setup webplayer: the web player built from the checkout (development builds)
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+// A checkout `setup webplayer` accepts, a PATH with a CMake, and an Emscripten SDK folder.
+void make_checkout(World& w) {
+    w.sourceRoot = (w.tmp.path / "checkout").string();
+    put(w.tmp.path / "checkout" / "CMakePresets.json", "{}");
+    stdfs::create_directories(w.tmp.path / "checkout" / "engine");
+    const stdfs::path bin = w.tmp.path / "bin";
+    put(bin / "cmake");
+    w.env["PATH"] = bin.string();
+    w.cmakeAt[(bin / "cmake").string()] = "cmake version 3.31.0\n";
+}
+
+stdfs::path make_emsdk(const stdfs::path& dir, const std::string& version) {
+    put(dir / "upstream" / "emscripten" / "cmake" / "Modules" / "Platform" / "Emscripten.cmake");
+    put(dir / "upstream" / "emscripten" / "emscripten-version.txt", version + "\n");
+    put(dir / "emsdk_env.sh");
+    return dir;
+}
+
+// What the `web-release` build leaves behind: the player of `fingerprint`.
+void build_player(const World& w, const std::string& fingerprint) {
+    const stdfs::path dir = stdfs::path(w.sourceRoot) / "build" / "web-release" / "player";
+    put(dir / "factoria_player.js", "glue");
+    put(dir / "factoria_player.wasm", "wasm FA-BUILD-FINGERPRINT:" + fingerprint + ";");
+}
+
+}  // namespace
+
+TEST_CASE("setup webplayer: a factoria without its checkout cannot build one and says where the web player comes from") {
+    World w;  // the default source folder does not exist
+    SetupContext c = w.ctx();
+    const SetupComponent st = setup_status(c, "webplayer").components[0];
+    CHECK(st.state == "unsupported");
+    CHECK_FALSE(st.canInstall);
+    CHECK(st.details.find("players --platforms web") != std::string::npos);
+    SetupInstallOptions o;
+    o.component = "webplayer";
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.code == "unsupported");
+    CHECK(r.error.hint.find("setup players --platforms web") != std::string::npos);
+    CHECK(w.calls.empty());
+}
+
+TEST_CASE("setup webplayer: builds with the Emscripten SDK it finds, through a shell that loads the SDK") {
+    World w;
+    make_checkout(w);
+    const stdfs::path emsdk = make_emsdk(w.tmp.path / "user" / "emsdk", "6.0.10");  // ~/emsdk
+    SetupContext c = w.ctx();
+    CHECK(setup_status(c, "webplayer").components[0].state == "missing");
+    std::vector<std::string> argv;
+    std::map<std::string, std::string> env;
+    w.onOther = [&](const ProcessOptions& o) -> Result<ProcessResult> {
+        REQUIRE(stdfs::path(o.argv[0]).filename().string() == "bash");
+        argv = o.argv;
+        env = o.env;
+        CHECK(o.workingDir == w.sourceRoot);
+        if (o.onStdoutLine) {
+            o.onStdoutLine("[1/10] Building CXX object a.o");
+            o.onStdoutLine("[10/10] Linking CXX executable player/factoria_player.js");
+        }
+        build_player(w, build_fingerprint());
+        ProcessResult r;
+        r.exitCode = 0;
+        return r;
+    };
+    SetupInstallOptions o;
+    o.component = "webplayer";
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    CHECK(steps_of(r.report) == "emsdk=skipped web-player=installed");
+    CHECK(r.report.steps[0].detail.find("~/emsdk") != std::string::npos);
+    REQUIRE(argv.size() == 3);
+    CHECK(argv[2].find("emsdk_env.sh") != std::string::npos);
+    CHECK(argv[2].find("--preset web-release") != std::string::npos);
+    CHECK(argv[2].find("--build --preset web-release") != std::string::npos);
+    CHECK(env["EMSDK"] == emsdk.string());
+    CHECK(w.requested.empty());  // nothing downloaded: the SDK was there
+    CHECK(r.report.warnings.empty());
+    CHECK(r.report.paths[0].second == (stdfs::path(w.sourceRoot) / "build" / "web-release" / "player").string());
+    bool progress = false;
+    for (const std::string& line : w.said) progress = progress || line.find("10/10") != std::string::npos;
+    CHECK(progress);
+    CHECK(setup_status(c, "webplayer").components[0].state == "installed");
+
+    // A player of this build is not built again, unless forced.
+    w.calls.clear();
+    const SetupResult again = setup_install(o, c);
+    REQUIRE_MESSAGE(again.ok, again.error.message);
+    CHECK(steps_of(again.report) == "web-player=skipped");
+    CHECK(w.calls.empty());
+    o.force = true;
+    CHECK(setup_install(o, c).ok);
+    CHECK_FALSE(w.calls.empty());
+}
+
+TEST_CASE("setup webplayer: a player of another commit is built again; an SDK of another version only warns") {
+    World w;
+    make_checkout(w);
+    w.env["EMSDK"] = make_emsdk(w.tmp.path / "sdk", "5.0.0").string();
+    build_player(w, "0123456789ab");
+    SetupContext c = w.ctx();
+    if (std::string(build_fingerprint()) != "unknown") {
+        const SetupComponent st = setup_status(c, "webplayer").components[0];
+        CHECK(st.state == "partial");
+        CHECK(st.problems[0].find("fingerprint mismatch") != std::string::npos);
+    }
+    int builds = 0;
+    w.onOther = [&](const ProcessOptions&) -> Result<ProcessResult> {
+        ++builds;
+        build_player(w, build_fingerprint());
+        ProcessResult r;
+        r.exitCode = 0;
+        return r;
+    };
+    SetupInstallOptions o;
+    o.component = "webplayer";
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    if (std::string(build_fingerprint()) != "unknown") CHECK(builds == 1);
+    REQUIRE(r.report.warnings.size() == 1);
+    CHECK(r.report.warnings[0].find("5.0.0") != std::string::npos);
+    CHECK(r.report.warnings[0].find("6.0.10") != std::string::npos);
+}
+
+TEST_CASE("setup webplayer: without an SDK it fetches the pinned Emscripten into the checkout's .cache") {
+    World w;
+    make_checkout(w);
+    const std::string url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz";
+    w.served[url] = std::string(200, 'E');
+    SetupContext c = w.ctx();
+    CHECK(setup_status(c, "webplayer").components[0].details.find("fetches Emscripten 6.0.10") != std::string::npos);
+    const stdfs::path target = stdfs::path(w.sourceRoot) / ".cache" / "emsdk";
+    std::vector<std::vector<std::string>> ran;
+    w.onOther = [&](const ProcessOptions& o) -> Result<ProcessResult> {
+        ran.push_back(o.argv);
+        const std::string exe = stdfs::path(o.argv[0]).filename().string();
+        if (exe == "emsdk") {
+            CHECK(o.argv[2] == "6.0.10");
+            if (o.argv[1] == "activate") make_emsdk(target, "6.0.10");
+        } else {
+            CHECK(exe == "bash");
+            build_player(w, build_fingerprint());
+        }
+        ProcessResult r;
+        r.exitCode = 0;
+        return r;
+    };
+    SetupInstallOptions o;
+    o.component = "webplayer";
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    CHECK(steps_of(r.report) == "emsdk=installed web-player=installed");
+    CHECK(w.requested == std::vector<std::string>{url});
+    REQUIRE(ran.size() == 3);
+    CHECK(ran[0][1] == "install");
+    CHECK(ran[1][1] == "activate");
+    CHECK(is_there(target / "upstream" / "emscripten" / "cmake" / "Modules" / "Platform" / "Emscripten.cmake"));
+    CHECK_FALSE(is_there(w.h() / "staging"));
+    // The SDK of .cache is found the next time: no second download.
+    w.requested.clear();
+    o.force = true;
+    REQUIRE(setup_install(o, c).ok);
+    CHECK(w.requested.empty());
+}
+
+TEST_CASE("setup webplayer: a failed build says what the build printed; a missing CMake is named") {
+    World w;
+    make_checkout(w);
+    w.env["EMSDK"] = make_emsdk(w.tmp.path / "sdk", "6.0.10").string();
+    w.onOther = [&](const ProcessOptions& o) -> Result<ProcessResult> {
+        if (o.onStdoutLine) o.onStdoutLine("FAILED: engine/x.cpp.o");
+        ProcessResult r;
+        r.exitCode = 1;
+        r.stderrText = "error: no such header\n";
+        return r;
+    };
+    SetupContext c = w.ctx();
+    SetupInstallOptions o;
+    o.component = "webplayer";
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.code == "failed");
+    CHECK(r.error.message.find("exit code 1") != std::string::npos);
+    CHECK(r.error.message.find("no such header") != std::string::npos);
+    CHECK(r.error.hint.find("Ninja") != std::string::npos);
+
+    World w2;
+    make_checkout(w2);
+    w2.env["PATH"] = "";
+    w2.cmakeAt.clear();
+    SetupContext c2 = w2.ctx("linux", "x64");  // no Homebrew paths on this host
+    const SetupResult r2 = setup_install(o, c2);
+    REQUIRE_FALSE(r2.ok);
+    CHECK(r2.error.message.find("No CMake 3.24") != std::string::npos);
+}
+
+TEST_CASE("setup webplayer: the pinned Emscripten version is the one CI, the releases and BUILDING.md use") {
+    const stdfs::path root = FA_REPO_ROOT;
+    for (const char* file : {".github/workflows/ci.yml", ".github/workflows/release.yml"}) {
+        INFO(file);
+        CHECK(testing::read_all((root / file).string()).find(std::string("EMSDK_VERSION: ") + kSetupEmscriptenVersion) != std::string::npos);
+    }
+    CHECK(testing::read_all((root / "docs" / "BUILDING.md").string()).find(std::string("emsdk install ") + kSetupEmscriptenVersion) != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // The real listings (network): FACTORIA_SETUP_ONLINE_TESTS=1 ctest -R tooling. They download a few hundred KB and install
 // nothing: they catch Google, Adoptium or GitHub changing the format `factoria setup` reads.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1780,13 +2031,22 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
         CHECK(jdk->size > (50u << 20));
     }
 
-    // GitHub: an engine version that was never released says so and names the newest release.
-    SetupInstallOptions o;
-    o.component = "players";
-    const SetupResult r = setup_install(o, c);
-    REQUIRE_FALSE(r.ok);
-    CHECK(r.code == "no_release");
-    CHECK(r.error.message.find("no release v9.9.9") != std::string::npos);
-    CHECK(r.error.message.find("The newest published release is v") != std::string::npos);
-    CHECK_FALSE(stdfs::exists(tmp.path / "fhome" / "players"));
+    // GitHub: the newest release is listed with the packages a development build falls back to (releases/latest).
+    {
+        const stdfs::path dir = tmp.path / "github";
+        stdfs::create_directories(dir);
+        DownloadRequest rq;
+        rq.url = "https://api.github.com/repos/" + std::string(kSetupReleaseRepo) + "/releases/latest";
+        rq.destination = (dir / "latest.json").string();
+        rq.what = "the newest release";
+        rq.headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"};
+        const DownloadResult d = curl_downloader()(rq);
+        REQUIRE_MESSAGE(d.ok, d.error.message);
+        auto json = parse_json(testing::read_all(rq.destination), "latest release");
+        REQUIRE(json.ok());
+        auto release = parse_github_release(*json);
+        REQUIRE_MESSAGE(release.ok(), release.error().message);
+        CHECK(release->tag.size() > 1);
+        CHECK(release->find("FactorIA-linux-x64.tar.gz") != nullptr);
+    }
 }
