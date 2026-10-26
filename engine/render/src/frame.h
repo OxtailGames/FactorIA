@@ -63,6 +63,12 @@ struct QuadEmitter {
     void rect_uv(float x0, float y0, float x1, float y1, const Vec2 (&uv)[4]) const;
 };
 
+// Draws a text layout (text_draw.cpp): all its glyphs as one item of the glyph atlas whatever their colours and weights
+// (`color` is the text's; a run colour of a rich text replaces its RGB and keeps its alpha), then the pictures of a rich text,
+// one item per texture. `m` places the layout's local units (y up; `screen` flips y as QuadEmitter does).
+void emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
+               float secondary, const Rect& clip);
+
 // advance = true steps SpriteAnimator time by f.dt; false only (re)applies the current frame to
 // Sprite.region (idempotent, used by the draw pass).
 void update_animators(World& world, Frame& f, bool advance);

@@ -198,6 +198,7 @@ public:
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
     const I18n* i18n() override;
+    const RichTextStyle* rich_text_style() override;
     std::string set_language(std::string_view language) override;
     double preload_time_budget_ms() const override;
     void request_scene_change(std::string_view scenePath) override;

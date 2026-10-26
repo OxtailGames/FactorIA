@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "fa/core/utf8.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
 
@@ -30,7 +32,16 @@ VisualFootprint make(const char* component, RenderSpace space, std::int32_t laye
 
 }  // namespace
 
-Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth) {
+Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, bool markup) {
+    if (markup) {  // the visible characters: tags take no room, an icon is two characters (1.2 em: as tall as the line)
+        const MarkupText m = parse_markup(utf8_decode(text));
+        std::string visible;
+        for (std::size_t i = 0; i < m.text.size(); ++i) {
+            if (m.attrs[i].icon >= 0) visible += "ii";
+            else utf8_append(visible, m.text[i]);
+        }
+        return approx_text_size(visible, fontSize, maxWidth, false);
+    }
     float lineW = 0, maxLine = 0;
     int lines = 1;
     for (char c : text) {

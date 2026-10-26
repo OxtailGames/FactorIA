@@ -52,7 +52,7 @@ test("a ship sails in over the water, docks at the pier and is drawn there", () 
   expect(ships.count).toBe(1);
   const ship = trade.ships[0];
   const e = ships.byShip.get(ship.id);
-  expect(e.get("Sprite").region).toEqual(game.find("trade_ui").behaviour.atlas.frames[`ship.${ship.cls}.${trade.position(ship, 1).heading}`].rect);
+  expect(e.get("Sprite").region).toEqual(state.data.atlas.frames[`ship.${ship.cls}.${trade.position(ship, 1).heading}`].rect);
   expect(tickUntil(state, () => ship.state === "docked")).toBe(true);
   state.clock.tick(state.clock.step); // one more step: the ship stands still on its berth
   game.step(1);

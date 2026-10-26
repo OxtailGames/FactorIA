@@ -8,6 +8,31 @@
   "mainScene": "scenes/menu.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
   "audio": { "buses": { "ambience": { "parent": "sfx" } } },
+  "text": {
+    "colors": {
+      "normal": [0.92, 0.93, 0.95, 1],
+      "good": [0.5, 0.86, 0.5, 1],
+      "bad": [1, 0.48, 0.42, 1],
+      "gold": [1, 0.82, 0.29, 1],
+      "muted": [0.66, 0.69, 0.75, 1],
+      "sea": [0.45, 0.75, 1, 1]
+    },
+    "icons": {
+      "fish": {"texture": "assets/atlas.png", "region": [201, 1191, 28, 28]},
+      "grain": {"texture": "assets/atlas.png", "region": [261, 1191, 28, 28]},
+      "wood": {"texture": "assets/atlas.png", "region": [501, 1191, 28, 28]},
+      "stone": {"texture": "assets/atlas.png", "region": [441, 1191, 28, 28]},
+      "planks": {"texture": "assets/atlas.png", "region": [291, 1191, 28, 28]},
+      "bread": {"texture": "assets/atlas.png", "region": [141, 1191, 28, 28]},
+      "tools": {"texture": "assets/atlas.png", "region": [471, 1191, 28, 28]},
+      "flour": {"texture": "assets/atlas.png", "region": [231, 1191, 28, 28]},
+      "smoked_fish": {"texture": "assets/atlas.png", "region": [381, 1191, 28, 28]},
+      "pop": {"texture": "assets/atlas.png", "region": [321, 1191, 28, 28]},
+      "coin": {"texture": "assets/atlas.png", "region": [171, 1191, 28, 28]},
+      "star": {"texture": "assets/atlas.png", "region": [411, 1191, 28, 28]},
+      "ship": {"texture": "assets/atlas.png", "region": [351, 1191, 28, 28]}
+    }
+  },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
   "input": {
     "actions": {

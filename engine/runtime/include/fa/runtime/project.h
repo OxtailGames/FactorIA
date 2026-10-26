@@ -18,6 +18,8 @@
 //   "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ja"],       // BCP 47 tags; locales/<language>.json
 //                     "fallbackFonts": ["assets/fonts/NotoSansArabic-Regular.ttf"],   // fonts for what the main font lacks
 //                     "languageFonts": { "zh-Hans": ["assets/fonts/NotoSansSC-Regular.ttf"] } },   // docs/LOCALIZATION.md
+//   "text": { "colors": { "good": "#80dc80" }, "icons": { "fish": { "texture": "assets/atlas.png", "region": [0, 0, 32, 32] } },
+//             "fonts": { "assets/fonts/Body.ttf": { "bold": "assets/fonts/Body-Bold.ttf" } } },   // rich text: fa/scene/rich_text.h
 //   "plugins": { "example": { "path": "plugins/example", "platforms": ["windows"] } },   // native plugins: fa/runtime/plugins.h
 //   "export": { ... }                         // per-platform export settings: fa/tooling/export_settings.h, docs/EXPORTING.md
 // }

@@ -61,7 +61,7 @@ the ground cell behind it, not the building.
 | Path | What |
 |---|---|
 | `data/*.json` | The tables (and `ships`, `events`, `story` for P5, below): `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
-| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (distance fields on the roads), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (the engine's `rng.create` streams with a weighted pick), `trade_data`, `richtext` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's path finder as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board and the cards), `rich_view`, `achievements` (the store bridge), `music_director`, `title_backdrop` |
+| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (distance fields on the roads), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (the engine's `rng.create` streams with a weighted pick), `trade_data` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's path finder as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board and the cards), `achievements` (the store bridge), `music_director`, `title_backdrop` |
 | `scenes/` | `menu` (title), `loading`, `game`, `stress` (the game scene with a 640-villager town built at start: `perf.measure` with `{"scene": "scenes/stress.scene.json"}`) |
 | `locales/en.json` | Every text the player sees. Nothing is hard-coded in a script |
 | `assets/atlas.png` | One 2048 x 2048 atlas with every picture the map draws (one atlas is one draw call). `assets/src/make_atlas.py` builds it from the Kenney CC0 images in `assets/src/kenney/` plus placeholder art drawn in the script; `assets.json` has the provenance |
@@ -351,9 +351,12 @@ every key. `project.validate_data` checks them against the goods, buildings and 
 `.result.<choiceId>` (or `.result.<choiceId>.<n>` per outcome) in `locales/en.json`, then `factoria call project.validate_data`.
 Every event needs a choice that costs nothing. Story cards use `story.<scenario>.<id>.*` and `story.<scenario>.name`.
 
-**Rich text** (`scripts/game/richtext.js`, drawn by `rich_view.js`): `[b]..[/b]` (drawn twice, there is no bold font),
-`[c:good|bad|gold|muted|sea|#rrggbb]..[/c]`, `[icon:wood]` (atlas frame `icon.<name>`), `[[` for a literal bracket, `\n`. A typo is
-reported with its position by `rich_text.test.js`, which parses every event, story and trade string.
+**Rich text** (the engine's `Text.markup`, docs/TEXT.md; the colours and icons are the `text` section of `factoria.json`):
+`[b]..[/b]` (the project has no bold font file, so the engine emboldens the regular one), `[c:good|bad|gold|muted|sea|normal|#rrggbb]..[/c]`,
+`[icon:wood]` (the `text.icons` of `factoria.json`, the `icon.<name>` frames of `data/atlas.json`: `rich_text.test.js` checks both
+agree), `[[` for a literal bracket, `\n`. `trade_ui.js` shows each card or board line as one Text with `markup: true` and
+`maxWidth`, and reads its height with `ui.measureText(..., { markup: true })`. A typo is reported by `ui.markupProblems`, which
+`rich_text.test.js`, `languages.test.js` and `project.validate_data` use on every event, story and trade string.
 
 **Events on `state.events`:** `trade.ship.sent`, `trade.ship.docked`, `trade.order.filled`, `trade.order.missed`,
 `trade.ship.left`, `trade.reputation`, `trade.class.unlocked`, `trade.card`, `trade.choice`, `trade.card.closed`,

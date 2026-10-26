@@ -120,9 +120,62 @@ boundaries needs a dictionary, which the engine does not have: unmarked text of 
 Translators mark the boundaries where a line may end with U+200B (a tool such as pythainlp can insert them): the line breaks
 there, and the mark takes no width and draws nothing.
 
+## Rich text: bold, colours and icons
+
+A `Text` with `markup: true` reads tags in its `text`, and so does the label of a `Button`, `Toggle`, `Slider` or
+`TouchButton` that sets `markup: true`. One Text can then hold several colours, bold words and pictures, and it is still
+one wrapped, aligned, measured text (`maxWidth`, `align`, `autoShrink` and `maxTextScale` work on the whole line, and
+`ui.measureText` and `entity.bounds()` measure what is drawn).
+
+| Tag | Effect |
+|---|---|
+| `[b]...[/b]` | bold |
+| `[c:name]...[/c]` | a colour: a name of the project's `text.colors`, a built-in colour name (`red`) or `#rgb` / `#rrggbb` / `#rrggbbaa`. Tags nest: `[/c]` goes back to the outer colour. |
+| `[icon:name]` | a picture of the project's `text.icons`, as tall as the line (its width follows the proportions of its region) |
+| `[[` | a literal `[` |
+
+```json
+"text": {
+  "colors": { "good": "#80dc80", "bad": [1, 0.48, 0.42, 1] },
+  "icons":  { "fish": { "texture": "assets/atlas.png", "region": [0, 32, 24, 24] } },
+  "fonts":  { "assets/fonts/Body-Regular.ttf": { "bold": "assets/fonts/Body-Bold.ttf" } }
+}
+```
+
+```json
+{ "Text": { "text": "Sold [b]3[/b] [icon:fish] for [c:good]120[/c]", "markup": true, "fontSize": 20, "maxWidth": 260 } }
+```
+
+- **Colours.** A run colour replaces the red, green and blue of the Text's `color`; the Text's alpha still applies, so
+  fading a Text fades its runs. An icon is drawn untinted (only the Text's alpha applies). `region` is `[x, y, w, h]` in
+  pixels of the texture, from its top-left corner.
+- **Bold.** `[b]` and `Text.bold` (also a field of the widgets above) draw with the bold face of the font: the `bold`
+  file next to the font in `text.fonts`. The key is the font as the Text names it (`"font": "assets/fonts/Body-Regular.ttf"`,
+  `"builtin:pixel"`, or `""` for the built-in font). A font without a bold face is emboldened by the engine: it thickens the
+  regular glyphs and widens each advance a little (about 4% of the font size, between 0.7 and 6 pixels). That is readable but
+  never as good as a drawn bold face, so `factoria validate` warns once per font that markup or `bold` uses without a
+  `text.fonts` entry. A glyph the bold face lacks (a CJK character, say) is drawn from the regular font chain, emboldened by
+  the engine. There is no italic: use an italic font file as the Text's `font`.
+- **Line breaking.** Tags take no room. Wrapping, including between CJK characters, works on the visible characters as for
+  plain text; an icon is one unbreakable character that stays with the letters next to it (`9[icon:fish]` moves as one
+  word) and may break from a space.
+- **Mistakes never hide the sentence.** An unknown tag (`[x]`), a `[` without `]`, a colour or icon the project does not
+  define, and a `[b]` or `[c:]` never closed are shown as written (an undefined icon is an empty square, an undefined
+  colour keeps the Text's colour), with one warning in the log per text that says where and how to fix it. A stray `[/b]`
+  or `[/c]` is dropped. `ui.markupProblems(text)` returns the same problems as a list (empty = clean), so a test can walk
+  every string of the game. `factoria validate` checks the markup of every scene text that has `markup: true`, and that the files `text` names exist.
+- **What it costs.** All the glyphs of a Text, whatever their colours and weights, are one batch and one draw call (they
+  share the glyph atlas). Icons are pictures from a texture, which the glyph atlas cannot hold: each texture that a text
+  draws icons from adds one more batch, however many icons it has.
+- **Measuring.** `ui.measureText(text, { markup: true, bold: true, ... })` measures with the same layout. Without a
+  renderer (no graphics device), tags are still skipped and an icon counts as two characters (0.6 em each) of a line 1.2
+  em tall.
+- **Localized text.** The tags travel in the string table: translators keep them and move them around the words. Put
+  `markup: true` on the Text that shows the key.
+
 ## Measuring
 
-`ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight })` returns
+`ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` returns
 `{ width, height, fontSize }` of exactly the layout that is drawn (`fontSize` is the size it is laid out at, in pixels), shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
 `"world"`; it matters only for the text size option below. It is exact in tests, `factoria call` and headless runs
 (they draw with an offscreen renderer); only when no graphics device can be created does it approximate 0.6 ×
@@ -235,5 +288,6 @@ come from depends on the device, and the game does not change for any of them:
 - Outline fonts only: no colour emoji, no bitmap-only fonts, no SDF/MSDF atlases; a variable font draws its default
   instance.
 - Horizontal text only: no vertical writing (tategaki) and no text on a path.
-- One font size, color and font per Text: no inline styles, bold or italic (use a bold or italic font file).
+- One font size and one font per Text. Colours, bold and icons can change inside a line (`markup`, above); the font size, the
+  font and italic cannot (use an italic font file as the Text's `font`).
 - The glyph size is capped between 4 and 400 pixels.

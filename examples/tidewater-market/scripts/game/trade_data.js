@@ -5,8 +5,8 @@
 import shipsJson from "../../data/ships.json";
 import eventsJson from "../../data/events.json";
 import storyJson from "../../data/story.json";
+import { ui } from "factoria";
 import { rawTables, didYouMean, formatProblems, DataError } from "./data.js";
-import { parseMarkup } from "./richtext.js";
 
 export const rawTradeTables = { ships: shipsJson, events: eventsJson, story: storyJson };
 
@@ -42,20 +42,15 @@ export function validateTradeTables(trade, base = rawTables) {
   const goods = Object.keys(base.goods.goods);
   const buildings = Object.keys(base.buildings.buildings);
   const seasons = base.economy.calendar.seasons;
-  const frames = base.atlas.frames || {};
   const need = (table, pointer, key) => {
     if (typeof lookup(base.locale, key) !== "string") add(table, pointer, `the locale string '${key}' is missing`, "add it to locales/en.json");
   };
   const checkMarkup = (table, pointer, key) => {
     const text = lookup(base.locale, key);
     if (typeof text !== "string") return;
-    const { tokens, errors } = parseMarkup(text);
-    for (const e of errors) add(table, pointer, `the locale string '${key}' has bad markup: ${e}`, "tags are [b]..[/b], [c:colour]..[/c], [icon:name]; write [[ for a literal [");
-    for (const t of tokens) {
-      if (t.kind === "icon" && !frames[`icon.${t.name}`]) {
-        const guess = didYouMean(t.name, Object.keys(frames).filter((f) => f.startsWith("icon.")).map((f) => f.slice(5)));
-        add(table, pointer, `the locale string '${key}' uses [icon:${t.name}] but the atlas has no frame icon.${t.name}`, guess ? `did you mean '${guess}'?` : "");
-      }
+    // the engine reads the markup (Text.markup): it names a bad tag, colour or icon of the `text` section of factoria.json
+    for (const e of ui.markupProblems(text)) {
+      add(table, pointer, `the locale string '${key}' has bad markup: ${e}`, "tags are [b]..[/b], [c:colour]..[/c], [icon:name]; write [[ for a literal [");
     }
   };
   const goodCheck = (table, pointer, id) => {

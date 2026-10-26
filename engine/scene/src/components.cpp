@@ -57,6 +57,19 @@ constexpr const char* kMaxTextScaleDoc =
     "limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring "
     "(autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.";
 
+// markup and bold of Text, Button, Toggle, Slider and TouchButton.
+constexpr const char* kMarkupDoc =
+    "true: the text reads tags: [b]bold[/b], [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or "
+    "#rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, "
+    "alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the "
+    "engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the "
+    "string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. "
+    "Docs: docs/TEXT.md, \"Rich text\".";
+constexpr const char* kBoldDoc =
+    "true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none "
+    "is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the "
+    "text. false (default): regular weight.";
+
 // autoShrink and minFontSize of Text, Button, Toggle, Slider and TouchButton.
 constexpr const char* kAutoShrinkDoc =
     "true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made "
@@ -445,6 +458,8 @@ void register_builtin_components(TypeRegistry& r) {
         .field("autoShrink", &Text::autoShrink, kAutoShrinkDoc)
         .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(1, 4096)
         .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
+        .field("markup", &Text::markup, kMarkupDoc)
+        .field("bold", &Text::bold, kBoldDoc)
         .field("layer", &Text::layer, "Draw order. Higher layers draw on top. Text defaults above sprites.")
         .enum_field("space", &Text::space, {"world", "screen"},
                     "world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.")
@@ -1093,7 +1108,9 @@ void register_builtin_components(TypeRegistry& r) {
                    "With autoSize the button is at most maxWidth plus its margins wide and grows taller instead.").range(0, 100000)
             .field("autoSize", &Button::autoSize, kAutoSizeDoc)
             .field("autoShrink", &Button::autoShrink, kAutoShrinkDoc)
-            .field("minFontSize", &Button::minFontSize, kMinFontSizeDoc).range(1, 4096);
+            .field("minFontSize", &Button::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("markup", &Button::markup, kMarkupDoc)
+            .field("bold", &Button::bold, kBoldDoc);
     }
     {
         auto toggle = r.add<Toggle>("Toggle",
@@ -1111,6 +1128,8 @@ void register_builtin_components(TypeRegistry& r) {
             .field("autoSize", &Toggle::autoSize, kAutoSizeDoc)
             .field("autoShrink", &Toggle::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &Toggle::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("markup", &Toggle::markup, kMarkupDoc)
+            .field("bold", &Toggle::bold, kBoldDoc)
             .field("value", &Toggle::value, "true = checked. Scripts may write it; no event is sent for a write.");
     }
     {
@@ -1134,6 +1153,8 @@ void register_builtin_components(TypeRegistry& r) {
             .field("autoSize", &Slider::autoSize, kAutoSizeDoc)
             .field("autoShrink", &Slider::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &Slider::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("markup", &Slider::markup, kMarkupDoc)
+            .field("bold", &Slider::bold, kBoldDoc)
             .field("value", &Slider::value,
                    "Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
                    "sent for a write.")
@@ -1250,6 +1271,8 @@ void register_builtin_components(TypeRegistry& r) {
             .field("autoShrink", &TouchButton::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &TouchButton::minFontSize, kMinFontSizeDoc).range(1, 4096)
             .field("maxTextScale", &TouchButton::maxTextScale, kMaxTextScaleDoc).range(0, 3)
+            .field("markup", &TouchButton::markup, kMarkupDoc)
+            .field("bold", &TouchButton::bold, kBoldDoc)
             .field("textColor", &TouchButton::textColor, "Label colour.")
             .field("touchOnly", &TouchButton::touchOnly, kTouchOnlyDoc)
             .field("pressed", &TouchButton::pressed, "Runtime: a finger holds the button.").runtime_only().read_only()

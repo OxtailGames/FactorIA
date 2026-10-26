@@ -625,6 +625,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     im.assets->set_shader_compiler(shaderCompiler_);
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
     im.fonts->set_fallback_fonts(fallbackFonts_);
+    im.fonts->set_rich_style(richStyle_);
     im.textScale = textScale_;
     im.create_targets(desc.designWidth, desc.designHeight);
     im.initialized = true;
@@ -828,9 +829,12 @@ void Renderer::set_scale_mode(ScaleMode mode) {
     if (impl_) impl_->scaleMode = mode;
 }
 
-Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space) const {
+Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space,
+                            TextStyle style) const {
     if (!initialized() || text.empty() || fontSize <= 0.0f) return {0, 0};
     Text t;
+    t.markup = style.markup;
+    t.bold = style.bold;
     t.text = std::string(text);
     t.font = std::string(font);
     t.fontSize = fontSize;
@@ -841,8 +845,8 @@ Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_v
 
 Vec2 Renderer::measure_text(const Text& text) const {
     if (!initialized() || text.text.empty() || text.fontSize <= 0.0f) return {0, 0};
-    const TextExtent extent = [this](const std::string& s, const std::string& font, float px, float wrap) {
-        return measure_text(s, px, font, wrap, RenderSpace::World);  // px is final: no text scale
+    const TextExtent extent = [this](const std::string& s, const std::string& font, float px, float wrap, TextStyle style) {
+        return measure_text(s, px, font, wrap, RenderSpace::World, style);  // px is final: no text scale
     };
     return fit_text(text_fit_spec(text), text.text, text.font, textScale_, extent).size;
 }
@@ -850,6 +854,11 @@ Vec2 Renderer::measure_text(const Text& text) const {
 void Renderer::set_fallback_fonts(std::vector<std::string> fonts) {
     fallbackFonts_ = std::move(fonts);
     if (impl_ && impl_->fonts) impl_->fonts->set_fallback_fonts(fallbackFonts_);
+}
+
+void Renderer::set_rich_text_style(RichTextStyle style) {
+    richStyle_ = std::move(style);
+    if (impl_ && impl_->fonts) impl_->fonts->set_rich_style(richStyle_);
 }
 
 void Renderer::set_text_scale(float scale) {
