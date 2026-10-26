@@ -1,0 +1,27 @@
+Tidewater Market is a calm harbour town builder.
+
+You start with a coast, a road and a handful of coins. Lay roads, put up houses, farms, a lumber camp and a quarry, and watch your villagers walk to work. Feed them, house them and keep them busy, and the town grows. Then build a pier, and the sea starts to answer.
+
+BUILD A TOWN THAT WORKS
+- 14 buildings: roads, houses, farms, fisher docks, lumber camps, quarries, sawmills, mills, bakeries, smokehouses, workshops, warehouses, markets and piers.
+- Real people, real carriers: villagers walk to their jobs and goods are carried along your roads. A badly placed road costs you a day.
+- Four seasons of ten days each. Grain, fish and bread have to be ready before winter.
+- Desirability overlay: see at a glance where a house would be happy, in colour and with pips for colour-blind players.
+
+TRADE WITH THE SEA
+- Cogs, skiffs and carracks arrive with orders. Fill them for coins and reputation, miss them and they remember.
+- 11 event cards bring storms, festivals and strangers with a proposal. Every card asks for a choice.
+
+FOUR WAYS TO PLAY
+- First Harbour teaches the basics.
+- River Mills asks for flour and bread.
+- Winter Trade tests your stores against the cold.
+- Sandbox has no goals: build what you like.
+
+MADE TO BE COMFORTABLE
+- Three save slots with an autosave in each.
+- Five volume sliders, reduced motion, hold-free controls, UI size, full key rebinding.
+- Mouse, keyboard or gamepad (with a cursor).
+- Seven achievements.
+
+Tidewater Market collects nothing and needs no account.
