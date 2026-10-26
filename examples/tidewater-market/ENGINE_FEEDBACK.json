@@ -143,15 +143,197 @@
       "status": "open"
     },
     {
+      "id": "FB-0030",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No rich text in Text (inline icons, colours, bold)",
+      "missing": "Event cards and orders need lines like '+40 [coin icon]  -4 [planks icon]' with green/red numbers and bold words that wrap with the text. Text has one colour and one font, and no inline pictures.",
+      "workaround": "A small markup (parse, layout with ui.measureText, line breaking incl. CJK) and a pool of Text and Sprite entities per line piece; bold is the same text drawn twice 1 px apart. About 400 lines of JS plus tests.",
+      "workaroundFiles": [
+        "scripts/game/richtext.js",
+        "scripts/game/rich_view.js",
+        "scripts/game/trade_text.js",
+        "tests/rich_text.test.js"
+      ],
+      "suggestion": "Text.markup: true with [b], [c:..], [icon:atlasFrame] and wrapping handled by the engine, drawn as one batch.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No bold or font weight for Text",
+      "missing": "Emphasis in a card body (a good's name, an amount) needs a heavier face; Text only has fontSize and color.",
+      "workaround": "Drawing the run twice with a 1 px offset (fake bold). It blurs at small sizes and doubles the entities.",
+      "workaroundFiles": [
+        "scripts/game/rich_view.js"
+      ],
+      "suggestion": "A Text.weight or a bold font slot in the project font settings.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "rng.create state cannot be read or set, so a saved game cannot resume its random stream",
+      "missing": "A seeded stream (ships, events) must continue exactly after loading a save. rng.create(seed) has no state getter/setter; rng.seed(n) restarts from the beginning, and the world rng is shared with everything else.",
+      "workaround": "My own mulberry32 Rng with a public 32-bit state (same algorithm as the engine's), three separate streams so a new draw in one does not shift the others.",
+      "workaroundFiles": [
+        "scripts/game/rng.js",
+        "tests/trade.test.js"
+      ],
+      "suggestion": "rng.state getter and setter (a number) on generators from rng.create, documented as stable like the algorithm.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No choice or dialogue card system",
+      "missing": "Event cards with 2-3 choices, a result stage, modal behaviour and keyboard/mouse focus are common in management games. Everything (layout, buttons disabled when unaffordable, pausing the clock, result stage) is hand written.",
+      "workaround": "trade_ui.js builds the card from a Panel prefab plus buttons spawned per choice and holds the clock at speed 0 while a card is open.",
+      "workaroundFiles": [
+        "scripts/game/trade_ui.js",
+        "prefabs/ui/event_card.prefab.json"
+      ],
+      "suggestion": "A documented modal 'card' widget in the menu kit: title, wrapped body, N choice buttons with a detail line.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Atlas grows as pictures are added, and the frame table is hand kept",
+      "missing": "Adding the pier, star and three ship classes with four headings each took the atlas from 2048x1024 to 2048x2048 (107 frames). There is no packer, so make_atlas.py lays the frames out and writes data/atlas.json by hand.",
+      "workaround": "make_atlas.py (Python) builds the PNG and the rect/pivot table; the game reads frame rects from data/atlas.json.",
+      "workaroundFiles": [
+        "assets/src/make_atlas.py",
+        "data/atlas.json"
+      ],
+      "suggestion": "An atlas.pack command that packs a folder of images and writes the frame table the Sprite region field can use.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Children of a screen-space Panel with layout none are placed from the panel's top-left, which the UI docs do not say",
+      "missing": "I first placed card children with absolute screen positions and they came out shifted by the panel position. Moving the panel moves its children, which is good, but I found it only by a screenshot.",
+      "workaround": "Child positions are relative to the panel (prefab children at [24,16] etc.).",
+      "workaroundFiles": [
+        "prefabs/ui/order_board.prefab.json",
+        "prefabs/ui/event_card.prefab.json"
+      ],
+      "suggestion": "One sentence plus an example in the guide's screen-space section: children of a Panel are offset from its corner.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "A Behaviour field named 'on' silently breaks the behaviour",
+      "missing": "I named a field 'on' (a flag) and the class's own Behaviour.on method was replaced, so event subscriptions failed with no error naming the cause.",
+      "workaround": "Renamed the field to tradeOn.",
+      "workaroundFiles": [
+        "scripts/game/trade_ui.js"
+      ],
+      "suggestion": "Validate script classes: warn when an instance field shadows a Behaviour method (on, emit, get...).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "The fake store reports stats.add as stats.get plus stats.set",
+      "missing": "A test that wants to assert a stat was counted has to know the fake implements add as get + set; the call log does not show a 'stats.add' call.",
+      "workaround": "Assert fake.stats.<id> and the 'stats.set' call.",
+      "workaroundFiles": [
+        "tests/trade_ui.test.js"
+      ],
+      "suggestion": "Log the call the script made (stats.add) and the nested ones apart, or document the mapping in the platform test section.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
       "id": "FB-0020",
       "date": "2026-10-26",
-      "reporter": { "kind": "ai", "agent": "worker-tidewater-p4", "model": "claude-sonnet-5-5" },
-      "category": "api",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
       "severity": "minor",
       "title": "No screenshot of the running game as a texture, for a save slot picture",
       "missing": "A save slot should show a picture of the town at the moment of the save. A script cannot capture the frame (game.screenshot exists only in tests and as a CLI command, and writes a file) and cannot create a texture at run time from pixels or a file it wrote, so a Sprite cannot show it.",
       "workaround": "scripts/game/thumbnail.js saves a top-down map of at most 48 x 48 cells (one colour per cell, run-length text, about 0.3 KB) and the slot screen draws it as coloured Panel quads in layout rows.",
-      "workaroundFiles": ["scripts/game/thumbnail.js", "scripts/ui/slots_screen.js"],
+      "workaroundFiles": [
+        "scripts/game/thumbnail.js",
+        "scripts/ui/slots_screen.js"
+      ],
       "suggestion": "render.captureTexture({width, height}) returning a texture id a Sprite or Image can use (and storage-friendly PNG bytes), or a Sprite field that takes a data URL.",
       "effort": "medium",
       "occurrences": 1,
@@ -160,13 +342,20 @@
     {
       "id": "FB-0021",
       "date": "2026-10-26",
-      "reporter": { "kind": "ai", "agent": "worker-tidewater-p4", "model": "claude-sonnet-5-5" },
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p4",
+        "model": "claude-sonnet-5-5"
+      },
       "category": "docs",
       "severity": "minor",
       "title": "No documented hide or close signal on the web for an autosave",
       "missing": "An autosave on leaving needs a signal before the tab is hidden or closed. game.on('quit') is raised on desktop only (docs/MENUS.md says mobile apps never quit by themselves); game.on('blur'/'suspend') are what a script has otherwise. Nothing in the docs says what a web export raises when a tab is hidden or closed, and a test cannot show it (this package could not run a web export).",
       "workaround": "scripts/save_controller.js saves on blur, suspend and quit, and the autosaver also writes at the end of every season and every 120 s of play when the town changed, so a tab closed without any signal loses at most that.",
-      "workaroundFiles": ["scripts/save_controller.js", "scripts/game/autosave.js"],
+      "workaroundFiles": [
+        "scripts/save_controller.js",
+        "scripts/game/autosave.js"
+      ],
       "suggestion": "Document which of blur / suspend / quit each platform raises (web: visibilitychange and pagehide), and raise suspend on a hidden tab and quit on pagehide in the web runtime.",
       "effort": "small",
       "occurrences": 1,
@@ -175,13 +364,21 @@
     {
       "id": "FB-0022",
       "date": "2026-10-26",
-      "reporter": { "kind": "ai", "agent": "worker-tidewater-p4", "model": "claude-sonnet-5-5" },
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p4",
+        "model": "claude-sonnet-5-5"
+      },
       "category": "performance",
       "severity": "minor",
       "title": "Large saves: storage is one file, no size query, no compression, the write runs inside a frame",
       "missing": "The stress town (640 villagers) saves to 281 KB of JSON; a write (serialize, stringify, storage.set) took 143 ms and a read with the restore 75 ms in a debug build on an Apple M5 (tests/stress.test.js prints them), a one-frame hitch when the game saves. docs say all of storage lives in one storage.json, so with 3 slots, an autosave each and a cloud copy, a full set of big towns is a file of about 1.7 MB (computed from the sizes, not measured on disk) that is rewritten on every save. There is no storage size query, no compression and no way to write off the frame.",
       "workaround": "Save format v2 packs terrain as run lengths and road runs as one array each; saves are written at the end of the frame, never inside a clock step, and an unchanged town is not autosaved.",
-      "workaroundFiles": ["scripts/game/savegame.js", "scripts/game/autosave.js", "tests/stress.test.js"],
+      "workaroundFiles": [
+        "scripts/game/savegame.js",
+        "scripts/game/autosave.js",
+        "tests/stress.test.js"
+      ],
       "suggestion": "storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.",
       "effort": "medium",
       "occurrences": 1,

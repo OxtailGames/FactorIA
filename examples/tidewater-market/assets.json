@@ -8,7 +8,7 @@
         "date": "2026-10-26",
         "license": "CC0-1.0",
         "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces; the rest drawn by assets/src/make_atlas.py",
-        "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the rock tile, the goods icons and the villager and carrier walkers)"
+        "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the pier, the rock tile, the goods, star and ship icons, the villager and carrier walkers and the three ship classes in four headings)"
       }
     },
     "assets/music/autumn.wav": {

@@ -173,6 +173,10 @@
     "market": {
       "name": "Market",
       "desc": "Sells food to the villagers: keep it stocked and staffed."
+    },
+    "pier": {
+      "name": "Pier",
+      "desc": "A landing for trading ships. Must touch the water; a ship needs open sea to reach it."
     }
   },
   "season": {
@@ -343,6 +347,409 @@
       "map_mismatch": "This save was made on a map this version cannot rebuild.",
       "storage": "The game could not be saved. Free some disk space and try again.",
       "bad_slot": "There is no such slot."
+    }
+  },
+  "ship": {
+    "name": {
+      "0": "Gull",
+      "1": "Heron",
+      "2": "Marigold",
+      "3": "Tern",
+      "4": "Saltwind",
+      "5": "Little Anna",
+      "6": "Brisk",
+      "7": "Otter"
+    },
+    "class": {
+      "skiff": "Skiff",
+      "cog": "Cog",
+      "carrack": "Carrack"
+    }
+  },
+  "event": {
+    "storm": {
+      "title": "Storm warning",
+      "body": "Black clouds pile up over the bay. The fishers drag their boats ashore and the wind already tugs at the [icon:wood] stacked on the quay.",
+      "choice": {
+        "secure": "Lash everything down",
+        "ride": "Ride it out",
+        "shelter": "Shelter and wait"
+      },
+      "result": {
+        "secure": "The crew lashes the stacks with [b]planks[/b] and rope. The storm howls over the town and takes [c:good]nothing[/c].",
+        "ride": {
+          "0": "Luck holds: the storm turns north and [c:good]spares the harbour[/c]. Nobody even loses a hat.",
+          "1": "The storm tears through the stacks and the nets. The town loses [c:bad]fish[/c] and [c:bad]wood[/c], and people grumble."
+        },
+        "shelter": "Everyone stays indoors. [c:muted]No harm done, but the sea stays empty for a while: the next ship is late.[/c]"
+      }
+    },
+    "festival": {
+      "title": "Midsummer festival",
+      "body": "The villagers want to celebrate the long days. Lanterns, music and [icon:bread] on every table would make the town [c:gold]talk about you for a year[/c].",
+      "choice": {
+        "feast": "Throw a feast",
+        "stalls": "Allow a few stalls",
+        "skip": "Not this year"
+      },
+      "result": {
+        "feast": "A great feast! Children dance in the squares and travellers carry the story to other ports. [c:gold]The town is proud.[/c]",
+        "stalls": "A modest festival with a few stalls. It is pleasant and nobody complains.",
+        "skip": "Work goes on as usual. [c:muted]Nobody mentions the festival, at least not to you.[/c]"
+      }
+    },
+    "merchant": {
+      "title": "A merchant's offer",
+      "body": "A travelling merchant stops at the pier and opens his chest. He needs [icon:stone] and sells [icon:wood] cheap: [b]a fair deal[/b], if you want one.",
+      "choice": {
+        "buy_wood": "Buy his timber",
+        "sell_stone": "Sell him stone",
+        "decline": "Decline politely"
+      },
+      "result": {
+        "buy_wood": "The timber is cut and dry. A good price, and your stacks fill up.",
+        "sell_stone": "He counts the coins slowly and loads the [icon:stone] onto his cart.",
+        "decline": "He shrugs, tips his hat and goes on his way."
+      }
+    },
+    "sick_herd": {
+      "title": "Sick herd",
+      "body": "Several animals on the farms cough and refuse to graze. [c:bad]If it spreads, the grain stores will pay for it.[/c]",
+      "choice": {
+        "healer": "Call the healer",
+        "cull": "Cull the weakest",
+        "hope": "Hope it passes"
+      },
+      "result": {
+        "healer": "The healer's herbs work. The herd is back on its feet within days, and the farmers remember who paid.",
+        "cull": "A hard decision, but the meat sells and the rest of the herd is safe. Some villagers look away.",
+        "hope": {
+          "0": "The cough fades by itself. [c:good]Lucky![/c]",
+          "1": "It spreads. The farmers lose [c:bad]grain[/c] and pay for some emergency help."
+        }
+      }
+    },
+    "good_harvest": {
+      "title": "A good harvest",
+      "body": "The fields are heavier than anyone remembers. Sacks of [icon:grain] pile up at the farm gates: [c:good]more than the barns need[/c].",
+      "choice": {
+        "store": "Fill the warehouses",
+        "sell": "Sell the surplus"
+      },
+      "result": {
+        "store": "Carriers haul the extra grain to the warehouses until they groan.",
+        "sell": "A trader from the south buys the surplus at a fine price."
+      }
+    },
+    "fish_run": {
+      "title": "A run of fish",
+      "body": "The water boils with silver. A shoal of [icon:fish] is passing the bay, [b]once a year[/b], and the fishers ask for new nets.",
+      "choice": {
+        "nets": "Buy new nets",
+        "leave": "Let them use the old ones"
+      },
+      "result": {
+        "nets": "The new nets come up heavy. The smokehouses will be busy.",
+        "leave": "The old nets still catch something. The shoal passes."
+      }
+    },
+    "cold_snap": {
+      "title": "Cold snap",
+      "body": "Frost on the roofs, ice in the wells. The villagers shiver and look at the [icon:wood] you keep in the warehouses.",
+      "choice": {
+        "burn": "Open the wood stores",
+        "blankets": "Buy blankets",
+        "endure": "Tell them to endure"
+      },
+      "result": {
+        "burn": "Fires burn in every hearth. The villagers are warm and grateful, and the [c:bad]wood[/c] is gone.",
+        "blankets": "Wool from the pedlars keeps the town warm. It costs [icon:coin] but not a log.",
+        "endure": "The villagers endure, but they will remember it. [c:bad]The mood is sour.[/c]"
+      }
+    },
+    "wreck": {
+      "title": "A wreck on the rocks",
+      "body": "A trading vessel broke up on the rocks at dawn. Planks and barrels wash ashore, and the harbour master wants to know [b]who gets them[/b].",
+      "choice": {
+        "salvage": "Salvage the cargo",
+        "report": "Report it to the shipping office"
+      },
+      "result": {
+        "salvage": "The crews drag the timber ashore before the tide takes it. [c:gold]Finders keepers.[/c]",
+        "report": "You hand over the find and write the report. The office pays a reward and your name travels with the ships."
+      }
+    },
+    "fire": {
+      "title": "Sparks at the sawmill",
+      "body": "A spark from the saw catches the dry [icon:planks] pile. Smoke rises over the roofs. [c:bad]It can still be put out, if someone acts now.[/c]",
+      "choice": {
+        "bucket": "Form a bucket line",
+        "watch": "Let the workers handle it"
+      },
+      "result": {
+        "bucket": "The whole town forms a line and the fire is out before it spreads. It costs a few coins in new buckets.",
+        "watch": {
+          "0": "The workers beat the flames out by themselves. [c:good]Close call![/c]",
+          "1": "The fire eats a stack of [c:bad]planks[/c] and [c:bad]wood[/c] before it dies out."
+        }
+      }
+    },
+    "pedlar": {
+      "title": "The pedlar's cart",
+      "body": "A pedlar who has heard good things about the harbour parks his cart at the market. He sells [icon:tools] and gossip.",
+      "choice": {
+        "tools": "Buy a box of tools",
+        "gossip": "Swap stories"
+      },
+      "result": {
+        "tools": "Good steel, well made. The workshops are jealous.",
+        "gossip": "You trade stories at the pier. By evening, three ports know the name of the town."
+      }
+    },
+    "smugglers": {
+      "title": "Quiet visitors",
+      "body": "Two men in dark coats wait at the end of the pier after dusk. They offer [icon:coin] for the use of an empty warehouse. [c:bad]Nobody asks what is in the crates.[/c]",
+      "choice": {
+        "take": "Take the money",
+        "refuse": "Send them away"
+      },
+      "result": {
+        "take": {
+          "0": "The crates leave at dawn and the coins stay. Nobody ever asks again.",
+          "1": "The harbour guards find the crates. You pay a fine and your name is not so good at the harbour any more."
+        },
+        "refuse": "They leave without a word. The harbour master hears of it and nods."
+      }
+    }
+  },
+  "story": {
+    "first_harbour": {
+      "name": "The First Harbour",
+      "letter": {
+        "title": "A letter from the Guild",
+        "body": "A letter arrives with the morning tide, sealed in green wax: [b]the Guild of Sea Traders[/b] will send ships to any town that builds a pier. Do you want the whole coast to know?",
+        "choice": {
+          "aloud": "Read it at the market",
+          "quiet": "Keep it quiet"
+        },
+        "result": {
+          "aloud": "Within a day half the coast has heard. People come to look at your muddy shore. [c:gold]Expectations are high.[/c]",
+          "quiet": "You keep the letter in a drawer. A quiet buyer pays you a few coins for a little silence."
+        }
+      },
+      "pier": {
+        "title": "The first pier",
+        "body": "The pier stands. The planks smell of tar and new wood. The villagers ask whether it should have a name painted on its post, or whether plain is enough.",
+        "choice": {
+          "paint": "Paint it bright",
+          "plain": "Leave it plain"
+        },
+        "result": {
+          "paint": "A bright blue post and a gold name. Captains notice the harbour from far away.",
+          "plain": "A plain pier, plain planks. It does the job."
+        }
+      },
+      "cargo": {
+        "title": "The first cargo",
+        "body": "The first order is filled and the captain shakes your hand. The crew asks where the first round of ale is. [icon:coin]",
+        "choice": {
+          "toast": "Buy the crew a round",
+          "pocket": "Keep the extra coins"
+        },
+        "result": {
+          "toast": "The whole quay drinks to the harbour. [c:gold]The captain tells his friends.[/c]",
+          "pocket": "You keep the coins. The captain frowns, and a rumour goes round that your harbour is stingy."
+        }
+      },
+      "map": {
+        "title": "A place on the map",
+        "body": "A cartographer wants to put [b]your town[/b] on the new sea charts. She needs a flag for the harbour, or she can write that the harbour is famous for its feasts.",
+        "choice": {
+          "flag": "Pay for a flag",
+          "feast": "Boast of the feasts"
+        },
+        "result": {
+          "flag": "The flag flies from the pier, and the chart shows your town in gold ink. [c:gold]The Guild takes notice.[/c]",
+          "feast": "The cartographer laughs and writes it down. Soon every captain wants to taste the legend."
+        }
+      }
+    },
+    "river_mills": {
+      "name": "The River Mills",
+      "bend": {
+        "title": "The bend in the river",
+        "body": "The river bends here and the current is strong. Millers say a mill would work well at this bend, if someone surveyed the stones first.",
+        "choice": {
+          "survey": "Pay for a survey",
+          "build": "Build where you like"
+        },
+        "result": {
+          "survey": "The surveyor finds the best place and marks it. No stone will be wasted.",
+          "build": "You will find the best place by trying."
+        }
+      },
+      "grindstone": {
+        "title": "The grindstone",
+        "body": "The first mill needs a proper grindstone. A mason from upriver offers [icon:stone] cut for the purpose, or a worn one he only wants to lend.",
+        "choice": {
+          "buy": "Buy the grindstone",
+          "borrow": "Borrow a worn one"
+        },
+        "result": {
+          "buy": "A fine stone, round and flat. It will grind for years.",
+          "borrow": "The mason hands over some rough stone. He will remember it."
+        }
+      },
+      "oven": {
+        "title": "The first loaf",
+        "body": "The bakery's oven is hot and the first loaves of [icon:bread] come out golden. The villagers queue at the door, but a merchant wants to buy the whole batch.",
+        "choice": {
+          "share": "Share it with the town",
+          "sell": "Sell the batch"
+        },
+        "result": {
+          "share": "Every house gets a loaf. The bakery smells of happiness.",
+          "sell": "The merchant pays well and the villagers go home hungry."
+        }
+      },
+      "south": {
+        "title": "A contract from the south",
+        "body": "Ships from the south want flour and bread every season, on a [b]long contract[/b]. It pays well but ties your mills to their calendar.",
+        "choice": {
+          "contract": "Sign the contract",
+          "freedom": "Stay free"
+        },
+        "result": {
+          "contract": "The ink dries. The south will pay on time, and your mills will not rest.",
+          "freedom": "You keep your freedom and your good name. The mills work for whoever pays best."
+        }
+      }
+    },
+    "winter_trade": {
+      "name": "Winter Trade",
+      "ice": {
+        "title": "Early ice",
+        "body": "The first ice forms in the bay. Old sailors say the sea will close for weeks. A merchant offers to deliver [icon:wood] for the winter before it does.",
+        "choice": {
+          "stock": "Buy winter stock",
+          "trust": "Trust the autumn stores"
+        },
+        "result": {
+          "stock": "The wood arrives just in time. The woodsheds are full.",
+          "trust": "You keep your coins and trust the warehouses."
+        }
+      },
+      "frost": {
+        "title": "The bay freezes",
+        "body": "A thin sheet of ice covers the bay. The ships hesitate. [b]A crew with axes[/b] could open a lane for them.",
+        "choice": {
+          "break_ice": "Pay a crew to break the ice",
+          "wait": "Wait for the thaw"
+        },
+        "result": {
+          "break_ice": "The crew opens a lane, and the ships sail in. [c:gold]The captains remember who kept the harbour open.[/c]",
+          "wait": "You wait. The ships will come, but later."
+        }
+      },
+      "bargain": {
+        "title": "A hard bargain",
+        "body": "A captain offers a very high price for [icon:smoked_fish] and then wants a discount, claiming the winter is hard everywhere. The villagers are watching.",
+        "choice": {
+          "haggle": "Haggle until he pays",
+          "fair": "Offer a fair price"
+        },
+        "result": {
+          "haggle": "You win the argument and the coins. He does not smile when he leaves.",
+          "fair": "You treat him fairly. [c:gold]Word of it travels well.[/c]"
+        }
+      },
+      "thaw": {
+        "title": "The thaw",
+        "body": "The ice breaks with a sound like thunder. Spring is coming. The villagers are tired of winter and want to [b]celebrate[/b].",
+        "choice": {
+          "celebrate": "Open the barrels",
+          "save": "Save the coins"
+        },
+        "result": {
+          "celebrate": "The whole town celebrates. [c:gold]A good winter, in the end.[/c]",
+          "save": "You keep the barrels closed and the coins safe."
+        }
+      }
+    }
+  },
+  "achievement": {
+    "first_ship": {
+      "name": "First sail",
+      "desc": "A ship docks at your pier."
+    },
+    "ten_orders": {
+      "name": "Ten orders",
+      "desc": "Fill ten ship orders."
+    },
+    "no_debt_year": {
+      "name": "A year without debt",
+      "desc": "A whole year goes by and every payday is paid."
+    },
+    "harbour_master": {
+      "name": "Harbour master",
+      "desc": "Reach reputation 50."
+    },
+    "story_first_harbour": {
+      "name": "The First Harbour",
+      "desc": "Finish the story of The First Harbour."
+    },
+    "story_river_mills": {
+      "name": "The River Mills",
+      "desc": "Finish the story of The River Mills."
+    },
+    "story_winter_trade": {
+      "name": "Winter Trade",
+      "desc": "Finish the story of Winter Trade."
+    }
+  },
+  "trade": {
+    "ship": "{class} {name}",
+    "reputation": "Reputation {value}",
+    "board": {
+      "title": "Harbour orders",
+      "close": "Close",
+      "nopier": "Build a pier on the coast and ships will come to trade.",
+      "empty": "No ship in the bay. The next sail is on its way.",
+      "next": "Next ship in about {days} days",
+      "unlock": "At reputation {value}: {class} ships",
+      "fill": "Fill order",
+      "missing": "Missing: {list}",
+      "left": "{days} days left",
+      "left1": "Last day",
+      "sailing": "Sailing in...",
+      "leaving": "Leaving...",
+      "wants": "Wants",
+      "pays": "Pays"
+    },
+    "card": {
+      "event": "Event",
+      "story": "Story",
+      "continue": "Continue",
+      "free": "Costs nothing",
+      "risky": "Risky",
+      "cannot": "Not enough: {list}",
+      "later": "Next ship {n} days later",
+      "sooner": "Next ship {n} days sooner"
+    },
+    "hud": {
+      "orders": "Orders",
+      "ordersN": "Orders ({count})"
+    },
+    "toast": {
+      "docked": "{ship} docks at the pier.",
+      "filled": "{ship} sails away happy: +{reward} coins.",
+      "missed": "{ship} left without its goods. Reputation {delta}.",
+      "unlocked": "Reputation opens up {class} ships.",
+      "achievement": "Achievement: {name}",
+      "story": "Story finished: {name}"
+    },
+    "key": {
+      "orders": "Order board"
     }
   }
 }
