@@ -2,7 +2,7 @@
 
 A management game played with the mouse: build a small harbour town on an isometric map, lay roads, put up houses and
 workshops, and keep the goods moving. Web and desktop first. This is the fourth FactorIA reference game (milestone M30);
-it is built in eight packages, and the table below says where it stands.
+it was built in eight packages, all done (the table below).
 
 ```bash
 factoria validate
@@ -20,16 +20,12 @@ factoria call --project . project.validate_data               # check data/*.jso
 |---|---|---|
 | P1 | Map, camera, building, undo, data tables, title screen, HUD | done |
 | P2 | Villagers and walkers, carriers, production chains, the running clock and its speed control, seasons and their music, wages and sales, the bot, the stress scene | done |
-| P3 (interface) | The interface: build menu, inspector, tooltips, goods table, charts, notifications, overlays, worker drag and drop, shortcuts and help | done |
-| P3 | Prices, markets, trade | planned |
-| P4 | Population, housing, happiness | planned |
+| P3 | The interface: build menu, inspector, tooltips, goods table, charts, notifications, overlays, worker drag and drop, shortcuts and help | done |
+| P4 | Three save slots with autosave, save format v2 with the v1 migration, cloud copies, four scenarios with goals and a win screen, the slot screen and the pause menu's Save | done |
 | P5 | The pier and its ships, orders, the order board, event cards, a story per scenario, achievements and stats on the store | done |
-| P6 | Saving, loading, the shop menu | planned |
-| P7 | Finished art and sound under the same frame names | planned |
-| P8 (languages) | Spanish, French and Simplified Chinese (with a font subset), one formatting module, a language choice that applies at once, every screen checked at 100% and 200% text in every language | done |
-| P4 (progress) | Three save slots with autosave, save format v2 with the v1 migration, cloud copies, four scenarios with goals and a win screen, the slot screen and the pause menu's Save | done |
-| P6 (sound, options) | Ambience beds that follow the camera, building work and walker sounds with a voice cap, UI sounds, five volume buses, the options screen (sizes, window, key rebinding, colour-blind safe signals, reduced motion, hold-free controls) and the gamepad cursor | done |
-| P7 (shipping) | Icon, key art, capsules, store texts, six screenshots and a trailer rebuilt by scripts from the game's own renders; the web and macOS exports; perf budgets; the dense-overlay fix | done; Windows, Linux and a full web play-through not checked, see SHIPPING.md |
+| P6 | Ambience beds that follow the camera, building work and walker sounds with a voice cap, UI sounds, five volume buses, the options screen (sizes, window, key rebinding, colour-blind safe signals, reduced motion, hold-free controls) and the gamepad cursor | done |
+| P7 | Icon, key art, capsules, store texts, six screenshots and a trailer rebuilt by scripts from the game's own renders; the web and macOS exports; perf budgets; the dense-overlay fix | done; the Windows and Linux exports not checked, see SHIPPING.md |
+| P8 | Spanish, French and Simplified Chinese (with a font subset), one formatting module, a language choice that applies at once, every screen checked at 100% and 200% text in every language | done |
 
 ## Shipping (P7)
 
