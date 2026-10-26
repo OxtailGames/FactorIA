@@ -1227,6 +1227,74 @@ TEST_CASE("rng.create: methods, draw counts and errors") {
     CHECK(ev_err(h, "rng.create(1).seed('x')").find("generator.seed(n) expects a finite number") != std::string::npos);
 }
 
+TEST_CASE("rng.create: state reads and sets the stream, so a saved game resumes it") {
+    TestHost h("rngcreate_state");
+    REQUIRE(h.start());
+    // A generator resumed from a saved state draws the same numbers as the one that kept going.
+    CHECK(ev_ok(h, "(() => { const a = rng.create(99); a.float(); a.int(1, 6); const saved = a.state;"
+                    "const next = [a.float(), a.float(), a.int(1, 100)];"
+                    "const b = rng.create(0); b.state = saved;"
+                    "return JSON.stringify([b.float(), b.float(), b.int(1, 100)]) === JSON.stringify(next); })()") == true);
+    // The state is the 32-bit seed advanced by one step per draw, and rng.create(state) continues from it too.
+    CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); return a.state; })()") == 5u + 0x6d2b79f5u);
+    CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); const b = rng.create(a.state); return a.float() === b.float() && b.state === a.state; })()") == true);
+    CHECK(ev_ok(h, "rng.create(7).state") == 7);
+    // Wrong values throw and leave the state alone.
+    for (const char* bad : {"-1", "1.5", "4294967296", "'7'", "NaN"}) {
+        CAPTURE(bad);
+        auto r = h.scripts.eval(std::string("(() => { const a = rng.create(3); a.state = ") + bad + "; })()");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("generator.state expects an integer from 0 to 4294967295") != std::string::npos);
+    }
+}
+
+TEST_CASE("didYouMean: the closest choice, or an empty string") {
+    TestHost h("didyoumean");
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "didYouMean('woood', ['wood', 'stone'])") == "wood");
+    CHECK(ev_ok(h, "didYouMean('STONE', ['wood', 'stone'])") == "stone");
+    CHECK(ev_ok(h, "didYouMean('zzzzzz', ['wood', 'stone'])") == "");
+    CHECK(ev_ok(h, "didYouMean('x', [])") == "");
+    auto bad = h.scripts.eval("didYouMean('x', 'wood')");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("didYouMean(word, choices) expects") != std::string::npos);
+}
+
+TEST_CASE("a Behaviour field that shadows a Behaviour member warns once per class naming the field") {
+    TestHost h("shadowfield");
+    h.file("scripts/shadow.js", R"(
+import { Behaviour } from "factoria";
+export default class Shadow extends Behaviour {
+  on = false;
+  speed = 3;
+}
+)");
+    h.file("scripts/fine.js", R"(
+import { Behaviour } from "factoria";
+export default class Fine extends Behaviour { enabled2 = true; onStart() { this.on("x", () => {}); } }
+)");
+    REQUIRE(h.start());
+    std::vector<std::string> msgs;
+    int sink = add_log_sink([&](const LogEntry& e) {
+        if (e.level == LogLevel::Warn && e.category == "script") msgs.push_back(e.message);
+    });
+    ev_ok(h, "for (const id of ['a', 'b']) world.spawn({id, components:{Script:{path:'scripts/shadow.js'}}});"
+             "world.spawn({id:'f', components:{Script:{path:'scripts/fine.js'}}})");
+    h.step_frames(1);
+    remove_log_sink(sink);
+    int n = 0;
+    for (const std::string& m : msgs)
+        if (m.find("shadows Behaviour.on") != std::string::npos) {
+            ++n;
+            CHECK(m.find("scripts/shadow.js: class Shadow: the field 'on'") != std::string::npos);
+            CHECK(m.find("Rename the field") != std::string::npos);
+        }
+    CHECK(n == 1);  // two entities, one warning; Fine and the other fields are quiet
+    CHECK_MESSAGE(msgs.size() == 1, join(msgs, " | "));
+    CHECK(h.scripts.check_hooks("scripts/shadow.js").size() == 1);  // what `factoria validate` reports
+    CHECK(h.scripts.check_hooks("scripts/fine.js").empty());
+}
+
 TEST_CASE("rng.create: generators never touch the world RNG, Math.random or each other") {
     TestHost h("rngcreate_independent");
     REQUIRE(h.start());

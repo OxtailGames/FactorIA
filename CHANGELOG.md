@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Script helpers: the rng state, running a module, did-you-mean, a shadowed method
+
+- A generator from `rng.create` has a `state` (a 32-bit integer) you can read and assign, documented as stable like the
+  algorithm: store it in a save and assign it to resume the same stream.
+- `script.eval` takes `module` (a project path), `call` (an exported function) and `args`, and returns the function's
+  result: `factoria call script.eval` runs a pure module with no scene.
+- `didYouMean(word, choices)` is exported from `"factoria"`; docs/EXTENDING.md has a recipe for a project tool that
+  validates the cross references of `data/*.json` with file, JSON pointer, hint and did-you-mean.
+- A `Behaviour` field named `on`, `after`, `every` or `world` replaced that method without a word. The first instance of
+  the class now logs one warning naming the field, and `factoria validate` reports it.
+
 `ui.rectOf` and hidden parents; docs for what was already there
 
 - `ui.rectOf(entity)` returns `null` for a widget or screen-space Text hidden by an inactive parent, as `ui.state` already

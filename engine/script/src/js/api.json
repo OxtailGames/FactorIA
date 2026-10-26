@@ -2015,6 +2015,10 @@
        "doc": "A shuffled copy (Fisher-Yates from the end, j = floor(float() * (i + 1))); the input is not modified."
       },
       {
+       "sig": "state: number",
+       "doc": "The generator's 32-bit state, an integer from 0 to 4294967295: one number that is the whole stream. Store it in a save and assign it later (or create the generator with it as the seed: rng.create(state) continues exactly where state was read) to resume the sequence. STABLE across engine versions like the algorithm. Assigning anything that is not such an integer throws. Example: const saved = r.state; r.float(); r.state = saved; r.float() // the same number again."
+      },
+      {
        "sig": "seed(n: number): void",
        "doc": "Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG."
       }
@@ -3718,6 +3722,11 @@
      "name": "ease",
      "type": "EaseAPI",
      "doc": "Built-in easing functions."
+    },
+    {
+     "kind": "function",
+     "sig": "didYouMean(word: string, choices: readonly string[]): string",
+     "doc": "The choice closest to `word` (case-insensitive edit distance, accepted when within about a third of the word's length, at least 2), or \"\" when none is near. For errors that teach: `const near = didYouMean(id, goodIds); throw new ToolError(`unknown good '${id}'`, near ? `Did you mean '${near}'?` : \"\")`. Example: didYouMean(\"woood\", [\"wood\", \"stone\"]) is \"wood\"."
     },
     {
      "kind": "function",
