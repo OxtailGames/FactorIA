@@ -91,6 +91,10 @@ export default class PauseMenu extends Behaviour {
       this.addSave(); // the game controller starts after this script, so its autosaver is only there now
     }
     game.paused = true;
+    // the level's scripts stop here, so what they show under the pointer (a building's tooltip) would stay over the menu
+    const ctl = world.find("controller");
+    const b = ctl && ctl.behaviour;
+    if (b && typeof b.onPauseMenu === "function") b.onPauseMenu();
     this.menus.show("pause_panel");
   }
 
