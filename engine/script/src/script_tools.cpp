@@ -345,9 +345,45 @@ void Impl::after_test_load() {
     run_jobs();
 }
 
-void Impl::request_quit() {
+namespace {
+constexpr double kQuitFlushSeconds = 3.0;
+}
+
+int Impl::service_call(const char* method, std::initializer_list<JSValue> args) {
+    if (!initialized) return 0;
+    JSValue r = call_method("services", "", hooks.get(), method, args);
+    int32_t v = 0;
+    if (JS_IsNumber(r)) JS_ToInt32(ctx, &v, r);
+    JS_FreeValue(ctx, r);
+    return v;
+}
+
+bool Impl::begin_quit_flush() {
+    service_call("serviceQuit", {});
+    run_jobs();  // an answer the fake gave at once settles here
+    return service_call("servicePending", {}) > 0;
+}
+
+void Impl::update_quit_wait(double dt) {
+    quitWaited += dt;
+    if (service_call("servicePending", {}) > 0 && quitWaited < kQuitFlushSeconds) return;
+    quitDeferred = false;
+    do_request_quit();
+}
+
+void Impl::do_request_quit() {
     if (inTestRun) testQuitRequested = true;  // a test observes the request (game.quitRequested); the run goes on
     else host->request_quit();
+}
+
+void Impl::request_quit() {
+    if (quitDeferred) return;  // already waiting for the analytics request
+    if (begin_quit_flush()) {
+        quitDeferred = true;
+        quitWaited = 0.0;
+        return;
+    }
+    do_request_quit();
 }
 
 void Impl::reset_for_test_file() {
@@ -361,6 +397,7 @@ void Impl::reset_for_test_file() {
     storageCorrupt = false;
     storageTextHook.reset();
     testQuitRequested = false;
+    quitDeferred = false;
     testSystemLanguages.clear();
     preload.reset();  // no job and no warm file of the earlier test file
     owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)

@@ -349,6 +349,19 @@
         ]
       },
       {
+        "id": "analytics_toggle",
+        "active": false,
+        "components": {
+          "Toggle": {
+            "autoSize": true,
+            "label": "Share anonymous usage data",
+            "key": "options.analytics",
+            "size": [560, 44],
+            "layer": 302
+          }
+        }
+      },
+      {
         "id": "privacy_options",
         "active": false,
         "components": {

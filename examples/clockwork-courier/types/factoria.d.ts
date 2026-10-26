@@ -1278,7 +1278,13 @@ declare module "factoria" {
     get<T = any>(key: string, fallback?: T): T;
     set(key: string, value: Json): void;
     remove(key: string): void;
+    /**
+     * The keys of the game's own values. The engine's own ("factoria.analytics", "factoria.remoteConfig") are not listed.
+     */
     keys(): string[];
+    /**
+     * Removes every value, the engine's too: the player is asked about analytics again.
+     */
     clear(): void;
     /**
      * True when storage.json did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started with empty save data, so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
@@ -1946,6 +1952,156 @@ declare module "factoria" {
   }
 
   /**
+   * What analytics.status() returns, for debugging.
+   */
+  export interface AnalyticsStatus {
+    /**
+     * True when factoria.json has an "analytics" section with an endpoint.
+     */
+    configured: boolean;
+    /**
+     * The player's answer (analytics.consent()).
+     */
+    consent: "granted" | "denied" | "unknown";
+    /**
+     * Events waiting for the next batch.
+     */
+    queued: number;
+    /**
+     * True while a batch is on its way.
+     */
+    inFlight: boolean;
+    /**
+     * Events given up on since the start: a 4xx answer, too many attempts, or a queue over its limit.
+     */
+    dropped: number;
+    /**
+     * Failed attempts in a row (0 after a batch got through).
+     */
+    failures: number;
+    /**
+     * Seconds until the next attempt after a failure, 0 when none is waited for.
+     */
+    retryInSeconds: number;
+    /**
+     * The endpoint of factoria.json, "" when not configured.
+     */
+    endpoint: string;
+  }
+
+  /**
+   * What analytics.flush() resolves with.
+   */
+  export interface AnalyticsFlushResult {
+    /**
+     * Events the server accepted in this request.
+     */
+    sent: number;
+    /**
+     * False when the request failed (no connection, a server error, a 4xx answer): a failure never rejects.
+     */
+    ok: boolean;
+  }
+
+  /**
+   * The limits analytics.event checks, so a game can stay inside them.
+   */
+  export interface AnalyticsLimits {
+    /**
+     * Longest event name.
+     */
+    readonly nameLength: number;
+    /**
+     * Most props of one event.
+     */
+    readonly props: number;
+    /**
+     * Longest prop name.
+     */
+    readonly keyLength: number;
+    /**
+     * Longest text value of a prop.
+     */
+    readonly stringLength: number;
+    /**
+     * Most characters of the props of one event, as JSON.
+     */
+    readonly eventBytes: number;
+    /**
+     * Most events kept while waiting; the oldest is dropped over it.
+     */
+    readonly queue: number;
+    /**
+     * Most events of one request.
+     */
+    readonly batch: number;
+    /**
+     * Attempts per event before it is dropped.
+     */
+    readonly attempts: number;
+  }
+
+  /**
+   * Usage analytics with consent (docs/ANALYTICS.md). analytics.event(name, props) queues small anonymous events and sends them in batches to the endpoint of factoria.json "analytics" through http.fetch, but only after the player said yes with analytics.setConsent(true): before that nothing is kept or sent, and a refusal forgets what waited. A batch goes out when `batch` events wait, when the oldest waited `flushSeconds`, when the app is suspended and when the game quits (the quit waits up to 3 seconds for the request). A network failure keeps the events and retries later; a 4xx answer drops them. Without the section, event(), flush() and setConsent() throw with what to add; check `configured` in code shared between games. Say what is sent in your privacy policy (docs/LEGAL.md). Example: `if (analytics.consent() === "unknown") askPlayer(); analytics.event("level_done", { level: 3, won: true });`.
+   */
+  export interface AnalyticsAPI {
+    /**
+     * True when factoria.json has an "analytics" section with an endpoint.
+     */
+    readonly configured: boolean;
+    /**
+     * The player's answer, kept between runs; "unknown" when not asked yet (event() then keeps nothing). With factoria.json analytics.consentFromAds, an unanswered question follows the ad consent (granted when the GDPR consent is granted and tracking is authorized or not required); the player's own answer always wins.
+     */
+    consent(): "granted" | "denied" | "unknown";
+    /**
+     * Records the player's answer (kept between runs). false forgets every event waiting to be sent. Throws when the game has no analytics section or yes is not a boolean.
+     */
+    setConsent(yes: boolean): void;
+    /**
+     * Queues one event and returns true; returns false (keeping nothing) when the player has not said yes. The name starts with a letter and uses letters, digits, "_", "." and "-" (at most 64 characters). props is a flat object of strings, numbers, booleans or null: at most 20 props, texts of at most 200 characters (never what the player typed), at most 2048 characters of props as JSON. A mistake throws with the limit (analytics.limits). The time of the event is engine seconds since the run started.
+     */
+    event(name: string, props?: Record<string, string | number | boolean | null>): boolean;
+    /**
+     * Sends what waits now, in one request of at most 100 events. Resolves { sent, ok }; a failure is ok: false and keeps the events for a retry. Rejects only for a mistake of the call (no analytics section). The answer settles at the start of an engine frame, maybe after the scene changed.
+     */
+    flush(): Promise<AnalyticsFlushResult>;
+    /**
+     * The state, for debugging: queue length, failures, retry time, consent.
+     */
+    status(): AnalyticsStatus;
+    /**
+     * The limits event() checks.
+     */
+    readonly limits: AnalyticsLimits;
+  }
+
+  /**
+   * Values the game reads from a server (docs/ANALYTICS.md): balance numbers, an event flag, a message. The JSON object at factoria.json "remoteConfig".url is fetched once, at the first use, through http.fetch, and its last good answer is cached in storage, so an offline player gets the values of the last run and a first-time offline player gets the defaults. get(key, fallback) always works: with no section, no connection or a value of the wrong type it returns fallback. A bad answer (not a JSON object, over 64 KB or 500 keys, a 4xx or 5xx status) is ignored as a whole, never half applied. Example: `const speed = remoteConfig.get("enemySpeed", 1.5);`. A script that awaits ready() or refresh() must check that its scene is still the current one (scene.current) before it uses the answer.
+   */
+  export interface RemoteConfigAPI {
+    /**
+     * True when factoria.json has a "remoteConfig" section with a url.
+     */
+    readonly configured: boolean;
+    /**
+     * The server's value of key; else the cached one; else fallback. A value whose type differs from the fallback's (a text where you expect a number) counts as missing. Returns a copy: changing it changes nothing. The first call starts the fetch.
+     */
+    get<T extends Json>(key: string, fallback: T): T;
+    /**
+     * Where the values come from now: this run's fetch, the cache of an earlier run, or only the defaults.
+     */
+    source(): "remote" | "cache" | "default";
+    /**
+     * Resolves with source() when the first fetch ended or timeoutSeconds (engine seconds, default 3) passed. Never rejects: a game waits for it at its loading screen and plays on with whatever it has.
+     */
+    ready(timeoutSeconds?: number): Promise<"remote" | "cache" | "default">;
+    /**
+     * Fetches again; resolves with source() when the answer (or the failure) arrived.
+     */
+    refresh(): Promise<"remote" | "cache" | "default">;
+  }
+
+  /**
    * The payload of i18n.on("change").
    */
   export interface I18nChange {
@@ -2132,6 +2288,16 @@ declare module "factoria" {
    * http.fetch(url, options): HTTP requests to the hosts declared in factoria.json "network" (docs/NETWORKING.md).
    */
   export const http: HttpAPI;
+
+  /**
+   * analytics.event(name, props), setConsent(yes), consent(), flush(): anonymous usage events sent in batches after the player consented (docs/ANALYTICS.md).
+   */
+  export const analytics: AnalyticsAPI;
+
+  /**
+   * remoteConfig.get(key, fallback): values a server serves as JSON, cached for offline runs (docs/ANALYTICS.md).
+   */
+  export const remoteConfig: RemoteConfigAPI;
 
   /**
    * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
@@ -5489,6 +5655,38 @@ declare module "factoria:test" {
   }
 
   /**
+   * What analytics did in this test run, for tests (docs/ANALYTICS.md). Nothing leaves the test: the batches go through http.fetch, so script the server with game.platform.respond("http.fetch", { status: 204 }); an unscripted request fails like an offline player and is retried later.
+   */
+  export interface TestAnalytics {
+    /**
+     * The events the server accepted (a 2xx answer), oldest first; t is engine seconds since the run started.
+     */
+    sent(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
+    /**
+     * Every request made, with why it was made and how it ended.
+     */
+    requests(): { endpoint: string; reason: "batch" | "timer" | "suspend" | "quit" | "flush"; ok: boolean; status?: number; error?: string; events: { name: string; props: Json; t: number }[] }[];
+    /**
+     * The events waiting for the next batch.
+     */
+    queued(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
+    /**
+     * The next run of the game: the queue and the logs are forgotten; the player's consent stays (it is in storage; storage.clear() forgets it).
+     */
+    restart(): void;
+  }
+
+  /**
+   * The remote config of this test run, for tests (docs/ANALYTICS.md). Script the server with game.platform.respond("http.fetch", { json: { ... } }).
+   */
+  export interface TestRemoteConfig {
+    /**
+     * The next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use, starting from the cache earlier runs left in storage (an unscripted fetch fails: an offline player).
+     */
+    restart(): void;
+  }
+
+  /**
    * The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.
    */
   export interface TestPlatform {
@@ -5717,6 +5915,14 @@ declare module "factoria:test" {
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
      */
     readonly platform: TestPlatform;
+    /**
+     * What analytics sent in this test run: game.analytics.sent(), requests(), queued(), restart().
+     */
+    readonly analytics: TestAnalytics;
+    /**
+     * The remote config of this test run: game.remoteConfig.restart().
+     */
+    readonly remoteConfig: TestRemoteConfig;
   }
 
   /**

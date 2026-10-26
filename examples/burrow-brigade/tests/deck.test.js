@@ -5,10 +5,7 @@ import * as deck from "../scripts/game/deck.js";
 import * as presence from "../scripts/game/presence.js";
 import * as analytics from "../scripts/game/analytics.js";
 import * as text_entry from "../scripts/game/text_entry.js";
-import { freshOnline, fakeServer, shift } from "./helpers/online.js";
-
-/** POSTs to the analytics path (the title scene also reads the news and the balance when a test starts). */
-const posted = (server) => server.calls.filter((c) => c.method === "POST").length;
+import { freshOnline, serveEvents, posts, shift } from "./helpers/online.js";
 
 describe("deck", () => {
   freshOnline();
@@ -34,8 +31,8 @@ describe("deck", () => {
     game.gamepad(0).setType("xbox");
   });
 
-  test("suspend pauses, flushes analytics and sends nothing without consent; resume sends the presence again", async () => {
-    const server = fakeServer({ "/v1/events": { ok: true } });
+  test("suspend pauses and sends nothing without consent; resume sends the presence again", async () => {
+    serveEvents();
     let paused = 0;
     let resumed = 0;
     const off = deck.watchLife({ pause: () => paused++, resumed: () => resumed++ });
@@ -43,28 +40,28 @@ describe("deck", () => {
     await presence.idle();
     game.suspend();
     expect(paused).toBe(1);
-    expect(posted(server)).toBe(0);
+    game.step(2);
+    expect(posts().length).toBe(0);
     game.resume();
     await presence.idle();
     expect(resumed).toBe(1);
     expect(game.platform.calls().filter((c) => c.method === "presence.set").length).toBe(2);
     off();
-    server.restore();
   });
 
-  test("suspend flushes the analytics queue when there is consent", async () => {
+  test("suspend sends the analytics queue when there is consent (the engine does it)", () => {
     analytics.setConsent(true);
-    shift({ banked: 10 }); // fails offline, stays queued
-    await Promise.resolve();
-    await Promise.resolve();
-    const server = fakeServer({ "/v1/events": { ok: true } });
+    shift({ banked: 10 }); // nobody answers yet: offline, the events stay queued
+    game.step(2);
+    expect(game.analytics.queued().length).toBe(2);
+    serveEvents();
     const off = deck.watchLife();
     game.suspend();
-    await Promise.resolve();
-    expect(posted(server)).toBe(1);
+    game.step(2);
+    expect(game.analytics.sent().length).toBe(2);
+    expect(game.analytics.requests().slice(-1)[0].reason).toBe("suspend");
     game.resume();
     off();
-    server.restore();
   });
 });
 

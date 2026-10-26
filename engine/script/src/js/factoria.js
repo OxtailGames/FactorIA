@@ -1485,7 +1485,9 @@
     get(key, fallback) { const v = N.storageGet(key); return v === undefined ? fallback : v; },
     set(key, value) { N.storageSet(key, plain(value)); },
     remove(key) { N.storageRemove(key); },
-    keys() { return N.storageKeys(); },
+    // The keys of the game's own values; the engine's ("factoria.analytics", "factoria.remoteConfig": the player's analytics
+    // answer and the cached remote config) are not listed. clear() removes them too: the player is asked again.
+    keys() { return N.storageKeys().filter((k) => !k.startsWith("factoria.")); },
     clear() { N.storageClear(); },
     get corrupt() { return N.storageCorrupt(); },
   };
@@ -1544,7 +1546,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); servicesReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1979,6 +1981,285 @@
     },
   };
 
+  // ============================================================================================ analytics, remoteConfig
+  // Two services on top of http.fetch (docs/ANALYTICS.md): analytics.event(name, props) queues a small event and sends the
+  // queue in batches, only after the player consented; remoteConfig.get(key, default) reads values the game's server hands out,
+  // cached for offline runs. Both read their section of factoria.json ("analytics", "remoteConfig"); both keep their state in
+  // this closure (a scene change does not touch it) and the player's choices in storage under "factoria.*" keys. The engine
+  // calls serviceTick every frame with the unscaled dt (the engine clock, never the wall clock), serviceSuspend when the app is
+  // suspended and serviceQuit when the game is about to close.
+  const SVC_KEY_CONSENT = "factoria.analytics";
+  const SVC_KEY_CONFIG = "factoria.remoteConfig";
+  const AN_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+  const AN_LIMITS = Object.freeze({ nameLength: 64, props: 20, keyLength: 40, stringLength: 200, eventBytes: 2048, queue: 500, batch: 100, attempts: 3 });
+  const AN_DEFAULTS = Object.freeze({ batch: 20, flushSeconds: 30, timeoutSeconds: 10 });
+  const RC_LIMITS = Object.freeze({ bytes: 65536, keys: 500 });
+  let anGen = 0, rcGen = 0;        // bumped by a reset: an answer that arrives after it belongs to the old run and is ignored
+  let svcClock = 0;                // seconds of engine time since the session started, whatever the time scale
+  let svcConfig = null;            // the sections of game.project, read once per session
+  const an = { queue: [], inflight: null, failures: 0, retryAt: 0, dropped: 0, requests: [], sent: [], adsAnswer: null, adsAsked: false, warned: false };
+  const rc = { started: false, values: {}, source: "default", loading: false, waiters: [], fetched: false };
+
+  function svcSettings() {
+    if (svcConfig) return svcConfig;
+    const p = N.project() || {};
+    svcConfig = { analytics: isObj(p.analytics) ? p.analytics : null, remoteConfig: isObj(p.remoteConfig) ? p.remoteConfig : null,
+                  id: typeof p.id === "string" ? p.id : "", version: typeof p.version === "string" ? p.version : "" };
+    return svcConfig;
+  }
+  function svcInTest() { return N.inTestRun(); }  // not cached: a frame may run before the tests start
+  function analyticsCfg(what) {
+    const a = svcSettings().analytics;
+    if (!a || typeof a.endpoint !== "string" || !a.endpoint)
+      throw new Error(`${what}: this game has no analytics. Add the section to factoria.json: "analytics": { "endpoint": "https://stats.example.com/events" } ` +
+        `(and the endpoint's host to "network".hosts); see docs/ANALYTICS.md. Check analytics.configured before calling it from code shared with other games`);
+    // factoria validate rejects a bad number; a game that runs anyway gets the default
+    const num = (v, lo, hi, dflt) => (typeof v === "number" && v >= lo && v <= hi ? v : dflt);
+    return { endpoint: a.endpoint, batch: Math.floor(num(a.batch, 1, AN_LIMITS.batch, AN_DEFAULTS.batch)), flushSeconds: num(a.flushSeconds, 1, 3600, AN_DEFAULTS.flushSeconds),
+             timeoutSeconds: num(a.timeoutSeconds, 0.5, 120, AN_DEFAULTS.timeoutSeconds) };
+  }
+  function ownConsent() {
+    const v = N.storageGet(SVC_KEY_CONSENT);
+    return isObj(v) && (v.consent === "granted" || v.consent === "denied") ? v.consent : "unknown";
+  }
+  // The rule for a game that also shows ads and sets "consentFromAds": until the player answers the analytics question
+  // themselves, analytics counts as granted exactly when the ads consent is (gdpr "granted" and tracking "authorized" or
+  // "notRequired"). The player's own answer always wins, in both directions; a missing, unknown or refused ads consent never grants.
+  function adsGrants() {
+    const c = an.adsAnswer;
+    return !!c && c.gdpr === "granted" && (c.tracking === "authorized" || c.tracking === "notRequired");
+  }
+  function analyticsConsent() {
+    const own = ownConsent();
+    if (own !== "unknown") return own;
+    const a = svcSettings().analytics;
+    return a && a.consentFromAds === true && adsGrants() ? "granted" : "unknown";
+  }
+  function analyticsAllowed() { return svcSettings().analytics !== null && analyticsConsent() === "granted"; }
+  function askAds() {
+    if (an.adsAsked) return;
+    const a = svcSettings().analytics;
+    if (!a || a.consentFromAds !== true || ownConsent() !== "unknown" || !N.platformInfo().services.includes("ads")) return;
+    an.adsAsked = true;
+    try { platformCall("ads.consent", "analytics: platform.ads.consent()", {}).then((c) => { an.adsAnswer = isObj(c) ? c : null; }, () => {}); }
+    catch (e) { /* no ads here */ }
+  }
+
+  function checkEvent(name, props) {
+    const L = AN_LIMITS;
+    if (typeof name !== "string" || !AN_NAME.test(name))
+      throw new Error(`analytics.event(name, props): name must be 1 to ${L.nameLength} characters, start with a letter and use only letters, digits, "_", "." and "-" (like "level_done"), but got ${inspect(name)}`);
+    if (props === undefined || props === null) return {};
+    if (!isObj(props) || Array.isArray(props))
+      throw new Error(`analytics.event("${name}", props): props must be a flat object of strings, numbers and booleans like { level: 3, won: true }, but got ${inspect(props)}`);
+    const keys = Object.keys(props);
+    if (keys.length > L.props)
+      throw new Error(`analytics.event("${name}", props): ${keys.length} props, at most ${L.props} are allowed. Send fewer, or split the event in two`);
+    const out = {};
+    for (const k of keys) {
+      if (!AN_NAME.test(k) || k.length > L.keyLength)
+        throw new Error(`analytics.event("${name}", props): the prop name ${inspect(k)} must be 1 to ${L.keyLength} characters, start with a letter and use only letters, digits, "_", "." and "-"`);
+      const v = props[k];
+      if (typeof v === "number") {
+        if (!Number.isFinite(v)) throw new Error(`analytics.event("${name}", props): prop '${k}' is ${v}; numbers must be finite (JSON has no NaN or Infinity)`);
+      } else if (typeof v === "string") {
+        if (v.length > L.stringLength)
+          throw new Error(`analytics.event("${name}", props): prop '${k}' is a text of ${v.length} characters, at most ${L.stringLength} are allowed. Send a short code, never what the player typed`);
+      } else if (typeof v !== "boolean" && v !== null) {
+        throw new Error(`analytics.event("${name}", props): prop '${k}' is ${inspect(v)}; a prop is a string, a number, a boolean or null (no objects, arrays or undefined). Flatten it into several props`);
+      }
+      out[k] = v;
+    }
+    const size = JSON.stringify(out).length;
+    if (size > L.eventBytes)
+      throw new Error(`analytics.event("${name}", props): the props take ${size} characters, at most ${L.eventBytes} are allowed. Send fewer or shorter props`);
+    return out;
+  }
+
+  function analyticsFlush(why) {
+    let cfg;
+    try { cfg = analyticsCfg("analytics.flush()"); } catch (e) { return Promise.reject(e); }
+    if (!analyticsAllowed() || an.queue.length === 0) return Promise.resolve({ sent: 0, ok: true });
+    if (an.inflight) return an.inflight;
+    const batch = an.queue.splice(0, AN_LIMITS.batch);
+    const s = svcSettings();
+    const body = { game: s.id, version: s.version, sentOn: game.today().utc.iso,
+                   events: batch.map((e) => ({ name: e.name, props: e.props, t: e.t })) };
+    const copy = () => body.events.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t }));
+    const gen = anGen;
+    const settle = (ok, status, error) => {
+      if (gen !== anGen) return { sent: 0, ok: false };  // the session was reset (a new test run) while the request was on its way
+      an.inflight = null;
+      if (svcInTest()) {  // a log for game.analytics.sent() / requests(); a shipped game keeps none
+        an.requests.push({ endpoint: cfg.endpoint, reason: why, ok, status, error, events: copy() });
+        if (an.requests.length > 200) an.requests.shift();
+        if (ok) { an.sent.push(...copy()); if (an.sent.length > 1000) an.sent.splice(0, an.sent.length - 1000); }
+      }
+      if (ok) { an.failures = 0; return { sent: batch.length, ok: true }; }
+      const retriable = status === undefined || status === 408 || status === 429 || status >= 500;
+      if (!retriable) {  // the server refused the batch: sending it again cannot help
+        console.warn(`analytics: ${cfg.endpoint} answered ${status}; the ${batch.length} events were dropped (a 4xx answer is a refusal). Check the endpoint in factoria.json`);
+        an.dropped += batch.length;
+        return { sent: 0, ok: false };
+      }
+      an.failures++;
+      an.retryAt = svcClock + Math.min(cfg.flushSeconds * Math.pow(2, an.failures - 1), 600);
+      const keep = [];
+      for (const e of batch) { e.attempts++; if (e.attempts < AN_LIMITS.attempts) keep.push(e); else an.dropped++; }
+      if (analyticsAllowed()) {  // a refusal while the request was on its way forgets the batch, it is not put back
+        an.queue = keep.concat(an.queue);
+        while (an.queue.length > AN_LIMITS.queue) { an.queue.shift(); an.dropped++; }
+      }
+      return { sent: 0, ok: false };
+    };
+    let p;
+    try { p = http.fetch(cfg.endpoint, { method: "POST", body, timeout: cfg.timeoutSeconds }); }
+    catch (e) { an.queue = batch.concat(an.queue); return Promise.reject(e); }
+    an.inflight = p.then((r) => settle(r.ok, r.status), (e) => settle(false, undefined, e && e.message));
+    return an.inflight;
+  }
+  function analyticsAuto(why) {
+    analyticsFlush(why).catch((e) => { if (!an.warned) { an.warned = true; console.warn(`analytics: ${e.message}`); } });
+  }
+  function analyticsReset() {
+    anGen++;
+    Object.assign(an, { queue: [], inflight: null, failures: 0, retryAt: 0, dropped: 0, requests: [], sent: [], adsAnswer: null, adsAsked: false, warned: false });
+  }
+
+  const analytics = {
+    // True when factoria.json has an "analytics" section with an endpoint. event(), flush() and setConsent() throw without it.
+    get configured() { const a = svcSettings().analytics; return !!a && typeof a.endpoint === "string" && a.endpoint.length > 0; },
+    // The player's answer: "granted", "denied" or "unknown" (never asked: nothing is queued or sent). Kept across runs.
+    consent() { askAds(); return svcSettings().analytics ? analyticsConsent() : "unknown"; },
+    // setConsent(true | false): the player's answer, kept across runs. false forgets everything waiting to be sent.
+    setConsent(yes) {
+      analyticsCfg("analytics.setConsent(yes)");
+      if (typeof yes !== "boolean") throw new Error(`analytics.setConsent(yes) expects true or false, but got ${inspect(yes)}`);
+      N.storageSet(SVC_KEY_CONSENT, { consent: yes ? "granted" : "denied", on: game.today().utc.iso });
+      if (!yes) an.queue = [];
+    },
+    // event(name, props?): queues one event; true when queued, false when the player has not consented (nothing is kept).
+    event(name, props) {
+      const cfg = analyticsCfg("analytics.event(name, props)");
+      const clean = checkEvent(name, props);
+      askAds();
+      if (!analyticsAllowed()) return false;
+      an.queue.push({ name, props: clean, t: Math.round(svcClock * 1000) / 1000, attempts: 0 });
+      while (an.queue.length > AN_LIMITS.queue) { an.queue.shift(); an.dropped++; }
+      if (an.queue.length >= cfg.batch && svcClock >= an.retryAt && !an.inflight) analyticsAuto("batch");
+      return true;
+    },
+    // flush(): sends what waits now (one request of at most 100 events). Resolves { sent, ok }; a network failure is ok: false.
+    flush() { return analyticsFlush("flush"); },
+    // status(): { configured, consent, queued, inFlight, dropped, failures, retryInSeconds, endpoint } for debugging.
+    status() {
+      const a = svcSettings().analytics;
+      return { configured: analytics.configured, consent: analytics.consent(), queued: an.queue.length, inFlight: an.inflight !== null,
+               dropped: an.dropped, failures: an.failures, retryInSeconds: Math.max(0, Math.ceil(an.retryAt - svcClock)), endpoint: a && a.endpoint ? a.endpoint : "" };
+    },
+    limits: AN_LIMITS,
+  };
+
+  // ---- remote config
+  function rcCfg() {
+    const c = svcSettings().remoteConfig;
+    return c && typeof c.url === "string" && c.url
+      ? { url: c.url, timeoutSeconds: typeof c.timeoutSeconds === "number" && c.timeoutSeconds >= 0.5 && c.timeoutSeconds <= 30 ? c.timeoutSeconds : 5 } : null;
+  }
+  function rcSettleWaiters() {
+    const ws = rc.waiters; rc.waiters = [];
+    for (const w of ws) w.resolve(rc.source);
+  }
+  const rcValid = (o) => isObj(o) && !Array.isArray(o) && Object.keys(o).length <= RC_LIMITS.keys;
+  function rcFetch() {
+    const cfg = rcCfg();
+    if (!cfg || rc.loading) return;
+    rc.loading = true;
+    const gen = rcGen;
+    let p;
+    try { p = http.fetch(cfg.url, { timeout: cfg.timeoutSeconds }); }
+    catch (e) { rc.loading = false; rc.fetched = true; console.warn(`remoteConfig: ${e.message}`); rcSettleWaiters(); return; }
+    p.then((r) => {
+      if (gen !== rcGen) return;  // a reset or a restart happened while the request was on its way
+      rc.loading = false; rc.fetched = true;
+      let obj = null;
+      if (r.ok && r.text.length <= RC_LIMITS.bytes) { try { obj = r.json(); } catch (e) { obj = null; } }
+      if (rcValid(obj)) {  // the whole answer or nothing: a bad answer never reaches the values
+        rc.values = obj; rc.source = "remote";
+        N.storageSet(SVC_KEY_CONFIG, { values: obj, on: game.today().utc.iso });
+      } else {
+        console.warn(`remoteConfig: ${cfg.url} ${r.ok ? `did not answer a JSON object of at most ${RC_LIMITS.keys} keys and ${RC_LIMITS.bytes} bytes` : `answered status ${r.status}`}: keeping the ${rc.source} values`);
+      }
+      rcSettleWaiters();
+    }, () => { if (gen !== rcGen) return; rc.loading = false; rc.fetched = true; rcSettleWaiters(); });  // offline: the cache (or the defaults) stay
+  }
+  function rcStart() {
+    if (rc.started) return;
+    rc.started = true;
+    if (!rcCfg()) return;
+    const cached = N.storageGet(SVC_KEY_CONFIG);
+    if (isObj(cached) && rcValid(cached.values)) { rc.values = cached.values; rc.source = "cache"; }
+    rcFetch();
+  }
+  function rcReset() { rcGen++; Object.assign(rc, { started: false, values: {}, source: "default", loading: false, waiters: [], fetched: false }); }
+
+  const remoteConfig = {
+    // True when factoria.json has a "remoteConfig" section with a url.
+    get configured() { return rcCfg() !== null; },
+    // get(key, fallback): the server's value, else the cached one (offline), else fallback. A value whose type differs from the
+    // fallback's (a number where you expect text) counts as missing, so a bad server file cannot break the game.
+    get(key, fallback) {
+      if (typeof key !== "string" || !key) throw new Error(`remoteConfig.get(key, fallback) expects the name of a value, e.g. remoteConfig.get("enemySpeed", 1), but got ${inspect(key)}`);
+      rcStart();
+      if (!Object.prototype.hasOwnProperty.call(rc.values, key)) return fallback;
+      const v = rc.values[key];
+      if (fallback !== undefined && fallback !== null && v !== null) {
+        const kind = (x) => (Array.isArray(x) ? "array" : typeof x);
+        if (kind(v) !== kind(fallback)) return fallback;
+      }
+      return v === undefined ? v : JSON.parse(JSON.stringify(v));
+    },
+    // source(): where the values come from now: "remote" (this run's fetch), "cache" (the last good answer, from an earlier run) or "default".
+    source() { rcStart(); return rc.source; },
+    // ready(timeoutSeconds = 3): a Promise of source() once the first fetch ended or the timeout (engine seconds) passed. Never rejects.
+    ready(timeoutSeconds = 3) {
+      if (typeof timeoutSeconds !== "number" || !(timeoutSeconds >= 0)) throw new Error(`remoteConfig.ready(timeoutSeconds) expects a number of seconds, 0 or more, but got ${inspect(timeoutSeconds)}`);
+      rcStart();
+      if (!rcCfg() || rc.fetched) return Promise.resolve(rc.source);
+      return new Promise((resolve) => { rc.waiters.push({ resolve, deadline: svcClock + timeoutSeconds }); });
+    },
+    // refresh(): fetches again; resolves with source() when the answer (or the failure) arrived.
+    refresh() {
+      rcStart();
+      if (!rcCfg()) return Promise.resolve(rc.source);
+      rc.fetched = false;
+      const p = new Promise((resolve) => { rc.waiters.push({ resolve, deadline: Infinity }); });
+      rcFetch();
+      return p;
+    },
+  };
+
+  function serviceTick(dt) {
+    svcClock += dt;
+    if (!svcInTest()) { rcStart(); askAds(); }  // tests fetch on first use, so an unscripted answer never lands in the call log
+    if (rc.waiters.length) {
+      const due = rc.waiters.filter((w) => svcClock >= w.deadline);
+      if (due.length) { rc.waiters = rc.waiters.filter((w) => svcClock < w.deadline); for (const w of due) w.resolve(rc.source); }
+    }
+    if (an.queue.length && !an.inflight && svcClock >= an.retryAt && analytics.configured && analyticsAllowed()) {
+      if (svcClock - an.queue[0].t >= analyticsCfg("analytics").flushSeconds) analyticsAuto("timer");
+    }
+  }
+  function serviceSuspend() { if (an.queue.length && !an.inflight && analytics.configured) analyticsAuto("suspend"); }
+  // Called when the game is about to close: sends what waits and tells how many requests are in flight (the engine then waits
+  // for them, 3 seconds at most).
+  function serviceQuit() {
+    if (an.queue.length && !an.inflight && analytics.configured) analyticsAuto("quit");
+    return an.inflight ? 1 : 0;
+  }
+  function servicePending() { return an.inflight ? 1 : 0; }
+  function servicesReset() { analyticsReset(); rcReset(); svcConfig = null; svcClock = 0; }
+
   // ======================================================================================================= i18n
   // Localization (docs/LOCALIZATION.md): the string tables are locales/<language>.json, the languages are listed in factoria.json
   // "localization". Without that section the game is not localized: t(key) returns the key, languages is [].
@@ -2073,7 +2354,7 @@
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, i18n,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
   };
 
@@ -2600,6 +2881,24 @@
       // Every request the game made: [{ seq, frame, method, args, ok, result | error }], oldest first.
       calls() { const s = fa.call("platform.state"); return s.fake ? s.fake.calls : []; },
     },
+    // What analytics (docs/ANALYTICS.md) did in this test run, without a network: the batches go through http.fetch, so script the
+    // server with game.platform.respond("http.fetch", ...) (an unscripted request fails like an offline player and is retried).
+    analytics: {
+      // The events the server accepted (a 2xx answer), oldest first: [{ name, props, t }] (t = engine seconds since the run started).
+      sent() { return an.sent.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t })); },
+      // Every request made: [{ endpoint, reason: "batch" | "timer" | "suspend" | "quit" | "flush", ok, status?, error?, events }].
+      requests() { return an.requests.map((r) => Object.assign({}, r, { events: r.events.map((e) => Object.assign({}, e)) })); },
+      // The events waiting for the next batch: [{ name, props, t }].
+      queued() { return an.queue.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t })); },
+      // restart(): the next run of the game: the queue and the logs are forgotten, the player's consent stays (it is in storage).
+      restart() { analyticsReset(); },
+    },
+    // The remote config of this test run (docs/ANALYTICS.md): script the server with game.platform.respond("http.fetch", { json: {...} }).
+    remoteConfig: {
+      // restart(): the next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use,
+      // starting from the cache that earlier runs left in storage (an unscripted fetch fails: that is an offline player).
+      restart() { rcReset(); },
+    },
   };
   // An unknown member (game.pasued) throws with a "did you mean" instead of being undefined.
   const gameApi = new Proxy(gameApiBase, {
@@ -2680,6 +2979,7 @@
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); },
+    serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
     entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); },

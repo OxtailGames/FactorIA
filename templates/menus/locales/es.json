@@ -71,6 +71,7 @@
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
     "privacyOptions": "Privacidad de los anuncios",
+    "analytics": "Compartir datos de uso anónimos",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"
@@ -107,5 +108,12 @@
     "year": "Año de nacimiento",
     "continue": "Continuar",
     "skip": "Prefiero no decirlo"
+  },
+  "analyticsConsent": {
+    "title": "¿Nos ayudas a mejorar el juego?",
+    "what": "Nos gustaría contar qué niveles se juegan y cómo terminan, y qué versión del juego usas. Nunca recogemos tu nombre, tus contactos ni nada de lo que escribes.",
+    "change": "Puedes cambiar de opinión en Opciones cuando quieras. Si dices que no, no se envía nada.",
+    "allow": "Permitir",
+    "deny": "No, gracias"
   }
 }
