@@ -112,7 +112,8 @@ test("title screen to a small town, mouse only", () => {
   expect(state.list("house")).toHaveLength(1);
   expect(state.economy.coins).toBe(coins + 20);
 
-  // 6. undo and redo with the buttons
+  // 6. undo and redo with the buttons (the clock is paused so the town does not move between the two hashes)
+  state.clock.setSpeed(0);
   const hash = state.hash();
   expect(ui.rectOf("btn_undo")).not.toBeNull();
   game.click("btn_undo");

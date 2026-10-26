@@ -118,6 +118,29 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "major",
+      "title": "nav.findTilePath costs the size of the grid on every call, no reusable grid or flow field",
+      "missing": "A strategy game with hundreds of walkers asks for many routes on the same road grid. nav.findTilePath({width, height, cost}, from, to) converts the whole cost array on every call, so a short route costs the same as a long one and the cost grows with the map: measured in a debug build, one call on a 10x10 grid takes 0.18 ms, 60x60 3.2 ms, 120x120 13 ms, 240x240 51 ms, however short the path. There is no handle to build the grid once and query it many times, and no multi-goal or flow-field query (one search from a building's doors that every walker heading there can follow).",
+      "workaround": "scripts/game/roadnet.js keeps one distance field (BFS) per goal building, cached until the roads change, and walkers descend it one cell at a time. 75 ticks of 600 walkers cost 442 ms with the fields and 5978 ms through nav.findTilePath on a 60x60 map (tests/stress.test.js compares both; scripts/game/nav_backend.js is the plug-in that uses the engine's finder).",
+      "workaroundFiles": [
+        "scripts/game/roadnet.js",
+        "scripts/game/nav_backend.js",
+        "tests/stress.test.js"
+      ],
+      "suggestion": "nav.createGrid({width, height, cost}) returning a handle that findTilePath(grid, from, to) reuses (update cells with grid.setCost(col, row, cost)), and nav.flowField(grid, goals) returning a distance field that nav.stepToward(field, col, row) reads in O(1).",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

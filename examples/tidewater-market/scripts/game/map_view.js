@@ -37,8 +37,12 @@ export class MapView {
     this.poolUsed = 0;
     this.ghost = null;
     this.unsubscribe = [];
+    /** @type {Array<{ entity: any, base: number[] }>} the sprites the season tint multiplies (seasonal terrain and trees) */
+    this.seasonal = [];
     this.build();
+    this.tintSeason(state.clock.date().season);
     const ev = state.events;
+    this.unsubscribe.push(ev.on("clock.season", (e) => this.tintSeason(e.date.season)));
     this.unsubscribe.push(ev.on("roads.changed", (e) => this.refreshRoads(e.cells)));
     this.unsubscribe.push(ev.on("building.placed", (e) => this.buildingPlaced(e.building)));
     this.unsubscribe.push(ev.on("building.removed", (e) => this.buildingRemoved(e.building)));
@@ -78,7 +82,9 @@ export class MapView {
         const def = data.terrain[id];
         const [x, y] = cellToWorld(c, r);
         const extra = def.tint ? { color: def.tint } : {};
-        this.tileEntities.push(this.sprite(def.frame, x, y, LAYER.terrain, extra));
+        const tile = this.sprite(def.frame, x, y, LAYER.terrain, extra);
+        this.tileEntities.push(tile);
+        if (def.seasonal) this.seasonal.push({ entity: tile, base: def.tint || [1, 1, 1, 1] });
         if (def.decor === "trees") this.trees[map.index(c, r)] = this.makeTrees(c, r, x, y);
       }
     }
@@ -94,9 +100,21 @@ export class MapView {
       // inside the diamond: |dx| / 50 + |dy| / 25 < 0.75
       const dx = (a * 2 - 1) * 34;
       const dy = (b * 2 - 1) * (17 - Math.abs(dx) / 2) * 0.9;
-      out.push(this.sprite(`tree.${kind}`, x + dx, y + dy - 2, LAYER.object));
+      const tree = this.sprite(`tree.${kind}`, x + dx, y + dy - 2, LAYER.object);
+      this.seasonal.push({ entity: tree, base: [1, 1, 1, 1] });
+      out.push(tree);
     }
     return out;
+  }
+
+  /** Multiply the colour of the seasonal terrain and the trees by the tint of a season (data/seasons.json). */
+  tintSeason(season) {
+    const info = this.state.data.seasons[season];
+    if (!info) return;
+    const t = info.tint;
+    for (const { entity, base } of this.seasonal) {
+      entity.get("Sprite").color = [base[0] * t[0], base[1] * t[1], base[2] * t[2], base[3] * t[3]];
+    }
   }
 
   /** The picture of a road cell: its neighbours decide the piece. */

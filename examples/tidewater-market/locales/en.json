@@ -67,7 +67,14 @@
       "redo": "Redo",
       "tool_demolish": "Demolish tool",
       "tool_cancel": "Put the tool away",
-      "pause": "Pause"
+      "pause": "Pause",
+      "speed_pause": "Pause the clock",
+      "speed_1": "Normal speed",
+      "speed_2": "Fast",
+      "speed_3": "Fastest",
+      "pause_toggle": "Pause or resume the clock",
+      "tool_next": "Next building",
+      "tool_prev": "Previous building"
     },
     "binding": "{action}: {button}",
     "player": "Player {n}",
@@ -102,7 +109,9 @@
     "stone": "stone",
     "planks": "planks",
     "bread": "bread",
-    "tools": "tools"
+    "tools": "tools",
+    "flour": "flour",
+    "smoked_fish": "smoked fish"
   },
   "category": {
     "infrastructure": "Infrastructure",
@@ -118,7 +127,7 @@
     },
     "house": {
       "name": "House",
-      "desc": "Four people live here."
+      "desc": "Four villagers live here. Needs a road next to it."
     },
     "farm": {
       "name": "Farm",
@@ -140,9 +149,17 @@
       "name": "Sawmill",
       "desc": "Turns wood into planks."
     },
+    "mill": {
+      "name": "Mill",
+      "desc": "Grinds grain into flour."
+    },
     "bakery": {
       "name": "Bakery",
-      "desc": "Turns grain into bread."
+      "desc": "Bakes bread from flour, or from grain when there is no flour."
+    },
+    "smokehouse": {
+      "name": "Smokehouse",
+      "desc": "Smokes fish so it keeps and sells for more."
     },
     "workshop": {
       "name": "Workshop",
@@ -150,11 +167,11 @@
     },
     "warehouse": {
       "name": "Warehouse",
-      "desc": "Stores goods. Needs a road in front of its door."
+      "desc": "Stores goods; its workers carry goods between buildings."
     },
     "market": {
       "name": "Market",
-      "desc": "Where the town buys and sells. Needs a road in front of its door."
+      "desc": "Sells food to the villagers: keep it stocked and staffed."
     }
   },
   "season": {
@@ -176,7 +193,19 @@
     "demolish": "Demolish",
     "rotate": "Rotate",
     "palette": "Build",
-    "item": "{name} - {coins}"
+    "item": "{name} - {coins}",
+    "population": "Villagers",
+    "popItem": "{count} / {housing}",
+    "speed": "Speed",
+    "speedPause": "||",
+    "speed1": "1x",
+    "speed2": "2x",
+    "speed4": "4x",
+    "paused": "Paused",
+    "speedHint": "Speed: space pauses, 1 pause, 2 normal, 3 fast, 4 fastest",
+    "hungry": "Hungry: {count}",
+    "next": "Next",
+    "prev": "Previous"
   },
   "status": {
     "idle": "Pick something to build on the right. Right-drag or screen edges move the map, the wheel zooms.",
@@ -187,7 +216,10 @@
     "roadDrag": "Road: {count} new pieces for {cost}",
     "demolish": "Demolish: click or drag over buildings. Half the cost comes back.  Q or right-click to stop.",
     "demolishHover": "Demolish {name}: {refund} back",
-    "palette": "{name}: {desc}  Cost: {cost}."
+    "palette": "{name}: {desc}  Cost: {cost}.",
+    "house": "{name}  ({c}, {r}): {count} of {cap} villagers live here.",
+    "work": "{name}  ({c}, {r}): {present} of {workers} at work - {state}.",
+    "paused": "Paused. Press Space or 2 to go on."
   },
   "reason": {
     "out_of_bounds": "Outside the map.",
@@ -207,11 +239,28 @@
     "undone": "Undone: {label}.",
     "redone": "Redone: {label}.",
     "nothingToUndo": "Nothing to undo.",
-    "nothingToRedo": "Nothing to redo."
+    "nothingToRedo": "Nothing to redo.",
+    "season": "{season} begins.",
+    "left": "A villager left: {reason}.",
+    "broke": "The town cannot pay all wages and upkeep today."
   },
   "history": {
     "place": "build {name}",
     "road": "roads",
     "demolish": "demolish {name}"
+  },
+  "sim": {
+    "leftReason": {
+      "starved": "no food",
+      "home_lost": "home demolished"
+    },
+    "stall": {
+      "no_staff": "no workers",
+      "closed": "closed for the day",
+      "no_input": "waiting for goods",
+      "output_full": "waiting for a carrier",
+      "season": "out of season"
+    },
+    "running": "working"
   }
 }

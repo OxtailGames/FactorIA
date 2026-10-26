@@ -3,6 +3,8 @@
 import { test, expect, game } from "factoria:test";
 import { cellToWorld } from "../scripts/game/iso.js";
 import { roadPath } from "../scripts/game/rules.js";
+import { growTown } from "../scripts/game/bot.js";
+import { harbourCell } from "../scripts/game/harbour.js";
 
 function open(zoom, cell) {
   game.load("scenes/game.scene.json", { testMap: true });
@@ -43,4 +45,38 @@ test("every building in every rotation (placed straight on the map, rules aside)
     game.screenshot(`.factoria/tmp/${name}.png`);
     expect(state.list()).toHaveLength(20);
   }
+});
+
+test("the start: the camera is on the harbour, water in view, the speed buttons in the bar", () => {
+  game.load("scenes/game.scene.json");
+  game.step(3);
+  game.screenshot(".factoria/tmp/start.png");
+  expect(game.find("speed_bar")).not.toBe(null);
+});
+
+test("a town the bot grew, at midday in the second season and in winter, with villagers walking", () => {
+  game.load("scenes/game.scene.json");
+  game.step(2);
+  const state = game.find("controller").behaviour.state;
+  const rig = game.find("camera").behaviour;
+  growTown({ state, days: 16 });
+  for (let i = 0; i < state.clock.ticksPerDay * 0.4; i++) state.clock.tick(state.clock.step);
+  const [x, y] = cellToWorld(...harbourCell(state.map));
+  rig.setView(x + 120, y + 30, 1.1);
+  game.step(3);
+  expect(state.sim.walkers.count).toBeGreaterThan(0);
+  game.screenshot(".factoria/tmp/town_summer.png");
+  growTown({ state, days: 16 });
+  for (let i = 0; i < state.clock.ticksPerDay * 0.4; i++) state.clock.tick(state.clock.step);
+  game.step(3);
+  game.screenshot(".factoria/tmp/town_winter.png");
+});
+
+test("the stress scene: hundreds of walkers", () => {
+  game.load("scenes/stress.scene.json");
+  game.step(20);
+  const state = game.find("controller").behaviour.state;
+  for (let i = 0; i < 80; i++) game.step(1);
+  expect(state.sim.walkers.count).toBeGreaterThan(100);
+  game.screenshot(".factoria/tmp/stress.png");
 });

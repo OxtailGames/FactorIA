@@ -1,11 +1,11 @@
 {
-  "$comment": "Terrain kinds. The order is the terrain index stored in a map (index = position in this object), so only ever append. frame = atlas frame (data/atlas.json); decor = how the view dresses the cell (trees on forest); buildable = an ordinary building may stand here (a building's own `terrain` list overrides it); roadable = a road may be laid here.",
+  "$comment": "Terrain kinds. The order is the terrain index stored in a map (index = position in this object), so only ever append. frame = atlas frame (data/atlas.json); decor = how the view dresses the cell (trees on forest); seasonal = the season tint of seasons.json multiplies its colour; buildable = an ordinary building may stand here (a building's own `terrain` list overrides it); roadable = a road may be laid here.",
   "format": "tidewater.terrain/1",
   "terrain": {
     "water":  { "char": "w", "frame": "terrain.water", "buildable": false, "roadable": false, "color": [0.45, 0.72, 0.85, 1] },
-    "sand":   { "char": "s", "frame": "terrain.sand",  "buildable": true,  "roadable": true,  "color": [0.84, 0.80, 0.55, 1] },
-    "grass":  { "char": "g", "frame": "terrain.grass", "buildable": true,  "roadable": true,  "color": [0.55, 0.70, 0.29, 1] },
-    "forest": { "char": "f", "frame": "terrain.grass", "buildable": false, "roadable": false, "decor": "trees", "tint": [0.82, 0.92, 0.8, 1], "color": [0.30, 0.50, 0.25, 1] },
+    "sand":   { "char": "s", "frame": "terrain.sand",  "buildable": true,  "roadable": true,  "seasonal": true, "color": [0.84, 0.80, 0.55, 1] },
+    "grass":  { "char": "g", "frame": "terrain.grass", "buildable": true,  "roadable": true,  "seasonal": true, "color": [0.55, 0.70, 0.29, 1] },
+    "forest": { "char": "f", "frame": "terrain.grass", "buildable": false, "roadable": false, "decor": "trees", "seasonal": true, "tint": [0.82, 0.92, 0.8, 1], "color": [0.30, 0.50, 0.25, 1] },
     "rock":   { "char": "r", "frame": "terrain.rock",  "buildable": false, "roadable": false, "color": [0.60, 0.60, 0.64, 1] }
   }
 }
