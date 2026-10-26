@@ -1,17 +1,23 @@
 // The whole game with the mouse alone, from the title screen: Play -> loading -> the map, then lay a road by dragging, place
 // buildings (rotating one with the button), demolish, undo and redo with the buttons. No key is pressed in this file.
 import { test, expect, game } from "factoria:test";
-import { scene, ui } from "factoria";
+import { scene, ui, storage } from "factoria";
 import { cellToWorld } from "../scripts/game/iso.js";
 
 const GAME = "scenes/game.scene.json";
 
-/** Open the game scene the way a player does: the title screen's Play button, then wait for the loading screen to hand over. */
+/** Open the game scene the way a player does: Play, a new game in slot 1, the first scenario, then wait for the loading screen to hand over. */
 function playFromTitle() {
+  storage.clear(); // no saves: slot 1 is empty, so it offers a new game
+  game.platform.reset();
   game.load("scenes/menu.scene.json");
   game.step(3);
   expect(scene.current).toBe("scenes/menu.scene.json");
-  game.click("play");
+  game.click("play"); // the save slots (P4): a new game in slot 1, of the first scenario, which starts like the plain game did
+  game.step(2);
+  game.click("slot_1_main");
+  game.step(2);
+  game.click("scenario_first_harbour");
   game.step(1);
   let guard = 0;
   while (scene.current !== GAME && guard++ < 300) game.step(1);

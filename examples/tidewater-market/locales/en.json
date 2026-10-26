@@ -93,7 +93,8 @@
   "pause": {
     "title": "Paused",
     "resume": "Resume",
-    "mainMenu": "Main menu"
+    "mainMenu": "Main menu",
+    "save": "Save game"
   },
   "terrain": {
     "water": "water",
@@ -291,7 +292,7 @@
     "toast": "Goal reached: {goal}",
     "won": {
       "title": "{scenario} complete!",
-      "body": "Every goal was reached on day {day}. You can keep building, or go back to the title.",
+      "body": "Every goal was reached by {date}. You can keep building, or go back to the title.",
       "keep": "Keep playing",
       "menu": "Main menu"
     }

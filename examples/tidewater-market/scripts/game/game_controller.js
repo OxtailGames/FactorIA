@@ -14,6 +14,7 @@ import { getData } from "./data.js";
 import { createGame } from "./state.js";
 import { takeBoot } from "./boot.js";
 import { Autosaver } from "./autosave.js";
+import { GoalPanel } from "../ui/goal_panel.js";
 import { MapView, COLORS } from "./map_view.js";
 import { WalkerView } from "./walker_view.js";
 import { MusicDirector } from "./music_director.js";
@@ -117,6 +118,7 @@ export default class GameController extends Behaviour {
     ];
     this.refreshButtons();
     this.refreshHud(true);
+    if (this.run.tracker) this.goalPanel = new GoalPanel(this); // P4: the goals of a scenario game (scripts/ui/goal_panel.js)
     if (props.music !== undefined ? props.music : this.music && !testMap) this.musicDirector = new MusicDirector(this.state);
   }
 
@@ -125,6 +127,7 @@ export default class GameController extends Behaviour {
     this.off = [];
     if (this.musicDirector) this.musicDirector.destroy();
     if (this.view) this.view.destroy();
+    if (this.goalPanel) this.goalPanel.destroy();
   }
 
   // ---- HUD ---------------------------------------------------------------------------------------------------------
