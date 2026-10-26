@@ -1702,3 +1702,34 @@ TEST_CASE("scripts place a child among its siblings and override a prefab's chil
     std::string m = ev_err(h, "world.spawnPrefab('prefabs/panel.prefab.json', {childOverrides: {titel: {}}})");
     CHECK(m.find("Did you mean 'title'?") != std::string::npos);
 }
+
+TEST_CASE("camera: split screen cameras, at(), and conversions that take a camera (no renderer)") {
+    TestHost h("splitcam");
+    REQUIRE(h.start());
+    // 1280x720 screen: left half seen by camL at the origin, right half by camR at x = 1000 (listed first on purpose).
+    ev_ok(h, "world.spawn({id:'camR', components:{Transform:{position:[1000,0]}, Camera:{viewport:[0.5,0,0.5,1], depth:1}}})");
+    ev_ok(h, "world.spawn({id:'camL', components:{Transform:{position:[0,0]}, Camera:{viewport:[0,0,0.5,1], depth:0}}})");
+    CHECK(ev_ok(h, "camera.main.id") == "camL");
+    CHECK(ev_ok(h, "camera.all.map(c => c.id).join(',')") == "camL,camR");
+    CHECK(ev_ok(h, "camera.at([100, 100]).id") == "camL");
+    CHECK(ev_ok(h, "camera.at([900, 100]).id") == "camR");
+    // The centre of each half is the centre of its camera; the conversion picks the camera under the point.
+    CHECK(ev_ok(h, "camera.screenToWorld([320, 360]).x") == 0);
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360]).x") == 1000);
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], 0, camera.all[0]).x") == 640);  // the same point through the other camera
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], camera.all[0]).x") == 640);     // the camera as the second argument
+    CHECK(ev_ok(h, "camera.worldToScreen([1000, 0], camera.all[1]).x") == 960);
+    CHECK(ev_ok(h, "camera.worldToScreen([1000, 0], 'camR').y") == 360);
+    CHECK(ev_ok(h, "camera.worldToScreen([0, 0]).x") == 320);  // the first camera by default
+    CHECK(ev_ok(h, "camera.screenRay([960, 360]).origin.x") == 1000);
+    // A camera that is switched off is not drawn any more: the other one is the first.
+    ev_ok(h, "world.find('camL').get('Camera').primary = false");
+    CHECK(ev_ok(h, "camera.main.id") == "camR");
+    CHECK(ev_ok(h, "camera.all.length") == 1);
+    // A world without camera: null main, empty list, at() gives null.
+    ev_ok(h, "world.find('camR').get('Camera').primary = false");
+    CHECK(ev_ok(h, "camera.main === null"));
+    CHECK(ev_ok(h, "camera.all.length") == 0);
+    CHECK(ev_ok(h, "camera.at([1, 1]) === null"));
+    CHECK(ev_err(h, "camera.worldToScreen([0, 0], 'nobody')").find("no entity") != std::string::npos);
+}

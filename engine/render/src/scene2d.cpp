@@ -205,8 +205,8 @@ void gather_lights(World& world, Frame& f) {
     found.resize(std::size_t(std::min(inViewCount, kMaxLights2D)));
     for (const Candidate& c : found) f.lights2d.push_back(c.data);
     if (f.stats) {
-        f.stats->lights2d = int(f.lights2d.size());
-        f.stats->lights2dDropped = total - int(f.lights2d.size());
+        f.stats->lights2d += int(f.lights2d.size());
+        f.stats->lights2dDropped += total - int(f.lights2d.size());
     }
     if (inViewCount > kMaxLights2D && f.warnedLights2d && !*f.warnedLights2d) {
         *f.warnedLights2d = true;
@@ -250,12 +250,15 @@ void gather_2d(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
 
-    update_parallax(world, f.cam.position.xy());
-    gather_lights(world, f);
+    if (f.wantWorld) {
+        update_parallax(world, f.cam.position.xy());
+        gather_lights(world, f);
+    }
 
     // ---- sprites ----
     world.each<Sprite>([&](Entity e, Sprite& s) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
+        if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         TextureAsset* tex = assets.texture(s.texture);
         Rect r = s.region;
         if (r.w <= 0 || r.h <= 0) r = Rect{0, 0, float(tex->width), float(tex->height)};
@@ -347,6 +350,7 @@ void gather_2d(World& world, Frame& f) {
     // ---- shapes ----
     world.each<Shape2D>([&](Entity e, Shape2D& s) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
+        if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         bool screen = s.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
@@ -422,7 +426,7 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
-        if (!entity_active(world, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
+        if (!f.wantWorld || !entity_active(world, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
         // The same size 2D physics collides with (rows form: the rows; flat form: width/height). The tiles are read in
         // place from the component each frame: nothing is copied out of the Json.
         const TilemapSize grid = tilemap_size(tm);
@@ -479,6 +483,7 @@ void gather_2d(World& world, Frame& f) {
     // ---- text ----
     world.each<Text>([&](Entity e, Text& t) {
         if (!entity_active(world, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
+        if (t.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         bool screen = t.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
@@ -488,7 +493,7 @@ void gather_2d(World& world, Frame& f) {
         if (screen) ppu = f.renderScale;
         else if (f.cam.perspective) {
             float dist = std::max(0.1f, length(m.translation() - f.cam.position));
-            ppu = (float(f.targetH) * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
+            ppu = (float(f.targetH) * f.cam.viewport.h * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
         } else ppu = f.cam.pixelsPerUnit;
         float eff = ppu * scale * (screen ? 1.0f : f.renderScale);
         // Layout in LOCAL units (the entity scale is applied by the matrix), so the raster size uses eff. Screen-space Text
@@ -556,47 +561,52 @@ void gather_debug(DebugDrawData& dd, Frame& f) {
         if (persp) gl_line(a, b, c); else quad_line(a, b, c, thick);
     };
 
-    for (const auto& l : dd.lines) line(l.a, l.b, l.c, l.thickness);
-    for (const auto& r : dd.rects) {
-        if (r.filled) {
-            wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
-            QuadEmitter em{wl, Mat4::identity(), false, pack_color(r.c), kModeTextured, 0};
-            em.rect(r.r.x, r.r.y, r.r.x + r.r.w, r.r.y + r.r.h, 0, 0, 1, 1);
-            wl.end_item();
-        } else {
-            Vec3 a{r.r.x, r.r.y, 0}, b{r.r.x + r.r.w, r.r.y, 0}, c{r.r.x + r.r.w, r.r.y + r.r.h, 0}, d{r.r.x, r.r.y + r.r.h, 0};
-            line(a, b, r.c, 1); line(b, c, r.c, 1); line(c, d, r.c, 1); line(d, a, r.c, 1);
+    // The world-space drawings go into every camera's frame, the screen-space text only into the frame of the screen.
+    if (f.wantWorld) {
+        for (const auto& l : dd.lines) line(l.a, l.b, l.c, l.thickness);
+        for (const auto& r : dd.rects) {
+            if (r.filled) {
+                wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
+                QuadEmitter em{wl, Mat4::identity(), false, pack_color(r.c), kModeTextured, 0};
+                em.rect(r.r.x, r.r.y, r.r.x + r.r.w, r.r.y + r.r.h, 0, 0, 1, 1);
+                wl.end_item();
+            } else {
+                Vec3 a{r.r.x, r.r.y, 0}, b{r.r.x + r.r.w, r.r.y, 0}, c{r.r.x + r.r.w, r.r.y + r.r.h, 0}, d{r.r.x, r.r.y + r.r.h, 0};
+                line(a, b, r.c, 1); line(b, c, r.c, 1); line(c, d, r.c, 1); line(d, a, r.c, 1);
+            }
         }
-    }
-    for (const auto& c : dd.circles) {
-        if (c.filled && !persp) {
-            wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
-            QuadEmitter em{wl, Mat4::identity(), false, pack_color(c.c), kModeCircle, 0};
-            em.rect(c.center.x - c.radius, c.center.y - c.radius, c.center.x + c.radius, c.center.y + c.radius, -1, -1, 1, 1);
-            wl.end_item();
-        } else {
-            const int seg = 48;
-            for (int i = 0; i < seg; ++i) {
-                float a0 = float(i) / seg * kTau, a1 = float(i + 1) / seg * kTau;
-                line({c.center.x + std::cos(a0) * c.radius, c.center.y + std::sin(a0) * c.radius, 0},
-                     {c.center.x + std::cos(a1) * c.radius, c.center.y + std::sin(a1) * c.radius, 0}, c.c, 1);
+        for (const auto& c : dd.circles) {
+            if (c.filled && !persp) {
+                wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
+                QuadEmitter em{wl, Mat4::identity(), false, pack_color(c.c), kModeCircle, 0};
+                em.rect(c.center.x - c.radius, c.center.y - c.radius, c.center.x + c.radius, c.center.y + c.radius, -1, -1, 1, 1);
+                wl.end_item();
+            } else {
+                const int seg = 48;
+                for (int i = 0; i < seg; ++i) {
+                    float a0 = float(i) / seg * kTau, a1 = float(i + 1) / seg * kTau;
+                    line({c.center.x + std::cos(a0) * c.radius, c.center.y + std::sin(a0) * c.radius, 0},
+                         {c.center.x + std::cos(a1) * c.radius, c.center.y + std::sin(a1) * c.radius, 0}, c.c, 1);
+                }
             }
         }
     }
     // Text (screen space, top-left origin).
-    for (const auto& t : dd.texts) {
-        Text tx;
-        tx.text = t.text;
-        tx.fontSize = t.size;
-        tx.color = t.c;
-        tx.pivot = {0, 1};
-        TextLayout lay = f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
-        f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
-        QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}), true,
-                       pack_color(t.c), kModeGlyph, 0};
-        for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
-        f.debugScreen.end_item();
-        f.stats->textGlyphs += int(lay.quads.size());
+    if (f.wantScreen) {
+        for (const auto& t : dd.texts) {
+            Text tx;
+            tx.text = t.text;
+            tx.fontSize = t.size;
+            tx.color = t.c;
+            tx.pivot = {0, 1};
+            TextLayout lay = f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
+            f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
+            QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}), true,
+                           pack_color(t.c), kModeGlyph, 0};
+            for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
+            f.debugScreen.end_item();
+            f.stats->textGlyphs += int(lay.quads.size());
+        }
     }
 }
 

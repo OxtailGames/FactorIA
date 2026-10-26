@@ -51,9 +51,13 @@ struct Camera {
     float nearPlane = 0.1f;     // perspective near clip (orthographic uses -1000)
     float farPlane = 1000.0f;   // far clip (orthographic uses +1000)
     Color clearColor{0.08f, 0.08f, 0.12f, 1.0f};
-    bool clear = true;
-    bool primary = true;        // the first active primary camera renders the game
-    std::int32_t depth = 0;     // multiple cameras render in ascending depth order
+    bool clear = true;          // clear this camera's rectangle before it draws (the first camera also clears what no viewport covers)
+    bool primary = true;        // every active primary camera renders, each into its viewport
+    std::int32_t depth = 0;     // cameras render in ascending depth order: the lowest is "the" camera (camera.main, post effects)
+    // The rectangle of the screen this camera draws into, normalized [x, y, width, height] with (0, 0) the TOP-LEFT corner of
+    // the screen and +Y down (like screen space and design pixels): [0, 0, 1, 1] is the whole screen (default), [0, 0, 0.5, 1]
+    // the left half, [0.5, 0.5, 0.5, 0.5] the bottom-right quarter. See camera_viewport_problem().
+    Rect viewport{0, 0, 1, 1};
     // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
     // Applied by fa_render to the finished frame (screen-space items too unless bloomScreenSpace is false); off by default.
     bool bloom = false;
@@ -64,6 +68,10 @@ struct Camera {
     // Accessibility filter over the whole finished frame (HUD included), after the bloom; a flat enum like the bloom fields.
     ColorFilter colorFilter = ColorFilter::None;
 };
+
+// "" when `viewport` is a valid Camera.viewport (x and y in 0..1, width and height above 0, x + width and y + height at most 1;
+// a small tolerance for rounding), else what is wrong, as the first half of an error message (the hint is the caller's).
+std::string camera_viewport_problem(const Rect& viewport);
 
 // ------------------------------------------------------------------- 2D ---
 enum class RenderSpace : std::int32_t { World, Screen };

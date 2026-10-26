@@ -4,6 +4,22 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Split screen: camera viewports
+
+- `Camera.viewport` is the part of the screen a camera draws into: `[x, y, width, height]`, each 0 to 1, origin top-left, default
+  `[0, 0, 1, 1]`. Every active camera with `primary: true` draws in ascending `depth`, each with its own scissor, culling, 2D lights
+  and 3D lights, and `clear` per camera. Two or more cameras make a split screen (two or four players) or an inset. The UI and every
+  `space: "screen"` item is drawn once over the whole screen; bloom and `colorFilter` run once with the lowest-`depth` camera's
+  settings. A scene with a bad `viewport` fails to load, naming the entity and the field; a script that sets one live is clamped
+  with one warning. At most 8 cameras are drawn. A scene with one full-screen camera renders as before.
+- Scripts: `camera.all`, `camera.at(point)`, `camera.screenRay(point, camera?)`, and `camera.worldToScreen(v, camera?)` /
+  `camera.screenToWorld(v, depth?, camera?)` take an optional camera (without one, a screen point uses the camera under it, so a click
+  picks what the player under the pointer sees). `input.mouse.world` and a touch's `world` use that camera. The audio listener
+  without an `AudioListener` is the first camera drawn. `game.renderStats()` counts per frame, over all cameras. Recipe: AI guide
+  section 9.28. Known limit: screen-space `lit` visuals get only ambient light in a frame with several cameras.
+- Burrow Brigade: Options > Video > "Split screen when players part" (off by default). On, miners can part and the screen splits into
+  two to four views; off keeps the shared camera and the leash.
+
 The exported player checks a build
 
 - `factoria_player` (the exported game) takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` together

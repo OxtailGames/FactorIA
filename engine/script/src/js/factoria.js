@@ -1304,10 +1304,37 @@
     get unscaledDt() { return N.timeInfo()[5]; },
   };
 
+  // The camera argument of a conversion: an Entity (or its id) naming one of the drawn cameras, or none (null for "the one
+  // under the point, else the first").
+  const cameraArg = (c, what) => (c === undefined || c === null ? null : entityHandle(c, what));
   const camera = {
+    // The first camera drawn (lowest depth) among the active cameras with primary = true; null when there is none.
     get main() { return entityOf(N.cameraMain()); },
-    worldToScreen(v) { const a = vecArr(v, 3, "camera.worldToScreen(v)"); const s = N.worldToScreen(a[0], a[1], a[2]); return new Vec2(s[0], s[1]); },
-    screenToWorld(v, depth = 0) { const a = vecArr(v, 2, "camera.screenToWorld(v)"); const w = N.screenToWorld(a[0], a[1], depth); return new Vec3(w[0], w[1], w[2]); },
+    // Every camera drawn, in draw order (ascending depth): one per player view in a split screen.
+    get all() { return N.cameraAll().map(entityOf); },
+    // The camera whose viewport contains the screen point (design pixels), else the first one. Null when no camera is active.
+    at(v) { const a = vecArr(v, 2, "camera.at(v)"); return entityOf(N.cameraAt(a[0], a[1])); },
+    // World point to design pixels, as seen by `cam` (default: the first camera drawn).
+    worldToScreen(v, cam) {
+      const a = vecArr(v, 3, "camera.worldToScreen(v)");
+      const s = N.worldToScreen(a[0], a[1], a[2], cameraArg(cam, "camera.worldToScreen(v, camera)"));
+      return new Vec2(s[0], s[1]);
+    },
+    // Design pixels to a world point. `depth` is the world z of a 2D view (default 0), or the distance along the ray of a
+    // perspective view. `cam` defaults to the camera whose viewport contains the point; either argument may be the camera:
+    // screenToWorld(v, cam) is screenToWorld(v, 0, cam).
+    screenToWorld(v, depth = 0, cam) {
+      const a = vecArr(v, 2, "camera.screenToWorld(v)");
+      if (typeof depth !== "number") { cam = depth; depth = 0; }
+      const w = N.screenToWorld(a[0], a[1], depth, cameraArg(cam, "camera.screenToWorld(v, camera)"));
+      return new Vec3(w[0], w[1], w[2]);
+    },
+    // The ray under a screen point: where it starts and where it points, through `cam` (default: the camera under the point).
+    screenRay(v, cam) {
+      const a = vecArr(v, 2, "camera.screenRay(v)");
+      const r = N.screenRay(a[0], a[1], cameraArg(cam, "camera.screenRay(v, camera)"));
+      return { origin: new Vec3(r[0], r[1], r[2]), direction: new Vec3(r[3], r[4], r[5]) };
+    },
   };
 
   const colorArg = (c) => (c === undefined ? [1, 1, 1, 1] : toFloats(c, "color", "debug color"));

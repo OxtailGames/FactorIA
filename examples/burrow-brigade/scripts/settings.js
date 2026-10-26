@@ -43,6 +43,7 @@ function defaults() {
     soundCaptions: false, // short captions for important sounds in a shift (the "sound_captions" entity; scripts/game/sound.js)
     holdMode: {}, // seat ("0".."3") -> "hold" | "toggle": how the dig button is read (scripts/game/miner_input.js)
     gameSpeed: 1, // 1, 0.8 or 0.6: the speed of a shift (GAME_SPEEDS)
+    splitScreen: false, // true: miners may part and the screen splits into one view each (scripts/game/camera_views.js); false: a leash keeps them together
   };
 }
 
@@ -61,10 +62,13 @@ export function current() {
 export function save(s) {
   storage.set("settings", s);
   flashStamp = -1;
+  splitStamp = -1;
 }
 
 let flashStamp = -1;
 let flashValue = false;
+let splitStamp = -1;
+let splitValue = false;
 
 /**
  * True when the player asked for reduced flashing (Options > Access; the system's "reduce motion" until they choose). Effects code
@@ -77,6 +81,19 @@ export function reducedFlashing() {
     flashStamp = frame;
   }
   return flashValue;
+}
+
+/**
+ * True when the player chose a split screen (Options > Video): the miners may walk apart and the camera splits (camera_views.js).
+ * The miners' steps ask every frame, so this is cached like `reducedFlashing`.
+ */
+export function splitScreenOn() {
+  const frame = world.frame;
+  if (splitStamp < 0 || frame < splitStamp || frame - splitStamp >= 15) {
+    splitValue = load().splitScreen === true;
+    splitStamp = frame;
+  }
+  return splitValue;
 }
 
 /** How the dig button of a seat is read: "hold" or "toggle". */

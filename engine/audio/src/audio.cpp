@@ -1475,13 +1475,19 @@ void Audio::update(World& world, float dt) {
         if (!haveListener && world.active_in_hierarchy(e)) take(e, l.volume);
     });
     if (!haveListener) {
-        Entity first = kNullEntity;
+        // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
+        Entity first = kNullEntity, primary = kNullEntity;
+        int primaryDepth = 0;
         world.each<Camera>([&](Entity e, Camera& c) {
             if (!world.active_in_hierarchy(e)) return;
-            if (c.primary && !haveListener) take(e, 1.0f);
-            else if (first.is_null()) first = e;
+            if (c.primary) {
+                if (primary.is_null() || c.depth < primaryDepth) { primary = e; primaryDepth = c.depth; }
+            } else if (first.is_null()) {
+                first = e;
+            }
         });
-        if (!haveListener && !first.is_null()) take(first, 1.0f);
+        if (!primary.is_null()) take(primary, 1.0f);
+        else if (!first.is_null()) take(first, 1.0f);
     }
 
     // ---- AudioSource components

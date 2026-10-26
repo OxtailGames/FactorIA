@@ -98,10 +98,13 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   friends fill it twice as fast); the bar empties 1.5 times faster than it filled when nobody holds. The friend gets up with one
   heart and 2 s of grace (`playerRevived`). A downed miner **does not bleed out**: it lies there until a friend comes or the shift
   ends, so the last miner standing is the one who can still pick the others up. Reviving does not dig or swing the pick.
-- **Camera**: one shared camera follows the miners and zooms out as they spread, up to 1.5 times the normal view. A **leash**
-  stops a miner from walking farther from the others than that view shows (a miner who is already far can always walk back).
-  The engine has one camera only, so a real split screen is not drawn: `camera_views.js` plans the 2 to 4 views (clusters,
-  viewports, hysteresis) and tests it, ready for when the engine can draw them (ENGINE_FEEDBACK FB-0013).
+- **Camera**: one shared camera follows the miners and zooms out as they spread, up to 1.5 times the normal view. By default a
+  **leash** stops a miner from walking farther from the others than that view shows (a miner who is already far can always walk
+  back). With **Options > Video > Split screen when players part** on, there is no leash: when the miners no longer fit one view
+  the screen splits into 2 to 4 views (halves, three views, quarters) with a thin dark gap, each following its own cluster, and
+  merges back when they come together. `camera_views.js` plans the views (clusters, viewports, hysteresis), `follow_camera.js`
+  draws them with one extra `Camera` entity per view ("Split Camera 2"...), each with its own `Camera.viewport`. The HUD is drawn
+  once over the whole screen. The cameras are their own module: the controls and the miners' input do not know about them.
 - **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes. Any other free
   pad (A) or the keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad)
   or Backspace (keyboard): that miner leaves the mine and the shift goes on.
@@ -264,8 +267,9 @@ any pad (FB-0006).
 ### Revive, camera and pads: `revive.js`, `camera_views.js`, `pad_watch.js`
 
 `revive.hold(reviverId, at, dt)` (called by the miner holding dig), `progressOf(id)`, `REVIVE_TIME`, `REVIVE_RANGE`. `camera_views.js`:
-`ViewPlanner.plan(points)` returns `{ mode: "shared" | "split", views: [{ players, center, ortho, viewport }] }`, `current` is the plan the
-camera follows, `limitMove(id, from, to)` is the leash and `config.tether` turns it off. `pad_watch.js` is a Script of the shift scene
+`ViewPlanner.plan(points)` returns `{ mode: "shared" | "split", views: [{ players, center, ortho, aspect, viewport }] }`, `current` is the plan the
+camera follows (`follow_camera.js` draws it when `settings.splitScreenOn()`), `limitMove(id, from, to)` is the leash (off with the split
+screen option) and `config.tether` turns it off. `pad_watch.js` is a Script of the shift scene
 (`runWhilePaused`) that pauses on a missing pad and emits `controllerLost` and `controllerRestored` (`how`: reconnected, handedOver or dropped).
 
 ### Game events: `scripts/game/events.js`
@@ -585,7 +589,7 @@ and no default build touches a network.
 |---|---|---|
 | P1 | The miner, digging and the mine | done |
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
-| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split view is planned and tested, not drawn: one camera in the engine) |
+| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split screen is an option, off by default; the engine draws a camera per `Camera.viewport`) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |

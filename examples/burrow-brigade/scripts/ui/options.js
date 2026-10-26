@@ -1,6 +1,6 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
-// size, the monitor's size, vsync, frame cap, and the colour filter, an accessibility option that works without a window),
+// size, the monitor's size, vsync, frame cap, the colour filter, an accessibility option that works without a window, and the split screen for players who part),
 // Audio (one slider per bus, read aloud, subtitles), Controls (rebinding, one page per player), Access (sound captions, reduced
 // flashing, game speed, hold or toggle for the dig button of each player) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
@@ -109,6 +109,12 @@ export default class Options extends Behaviour {
       settings.applyColorFilter(s); // Camera.colorFilter: the whole frame, this panel included
       settings.save(s);
       this.refreshVideo();
+    });
+    // Split screen: works without a window (it only decides whether miners may part and the camera splits), so it is always live.
+    world.find("split_screen").get("Toggle").value = s.splitScreen === true;
+    ui.on("change", "split_screen", (e) => {
+      s.splitScreen = e.value;
+      settings.save(s); // camera_views.js and follow_camera.js read it every frame
     });
   }
 

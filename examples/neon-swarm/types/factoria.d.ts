@@ -1139,15 +1139,33 @@ declare module "factoria" {
   }
 
   /**
-   * Main camera helpers.
+   * Camera helpers. A game draws every active camera with primary = true, in ascending depth, each into its own rectangle of the screen (Camera.viewport): a split screen is two or more such cameras. The conversions take the camera to use; without one they use the camera whose viewport contains the point, or the first camera for a world point.
    */
   export interface CameraAPI {
     /**
-     * The primary camera entity.
+     * The first camera drawn (the lowest depth among the active cameras with primary = true), or null when there is none. In a split screen it is player one's camera; use `all` or `at` for the others.
      */
     readonly main: Entity | null;
-    worldToScreen(v: Vec3Like): Vec2;
-    screenToWorld(v: Vec2Like, depth?: number): Vec3;
+    /**
+     * Every camera drawn, in draw order (ascending depth, equal depths in the order they were created); at most 8 are drawn. One entry for a game with a single camera.
+     */
+    readonly all: Entity[];
+    /**
+     * The camera whose viewport contains the screen point `v` (design pixels): where two viewports overlap, the one drawn last. A point outside every viewport gives the first camera; null when no camera is active. Use it to pick which player a click belongs to.
+     */
+    at(v: Vec2Like): Entity | null;
+    /**
+     * Where the world point `v` appears on the screen (design pixels, top-left origin) as seen by `camera` (default: the first camera drawn). The result is inside that camera's viewport when the point is in its view.
+     */
+    worldToScreen(v: Vec3Like, camera?: Entity | string): Vec2;
+    /**
+     * The world point under the screen point `v` (design pixels). `depth` is the world z of a 2D view (default 0), or the distance along the ray of a perspective view. `camera` defaults to the camera whose viewport contains `v`, else the first camera; the camera may also be given as the second argument: screenToWorld(v, cam).
+     */
+    screenToWorld(v: Vec2Like, depth?: number | Entity | string, camera?: Entity | string): Vec3;
+    /**
+     * The ray under the screen point `v` (design pixels) through `camera` (default: the camera whose viewport contains `v`, else the first camera). For a 3D pick: physics.raycast(origin, origin + direction * distance).
+     */
+    screenRay(v: Vec2Like, camera?: Entity | string): { origin: Vec3; direction: Vec3 };
   }
 
   /**
@@ -2786,7 +2804,7 @@ declare module "factoria" {
     set scale(value: Vec3Like);
   }
   /**
-   * Renders the scene to the screen. The active camera with primary=true and the lowest depth draws the game (only one camera renders for now; split-screen/overlay cameras are on the roadmap). 3D cameras look down their local -Z axis.
+   * Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport (the whole screen by default), in ascending depth order: the lowest depth draws first and is "the" camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, after all the cameras. 3D cameras look down their local -Z axis.
    * 
    * Category: Camera
    */
@@ -2817,19 +2835,25 @@ declare module "factoria" {
     get clearColor(): Color;
     set clearColor(value: ColorLike);
     /**
-     * Clear the target before drawing. Set false on overlay cameras that draw on top of another camera.
+     * Clear this camera's viewport to clearColor before it draws. Set false on an overlay camera that draws on top of what an earlier camera (a lower depth) drew in the same area. The first camera in depth order clears the whole target, also the part its viewport does not cover; a camera with clear false first in depth order keeps the previous frame under it.
      */
     clear: boolean;
     /**
-     * The first active primary camera renders the game.
+     * true: this camera renders (when it is active), into its viewport, in depth order with the other primary cameras. false: it does not render (an unused camera, or one a script switches on for a split screen).
      */
     primary: boolean;
     /**
-     * Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).
+     * Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter) use. Cameras with the same depth keep the order of creation.
      */
     depth: number;
     /**
-     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.
+     * The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' values are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point.
+     * @since unreleased
+     */
+    get viewport(): Rect;
+    set viewport(value: RectLike);
+    /**
+     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame.
      */
     bloom: boolean;
     /**
@@ -2849,7 +2873,7 @@ declare module "factoria" {
      */
     bloomScreenSpace: boolean;
     /**
-     * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead.
+     * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame.
      * @since 0.2.0
      */
     colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
@@ -4207,7 +4231,7 @@ declare module "factoria" {
     range: number;
   }
   /**
-   * The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the primary camera is used.
+   * The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).
    * 
    * Category: Audio
    */
@@ -5542,7 +5566,7 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };

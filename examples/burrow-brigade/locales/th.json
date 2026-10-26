@@ -91,6 +91,7 @@
     },
     "monitor": "จอภาพ: {width} x {height}",
     "soundCaptions": "คำบรรยายเสียง",
+    "splitScreen": "แบ่งหน้าจอ เมื่อผู้เล่น แยกกัน",
     "holdMode": "การขุด: {mode}",
     "holdModeHold": "กดค้างไว้",
     "holdModeToggle": "กดครั้งแรกเพื่อเริ่ม กดอีกครั้งเพื่อหยุด",

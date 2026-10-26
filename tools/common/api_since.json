@@ -67,6 +67,7 @@
     "Camera.orthoSize": "0.1.0",
     "Camera.primary": "0.1.0",
     "Camera.projection": "0.1.0",
+    "Camera.viewport": "unreleased",
     "Captions": "0.2.0",
     "Captions.align": "0.2.0",
     "Captions.anchor": "0.2.0",
