@@ -70,7 +70,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
             CommandInfo info = *ci;
             info.description += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
                                 "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
-                                "onUpdate()).";
+                                "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world).";
             Engine* e = &engine;
             registry.add(info, [e, projectDir](const Json&) { return validate_project(projectDir, engine_validate_options(*e)).to_json(); });
         }

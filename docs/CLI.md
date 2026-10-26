@@ -164,7 +164,9 @@ Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.facto
 ### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--date YYYY-MM-DD] [--json]`
 Runs `tests/**/*.test.js` on a headless engine (or only the files, folders or globs named after the project, relative to
 it: `factoria test tests/saves.test.js`, `factoria test my-game "tests/ui*.test.js"`; a path that is not a `*.test.js`
-file is an error); prints one line per test, failure messages with expected/actual and
+file is an error). One engine runs the whole run, so use a `--filter` or a file name to check one thing quickly; to call one
+exported function of a pure module without tests, use `factoria call script.eval '{"module":"scripts/rules.js","call":"price","args":["wood",3]}'`
+(no scene is needed); prints one line per test, failure messages with expected/actual and
 the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
 screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
 and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.
@@ -193,6 +195,11 @@ project is used, so `docs.*` and `project.create` work anywhere. Options: `--pro
 `--seed N`, `--date YYYY-MM-DD` (the date `game.today()` returns, default `2026-01-01`), `--press a,b` (hold actions/keys before the command), `--input replay.json` (input replay applied while
 stepping; steps through its last frame unless `--frames-before N` is given), `--frames-before N`, `--no-graphics`,
 `--render-all`, `--persist-storage`.
+
+`script.eval` takes `code` (JavaScript, the last expression is the result) or `module` (a project path) with `call` (the name of
+an exported function, `"default"` for the default export) and `args` (a JSON array): it imports the module and returns the
+function's result, so a pure module (a map generator, a rules table) runs on its own. A wrong `call` or `module` says what
+was meant ("did you mean").
 
 **Every `call` starts a new engine**, so `game.step` in one call is not seen by `script.eval` in the next. To run
 several commands against the SAME game use `--batch` (or `--batch-file F.json`, `-` = stdin): an array of

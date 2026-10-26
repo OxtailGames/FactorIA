@@ -10,13 +10,16 @@ Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}
 
 ## `script.eval` (modifies state)
 
-Evaluate JavaScript in the running game context (REPL) and return the value.
+Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
 
-The last expression is returned as JSON. Example: script.eval {"code":"world.find('player').get('Transform').position"}
+The last expression is returned as JSON. Example: script.eval {"code":"world.find('player').get('Transform').position"}. With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, "default" for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is awaited if it settles without time passing. Example: script.eval {"module":"scripts/game/rules.js","call":"price","args":["wood",3]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `code` | string | yes | JavaScript source. |
+| `code` | string | no | JavaScript source. Required unless `module` is given. |
+| `module` | string | no | Project path of a script module to import (scripts/game/rules.js); use with `call`. |
+| `call` | string | no | Name of the exported function of `module` to call ("default" for the default export). |
+| `args` | array | no | Arguments (JSON values) for the call. |
 
 ## `script.reload` (modifies state)
 

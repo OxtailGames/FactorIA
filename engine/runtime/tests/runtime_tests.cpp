@@ -1081,6 +1081,41 @@ TEST_CASE("engine: load_scene_json replaces the world but keeps the current scen
     CHECK(e.world().entity_count() == 3);
 }
 
+TEST_CASE("engine: script.eval with module and call runs an exported function of a module, no scene needed") {
+    TempProject p("eval_module", kProject, kScene);
+    p.write("scripts/rules.js",
+            "export function price(good, n) { return { good, total: n * 3 }; }\n"
+            "export default function main() { return 'main'; }\n"
+            "export async function later(x) { return x + 1; }\n"
+            "export const notAFunction = 5;\n");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+    auto r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js","call":"price","args":["wood",4]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"]["good"] == "wood");
+    CHECK(r.result["value"]["total"] == 12);
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules","call":"default"})"));  // ".js" is optional
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"] == "main");
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js","call":"later","args":[41]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"] == 42);
+    // Errors teach: a wrong function name, a missing module, a missing call.
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js","call":"prise"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("has no exported function 'prise'") != std::string::npos);
+    CHECK(r.error["message"].get<std::string>().find("Did you mean 'price'?") != std::string::npos);
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rulez.js","call":"price"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["hint"].get<std::string>().find("scripts/rules.js") != std::string::npos);
+    CHECK_FALSE(c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js"})")).ok);
+    CHECK_FALSE(c.call("script.eval", Json::object()).ok);
+    // The scene is not touched by a call.
+    CHECK(e.state()["scene"] == "scenes/main.scene.json");
+}
+
 TEST_CASE("engine: audio.log lists played sounds with the scene frame, source and hints") {
     const char* scene = R"({
   "format": "factoria.scene/1",

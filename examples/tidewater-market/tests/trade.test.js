@@ -3,6 +3,7 @@
 import { test, expect } from "factoria:test";
 import { createGame } from "../scripts/game/state.js";
 import { Trade } from "../scripts/game/trade.js";
+import { stream } from "../scripts/game/rng.js";
 import { getTradeData, validateTradeTables, rawTradeTables } from "../scripts/game/trade_data.js";
 import { rich, put, runDays, runSeconds, smallTown, fillHouses } from "./town_helper.js";
 
@@ -490,4 +491,27 @@ test("bus names: everything the trade announces starts with 'trade.'", () => {
     expect(names.has(n)).toBe(true);
   }
   expect(Trade).toBeDefined();
+});
+
+test("the trade's random streams resume from a saved state, and a state saved before rng.create had one still works", () => {
+  // 12345 -> 0.9797..., 0.3067..., 0.4842...: the numbers the game's own mulberry32 gave before the engine had `state`
+  const a = stream(12345);
+  expect(a.float()).toBeCloseTo(0.9797282677609473, 12);
+  expect(a.state).toBe(12345 + 0x6d2b79f5); // one step per draw
+  const saved = a.state;
+  const next = [a.float(), a.float()];
+  const b = stream(0);
+  b.state = saved;
+  expect([b.float(), b.float()]).toEqual(next);
+  expect(next[0]).toBeCloseTo(0.3067522644996643, 12);
+  expect(next[1]).toBeCloseTo(0.484205421525985, 12);
+  // a snapshot stores the states, a restore puts the streams back where they were
+  const { trade } = harbour("first_harbour", 7);
+  trade.rngShips.float();
+  trade.rngEvents.float();
+  const snap = trade.snapshot();
+  const after = [trade.rngShips.float(), trade.rngEvents.float(), trade.rngOutcomes.float()];
+  const again = harbour("first_harbour", 7).trade;
+  again.restore(snap);
+  expect([again.rngShips.float(), again.rngEvents.float(), again.rngOutcomes.float()]).toEqual(after);
 });
