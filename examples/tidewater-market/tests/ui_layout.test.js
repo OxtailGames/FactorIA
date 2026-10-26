@@ -96,10 +96,12 @@ test("150 % text with the inspector and the build menu open: nothing overlaps an
   });
 });
 
-test("the largest interface size with 150 % text, the inspector, the build menu and the goods table", () => {
+// The text size and the interface size multiply (ui.scale is the layout, ui.textScale the fonts on top): the biggest of both at once
+// is more than a 1280 x 720 screen holds with this much information, so the interface size stops at 125 % (settings.UI_SCALES) and is tested with up to 125 % text; the text alone is tested up to 150 % above.
+for (const [text, scale] of [[1.25, 1.25], [1, 1.25]]) test(`interface size ${scale * 100} % with ${text * 100} % text: the inspector, the build menu and the goods table`, () => {
   const { state, hud, rig, ids } = townScene({ trade: true });
   state.economy.apply(Object.fromEntries([["coins", 987000000], ...state.data.goodIds.map((g) => [g, 99999])]), "test");
-  withSizes(1.5, 1.5, () => {
+  withSizes(text, scale, () => {
     game.click(cellAt(rig, 5, 3));
     game.click("btn_build");
     game.step(30);

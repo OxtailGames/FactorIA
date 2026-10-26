@@ -2,15 +2,14 @@
 // The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
-import { setUiScale } from "./game/ui_kit.js";
 
 /**
  * The audio buses the Audio tab shows, in order. "ambience" is the game's own bus, declared in factoria.json ("audio"."buses")
  * under "sfx": the soundscape plays its beds on it, so audio.setVolume("ambience") sets them and the sfx volume scales them too.
  */
 export const BUSES = ["master", "music", "ambience", "sfx", "ui"];
-/** The choices of the UI scale option (widget sizes: icons, buttons, rules, paddings). */
-export const UI_SCALES = [1, 1.25, 1.5];
+/** The choices of the interface size option (ui.scale: every size, padding, spacing and font of the screen-space widgets). */
+export const UI_SCALES = [1, 1.25];
 /** The choices of the text size option. */
 export const TEXT_SCALES = [1, 1.25, 1.5, 2];
 
@@ -36,7 +35,7 @@ function defaults() {
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
-    uiScale: 1, // the size of the widgets (UI_SCALES), see ui_kit.js setUiScale
+    uiScale: 1, // the interface size (UI_SCALES), ui.scale
     reducedMotion: system.reduceMotion, // no eased camera moves, no notice fades, a still title picture (settings.live().reducedMotion)
     safeColors: false, // colour-blind safe signals: patterns on the overlays and the build check, a mark in front of each notice
     holdFree: false, // click alternatives for everything that needs a held button: two-click roads, click-to-carry, toggled pan
@@ -107,7 +106,7 @@ export function apply(s = load()) {
   publish(s); // the accessibility switches the game code reads
   applyScene(s);
   ui.textScale = s.textScale;
-  setUiScale(s.uiScale);
+  ui.scale = s.uiScale;
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once

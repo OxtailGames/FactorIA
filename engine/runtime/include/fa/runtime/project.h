@@ -96,6 +96,7 @@ struct ProjectSettings {
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
     Json inputSchemes = Json::object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
+    float uiScale = 1.0f;  // "ui": {"scale"}: the interface scale a run starts with (ui.scale, 0.5 .. 3; ui_rect.h)
     double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;

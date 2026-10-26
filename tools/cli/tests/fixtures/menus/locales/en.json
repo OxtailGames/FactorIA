@@ -27,6 +27,7 @@
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "uiScale": "Interface size: {percent}%",
     "colorFilter": "Color filter: {filter}",
     "filter": { "none": "off", "greyscale": "greyscale", "highContrast": "high contrast", "protanopia": "protanopia (red)", "deuteranopia": "deuteranopia (green)", "tritanopia": "tritanopia (blue)" },
     "videoNote": "Video settings apply when the game runs in its own window.",

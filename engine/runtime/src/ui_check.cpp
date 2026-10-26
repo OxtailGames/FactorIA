@@ -70,23 +70,24 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
          "its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), "
          "(2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the "
          "other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text "
-         "scale, plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened "
+         "scale x every interface scale (`uiScales`, default: the current ui.scale), plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened "
          "(\"[\" + vowels doubled + \"]\", at least 40 % longer) to show where an unknown, longer language would break. Returns "
          "{ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, "
-         "rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, pseudo}]}]}: one issue per problem with every "
+         "rect, other?: {entity, path, key, text, rect}, cases: [{language, textScale, uiScale, pseudo}]}]}: one issue per problem with every "
          "case where it happens, so the fix is to the widget (autoSize, autoShrink + minFontSize, maxWidth, a bigger box, a shorter "
          "string). A widget inside a ScrollList is checked on the part the list shows (its rectangle intersected with the list's), so "
          "a row half scrolled out is not reported for the half that is clipped, and a row fully outside is skipped. `steps` runs "
          "actions per scene (clicks on widgets by name or id, keys, actions, frames) before the checks, with a layout pass between "
          "them, so a panel a click opens is checked too; the state they reach stays for every case of that scene. Only texts with a "
          "localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only "
-         "(and in the state the steps reach). It RELOADS scenes: afterwards the running scene is loaded again and the language, text size "
-         "and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame "
-         "runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {\"textScales\":[1,2],\"pseudo\":true}",
+         "(and in the state the steps reach). It RELOADS scenes: afterwards the running scene is loaded again and the language, text size, "
+         "interface scale and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame "
+         "runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {\"textScales\":[1,2],\"uiScales\":[0.75,1,1.5],\"pseudo\":true}",
          parse_schema(R"({"type":"object","properties":{
              "scenes":{"type":"array","items":{"type":"string"},"description":"Project-relative scene paths to check, e.g. [\"scenes/menu.scene.json\"]. Default: every scene of the project that has UI (a widget or a screen-space Text)."},
              "languages":{"type":"array","items":{"type":"string"},"description":"Languages to check, as in factoria.json localization.languages. Default: all of them (the current one when the game has no localization)."},
              "textScales":{"type":"array","items":{"type":"number","minimum":0.5,"maximum":3},"description":"Text size options (ui.set_text_scale) to check. Default: [1, 2]."},
+             "uiScales":{"type":"array","items":{"type":"number","minimum":0.5,"maximum":3},"description":"Interface scales (ui.set_scale) to check, every one with every language and text size. Default: the current ui.scale. List every size the Options menu offers."},
              "pseudo":{"type":"boolean","description":"Also run the pseudo-localized pass (default language, every text scale). Default: true."},
              "steps":{"type":"object","description":"Per scene (project-relative path, as in `scenes`), a list run once after the scene loads and settles, before the checks, to reach a panel or state that is not there at the start: {\"click\":\"widget name or id\"} (the centre of its laid-out rectangle; an error when it is hidden, clipped or has no area), {\"key\":\"Enter\"} (press and release), {\"action\":\"jump\"} (press and release an input action), {\"frames\":n} (step n frames). The UI is laid out between steps. Example: {\"scenes/menu.scene.json\":[{\"click\":\"options_button\"},{\"frames\":10}]}.","additionalProperties":{"type":"array","items":{"type":"object","properties":{"click":{"type":"string"},"key":{"type":"string"},"action":{"type":"string"},"frames":{"type":"integer","minimum":0,"maximum":1000}}}}},
              "settleFrames":{"type":"integer","minimum":1,"maximum":120,"description":"Frames stepped after each change so scripts and layout settle. Default: 4."}}})"),
@@ -143,21 +144,29 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 for (const Json& s : a["textScales"]) scales.push_back(s.get<float>());
             else
                 scales = {1.0f, 2.0f};
+            std::vector<float> uiScales;
+            if (a.contains("uiScales") && a["uiScales"].is_array() && !a["uiScales"].empty())
+                for (const Json& s : a["uiScales"]) uiScales.push_back(s.get<float>());
+            else
+                uiScales = {engine.ui_scale()};
             const bool pseudo = a.value("pseudo", true) && I.i18n.enabled();
 
             struct Case {
                 std::string language;
                 float scale;
+                float uiScale;
                 bool pseudo;
             };
             std::vector<Case> cases;
             for (const std::string& l : languages)
-                for (float s : scales) cases.push_back({l, s, false});
+                for (float u : uiScales)
+                    for (float s : scales) cases.push_back({l, s, u, false});
             if (pseudo)
-                for (float s : scales) cases.push_back({I.i18n.default_language(), s, true});
+                for (float u : uiScales)
+                    for (float s : scales) cases.push_back({I.i18n.default_language(), s, u, true});
 
             const std::string startLanguage = I.i18n.language();
-            const float startScale = engine.text_scale();
+            const float startScale = engine.text_scale(), startUiScale = engine.ui_scale();
             const std::string startScene = I.currentScene;
             const Vec2 screen = I.design_size();
 
@@ -184,7 +193,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                     issues.push_back({scene, kind, id, other, describe(id), other.empty() ? Json(nullptr) : describe(other), Json::array()});
                     found = &issues.back();
                 }
-                found->cases.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"pseudo", c.pseudo}}));
+                found->cases.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"uiScale", c.uiScale}, {"pseudo", c.pseudo}}));
             };
 
             // One press and release over a frame each, like game.tapKey in tests.
@@ -246,6 +255,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 }
                 I.apply_localization();
                 engine.set_text_scale(startScale);
+                engine.set_ui_scale(startUiScale);
             };
 
             for (const std::string& scene : scenes) {
@@ -266,6 +276,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                     if (!c.language.empty()) I.switch_language(c.language);
                     I.apply_localization();
                     engine.set_text_scale(c.scale);
+                    engine.set_ui_scale(c.uiScale);
                     engine.step(settle);
                     const Json state = I.ui.state(I.world, screen, I.measure());
                     std::vector<Item> items;
@@ -306,7 +317,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                             if (y < x) std::swap(x, y);
                             add_issue(scene, "overlap", x, y, c);
                         }
-                    caseList.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"pseudo", c.pseudo}}));
+                    caseList.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"uiScale", c.uiScale}, {"pseudo", c.pseudo}}));
                 }
                 if (uiItems == 0 && !explicitScenes) skipped.push_back(scene);
                 else checked.push_back(Json::object({{"scene", scene}, {"cases", caseList}}));

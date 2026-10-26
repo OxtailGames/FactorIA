@@ -110,15 +110,28 @@ Rect inner_box(const Rect& r, const Vec4& pad) {
 // The layout the panel is laid out with right now.
 UiLayout used_layout(const Panel& p) { return p.usingFallback ? p.fallbackLayout : p.layout; }
 
+// Panel.minSize and maxSize: 0 on an axis means no bound; when they cross, minSize wins.
+Vec2 clamp_panel_size(const Panel& p, Vec2 size) {
+    if (p.maxSize.x > 0) size.x = std::min(size.x, p.maxSize.x);
+    if (p.maxSize.y > 0) size.y = std::min(size.y, p.maxSize.y);
+    if (p.minSize.x > 0) size.x = std::max(size.x, p.minSize.x);
+    if (p.minSize.y > 0) size.y = std::max(size.y, p.minSize.y);
+    return size;
+}
+
 void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure& m) {
     const UiLayout layout = used_layout(p);
-    if (layout == UiLayout::None) return;  // ponytail: fit needs a layout; with none the content has no defined size
+    if (layout == UiLayout::None) {  // ponytail: fit needs a layout; with none the content has no defined size
+        p.size = clamp_panel_size(p, p.size);
+        return;
+    }
     const std::vector<Child> ch = children_of(w, e, design, m);
     if (p.fit) {
         const Vec2 c = content_size(layout, ch, p.spacing, p.columns);
         p.size = {c.x + p.padding.x + p.padding.z, c.y + p.padding.y + p.padding.w};
     }
-    const Rect inner = inner_box(*ui_rect(w, e, design), p.padding);
+    p.size = clamp_panel_size(p, p.size);
+    const Rect inner = inner_box(*ui_layout_rect(w, e, design), p.padding);
     std::vector<Vec2> slots = place(layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
     // Right to left: the left-to-right layout flipped about the middle of the box, so the first child, `start` and a grid's
     // first column all end up on the right.
@@ -250,8 +263,10 @@ void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
     }
     float room = p->size.y;
     if (p->fit) {
-        const EdgeInsets& in = w.safe_insets();
-        room = p->safeArea ? design.y - in.top - in.bottom : design.y;
+        const EdgeInsets in = ui_layout_insets(w);
+        const float screenH = ui_layout_screen(w, design).y;
+        room = p->safeArea ? screenH - in.top - in.bottom : screenH;
+        if (p->maxSize.y > 0) room = std::min(room, p->maxSize.y);
     }
     const float free = room - p->padding.y - p->padding.w - p->spacing * float(std::max(0, kids - 1)) - others;
     // Water-filling: the shortest needs are met first, the rest share what is left equally.
@@ -271,7 +286,7 @@ void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
 // `focus`: the entity to scroll into view (null when the focus did not just change).
 void layout_scroll(World& w, Entity e, ScrollList& s, Entity focus, Vec2 design, const VisualMeasure& m) {
     const std::vector<Child> ch = children_of(w, e, design, m);
-    const Rect inner = inner_box(*ui_rect(w, e, design), s.padding);
+    const Rect inner = inner_box(*ui_layout_rect(w, e, design), s.padding);
     const Vec2 content = content_size(UiLayout::Column, ch, s.spacing, 1);
     if (!std::isfinite(s.scroll)) s.scroll = 0.0f;
     if (focus) {  // keep the direct child that holds the focused widget inside the inner box, moving as little as needed
@@ -302,7 +317,8 @@ bool leaves_screen(const World& w, Entity e, const Panel& p, Vec2 design, const 
         if (!up || !up->fit || used_layout(*up) == UiLayout::None) break;
         need = up->size;
     }
-    const bool wide = need.x > design.x + 0.5f, tall = need.y > design.y + 0.5f;
+    const Vec2 screen = ui_layout_screen(w, design);
+    const bool wide = need.x > screen.x + 0.5f, tall = need.y > screen.y + 0.5f;
     return (wide && (p.layout == UiLayout::Row || p.layout == UiLayout::Grid)) ||
            (tall && (p.layout == UiLayout::Column || p.layout == UiLayout::Grid));
 }
@@ -312,15 +328,17 @@ bool leaves_screen(const World& w, Entity e, const Panel& p, Vec2 design, const 
 namespace ui_detail {
 
 std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
-    if (const std::optional<Rect> r = ui_rect(w, e, designSize)) return r;
+    if (const std::optional<Rect> r = ui_layout_rect(w, e, designSize)) return r;
     const Mat4 m = w.world_matrix(e);
+    const Vec2 uiScreen = ui_layout_screen(w, designSize);
+    const EdgeInsets uiInsets = ui_layout_insets(w);
     bool any = false;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     for (const VisualFootprint& f : visual_footprints(w, e, measure, true)) {
         if (f.space != RenderSpace::Screen) continue;
         for (const Vec2& p : f.box) {  // the renderer draws a local point (lx, ly) at world_matrix * (lx, -ly) + the anchor point
             const Vec3 q = m.transform_point({p.x, -p.y, 0.0f});
-            const Vec2 a = anchor_point(f.anchor, f.safeArea, designSize, w.safe_insets());
+            const Vec2 a = anchor_point(f.anchor, f.safeArea, uiScreen, uiInsets);
             const float sx = q.x + a.x, sy = q.y + a.y;
             x0 = any ? std::min(x0, sx) : sx;
             y0 = any ? std::min(y0, sy) : sy;
@@ -336,7 +354,10 @@ std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const
 }  // namespace ui_detail
 
 std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
-    return ui_detail::screen_rect(w, e, designSize, measure);
+    std::optional<Rect> r = ui_detail::screen_rect(w, e, designSize, measure);
+    if (!r) return r;
+    const float k = ui_scale_clamped(w.ui_scale());  // layout works in UI units; callers get screen pixels
+    return Rect{r->x * k, r->y * k, r->w * k, r->h * k};
 }
 
 void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) {
@@ -389,12 +410,15 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
     for (const auto& [depth, e] : containers) {  // only the final layout can be too big
         const Panel* p = w.get<Panel>(e);
         if (!warn || !p || !p->fit || used_layout(*p) == UiLayout::None) continue;
-        if (p->size.x > design.x + 0.5f || p->size.y > design.y + 0.5f) {
+        const Vec2 screen = ui_layout_screen(w, design);
+        if (p->size.x > screen.x + 0.5f || p->size.y > screen.y + 0.5f) {
             if (warnedFit_.insert(e.bits()).second)
                 FA_WARN("ui",
                         "Panel '{}' (fit) is {} x {} px, larger than the {} x {} px screen, so part of it is off screen. Shorten its "
-                        "texts, make a ScrollList in it `fill` the free height, set a `fallbackLayout`, or lower the font sizes.",
-                        w.info(e).id, int(std::ceil(p->size.x)), int(std::ceil(p->size.y)), int(design.x), int(design.y));
+                        "texts, make a ScrollList in it `fill` the free height, set a `fallbackLayout`, lower the font sizes or "
+                        "the interface scale (ui.scale; the sizes are in UI units, the screen is {} x {} of them).",
+                        w.info(e).id, int(std::ceil(p->size.x)), int(std::ceil(p->size.y)), int(screen.x), int(screen.y),
+                        int(screen.x), int(screen.y));
         } else {
             warnedFit_.erase(e.bits());
         }

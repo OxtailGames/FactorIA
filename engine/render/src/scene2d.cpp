@@ -86,9 +86,12 @@ bool axis_aligned(const Mat4& m) {
            std::fabs(m.at(1, 2)) < 1e-4f && std::fabs(m.at(2, 0)) < 1e-4f && std::fabs(m.at(2, 1)) < 1e-4f;
 }
 
-// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it).
+// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it). A
+// screen-space visual is authored in UI units, so its matrix is scaled by the interface scale (ui_rect.h) here, before the
+// anchor point (not scaled) is added: sizes, offsets and glyphs all grow, the anchor stays.
 Mat4 draw_matrix(const World& world, Entity e, bool screen) {
-    return screen ? world.world_matrix(e) : visual_world_matrix(world, e);
+    return screen ? Mat4::scale({ui_scale_clamped(world.ui_scale()), ui_scale_clamped(world.ui_scale()), 1.0f}) * world.world_matrix(e)
+                  : visual_world_matrix(world, e);
 }
 
 // The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the
@@ -507,7 +510,7 @@ void gather_2d(World& world, Frame& f) {
             drawn = &resolved;
         }
         // The size comes from fit_text (text_fit.h): the player's text size capped by maxTextScale, shrunk by autoShrink.
-        const TextExtent extent = frame_text_extent(f);
+        const TextExtent extent = frame_text_extent(f, screen ? f.uiScale : 1.0f);
         const float px = t.autoShrink ? fit_text(text_fit_spec(t), t.text, t.font, f.textScale, extent).px
                                       : t.fontSize * (screen ? effective_text_scale(f.textScale, t.maxTextScale) : 1.0f);
         TextLayout lay = f.fonts->layout(*drawn, px, eff);

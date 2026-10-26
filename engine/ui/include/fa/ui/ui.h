@@ -32,8 +32,9 @@ namespace fa {
 // define itself.
 Json ui_with_default_actions(const Json& actions);
 
-// Where `e` is on the screen, in design pixels (x, y = top-left, +Y down, the safe area included): a widget's rectangle, else
-// the box around its screen-space Text / Sprite / Shape2D (text sized through `measure`). nullopt for any other entity.
+// Where `e` is on the screen, in design pixels (x, y = top-left, +Y down, the safe area and the interface scale ui.scale
+// included): a widget's rectangle, else the box around its screen-space Text / Sprite / Shape2D (text sized through
+// `measure`). nullopt for any other entity.
 std::optional<Rect> ui_screen_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {});
 
 // The topmost visible widget at the screen point `p` (design pixels), or kNullEntity: every active entity with a UiBox
@@ -65,7 +66,8 @@ public:
     // writes their runtime fields (value, pressed, shown) back from the touch pad.
     void update(World& world, Input& input, Vec2 designSize, float dt, const VisualMeasure& measure);
 
-    // Lays out Panel (layout != none) and ScrollList children only. update() calls it first; the runtime calls it again
+    // Lays out Panel (layout != none) and ScrollList children only, in UI units (ui_rect.h: the world's ui_scale()), and holds a
+    // Panel between its minSize and maxSize. update() calls it first; the runtime calls it again
     // right before drawing so changes a script made during the frame are drawn in place. `warn` false (ui.layout() from a
     // script, which is still changing the menu) skips the "fit panel larger than the screen" warning: the frame's own
     // layout logs it if the final menu is still too big.
@@ -114,7 +116,7 @@ public:
     // ui.set_slider command, which is what tests call).
     float set_slider(World& world, Entity e, float value);
 
-    // The ui.state command: {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed,
+    // The ui.state command: {focused, hovered, uiScale, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed,
     // interactable, visible, value?, text?, overflowed?}]} in reading order (top, then left). `visible` is false when a ScrollList
     // clips the widget away entirely, or for a TouchStick / TouchButton that is not shown.
     // Screen-space Text entities follow the widgets, as {id, kind: "Text", rect, text, ...}; `measure` sizes their rect.

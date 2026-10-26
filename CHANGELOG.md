@@ -4,6 +4,25 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+An interface size, Panel minimum and maximum sizes, and events for the size options
+
+- `ui.scale` (0.5 to 3, default 1) makes the whole screen-space interface bigger or smaller: the size, offset, padding,
+  spacing, margins and font size of every widget and of screen-space `Text`, `Sprite` and `Shape2D` are multiplied by it
+  (`ui.textScale` comes on top for text), and anchors do not move. `ui.rectOf`, `ui.state` and the hit test are in screen
+  pixels and follow it; `Panel.size` and `ui.measureText` stay in UI units. `"ui": { "scale": 1.25 }` in `factoria.json` is
+  the start value (a project reload applies it only when the file changed), `ui.set_scale` is the command and `ui.state`
+  reports `uiScale`. Screen-space particle emitters are not scaled. docs/TEXT.md, "Interface size".
+- `Panel.minSize` and `Panel.maxSize` (0 = no limit on an axis) bound the size of a Panel, also one with `fit: true`.
+- `ui.on("scale", fn)` and `ui.on("textScale", fn)` run once per change, with `{ value, previous }`, like
+  `i18n.on("change")`.
+- `ui.check_layout` takes `uiScales` and crosses them with the languages and text sizes. The menu kit's Options has an
+  "Interface size" button (the sizes at which its panel fits), saved as `uiScale` in `settings.js`. Games that copied the
+  kit copy `scripts/settings.js`, `scripts/ui/options.js`, `prefabs/ui/options.prefab.json` and the `options.uiScale`
+  string of `locales/*.json`.
+- Fixed: a `Text` with `maxWidth` and a centred or right-aligned `align` is drawn in a box of `maxWidth`, but its bounds (layout,
+  `ui.state`, editor) were those of its widest line, so a right-aligned note in a right-to-left Panel was drawn off its
+  rectangle. Its bounds are now the box it is drawn in; left-aligned text is unchanged.
+
 Audio: buses of your own, the voices that play, `onEnded`, and a listener zoom
 
 - `factoria.json` `audio.buses` declares buses with a parent (`"ambience": { "parent": "sfx" }`). A bus scales the sounds

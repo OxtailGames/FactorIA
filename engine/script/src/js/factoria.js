@@ -1692,7 +1692,7 @@
     burst(entity, count = 10) { N.particlesBurst(entityHandle(entity, "particles.burst"), count); },
   };
 
-  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel"];
+  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale"];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
@@ -1717,12 +1717,21 @@
     },
     // The player's "text size" option, 0.5 .. 3 (1 = normal): screen-space Text and the labels of UI widgets are drawn and
     // measured at their font size times this; world-space Text is not scaled. Not saved by the engine: store it with `storage`.
-    // Setting a number outside 0.5 .. 3 throws.
+    // Setting a number outside 0.5 .. 3 throws. Changing it sends the "textScale" event (ui.on).
     get textScale() { return N.textScale(); },
     set textScale(v) { N.setTextScale(v); },
+    // The interface scale, 0.5 .. 3 (1 = as authored; the `ui.scale` of factoria.json is where a game starts): every screen-space
+    // widget (Panel, Button, Toggle, Slider, TextField, ScrollList...) and screen-space Text and Sprite is laid out in UI units and
+    // drawn this many times as big: size, offset, padding, spacing, margins and font size. Anchors stay put. Not saved by the engine:
+    // store it with `storage`. Setting a number outside 0.5 .. 3 throws. Changing it sends the "scale" event (ui.on).
+    get scale() { return N.uiScale(); },
+    set scale(v) { N.setUiScale(v); },
     // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
     // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
     // id) limits it to one widget. Returns the function that stops listening.
+    // "scale" and "textScale" are about no widget: they fire once each time ui.scale / ui.textScale changes to another value,
+    // with `e.value` the new one and `e.previous` the old one (no target; like i18n.on("change")). They arrive with the
+    // game events of the frame, after the script that changed the option has returned.
     on(type, a, b) {
       const fn = typeof a === "function" ? a : b, target = typeof a === "function" ? undefined : a;
       if (!UI_EVENTS.includes(type)) {
@@ -1731,6 +1740,8 @@
       }
       if (typeof fn !== "function") throw new Error(`ui.on("${type}", [target,] fn) expects a function as its last argument, e.g. ui.on("${type}", (e) => console.log(e.id)), but got ${inspect(fn)}`);
       let id = null;
+      if (target !== undefined && (type === "scale" || type === "textScale"))
+        throw new Error(`ui.on("${type}", target, fn): the "${type}" event is about no widget, so it takes no target; use ui.on("${type}", (e) => console.log(e.value, e.previous))`);
       if (target !== undefined && target !== null) {
         if (target instanceof Entity) id = target.id;
         else if (typeof target === "string") { const h = N.find(target); id = h === null ? target : N.idOf(h); }
@@ -1738,7 +1749,7 @@
       }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
-        fn({ type, id: data?.id ?? null, entity: source, value: data?.value });
+        fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous });
       }, null);
     },
     // Runs the UI layout now (autoSize sizes, fit sizes, positions, fallbackLayout), exactly what each frame does.
