@@ -145,8 +145,10 @@ export function goodsRows(state, recorder, sort, nameOf) {
 // ---- notifications -------------------------------------------------------------------------------------------------------------
 
 /**
- * @typedef {{ id: number, key: string, args: Record<string, any>, cell: number[] | null, building: number, count: number, ttl: number, age: number, sev: string }} Notice
- *   key is a locale string under `notice.` (notice.noWorkers ...); cell is where a click takes the camera.
+ * @typedef {{ id: number, key: string, args: Record<string, any>, cell: number[] | null, building: number, count: number, ttl: number, age: number, sev: string, live?: (() => Record<string, any> | null) | null }} Notice
+ *   key is a locale string under `notice.` (notice.noWorkers ...); cell is where a click takes the camera. `live`, when a notice has
+ *   one, gives its arguments as they are NOW (a count that changes while the message is on the stack); it returns null when the
+ *   thing the message was about is over, and the message goes.
  */
 
 export class Notices {
@@ -167,6 +169,9 @@ export class Notices {
     this.born = new Map();
     /** Total messages ever pushed (tests, the achievements of P5). */
     this.pushed = 0;
+    /** @type {((n: Notice) => void)[]} */
+    this.listeners = [];
+    this.sinceLive = 0;
     const ev = state.events;
     this.off = [
       ev.on("building.placed", (e) => this.born.set(e.building.id, state.clock.day)),
@@ -186,20 +191,33 @@ export class Notices {
     this.off = [];
   }
 
-  /** Add a message (or refresh the same one). @returns {Notice} */
-  push(key, args, cell, building, sev = "warn") {
+  /** Call `fn` for every message that is new on the stack (not for one that only refreshes). @returns {() => void} stop listening */
+  onNew(fn) {
+    this.listeners.push(fn);
+    return () => (this.listeners = this.listeners.filter((f) => f !== fn));
+  }
+
+  /**
+   * Add a message (or refresh the same one). `live` gives the arguments as they are now (see Notice): the text of a count
+   * ("443 villagers are hungry") must follow the number the top bar shows, not the number of the day the message was pushed.
+   * @param {(() => Record<string, any> | null) | null} [live]
+   * @returns {Notice}
+   */
+  push(key, args, cell, building, sev = "warn", live = null) {
     const same = this.items.find((n) => n.key === key && n.building === building && (n.args.good || "") === (args.good || ""));
     if (same) {
       same.count++;
       same.ttl = this.seconds;
       same.args = args;
+      same.live = live;
       return same;
     }
     /** @type {Notice} */
-    const n = { id: this.nextId++, key, args, cell, building, count: 1, ttl: this.seconds, age: 0, sev };
+    const n = { id: this.nextId++, key, args, cell, building, count: 1, ttl: this.seconds, age: 0, sev, live };
     this.pushed++;
     this.items.unshift(n);
     if (this.items.length > this.max) this.items.length = this.max;
+    for (const fn of this.listeners) fn(n);
     return n;
   }
 
@@ -207,17 +225,37 @@ export class Notices {
     this.items = this.items.filter((n) => n.id !== id);
   }
 
-  /** Age the messages by real seconds; the expired ones go. */
+  /** Age the messages by real seconds; the expired ones go. Messages with a `live` take its arguments four times a second. */
   update(dt) {
     for (const n of this.items) {
       n.ttl -= dt;
       n.age += dt;
     }
+    this.sinceLive += dt;
+    if (this.sinceLive >= 0.25) {
+      this.sinceLive = 0;
+      this.refreshLive();
+    }
     this.items = this.items.filter((n) => n.ttl > 0);
   }
 
-  /** 0..1: how opaque a message is (it fades in over 0.25 s and out over its last second). */
-  static opacity(n) {
+  /** Bring the arguments of the messages that count something up to date; the ones whose cause is over are dropped. */
+  refreshLive() {
+    for (const n of this.items) {
+      if (!n.live) continue;
+      const args = n.live();
+      if (args) n.args = args;
+      else n.ttl = 0;
+    }
+  }
+
+  /**
+   * 0..1: how opaque a message is (it fades in over 0.25 s and out over its last second). With `reducedMotion` there is no
+   * fading: a message is fully there for as long as it lasts.
+   * @param {{ age: number, ttl: number }} n @param {boolean} [reducedMotion]
+   */
+  static opacity(n, reducedMotion = false) {
+    if (reducedMotion) return n.ttl > 0 ? 1 : 0;
     return Math.max(0, Math.min(1, n.age / 0.25, n.ttl));
   }
 
@@ -249,7 +287,14 @@ export class Notices {
       }
     }
     const summary = sim.summary();
-    if (summary.hungry > 0) this.push("hungry", { count: summary.hungry }, null, 0, "bad");
+    if (summary.hungry > 0) {
+      // the count follows the villagers who are hungry now; when nobody is, the message goes
+      const hungry = () => {
+        const count = sim.summary().hungry;
+        return count > 0 ? { count } : null;
+      };
+      this.push("hungry", { count: summary.hungry }, null, 0, "bad", hungry);
+    }
     const cap = sim.capacity();
     for (const g of state.data.goodIds) {
       if (state.economy.get(g) >= cap) this.push("storageFull", { good: g }, null, 0, "warn");

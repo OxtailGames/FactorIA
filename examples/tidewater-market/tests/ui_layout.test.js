@@ -3,6 +3,7 @@
 import { test, expect, game } from "factoria:test";
 import { ui } from "factoria";
 import { townScene, overlaps, cellAt, shown } from "./ui_helper.js";
+import * as settings from "../scripts/settings.js";
 
 // hud_bar is the full-width strip; the date and the speed buttons sit on it, so it is checked through its items instead
 const BARS = ["hud_date", "speed_bar", "palette", "status_bar", "btn_orders"];
@@ -69,4 +70,46 @@ test("the same with the text size at 150 %", () => {
   } finally {
     ui.textScale = before;
   }
+});
+
+/** Put the accessibility sizes into effect, run `body`, and put the defaults back (the settings live in `session`, past a test). */
+function withSizes(text, scale, body) {
+  const before = settings.load();
+  settings.apply({ ...before, textScale: text, uiScale: scale });
+  try {
+    body();
+  } finally {
+    settings.apply({ ...before, textScale: 1, uiScale: 1 });
+  }
+}
+
+test("150 % text with the inspector and the build menu open: nothing overlaps and the inspector stays off the right-hand column", () => {
+  const { state, hud, rig, ids } = townScene({ trade: true });
+  state.economy.apply(Object.fromEntries([["coins", 987000000], ...state.data.goodIds.map((g) => [g, 99999])]), "test");
+  withSizes(1.5, 1, () => {
+    game.click(cellAt(rig, 5, 3));
+    game.click("btn_build");
+    game.step(30);
+    expect(hud.sel.id).toBe(ids.farm);
+    expectClear([...BARS, "inspector", "build_bar"]);
+    expectBarItems(state);
+  });
+});
+
+test("the largest interface size with 150 % text, the inspector, the build menu and the goods table", () => {
+  const { state, hud, rig, ids } = townScene({ trade: true });
+  state.economy.apply(Object.fromEntries([["coins", 987000000], ...state.data.goodIds.map((g) => [g, 99999])]), "test");
+  withSizes(1.5, 1.5, () => {
+    game.click(cellAt(rig, 5, 3));
+    game.click("btn_build");
+    game.step(30);
+    expect(hud.sel.id).toBe(ids.farm);
+    expectClear([...BARS, "inspector", "build_bar"]);
+    expectBarItems(state);
+    // every button of the inspector is on screen
+    for (const id of ["insp_rotate", "insp_demolish", "insp_close"]) expect(shown(id)).toBe(true);
+    game.click("btn_goods");
+    game.step(10);
+    expectClear([...BARS, "build_bar", "goods_panel"]);
+  });
 });

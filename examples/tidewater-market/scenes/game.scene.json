@@ -193,6 +193,15 @@
       }
     },
     {
+      "id": "pad_cursor_driver",
+      "name": "Gamepad cursor",
+      "components": {
+        "Script": {
+          "path": "scripts/ui/pad_cursor.js"
+        }
+      }
+    },
+    {
       "id": "pause_menu",
       "name": "Pause menu",
       "components": {

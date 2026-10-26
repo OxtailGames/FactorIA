@@ -110,5 +110,7 @@ test("the music follows the season: spring at the start, the next loop on every 
 
 test("the test map plays no music unless the scene asks for it", () => {
   open();
-  expect(game.audioLog().length).toBe(0);
+  // the ambience beds of P6 play in every game (tests/soundscape.test.js); music is what the scene asks for
+  expect(game.audioLog().filter((e) => e.bus === "music" || /music/.test(e.path || e.clip || ""))).toHaveLength(0);
+  expect(game.audioLog().some((e) => /ambience\//.test(e.path || e.clip || ""))).toBe(true);
 });
