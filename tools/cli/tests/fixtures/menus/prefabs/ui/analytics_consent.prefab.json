@@ -1,0 +1,65 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "AnalyticsConsent",
+    "components": {
+      "Panel": {
+        "size": [760, 420],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      }
+    },
+    "children": [
+      {
+        "id": "analytics_title",
+        "components": {
+          "Text": { "text": "Help us improve the game?", "key": "analyticsConsent.title", "fontSize": 40, "space": "screen", "layer": 301 }
+        }
+      },
+      {
+        "id": "analytics_what",
+        "components": {
+          "Text": {
+            "text": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+            "key": "analyticsConsent.what",
+            "fontSize": 24,
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "analytics_change",
+        "components": {
+          "Text": {
+            "text": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+            "key": "analyticsConsent.change",
+            "fontSize": 18,
+            "color": [0.75, 0.8, 0.9, 1],
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "analytics_allow",
+        "components": {
+          "Button": { "autoSize": true, "text": "Allow", "key": "analyticsConsent.allow", "layer": 302, "autoFocus": true }
+        }
+      },
+      {
+        "id": "analytics_deny",
+        "components": {
+          "Button": { "autoSize": true, "text": "No thanks", "key": "analyticsConsent.deny", "layer": 302 }
+        }
+      }
+    ]
+  }
+}

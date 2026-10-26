@@ -13,6 +13,8 @@
 //            rgb = mix(1, rgb, alpha) so alpha fades the darkening in (blend: src=DST_COLOR, dst=ZERO).
 @module quad
 
+@include light_shadow.glsl
+
 @vs vs
 layout(binding=0) uniform vs_params {
     mat4 view_proj;
@@ -40,15 +42,25 @@ void main() {
 @fs fs
 layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D normal_tex;   // lit quads: the normal map (a 1x1 image when unused)
+layout(binding=2) uniform texture2D light_tex;    // lit quads, light buffer path: the point lights added up (light.glsl)
+layout(binding=3) uniform texture2D shadow_tex;   // lit quads with a shadow caster in reach: one row per light (light_shadow.glsl)
 layout(binding=0) uniform sampler smp;
+layout(binding=1) uniform sampler light_smp;      // bilinear: the light buffer may be smaller than the target
+layout(binding=2) uniform sampler shadow_smp;     // nearest
 
-// Only read by lit quads (mode 5, 6). 16 lights: 35 vec4s, far below the WebGL2 / GLES3 minimum of 224.
+// Only read by lit quads (mode 5, 6 and the lit shapes). Up to 16 lights: 53 vec4s, far below the WebGL2 / GLES3 minimum
+// of 224.
 layout(binding=1) uniform quad_fs_params {
-    vec4 lit;                  // x = number of lights, y = 1 when normal_tex is a real normal map
+    vec4 lit;                  // x = number of lights in the arrays, y = 1 when normal_tex is a real normal map,
+                               // z = how a flat surface (no normal map) is lit: 0 = the loop below over the arrays,
+                               //     1 = ambient + directional lights (flat_ambient) + the light buffer, 2 = flat_ambient only
     vec4 ambient;              // rgb
     vec4 normal_uv;            // normal map uv = uv * xy + zw
+    vec4 flat_ambient;         // rgb: ambient + every directional light, what a flat surface gets from them (lit.z > 0)
+    vec4 light_map;            // xy = 1 / the size of the target in pixels, z = the range the light buffer holds
     vec4 light_pos[16];        // point: xyz position (z = height), w radius; directional: xyz unit vector TO the light, w = -1
     vec4 light_color[16];      // rgb color * intensity; w falloff exponent
+    vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow
 };
 
 in vec2 uv;
@@ -56,6 +68,8 @@ in vec4 color;
 in vec2 params;
 in vec2 world_xy;
 out vec4 frag_color;
+
+@include_block light_shadow
 
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
@@ -66,6 +80,15 @@ vec3 lit_color(vec4 base, float mode) {
         vec2 t = vec2(cos(a), sin(a));
         vec2 b = vec2(-t.y, t.x) * (mode > 5.5 ? -1.0 : 1.0);
         n = normalize(vec3(s.x * t + s.y * b, max(s.z, 0.05)));
+    }
+    if (!use_normal && lit.z > 0.5) {
+        // A flat surface faces every light head on, so each light adds color * falloff and they add up: the light buffer
+        // already holds that sum (gl_FragCoord is the pixel of the same target, in the same orientation).
+        vec3 total = flat_ambient.rgb;
+        if (lit.z < 1.5) {
+            total += textureLod(sampler2D(light_tex, light_smp), gl_FragCoord.xy * light_map.xy, 0.0).rgb * light_map.z;
+        }
+        return base.rgb * total;
     }
     vec3 total = ambient.rgb;
     for (int i = 0; i < 16; i++) {
@@ -81,6 +104,7 @@ vec3 lit_color(vec4 base, float mode) {
             float dist = length(d);
             att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
             l = vec3(d, lp.z) / max(length(vec3(d, lp.z)), 0.0001);
+            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow(light_shadow_v[i].x, -d, lp.w); }
         }
         float ndl = use_normal ? max(dot(n, l), 0.0) : 1.0;
         total += lc.rgb * (att * ndl);

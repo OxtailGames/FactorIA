@@ -4,7 +4,7 @@
 // Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
 // (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -241,6 +241,7 @@ export default class Options extends Behaviour {
   // ------------------------------------------------------------------------------------------------------- privacy
   /** The "Ad privacy settings" button: only where ads exist and the consent sheet says the player must be able to change their choice. */
   setupPrivacy() {
+    this.setupAnalytics();
     if (!platform.has("ads")) return;
     const button = world.find("privacy_options");
     platform.ads
@@ -252,6 +253,15 @@ export default class Options extends Behaviour {
     ui.on("click", "privacy_options", () => {
       platform.ads.privacyOptions().catch((e) => console.warn(`options: the privacy form did not open: ${e.message}`));
     });
+  }
+
+  /** The usage-data switch: only in a game whose factoria.json has an "analytics" section. It is the player's answer (analytics.setConsent); off forgets what waits to be sent. */
+  setupAnalytics() {
+    const row = world.find("analytics_toggle");
+    row.active = analytics.configured;
+    if (!analytics.configured) return;
+    row.get("Toggle").value = analytics.consent() === "granted";
+    ui.on("change", "analytics_toggle", (e) => row.alive && analytics.setConsent(e.value));
   }
 
   onUpdate() {

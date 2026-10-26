@@ -69,6 +69,53 @@ test("cloud saves keep any JSON value", async () => {
   expect(await platform.cloud.load("slot1")).toBeUndefined();
 });
 
+test("cloud.stat tells the size and the time without the text, and a missing key is no error", async () => {
+  expect(await platform.cloud.stat("slot1")).toEqual({ exists: false });
+  await platform.cloud.save("slot1", { level: 3 });
+  const first = await platform.cloud.stat("slot1");
+  expect(first).toEqual({ exists: true, size: 11, modified: 1767225600 }); // the fake's own clock: no wall time
+  await platform.cloud.save("slot1", { level: 30 });
+  const second = await platform.cloud.stat("slot1");
+  expect(second.modified).toBe(first.modified + 1);
+  expect(second.size).toBe(12);
+  game.platform.set({ cloudClock: 1800000000 });
+  await platform.cloud.save("slot2", {});
+  expect((await platform.cloud.stat("slot2")).modified).toBe(1800000000);
+  await platform.cloud.remove("slot1");
+  await platform.cloud.remove("slot2");
+  expect(await platform.cloud.stat("slot1")).toEqual({ exists: false });
+  game.platform.reset();
+});
+
+test("Remote Play guests: sessions, and the connect and disconnect events", async () => {
+  expect(platform.has("remotePlay")).toBe(true);
+  expect(await platform.remotePlay.sessions()).toEqual([]);
+  const seen = [];
+  const off = platform.on("remotePlay", (e) => seen.push(e.status + " " + e.session.id + " " + e.session.guestName));
+  const ana = game.platform.remotePlayConnect({ guestName: "Ana", formFactor: "phone" });
+  expect(ana.id).toBe(1);
+  expect(ana.deviceName).toBe("Fake device");
+  game.platform.remotePlayConnect();
+  expect(seen).toEqual([]); // events arrive at the next step, like the others
+  game.step(1);
+  expect(seen).toEqual(["connected 1 Ana", "connected 2 Guest 2"]);
+  const listed = await platform.remotePlay.sessions();
+  expect(listed.map((g) => g.id + ":" + g.formFactor)).toEqual(["1:phone", "2:computer"]);
+  expect(listed[1].resolution).toEqual({ width: 1920, height: 1080 });
+  seen.length = 0;
+  game.platform.remotePlayDisconnect(1);
+  game.step(1);
+  expect(seen).toEqual(["disconnected 1 Ana"]);
+  expect((await platform.remotePlay.sessions()).map((g) => g.id)).toEqual([2]);
+  expect(() => game.platform.remotePlayDisconnect(1)).toThrow("no guest has the session id 1");
+  expect(() => game.platform.remotePlayConnect({ formFactor: "phon" })).toThrow("phone");
+  off();
+  game.platform.remotePlayConnect();
+  game.step(1);
+  expect(seen).toEqual(["disconnected 1 Ana"]); // nobody listens any more
+  game.platform.reset();
+});
+
 test("purchases: buy, finish, restore", async () => {
   const products = await platform.purchases.products();
   expect(products.map((p) => p.id + " " + p.price)).toEqual(["gems_100 $0.99", "remove_ads 2.99 EUR"]);
@@ -110,7 +157,7 @@ test("integrity tokens answer { token }, numbered from 1 like transactions", asy
     TestReport rep = h.scripts.run_tests({"tests/platform.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 6);
+    CHECK(rep.passed == 8);
 }
 
 TEST_CASE("platform api: a mistake in the call throws at once, a store failure rejects with code and hint") {
@@ -136,6 +183,7 @@ test("wrong arguments throw", async () => {
   expect(() => platform.leaderboards.entries("high_score", { range: "tops" })).toThrow('did you mean "top"');
   expect(() => platform.cloud.save("bad key", {})).toThrow("is not valid");
   expect(() => platform.cloud.save("k", undefined)).toThrow("cannot be saved");
+  expect(() => platform.cloud.stat("bad key")).toThrow("is not valid");
   expect(() => platform.presence.set("x", { level: 3 })).toThrow("must be strings");
   expect(() => platform.overlay.open("achievments")).toThrow('did you mean "achievements"');
   expect(() => platform.stats.add("wins", "1")).toThrow("delta must be a finite number");

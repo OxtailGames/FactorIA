@@ -290,6 +290,27 @@ final class Games {
         });
     }
 
+    /**
+     * The size and the modified time of a key. Play's metadata has no size, so the snapshot is opened and its bytes counted (they
+     * are not handed to the game); the time is the snapshot's last modified time, which the device that saved set from its clock.
+     */
+    static void stat(Request r) {
+        String key = r.args.optString("key");
+        SnapshotsClient c = PlayGames.getSnapshotsClient(activity());
+        Task<SnapshotsClient.DataOrConflict<Snapshot>> opening = c.open(key, false, POLICY);
+        opening.addOnSuccessListener(result -> r.run(x -> {
+            Snapshot snapshot = opened(result, r);
+            int size = snapshot.getSnapshotContents().readFully().length;
+            long modifiedMs = snapshot.getMetadata().getLastModifiedTimestamp();
+            c.discardAndClose(snapshot);
+            r.resolve(Json.obj("exists", true, "size", size, "modified", modifiedMs / 1000));
+        }, null));
+        opening.addOnFailureListener(e -> {
+            if (notFound(e)) r.resolve(Json.obj("exists", false));
+            else r.reject(Errors.of(e, r.doing()));
+        });
+    }
+
     static void list(Request r) {
         r.await(PlayGames.getSnapshotsClient(activity()).load(false), r.doing(), data -> {
             JSONArray out = new JSONArray();

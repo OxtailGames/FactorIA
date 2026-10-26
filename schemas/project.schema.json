@@ -377,6 +377,25 @@
         }
       }
     },
+    "analytics": {
+      "type": "object",
+      "description": "Usage analytics of the game (docs/ANALYTICS.md): analytics.event(name, props) queues small events and sends them in batches to `endpoint` through http.fetch, only after the player consented (analytics.setConsent). Its host must also be in \"network\".\"hosts\". Nothing is sent without this section. Say in your privacy policy and the store privacy forms what is sent (docs/LEGAL.md). `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "endpoint": { "type": "string", "description": "The https:// address that receives each batch as a POST with a JSON body { game, version, sentOn, events: [{ name, props, t }] }. Its host must be listed in network.hosts." },
+        "batch": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Events that make a batch go out at once. Default 20." },
+        "flushSeconds": { "type": "number", "minimum": 1, "maximum": 3600, "description": "The longest an event waits in the queue before it is sent (engine seconds). Default 30." },
+        "timeoutSeconds": { "type": "number", "minimum": 0.5, "maximum": 120, "description": "Seconds one request may take. Default 10." },
+        "consentFromAds": { "type": "boolean", "description": "For a game with ads: until the player answers the analytics question themselves, analytics counts as granted when the ads consent is (GDPR granted and tracking authorized or not required). The player's own answer always wins. Default false." }
+      }
+    },
+    "remoteConfig": {
+      "type": "object",
+      "description": "Remote values for the game (docs/ANALYTICS.md): remoteConfig.get(key, default) reads a JSON object fetched once at start from `url` through http.fetch, cached in storage for offline runs. The host must also be in \"network\".\"hosts\". Nothing is fetched without this section.",
+      "properties": {
+        "url": { "type": "string", "description": "The https:// address of a JSON object (at most 64 KB and 500 keys). Its host must be listed in network.hosts." },
+        "timeoutSeconds": { "type": "number", "minimum": 0.5, "maximum": 30, "description": "Seconds the fetch may take. Default 5." }
+      }
+    },
     "platform": {
       "type": "object",
       "description": "Store and platform services of the game: achievements, stats, leaderboards, cloud saves and in-app purchases behind one scripting API (`platform` from \"factoria\", docs/PLATFORM.md). This section declares what the game has, so that ids are checked before a request leaves the game and each store gets its own id for the same entry (\"ids\"). Every key is optional. Which store answers is chosen by the native plugins the game declares (\"plugins\") and by \"backend\"; development runs, tests and the MCP server use a deterministic fake store. `factoria validate` reports every problem with how to fix it.",

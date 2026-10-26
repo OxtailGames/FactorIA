@@ -6,7 +6,8 @@
 // their own process (CMakeLists.txt registers one ctest entry per test-case prefix): "steam services" (Steam running,
 // current SDK), "steam legacy" (an SDK 1.58 to 1.60 library), "steam next" (interface versions one above the newest the
 // plugin was checked against: the services again on that library, FA_STEAM_TEST_VARIANT=next), "steam future" (interface
-// versions far above them), "steam without library", "steam not running", "steam without app id", "steam exit".
+// versions far above them), "steam without library", "steam not running", "steam without app id", "steam without remote play"
+// (a Steam client that hands out no ISteamRemotePlay), "steam exit".
 #include <doctest.h>
 
 #include <algorithm>
@@ -362,7 +363,7 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     mock.reset();
     Session s(game);
     CHECK(run(s.engine, "platform.backend") == "steam");
-    for (const char* service : {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence"})
+    for (const char* service : {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "remotePlay"})
         CHECK_MESSAGE(run(s.engine, std::string("platform.has('") + service + "')") == true, service);
 
     Json who = settle(s.engine, "platform.signIn()");
@@ -386,6 +387,7 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     CHECK(has(status.result["appIdFrom"].get<std::string>(), "steam_appid.txt in "));
     CHECK(has(status.result["library"].get<std::string>(), kLibraryFile));
     CHECK(has(status.result["interfaces"].get<std::string>(), next_variant() ? "ISteamUserStats v014" : "ISteamUserStats v013"));
+    CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamRemotePlay v002"));
     CHECK(status.result["newerInterfaces"].size() == (next_variant() ? 6u : 0u));
     CHECK(status.result["player"]["name"] == "Tester");
     CHECK(status.result["overlayEnabled"] == true);
@@ -741,6 +743,48 @@ TEST_CASE("steam services: cloud saves are <key>.json files") {
     expect_clean(s, mock);
 }
 
+// cloud.stat: the size and Steam's own time of a key, without reading its text.
+TEST_CASE("steam services: cloud.stat reports the size and the time Steam gives the file") {
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    Session s(game);
+
+    // A key that is not there is an answer, not an error.
+    Json none = settle(s.engine, "platform.cloud.stat('slot1')");
+    REQUIRE(none["ok"] == true);
+    CHECK(canon(none["value"]) == canon(Json::parse(R"({"exists":false})")));
+
+    const int size = static_cast<int>(std::string(R"({"level":3})").size());
+    REQUIRE(settle(s.engine, "platform.cloud.save('slot1', { level: 3 })")["ok"] == true);
+    Json first = settle(s.engine, "platform.cloud.stat('slot1')");
+    REQUIRE(first["ok"] == true);
+    CHECK(first["value"]["exists"] == true);
+    CHECK(first["value"]["size"] == size);
+    CHECK(first["value"]["modified"] == 1767225600);  // GetFileTimestamp of "slot1.json"
+
+    // The time is Steam's, per file: a later save of the same key, and another key, have later times.
+    REQUIRE(settle(s.engine, "platform.cloud.save('slot1', { level: 30 })")["ok"] == true);
+    REQUIRE(settle(s.engine, "platform.cloud.save('slot2', { level: 1 })")["ok"] == true);
+    CHECK(settle(s.engine, "platform.cloud.stat('slot1')")["value"]["modified"] == 1767225601);
+    CHECK(settle(s.engine, "platform.cloud.stat('slot2')")["value"]["modified"] == 1767225602);
+    CHECK(settle(s.engine, "platform.cloud.stat('slot1')")["value"]["size"] == size + 1);
+
+    // A file another computer wrote: whatever time Steam says.
+    mock.set(Json{{"files", Json{{"remote.json", "{}"}}}});
+    mock.set(Json{{"fileTimes", Json{{"remote.json", 1800000000}}}});
+    CHECK(settle(s.engine, "platform.cloud.stat('remote')")["value"]["modified"] == 1800000000);
+
+    CHECK(settle(s.engine, "platform.cloud.remove('slot1')")["ok"] == true);
+    CHECK(canon(settle(s.engine, "platform.cloud.stat('slot1')")["value"]) == canon(Json::parse(R"({"exists":false})")));
+
+    mock.set(Json{{"cloudApp", false}});
+    Json noApp = settle(s.engine, "platform.cloud.stat('slot2')");
+    CHECK(noApp["code"] == "unavailable");
+    CHECK(has(text(noApp, "message"), "Steam Cloud is not enabled for app 480"));
+    expect_clean(s, mock);
+}
+
 TEST_CASE("steam services: purchases are DLC") {
     SteamGame& game = services_game();
     Mock& mock = *game.mock;
@@ -847,6 +891,64 @@ TEST_CASE("steam services: overlay, presence and the events Steam sends") {
     expect_clean(s, mock);
 }
 
+// Remote Play Together: ISteamRemotePlay describes a session while it is connected; the disconnect callback carries only the
+// id, so the plugin keeps the description to put in the event.
+TEST_CASE("steam services: Remote Play guests are listed, and their coming and going is announced") {
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    Session s(game);
+    const Json scene = run(s.engine, "scene.current");  // the events below belong to this scene
+
+    CHECK(run(s.engine, "platform.has('remotePlay')") == true);
+    Json nobody = settle(s.engine, "platform.remotePlay.sessions()");
+    REQUIRE(nobody["ok"] == true);
+    CHECK(nobody["value"] == Json::array());
+
+    run(s.engine, "globalThis.guests = []; platform.on('remotePlay', (e) => guests.push([e.status, e.session.id, e.session.guestName ?? null, "
+                  "e.session.formFactor ?? null])); 0");
+    mock.fire("remotePlayConnect", Json{{"id", 7}, {"steamId", "76561198000000002"}, {"device", "Pixel 9"}, {"formFactor", 1},
+                                         {"width", 2400}, {"height", 1080}});
+    mock.fire("remotePlayConnect", Json{{"id", 8}, {"steamId", "76561198000000003"}, {"device", "Living room"}, {"formFactor", 4},
+                                         {"width", 0}, {"height", 0}});
+    pump(s.engine);
+    CHECK(canon(run(s.engine, "guests")) == canon(Json::parse(R"([["connected",7,"Alice","phone"],["connected",8,"Bob","tv"]])")));
+
+    Json listed = settle(s.engine, "platform.remotePlay.sessions()");
+    REQUIRE(listed["ok"] == true);
+    CHECK(canon(listed["value"]) ==
+          canon(Json::parse(R"([
+              {"id":7,"guestName":"Alice","guestId":"76561198000000002","deviceName":"Pixel 9","formFactor":"phone",
+               "resolution":{"width":2400,"height":1080}},
+              {"id":8,"guestName":"Bob","guestId":"76561198000000003","deviceName":"Living room","formFactor":"tv",
+               "resolution":null}])")));
+
+    // The guest has already gone when the callback arrives: the event still carries what the plugin saw while connected.
+    run(s.engine, "guests.length = 0; 0");
+    mock.fire("remotePlayDisconnect", Json{{"id", 7}});
+    pump(s.engine);
+    CHECK(canon(run(s.engine, "guests")) == canon(Json::parse(R"([["disconnected",7,"Alice","phone"]])")));
+    Json after = settle(s.engine, "platform.remotePlay.sessions()");
+    REQUIRE(after["value"].size() == 1);
+    CHECK(after["value"][0]["id"] == 8);
+
+    // A session id Steam never announced: the event says only who left.
+    run(s.engine, "guests.length = 0; 0");
+    mock.fire("remotePlayDisconnect", Json{{"id", 99}});
+    pump(s.engine);
+    CHECK(canon(run(s.engine, "guests")) == canon(Json::parse(R"([["disconnected",99,null,null]])")));
+
+    // Every ESteamDeviceFormFactor, and one this plugin does not know.
+    mock.fire("remotePlayDisconnect", Json{{"id", 8}});
+    int next = 20;
+    for (int form : {0, 1, 2, 3, 4, 5, 9}) mock.fire("remotePlayConnect", Json{{"id", next++}, {"formFactor", form}});
+    pump(s.engine);
+    Json forms = settle(s.engine, "platform.remotePlay.sessions().then((list) => list.map((g) => g.formFactor))");
+    CHECK(canon(forms["value"]) == canon(Json::parse(R"(["unknown","phone","tablet","computer","tv","vr","unknown"])")));
+    CHECK(run(s.engine, "scene.current") == scene);
+    expect_clean(s, mock);
+}
+
 TEST_CASE("steam services: failures on the way are answered once, and strays are harmless") {
     SteamGame& game = services_game();
     Mock& mock = *game.mock;
@@ -906,6 +1008,9 @@ TEST_CASE("steam legacy: an older library works, and requests wait for the stats
     SteamGame game(Library::Legacy, "");
     Mock& mock = *game.mock;
     mock.set(Json{{"failStats", true}});  // the first load of the stats fails
+    // A guest was connected before the game started: no callback announces it, but the sessions list it.
+    mock.set(Json{{"guests", Json::array({Json{{"id", 3}, {"steamId", "76561198000000003"}, {"device", "Steam Deck"}, {"formFactor", 3},
+                                                {"width", 1280}, {"height", 800}}})}});
     Session s(game);
     CHECK(run(s.engine, "platform.backend") == "steam");
     CommandResult status = s.engine.commands().call("steam.status");
@@ -913,6 +1018,7 @@ TEST_CASE("steam legacy: an older library works, and requests wait for the stats
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamUserStats v012"));
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamFriends v017"));
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamApps v008"));
+    CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamRemotePlay v001"));  // the older SDK's only version
     CHECK(status.result["statsLoaded"] == false);  // asked for at start, not here yet
     CHECK(mock.count_calls("RequestCurrentStats") == 1);
 
@@ -927,6 +1033,14 @@ TEST_CASE("steam legacy: an older library works, and requests wait for the stats
     CHECK(ok["value"]["newly"] == true);
     CHECK(mock.count_calls("RequestCurrentStats") == 2);
     CHECK(mock.state()["achievements"]["ACH_WIN_ONE_GAME"] == true);
+
+    CHECK(run(s.engine, "platform.has('remotePlay')") == true);
+    Json early = settle(s.engine, "platform.remotePlay.sessions()");
+    REQUIRE(early["ok"] == true);
+    REQUIRE(early["value"].size() == 1);
+    CHECK(early["value"][0]["guestName"] == "Bob");
+    CHECK(early["value"][0]["deviceName"] == "Steam Deck");
+    CHECK(early["value"][0]["formFactor"] == "computer");
 
     // Things that need no stats work, and the older interfaces are called with their own pointers (the mock checks).
     CHECK(settle(s.engine, "platform.purchases.products()")["value"].size() == 2);
@@ -1007,6 +1121,32 @@ TEST_CASE("steam not running: Steam is not started, the message says what to do,
         CHECK(run(shipped.engine, "platform.backend") == "none");
         CHECK(run(shipped.engine, "platform.has('purchases')") == false);
     }
+}
+
+// ====================================================================================== steam without remote play =====
+// A Steam client that gives out no ISteamRemotePlay: everything else works, and the service is not offered.
+TEST_CASE("steam without remote play: the other services work and remotePlay is not offered") {
+    SteamGame game(Library::Current, "480");
+    game.mock->set(Json{{"noRemotePlay", true}});
+    Session s(game);
+    CHECK(run(s.engine, "platform.backend") == "steam");
+    CHECK(run(s.engine, "platform.has('cloudSave')") == true);
+    CHECK(run(s.engine, "platform.has('remotePlay')") == false);
+    CommandResult status = s.engine.commands().call("steam.status");
+    REQUIRE(status.ok);
+    CHECK_FALSE(has(status.result["interfaces"].get<std::string>(), "ISteamRemotePlay"));
+
+    Json r = settle(s.engine, "platform.remotePlay.sessions()");
+    CHECK(r["ok"] == false);
+    CHECK(r["code"] == "unavailable");
+
+    // A callback for a feature the plugin did not offer is ignored, not announced.
+    run(s.engine, "globalThis.guests = []; platform.on('remotePlay', (e) => guests.push(e.status)); 0");
+    game.mock->fire("remotePlayConnect", Json{{"id", 1}});
+    pump(s.engine);
+    CHECK(run(s.engine, "guests.length") == 0);
+    CHECK(settle(s.engine, "platform.cloud.stat('nothing')")["value"]["exists"] == false);
+    expect_clean(s, *game.mock);
 }
 
 // =========================================================================================== steam without app id =====

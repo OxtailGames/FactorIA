@@ -6,6 +6,7 @@ import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
 import { openAgeGate } from "./ui/age_gate.js"; // @kit:ageGate
+import { openAnalyticsConsent } from "./ui/analytics_consent.js"; // @kit:analyticsConsent
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -20,6 +21,8 @@ export default class MainMenu extends Behaviour {
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).  // @kit:ageGate
     if (platform.ads.audience === "mixed") openAgeGate(this.menus); // @kit:ageGate
+    // A game with an "analytics" section in factoria.json asks once whether it may count usage; nothing is sent before the answer (docs/ANALYTICS.md).  // @kit:analyticsConsent
+    else openAnalyticsConsent(this.menus); // @kit:analyticsConsent
     ui.on("click", "play", () => {
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");

@@ -5,7 +5,7 @@ import fixture from "./fixtures/news.json";
 import * as analytics from "../scripts/game/analytics.js";
 import * as news from "../scripts/game/news.js";
 import { run } from "../scripts/game/run_state.js";
-import { freshOnline, fakeServer, shift } from "./helpers/online.js";
+import { freshOnline, serveConfig, serveEvents, posts, shift } from "./helpers/online.js";
 
 const TITLE = "scenes/menu.scene.json";
 const OTHER = "scenes/shift.scene.json"; // any other scene: the title is gone
@@ -20,13 +20,12 @@ describe("title online", () => {
   freshOnline();
 
   test("the title shows the newest news item from the server", () => {
-    const server = fakeServer({ "/v1/news.json": fixture });
+    serveConfig({ news: fixture });
     openTitle();
     game.step(5);
     const newest = news.parse(fixture)[0];
     expect(textOf("news_text")).toContain(newest.title);
     expect(textOf("news_text").startsWith("News: ")).toBe(true);
-    server.restore();
   });
 
   test("offline the title shows the remembered news, and with none it shows nothing", () => {
@@ -53,22 +52,24 @@ describe("title online", () => {
     expect(analytics.enabled()).toBe(false);
   });
 
-  test("ignoring the card sends nothing", async () => {
-    const server = fakeServer({ "/v1/news.json": fixture, "/v1/events": {} });
+  test("ignoring the card sends nothing", () => {
+    serveConfig({ news: fixture });
+    serveEvents();
     openTitle();
     shift({ banked: 10 });
-    await Promise.resolve();
-    expect(server.calls.filter((c) => c.method === "POST").length).toBe(0);
-    server.restore();
+    game.step(5);
+    expect(posts().length).toBe(0);
+    expect(game.analytics.queued()).toEqual([]);
   });
 
   test("leaving the title before the news arrive is harmless", () => {
-    const server = fakeServer({ "/v1/news.json": fixture });
+    serveConfig({ news: fixture });
+    game.platform.set({ delayFrames: 5 });
     game.load(TITLE);
     game.load(OTHER);
     game.step(10);
     expect(scene.current).toBe(OTHER);
-    server.restore();
+    game.platform.set({ delayFrames: 0 });
   });
 
   test("the hints row follows the pad in use", () => {

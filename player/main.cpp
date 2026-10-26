@@ -224,12 +224,19 @@ int startup_error(const std::string& text) {
 }
 
 void print_usage() {
-    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N] [--version] [--help]\n"
+    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N]\n"
+              "                [--input <replay.json>] [--dump-state <file>] [--screenshot <file>] [--version] [--help]\n"
               "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
               "              ./game.pak next to it, else the current directory)\n"
               "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
               "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)\n"
               "  --frames N  draw N frames, then exit: 0, or 1 when a script failed (a crash exits non-zero too); for CI smoke tests\n"
+              "  --input F   play an input replay (the JSON `input.record` writes, the one `factoria run --input` plays); needs --frames\n"
+              "  --dump-state F  write the world state JSON after the last frame (= `factoria run --state-out`); needs --frames\n"
+              "  --screenshot F  write a PNG of the last frame (= `factoria run --screenshot-at N-1`); needs --frames\n"
+              "              these three run headless (no window, deterministic, fixed time step) like `factoria run --headless\n"
+              "              --frames N`, so a shipped build can be checked by script and compared with the editor's run;\n"
+              "              exit 0, 1 when a script failed, 2 for a missing or bad file\n"
               "  --version   print the engine version (the one `factoria version` prints) and exit");
 }
 
@@ -242,6 +249,7 @@ int main(int argc, char** argv) {
     std::string projectArg, scene;
     bool fullscreen = false;
     int frames = 0;
+    std::string inputArg, dumpStateArg, screenshotArg;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") {
@@ -269,12 +277,62 @@ int main(int argc, char** argv) {
             frames = int(n);
         } else if (a.rfind("--scene=", 0) == 0) {
             scene = a.substr(8);
+        } else if (a == "--input" || a == "--dump-state" || a == "--screenshot" || a.rfind("--input=", 0) == 0 ||
+                   a.rfind("--dump-state=", 0) == 0 || a.rfind("--screenshot=", 0) == 0) {
+            const std::size_t eq = a.find('=');
+            const std::string name = a.substr(0, eq);
+            if (eq == std::string::npos && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+                std::fprintf(stderr, "error: %s needs a file, e.g. %s %s\n", name.c_str(), name.c_str(),
+                             name == "--input" ? "replay.json" : name == "--dump-state" ? "state.json" : "shot.png");
+                return 2;
+            }
+            const std::string value = eq == std::string::npos ? std::string(argv[++i]) : a.substr(eq + 1);
+            if (value.empty()) {
+                std::fprintf(stderr, "error: %s needs a file name, got an empty value\n", name.c_str());
+                return 2;
+            }
+            (name == "--input" ? inputArg : name == "--dump-state" ? dumpStateArg : screenshotArg) = value;
         } else if (!a.empty() && a[0] == '-') {
             std::fprintf(stderr, "error: unknown option '%s'\n", a.c_str());
             print_usage();
             return 2;
         } else {
             projectArg = a;
+        }
+    }
+
+    const bool checkRun = !inputArg.empty() || !dumpStateArg.empty() || !screenshotArg.empty();
+    if (checkRun && frames < 1) {
+        std::fprintf(stderr,
+                     "error: --input, --dump-state and --screenshot run the game headless for a fixed number of frames, so they need "
+                     "--frames N.\nhint: e.g. factoria_player --frames 300 --input replay.json --dump-state state.json --screenshot last.png\n");
+        return 2;
+    }
+    // Output and input files are relative to the current directory (not to the game, which may sit inside a pack).
+    auto absolute = [](const std::string& p) {
+        std::error_code e;
+        return stdfs::absolute(p, e).lexically_normal().string();
+    };
+    std::string inputPath = inputArg.empty() ? std::string() : absolute(inputArg);
+    if (!inputArg.empty()) {
+        std::error_code e;
+        if (!stdfs::is_regular_file(inputPath, e)) {
+            std::fprintf(stderr, "error: --input file '%s' does not exist (looked for %s).\nhint: record one with the input.record command "
+                                 "(docs/DEBUGGING.md) and pass its path, relative to the current directory.\n",
+                         inputArg.c_str(), inputPath.c_str());
+            return 2;
+        }
+    }
+    for (const std::string* out : {&dumpStateArg, &screenshotArg}) {
+        if (out->empty()) continue;
+        std::error_code e;
+        const stdfs::path parent = stdfs::path(absolute(*out)).parent_path();
+        stdfs::create_directories(parent, e);
+        if (e || !stdfs::is_directory(parent, e)) {
+            std::fprintf(stderr, "error: cannot write '%s': the folder '%s' does not exist and cannot be created (%s).\n"
+                                 "hint: pass a path in a folder you can write to.\n",
+                         out->c_str(), parent.string().c_str(), e.message().c_str());
+            return 2;
         }
     }
 
@@ -336,6 +394,38 @@ int main(int argc, char** argv) {
         report_crashes_to_file(fa::fs::user_dir(), *proj);
     } else {
         return startup_error("error: " + proj.error().to_string() + "\n");
+    }
+    if (checkRun) {
+        // The same path as `factoria run --headless --frames N` (tools/cli/src/common.cpp apply_headless_config): the same
+        // seed, fixed time step, in-memory storage and fake platform, so the state and the pixels equal the CLI's.
+        cfg.headless = true;
+        cfg.audioDevice = false;
+        cfg.renderMode = fa::RenderMode::OnDemand;
+        cfg.memoryStorage = true;
+        cfg.platformBackend = "fake";
+        cfg.maxFrames = 0;
+        fa::HeadlessRunOptions ho;
+        ho.frames = frames;
+        ho.inputReplayPath = inputPath;
+        if (!screenshotArg.empty()) {
+            ho.screenshotFrames = {frames - 1};
+            ho.screenshotPattern = absolute(screenshotArg);
+        }
+        if (!dumpStateArg.empty()) ho.stateOutPath = absolute(dumpStateArg);
+        ho.failOnScriptError = true;
+        fa::Json report = fa::Json::object();
+        const int code = fa::run_headless(cfg, ho, &report);
+        for (const char* key : {"scriptErrors", "sceneErrors"})
+            if (report.contains(key) && report[key].is_array())
+                for (const auto& e : report[key]) std::fprintf(stderr, "%s: %s\n", key, e.is_string() ? e.get<std::string>().c_str() : e.dump().c_str());
+        if (report.contains("problems") && report["problems"].is_array())
+            for (const auto& pr : report["problems"])
+                std::fprintf(stderr, "warning: %s\n", pr.is_string() ? pr.get<std::string>().c_str() : pr.dump().c_str());
+        if (report.contains("error") && report["error"].is_string()) std::fprintf(stderr, "error: %s\n", report["error"].get<std::string>().c_str());
+        if (code == 0) std::printf("OK: ran %d frames headless\n", frames);
+        if (code == 0 && !screenshotArg.empty() && !stdfs::exists(ho.screenshotPattern, ec))
+            std::fprintf(stderr, "warning: no screenshot was written to %s\n", ho.screenshotPattern.c_str());
+        return code == 0 ? 0 : (code == 2 ? 2 : 1);
     }
     fa::AppDesc desc = fa::make_app_desc(cfg);  // == what run_windowed() does
     if (fullscreen) desc.fullscreen = true;

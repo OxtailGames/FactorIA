@@ -956,6 +956,8 @@ void ScriptSystem::update(float dt) {
     impl_->host->speech().update();
     impl_->sync();
     float scaled = static_cast<float>(dt * impl_->timeScale);
+    impl_->service_call("serviceTick", {JS_NewFloat64(impl_->ctx, dt)});  // analytics and remote config: the engine clock, never scaled
+    if (impl_->quitDeferred) impl_->update_quit_wait(dt);
     if (impl_->timeScale > 0.0) {
         {
             ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
@@ -1105,6 +1107,7 @@ void ScriptSystem::app_event(AppLifecycle event) {
             if (I.appSuspended) return;
             I.appSuspended = true;
             send("app.suspend");  // first, so a script can open its own pause menu: that pause is then the one that stays
+            I.service_call("serviceSuspend", {});  // sends the analytics events that wait
             const Json settings = I.host->project_settings();
             const bool pauseOnSuspend = !settings.is_object() || !settings.contains("pauseOnSuspend") ||
                                         !settings["pauseOnSuspend"].is_boolean() || settings["pauseOnSuspend"].get<bool>();
@@ -1137,7 +1140,15 @@ bool ScriptSystem::close_requested() {
     dispatch_events();
     const bool cancelled = I.quitCancelled;
     I.quitCancelled = false;
-    return !cancelled;
+    if (cancelled) return false;
+    // Not cancelled: the window closes, after the analytics events that wait were sent (a request in flight holds it, 3 s at most).
+    if (I.quitDeferred) return false;
+    if (I.begin_quit_flush()) {
+        I.quitDeferred = true;
+        I.quitWaited = 0.0;
+        return false;
+    }
+    return true;
 }
 
 void ScriptSystem::reset_app_state() {

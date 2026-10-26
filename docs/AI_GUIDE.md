@@ -190,7 +190,7 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | Colors | `[r, g, b, a]` with values 0..1, `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`, or a name: white, black, red, green, blue, yellow, cyan, magenta, gray, grey, orange, purple, pink, brown, transparent. If any value in an array is above 1, the engine reads the array as 0..255 bytes, so keep to 0..1. |
 | Rects | `{x, y, w, h}` or `[x, y, w, h]` (`physics.overlapBox`, `debug.rect`, `entity.bounds()`): `(x, y)` is the minimum corner, the BOTTOM-LEFT in the +Y-up world, and `w`, `h` the size. |
 | Vectors | In scripts, a vector argument accepts `Vec2`/`Vec3` values, `{x, y}` or `[x, y]`. In JSON, use arrays (`[x, y]` or `[x, y, z]`); `{x, y}` objects also work in component fields. |
-| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer give each person `input.player(i)`: the same actions read from that person's own pad or key block, with bindings of their own (section 9.27); `input.gamepad(1).down("A")` reads the raw buttons of one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android and the web (the browser's Gamepad API). Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. `game.on("gamepadConnected" | "gamepadDisconnected", (pad) => ...)` gives `{ slot, id, name, type }`; `id` is the same for the same physical pad every time, and a pad that returns gets its old slot when that is free (`input.gamepad(i).id` and `.name` read them; pads plugged in before the first scene are not announced). Tests: `game.gamepad(1).connect({ id, name, type })`. |
+| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer give each person `input.player(i)`: the same actions read from that person's own pad or key block, with bindings of their own (section 9.28); `input.gamepad(1).down("A")` reads the raw buttons of one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android and the web (the browser's Gamepad API). Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. `game.on("gamepadConnected" | "gamepadDisconnected", (pad) => ...)` gives `{ slot, id, name, type }`; `id` is the same for the same physical pad every time, and a pad that returns gets its old slot when that is free (`input.gamepad(i).id` and `.name` read them; pads plugged in before the first scene are not announced). Tests: `game.gamepad(1).connect({ id, name, type })`. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. To create a sprite or other binary file from text tools, call `fs_write` with `"encoding": "base64"` and the base64 of the PNG bytes as `content` (generate the PNG in a JS tool or script, or encode it yourself); the default `"utf8"` is text only. |
 | Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
@@ -382,7 +382,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | Import | Members |
 |---|---|
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, index, props})`, `spawnPrefab(path, {position, rotation, scale, parent, index, props, overrides, childOverrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
-| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); `player(i)` (local multiplayer: `use({pad})` / `use({keys})`, then `down`, `pressed`, `value`, `axis`, `vector`, `rebind`, `export`, section 9.27); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
+| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); `player(i)` (local multiplayer: `use({pad})` / `use({keys})`, then `down`, `pressed`, `value`, `axis`, `vector`, `rebind`, `export`, section 9.28); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
 | `screen` | `safeArea` (a `Rect` in design pixels: what a phone's notch, rounded corners and system bars leave free; the whole screen on desktop and headless), `insets` (`{left, top, right, bottom}`), `size`. Put `safeArea: true` beside `anchor` on a Sprite, Shape2D, Text, ParticleEmitter or UI widget to anchor it to the safe area. Test with `game.setSafeArea("phone-portrait")` / `screen_set_safe_area` (`docs_read {"name":"mobile"}`) |
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
@@ -1402,11 +1402,38 @@ Animation runs in the fixed step, so headless tests and replays match (`game.ste
 The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
 Each animated model is its own draw call, so keep crowds of animated characters modest.
 
+### 9.25.1 Analytics with consent and remote config
+
+For a game that must count what players do or tune values without a new build ([ANALYTICS.md](ANALYTICS.md); `docs_read {"name":"analytics"}`).
+Nothing is sent before the player says yes, so ask first, and say in the privacy policy what is sent.
+
+1. `factoria.json`: `"network": {"hosts": ["stats.example.com"], "purpose": "..."}`, `"analytics": {"endpoint": "https://stats.example.com/events"}`
+   and, for values, `"remoteConfig": {"url": "https://stats.example.com/game.json"}`. `factoria validate` checks the hosts and the numbers.
+2. The question: add the menu kit part `analyticsConsent` (`project.add_menu_kit {"parts":["analyticsConsent"]}`) or call
+   `analytics.setConsent(true | false)` from your own button. `analytics.consent()` is `"unknown"` until the player answers.
+3. Events: `analytics.event("level_done", { level: 3, won: true })` (flat props, short codes and numbers, never typed text). It returns `false` and keeps nothing
+   without consent. Batches go out at `batch` events, after `flushSeconds`, on suspend and on quit (the quit waits up to 3 seconds).
+4. Values: `remoteConfig.get("enemySpeed", 1.5)` always works (cache, then the fallback). To wait for the first answer at a loading screen,
+   check that the scene is still current: `const here = scene.current; remoteConfig.ready().then(() => { if (scene.current !== here) return; ... })`.
+5. Tests: `game.platform.respond("http.fetch", { status: 204 })` plays the server, `game.analytics.sent()` shows what it accepted, `game.analytics.queued()` what waits,
+   `game.remoteConfig.restart()` starts a new run from the cache. A test that loads a main menu in a game with analytics sets the answer first
+   (`analytics.setConsent(true)`), or the question is on screen.
+
 ### 9.26 2D production: flipped tiles, 9-slice, lights, parallax, joints
 
 - **Flipped and rotated tiles.** A tile value in `Tilemap.tiles` is the index plus flag bits: `+268435456` flip X, `+536870912` flip Y, `+1073741824` transpose (applied first, then X, then Y). Turn 90 degrees clockwise = `1342177280 + i`, 180 = `805306368 + i`, 90 counter-clockwise = `1610612736 + i`. `solidTiles`, the tileset range check and collision use the plain index only. In `scene.import_ascii` a legend object takes `{"tile": 3, "flipX": true, "flipY": false, "rotate": 90}` (rotate is clockwise: 0, 90, 180, 270) so you never write the numbers.
 - **9-slice sprites.** `Sprite.slice` = `[left, top, right, bottom]` in pixels of the picture (of the `region` when set). The corners keep their size, the edges and centre stretch to `size`. Works with `flipX/flipY`, `region` and atlas textures. A size smaller than the corners shrinks them evenly.
-- **Lights.** Add `Light2D` entities (`type` point or directional, `color`, `intensity`, `radius`, `falloff`, `height` for point lights, `direction` and `elevation` for directional ones). Only a `Sprite`, `Tilemap` or `Shape2D` (world space) with `lit: true` is lit (a lit shape is flat: no normal map, outlines and lines included); the base brightness is `SceneSettings.ambientLight`. `Sprite.normalMap` (needs `lit`) gives bumps; the normal map may be another size or packed in an atlas. At most 16 lights per frame (WebGL2 and GLES3 uniform limit): directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the brighter ones; an off-view light is never kept over one in view). More than 16 in view logs one warning per scene; `game.renderStats().lights2d` and `lights2dDropped` show what was kept and left out, and `perf.measure`'s `lights` (so `maxLights`) counts 2D and 3D lights together. Lights ignore layers and cast no shadows. Unlit sprites cost nothing extra.
+- **Lights.** Add `Light2D` entities (`type` point or directional, `color`, `intensity`, `radius`, `falloff`, `height` for point lights, `direction` and `elevation` for directional ones). Only a `Sprite`, `Tilemap` or `Shape2D` (world space) with `lit: true` is lit (a lit shape is flat: no normal map, outlines and lines included); the base brightness is `SceneSettings.ambientLight`. `Sprite.normalMap` (needs `lit`) gives bumps; the normal map may be another size or packed in an atlas. Point lights are added up in a light buffer, so a frame keeps up to 256 lights: directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the brighter ones; an off-view light is never kept over one in view). More than 256 in view logs one warning per scene; `game.renderStats().lights2d` and `lights2dDropped` show what was kept and left out, and `perf.measure`'s `lights` (so `maxLights`) counts 2D and 3D lights together. A lit sprite or tile WITH a normal map is still shaded per pixel by the first 16 lights of that order (the light's direction matters there). Lights ignore layers. Unlit sprites cost nothing extra, and a scene without Light2D pays nothing. Shadows: see the recipe below.
+- **Lights and shadows from tiles.** A dungeon or cave: `Tilemap.occludesLight = true` makes the tiles of `solidTiles` (the ones that already collide) block light, and `Light2D.castShadows = true` on a point light makes it cast: the far side of a wall stays dark, the wall's own face stays lit, and editing a tile at run time (`tilemap.setTile`, the command `tilemap.set_tile`) moves the shadows on the next frame. Both default to false. At most 32 point lights per frame cast shadows (the ones ranked first, `renderStats().lights2dShadowed` counts them; the others shine through walls and the engine warns once per scene): give `castShadows` to the torch the player carries and the few that matter, not to every candle. A light that does not move does not recompute its shadow rays (only its pixels cost, frame after frame). `SceneSettings.lightScale` (0.25 to 1, default 1) is the size of the light buffer as a fraction of the picture: use 0.5 on phones and the web with many lights. Costs: PERFORMANCE.md, "2D lights".
+  ```js
+  // a wall of solid tiles that blocks light, a torch that casts shadows
+  const map = game.find("walls");
+  map.get("Tilemap").occludesLight = true;          // solidTiles already says which tiles are walls
+  world.spawn({ name: "Torch", components: {
+    Transform: { position: [120, 80, 0] },
+    Light2D: { radius: 260, intensity: 1.2, castShadows: true } } });
+  map.tilemap.setTile(5, 3, -1);                      // a wall opens: the light flows through next frame
+  ```
 - **Parallax.** `Parallax.factor` 1 follows the world, 0 sticks to the screen, 0.5 moves at half the camera's speed (use a value above 1 for a foreground). `repeatX` / `repeatY` with `repeatSize` tile a Sprite endlessly over the view. It works with the camera follow of 9.6: the offset is computed from the camera position each frame, so `entity.bounds()` and the editor pick follow it and replays stay deterministic.
 - **Joints.** `Joint2D` goes on the body entity. `connected` is another entity with a body, or empty to pin to the world (then `connectedAnchor` is a world position). `anchor` is on this entity, `connectedAnchor` on the other, in local pixels. Types: `revolute` (hinge; `enableLimit` with `lowerLimit`/`upperLimit` in degrees, 0 = the pose at creation), `distance` (a rope of `length`, 0 = the starting distance; `enableSpring` with `springHertz`/`dampingRatio` makes it elastic), `prismatic` (slides along `axis`, limits in pixels), `weld` (glue). `enableMotor` with `motorSpeed` (degrees/s or px/s) and `maxMotorTorque`. Limits, motor and spring change live from scripts; the type, anchors, axis and `connected` rebuild the joint. `reactionForce`, `reactionTorque`, `angle` and `translation` are read-only runtime fields.
 
@@ -1416,7 +1443,55 @@ j.enableMotor = true; j.motorSpeed = 180;        // a wheel starts spinning
 if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(this.entity); // a rope that takes too much
 ```
 
-### 9.27 Local multiplayer: one player per pad or key block
+### 9.27 Enemies that think and find their way: `bt` plus `nav.findTilePath`
+
+A behaviour tree (`bt`, SCRIPTING.md "AI: behaviour trees") picks WHAT the enemy does; `nav.findTilePath` (NAVIGATION.md,
+section 7) says WHERE to step on a tile map. Search again only when the goal's cell changed or the map did
+(`nav.tileVersion(map)`), not every frame.
+
+```js
+import { Behaviour, bt, nav, world } from "factoria";
+const { RUNNING, FAILURE, selector, sequence, condition, action } = bt;
+
+export default class Enemy extends Behaviour {
+  speed = 40;                                   // world units per second
+  onStart() {
+    this.map = world.find("ground");            // a Tilemap whose solidTiles are the walls
+    this.player = world.find("player");
+    this.path = []; this.goalKey = ""; this.version = -1;
+    this.tree = new bt.Tree(selector(
+      sequence(condition((e) => e.distanceTo(e.player) < 200), action((e, dt) => e.chase(dt))),   // sees the player
+      action(() => RUNNING),                                                                      // otherwise idle
+    ), this);                                   // the blackboard is this behaviour
+  }
+  onUpdate(dt) { this.tree.tick(dt); }
+  distanceTo(other) { return other.position.sub(this.entity.position).length(); }
+  cellOf(p) {                                   // world position -> { col, row } (the map's top-left corner is its position)
+    const o = this.map.position, t = this.map.component.tileSize;
+    return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
+  }
+  chase(dt) {
+    const goal = this.cellOf(this.player.position), key = `${goal.col},${goal.row}`;
+    if (key !== this.goalKey || this.version !== nav.tileVersion(this.map)) {
+      const r = nav.findTilePath(this.map, this.cellOf(this.entity.position), goal, { diagonals: true, closest: true });
+      this.path = r.found ? r.points.slice(1) : [];                 // points[0] is the cell we stand on
+      this.goalKey = key; this.version = nav.tileVersion(this.map);
+    }
+    if (this.path.length === 0) return FAILURE;
+    const to = this.path[0], p = this.entity.position, dx = to.x - p.x, dy = to.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 1) { this.path.shift(); return RUNNING; }
+    const step = Math.min(d, this.speed * dt);
+    this.entity.position = [p.x + dx / d * step, p.y + dy / d * step, p.z];
+    return RUNNING;
+  }
+}
+```
+
+
+Digging or building (`entity.tilemap.setTile`) bumps the version, so the next `chase` finds the new way. A game whose real
+map is not a Tilemap passes its own `{width, height, cost}` grid instead of `this.map`.
+
+### 9.28 Local multiplayer: one player per pad or key block
 
 Two to four people on one machine, each with their own controls and the same action names. Do not read `input.gamepad(i)` button by button and do not write a second set of key tables: declare the actions once in `factoria.json`, give each player a device, and read `input.player(i)`.
 
@@ -1453,6 +1528,7 @@ export default class Runner extends Behaviour {
   }
 }
 ```
+
 
 ## 10. Tests
 
@@ -1623,7 +1699,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`).
+- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`). 2D tile maps: `nav.findTilePath(map, from, to)` (A* over a Tilemap or your own cost grid) and `import { bt } from "factoria"` for behaviour trees, section 9.27.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more
@@ -1646,4 +1722,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read ai-costs` (MCP `docs_read {"name":"ai-costs"}`): what a whole game cost in tokens and money
   (measured), what drives the cost, the `limits` that cap it and where to see what was spent. Tell the user when a
   task is going to be long or dear.
+- `factoria docs read analytics` (MCP `docs_read {"name":"analytics"}`): usage events sent after the player consents,
+  values read from your server with an offline cache, the menu kit's question, tests without a server and what to tell the
+  stores. `factoria docs read networking` has the `http.fetch` they stand on.
 - The project's `AGENTS.md`: short rules for this game.

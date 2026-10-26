@@ -191,7 +191,7 @@ scripts/                   menu kit (main_menu, pause_menu, loading, settings, u
 scripts/join.js            the join screen
 scripts/ui/title_flow.js   the title's Continue, slots, delete confirmation, cloud sync, daily and code panel
 tools/mine_preview.js      project.mine_preview: a mine as text
-tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: a fake game server) and
+tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: scripts the fake server) and
                            fixtures/ (save_v1, save_v2, news, balance)
 assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py, then src/make_markers.py), music/*.wav
                            (+ src/make_music.py, src/make_music_layers.py), audio/*.wav,
@@ -322,12 +322,14 @@ one per miner (`ENGINE_LIGHT_CAP`); a test counts the active `Light2D` entities 
 `new Fog(map)` is a three-state map (`UNSEEN`, `SEEN`, `VISIBLE`) drawn on its own Tilemap: `stateAt(tx, ty)`, `isVisible`,
 `seen()`, `update(dt, { torches })`. Walls block sight, and digging opens it at once. `TORCH_RADIUS` is 4.5 tiles.
 
-### Pathfinding and behaviour trees: `scripts/game/pathfinding.js`, `scripts/game/behavior_tree.js`
+### Pathfinding and behaviour trees: `scripts/game/pathfinding.js`, the engine's `nav` and `bt`
 
-Both are generic (nothing in them knows this game) so another game can copy them. `navFor(map)` gives the shared `NavGrid`
+The search and the tree are the engine's: `nav.findTilePath` (A* over a `{width, height, cost}` grid that `pathfinding.js` builds from
+`MineMap.kinds`, because the real map is not the drawn Tilemap) and `bt` from `"factoria"`. `pathfinding.js` keeps the game's cost rules and the
+following. `navFor(map)` gives the shared `NavGrid`
 whose `version` goes up when a tile changes; `findPath(from, to, { dig: { tier, cost }, dangerCost, maxNodes })` is an A* over
 the tiles that can dig through what the pick can break and avoids water, magma and cracked floor unless `dangerCost` is finite;
-`PathFollower` walks a path and re-plans when `version` changed; `lineOfSight(map, a, b)`; `NavGrid.reachable(from, radius)`. `Tree` runs a
+`PathFollower` walks a path and re-plans when `version` changed; `lineOfSight(map, a, b)`; `NavGrid.reachable(from, radius)`. `bt.Tree` runs a
 description built from `sequence`, `selector`, `condition`, `action`, `wait`, `cooldown`, `inverter` and `succeeder` against a
 blackboard (the header documents the one catch: a RUNNING sequence resumes without asking its conditions again).
 
@@ -448,8 +450,8 @@ the services use it.
 - **Steam Deck** (`deck.js`): `isDeck()` is true while a connected pad is of type `steamdeck` (the engine has no other way to
   tell), `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
   is where the 1280x720 design lands in a window (1280x800: scale 1 and bars of 40 above and below; the UI is anchored, so
-  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause, flush analytics) and resume (send the presence
-  again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
+  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause; the engine sends the waiting analytics events
+  by itself) and resume (send the presence again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
 - **Text entry for P4's seed-code field** (`text_entry.js`): `bind(fieldId, { maxLength, alphabet, onChange, onSubmit })` cleans
   what is typed in a `TextField` to `CODE_ALPHABET` (capitals and digits without 0, O, 1, I) and returns the unsubscribe function;
   `focus(fieldId)`; `normalize(text, opts)`; `hint(action)` is the localized line that tells how to type on this device
@@ -458,22 +460,32 @@ the services use it.
 
 ### Online: `online.js`, `news.js`, `balance.js`, `analytics.js`
 
-The engine has no HTTP API, so everything that talks to a server goes through one seam: `online.request(method, path, body)`
-(never throws; resolves `{ ok: true, data }` or `{ ok: false, code, message }`). The default transport is **offline** (always
-fails), `setTransport(t)` (returns the old one) plugs in a real one: `{ name, request(method, path, body) -> Promise }`;
-tests use `fakeServer` of `tests/helpers/online.js`. Paths (`PATHS`): `/v1/news.json`, `/v1/balance.json`, `/v1/events`. No test
-and no default build touches a network.
+Everything that talks to a server uses the engine's `analytics` and `remoteConfig` (docs: `factoria docs read analytics`), which
+are `http.fetch` calls to the hosts declared in `factoria.json` (`network`, `analytics`, `remoteConfig`). `online.js` is the thin
+seam over `remoteConfig`: ONE JSON file holds the news and the balance values,
+`{ "balance": { "beetle.hp": 4 }, "news": { "version": 1, "items": [...] } }`, and the engine keeps the last good copy for a
+player who starts offline. No test and no default build touches a network: tests script the server with
+`game.platform.respond("http.fetch", ...)` (`serveConfig` and `serveEvents` of `tests/helpers/online.js`).
 
-- **News** (`news.js`): `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
+#### Server addresses (placeholders)
+
+Burrow Brigade has no server yet. `https://burrow-brigade.example` in `factoria.json` (`network.hosts`, `analytics.endpoint`
+`/v1/events`, `remoteConfig.url` `/v1/config.json`) is a placeholder: `.example` never resolves, so a shipped build today plays
+offline (no news, the shipped balance, nothing sent). Before shipping with online features, point the three entries at a
+real host, serve the config file above, and accept the batches of `docs/ANALYTICS.md` section 4 (`POST`, any 2xx answer), then
+update the privacy sentence in `network.purpose` and the store texts (`docs/LEGAL.md`).
+
+- **News** (`news.js`): the `"news"` section, `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
   are a string or `{ "en": "...", "ru": "..." }` (the language of the game, else `en`). `parse` drops items with no id or title, strips control characters, cuts the
   title at 48 characters and the body at 160, sorts newest first and keeps three. `refresh()` resolves
-  `{ source: "server" | "cache" | "none", items }` and remembers the last good answer in storage (`burrow.news`); the title shows
+  `{ source: "server" | "cache" | "none", items }` (it waits for the config file, at most 3 seconds) and remembers the last good answer in storage (`burrow.news`); the title shows
   the newest item at once from that memory and again when the server answers (if the title is still there).
-- **Remote balance** (`balance.js`): `{ "version": 1, "values": { "beetle.hp": 4 } }`. Each value is checked against `RANGES`
+- **Remote balance** (`balance.js`): the `"balance"` section, `{ "beetle.hp": 4 }`. Each value is checked against `RANGES`
   (range, whole number or not); a bad value is rejected with a reason and a hint (unknown keys get a "did you mean") and the
   rest still apply; `king.chargeMinDist` above `king.chargeMaxDist` rejects both. Values change `STATS` of `enemy_brains.js` and `TUNING`
-  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). Nothing is cached: offline
-  or with a bad file the shipped numbers stay (`refresh()` says `source: "offline"` or `"invalid"`). `apply(values)`, `reset()`,
+  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). The engine's cache gives a player
+  who starts offline the values of the last run (`refresh()` says `source: "server"`, `"cache"` or, with no answer ever,
+  `"offline"` and the shipped numbers stay). `apply(values)`, `reset()`,
   `defaults()`, `current()`, `flush()`. The keys:
 
 | Key | Default | Range | What |
@@ -521,13 +533,14 @@ and no default build touches a network.
 | `hazards.waterSlow` | 0.5 | 0.1 to 1 | speed factor in water (0.5 = half) |
 | `hazards.caveWarning` | 1.4 | 0.5 to 10 | seconds between stepping on cracked floor and the roof falling |
 
-- **Analytics** (`analytics.js`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
+- **Analytics** (`analytics.js`, on the engine's `analytics`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
   statistics": Yes, send / No, thanks) at every launch until one is pressed; it does not take the focus or hide the menu, and
   ignoring it is a no (a modal prompt hid the menu from the pad-only tests). Options has the same switch (`analytics` toggle).
   Only after a yes: `floor_reached { stratum, floor, players }` at each shift start, `shift_ended { outcome, stratum, floor,
   players, banked, seconds }` at each end (then the queue is sent), and `quit { shifts }` from the Quit button of the title (the
-  engine has no window-close event). No id, name, device or seed is sent. A failed send keeps up to 50 events for the next one; saying no
-  throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `record` (private), `queued()`, `flush()`, `quit()`.
+  engine sends what waits when the window closes, waiting at most 3 seconds, and when the app is suspended). No id, name, device
+  or seed is sent. A failed send keeps the events and the engine retries later (at most 3 attempts per event, up to 500 kept);
+  saying no throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `flush()`, `recordQuit()`.
 
 ## Tests
 
@@ -547,8 +560,8 @@ and no default build touches a network.
 | `seed_code.test.js` | encode and decode round trips, check character, look-alikes, copy at the camp and results, paste at the title |
 | `hazards.test.js` | a flood sealed then spreading, slow water and drowning, magma burning, a cave-in warning then impact, a miner on the lift spared, `allDown` with one and with three players, the results screen |
 | `light.test.js` | the cap of 16 Light2D with four players, six torches and a crystal hall, the nearest sources win the pool, torch rules and the T key, fog states, walls blocking sight and digging opening it |
-| `pathfinding.test.js` | the A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
-| `behavior_tree.test.js` | every node of the tree, including the running-sequence catch |
+| `pathfinding.test.js` | the cost rules over the engine's A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
+| `behavior_tree.test.js` | every node of the engine's `bt`, including the running-sequence catch |
 | `enemies.test.js` | the three brains driven by a fake blackboard, then a beetle, a chase through a tunnel dug a moment ago, the thief stealing, fleeing, escaping or being killed, the Mole King waking, slamming, charging, scaling with players and jamming the lift |
 | `strata.test.js` | the look and music of each stratum, the descent through the results over nine floors, victory then a new run, retry after `dark` and `allDown`, leaving before the results |
 | `coop.test.js` | the join screen with four pads, a keyboard and three pads, keyboard only and gamepad only, a Remote Play guest pad plugged in mid-lobby, a whole shift played by the bot through the join, reviving (bar, decay, no bleed-out, `allDown`), per-player rebinding (API and the Options page), the camera zoom, the leash and the split planner, a pad unplugged (pause, reconnect, hand-over, drop) |
@@ -559,7 +572,7 @@ and no default build touches a network.
 | `glyphs.test.js` | `setType` for each family, the Deck's L1/R1, the keyboard fallback, every picture exists |
 | `news.test.js` | the fixture parsed, the cap and the order, dropped items, the language object, the cache offline |
 | `balance.test.js` | values applied, out-of-range, wrong type and unknown keys rejected with hints, held during a shift, the offline fallback, `reset` |
-| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, quit, a failed send, revoking |
+| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, the quit flush, a failed send, revoking, the queue cap |
 | `deck.test.js` | Deck detection, the 1280x800 fit, suspend and resume, the text-entry helper |
 | `languages.test.js` | the three string tables (same keys, placeholders, plural forms), Russian plurals on real counts, the Thai break rule, the language row by mouse, keyboard and gamepad, saved, a saved choice over the start language |
 | `layout.test.js` | every screen, panel and Options tab in en, ru, th at 100 % and 200 %: nothing overflows, leaves the screen or overlaps; `ui.check_layout` over the scenes |
@@ -590,7 +603,7 @@ and no default build touches a network.
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
 | P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split view is planned and tested, not drawn: one camera in the engine) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
-| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
+| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics use the engine's `remoteConfig` and `analytics`; the server address is a placeholder, see "Server addresses") |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
 | P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`, FB-0028 to FB-0035) |
 | P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai cannot be wrapped by words: FB-0036; sara am glyph: FB-0037; check_layout and ScrollLists: FB-0038) |

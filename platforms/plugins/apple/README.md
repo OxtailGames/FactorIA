@@ -7,7 +7,7 @@ Backend `"apple"` for the game's `platform` API (docs/PLATFORM.md, section "Appl
 | `purchases` | StoreKit 2 | products, buy (consumables, non-consumables, subscriptions), finish, restore; `purchase` events for Ask to Buy approvals, purchases made on another device and transactions the last run did not finish. Receipts are JWS documents. |
 | `achievements`, `leaderboards` | Game Center | sign-in sheet, banners, global / around-the-player / friends boards. |
 | `overlay` | Game Center | `achievements`, `leaderboards` and `friends` pages through `GKAccessPoint`; `store` is `unavailable` (`purchases.buy` shows the purchase sheet). |
-| `cloudSave` | iCloud key-value store | 1 MB and 1024 keys in all; needs the iCloud capability. |
+| `cloudSave` | iCloud key-value store | 1 MB and 1024 keys in all; needs the iCloud capability. `cloud.stat` answers the size and `modified: null`: the store keeps no time for a key. |
 
 There are no `stats` and no `presence` on Apple's platforms: the engine answers those `unavailable`.
 

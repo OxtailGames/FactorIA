@@ -168,6 +168,18 @@
     "linux"
   ],
   "feedbackFile": "ENGINE_FEEDBACK.json",
+  "network": {
+    "hosts": [
+      "burrow-brigade.example"
+    ],
+    "purpose": "Anonymous play statistics the player agreed to (floor reached, how a shift ended), plus the news and the balance values of the title screen."
+  },
+  "analytics": {
+    "endpoint": "https://burrow-brigade.example/v1/events"
+  },
+  "remoteConfig": {
+    "url": "https://burrow-brigade.example/v1/config.json"
+  },
   "localization": {
     "defaultLanguage": "en",
     "languages": [

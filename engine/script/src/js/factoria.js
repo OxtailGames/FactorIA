@@ -1525,7 +1525,9 @@
     get(key, fallback) { const v = N.storageGet(key); return v === undefined ? fallback : v; },
     set(key, value) { N.storageSet(key, plain(value)); },
     remove(key) { N.storageRemove(key); },
-    keys() { return N.storageKeys(); },
+    // The keys of the game's own values; the engine's ("factoria.analytics", "factoria.remoteConfig": the player's analytics
+    // answer and the cached remote config) are not listed. clear() removes them too: the player is asked again.
+    keys() { return N.storageKeys().filter((k) => !k.startsWith("factoria.")); },
     clear() { N.storageClear(); },
     get corrupt() { return N.storageCorrupt(); },
   };
@@ -1584,7 +1586,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); servicesReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1765,8 +1767,8 @@
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "http"];
-  const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay", "http"];
+  const PLATFORM_EVENTS = ["purchase", "overlay", "player", "remotePlay"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
   const quotedList = (names) => names.map((n) => `"${n}"`).join(", ");
@@ -1853,7 +1855,7 @@
     // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
     get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-    // "presence", "integrity", "ads", "http" (http.fetch: false when the system's HTTP client cannot run on this computer).
+    // "presence", "integrity", "ads", "remotePlay", "http" (http.fetch: false when the system's HTTP client cannot run on this computer).
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1864,7 +1866,8 @@
     // The last known player { id, name, signedIn } (from signIn and "player" events).
     get player() { return N.platformInfo().player; },
     signIn() { return platformCall("player.signIn", "platform.signIn()", {}); },
-    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn }.
+    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn },
+    // "remotePlay" { status: "connected" | "disconnected", session }.
     // Returns the function that stops listening. Listeners end with the scene, like ui.on.
     on(event, fn) {
       if (!PLATFORM_EVENTS.includes(event)) {
@@ -1911,6 +1914,12 @@
       load(key) { return platformCall("cloud.load", platformLabel("cloud.load", [key]), { key }, (r) => (r === null || r === undefined ? undefined : JSON.parse(r.data))); },
       list() { return platformCall("cloud.list", "platform.cloud.list()", {}); },
       remove(key) { return platformCall("cloud.remove", platformLabel("cloud.remove", [key]), { key }, noResult); },
+      // stat(key): { exists: false }, or { exists: true, size (bytes), modified (Unix seconds, or null when the store keeps no time) }.
+      stat(key) { return platformCall("cloud.stat", platformLabel("cloud.stat", [key]), { key }); },
+    },
+    remotePlay: {
+      // sessions(): the guests connected through Remote Play Together now: [{ id, guestName, guestId, deviceName, formFactor, resolution }].
+      sessions() { return platformCall("remotePlay.sessions", "platform.remotePlay.sessions()", {}); },
     },
     purchases: {
       // Titles and prices as the store shows them (ids: catalog ids; all products when omitted).
@@ -2019,6 +2028,285 @@
     },
   };
 
+  // ============================================================================================ analytics, remoteConfig
+  // Two services on top of http.fetch (docs/ANALYTICS.md): analytics.event(name, props) queues a small event and sends the
+  // queue in batches, only after the player consented; remoteConfig.get(key, default) reads values the game's server hands out,
+  // cached for offline runs. Both read their section of factoria.json ("analytics", "remoteConfig"); both keep their state in
+  // this closure (a scene change does not touch it) and the player's choices in storage under "factoria.*" keys. The engine
+  // calls serviceTick every frame with the unscaled dt (the engine clock, never the wall clock), serviceSuspend when the app is
+  // suspended and serviceQuit when the game is about to close.
+  const SVC_KEY_CONSENT = "factoria.analytics";
+  const SVC_KEY_CONFIG = "factoria.remoteConfig";
+  const AN_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+  const AN_LIMITS = Object.freeze({ nameLength: 64, props: 20, keyLength: 40, stringLength: 200, eventBytes: 2048, queue: 500, batch: 100, attempts: 3 });
+  const AN_DEFAULTS = Object.freeze({ batch: 20, flushSeconds: 30, timeoutSeconds: 10 });
+  const RC_LIMITS = Object.freeze({ bytes: 65536, keys: 500 });
+  let anGen = 0, rcGen = 0;        // bumped by a reset: an answer that arrives after it belongs to the old run and is ignored
+  let svcClock = 0;                // seconds of engine time since the session started, whatever the time scale
+  let svcConfig = null;            // the sections of game.project, read once per session
+  const an = { queue: [], inflight: null, failures: 0, retryAt: 0, dropped: 0, requests: [], sent: [], adsAnswer: null, adsAsked: false, warned: false };
+  const rc = { started: false, values: {}, source: "default", loading: false, waiters: [], fetched: false };
+
+  function svcSettings() {
+    if (svcConfig) return svcConfig;
+    const p = N.project() || {};
+    svcConfig = { analytics: isObj(p.analytics) ? p.analytics : null, remoteConfig: isObj(p.remoteConfig) ? p.remoteConfig : null,
+                  id: typeof p.id === "string" ? p.id : "", version: typeof p.version === "string" ? p.version : "" };
+    return svcConfig;
+  }
+  function svcInTest() { return N.inTestRun(); }  // not cached: a frame may run before the tests start
+  function analyticsCfg(what) {
+    const a = svcSettings().analytics;
+    if (!a || typeof a.endpoint !== "string" || !a.endpoint)
+      throw new Error(`${what}: this game has no analytics. Add the section to factoria.json: "analytics": { "endpoint": "https://stats.example.com/events" } ` +
+        `(and the endpoint's host to "network".hosts); see docs/ANALYTICS.md. Check analytics.configured before calling it from code shared with other games`);
+    // factoria validate rejects a bad number; a game that runs anyway gets the default
+    const num = (v, lo, hi, dflt) => (typeof v === "number" && v >= lo && v <= hi ? v : dflt);
+    return { endpoint: a.endpoint, batch: Math.floor(num(a.batch, 1, AN_LIMITS.batch, AN_DEFAULTS.batch)), flushSeconds: num(a.flushSeconds, 1, 3600, AN_DEFAULTS.flushSeconds),
+             timeoutSeconds: num(a.timeoutSeconds, 0.5, 120, AN_DEFAULTS.timeoutSeconds) };
+  }
+  function ownConsent() {
+    const v = N.storageGet(SVC_KEY_CONSENT);
+    return isObj(v) && (v.consent === "granted" || v.consent === "denied") ? v.consent : "unknown";
+  }
+  // The rule for a game that also shows ads and sets "consentFromAds": until the player answers the analytics question
+  // themselves, analytics counts as granted exactly when the ads consent is (gdpr "granted" and tracking "authorized" or
+  // "notRequired"). The player's own answer always wins, in both directions; a missing, unknown or refused ads consent never grants.
+  function adsGrants() {
+    const c = an.adsAnswer;
+    return !!c && c.gdpr === "granted" && (c.tracking === "authorized" || c.tracking === "notRequired");
+  }
+  function analyticsConsent() {
+    const own = ownConsent();
+    if (own !== "unknown") return own;
+    const a = svcSettings().analytics;
+    return a && a.consentFromAds === true && adsGrants() ? "granted" : "unknown";
+  }
+  function analyticsAllowed() { return svcSettings().analytics !== null && analyticsConsent() === "granted"; }
+  function askAds() {
+    if (an.adsAsked) return;
+    const a = svcSettings().analytics;
+    if (!a || a.consentFromAds !== true || ownConsent() !== "unknown" || !N.platformInfo().services.includes("ads")) return;
+    an.adsAsked = true;
+    try { platformCall("ads.consent", "analytics: platform.ads.consent()", {}).then((c) => { an.adsAnswer = isObj(c) ? c : null; }, () => {}); }
+    catch (e) { /* no ads here */ }
+  }
+
+  function checkEvent(name, props) {
+    const L = AN_LIMITS;
+    if (typeof name !== "string" || !AN_NAME.test(name))
+      throw new Error(`analytics.event(name, props): name must be 1 to ${L.nameLength} characters, start with a letter and use only letters, digits, "_", "." and "-" (like "level_done"), but got ${inspect(name)}`);
+    if (props === undefined || props === null) return {};
+    if (!isObj(props) || Array.isArray(props))
+      throw new Error(`analytics.event("${name}", props): props must be a flat object of strings, numbers and booleans like { level: 3, won: true }, but got ${inspect(props)}`);
+    const keys = Object.keys(props);
+    if (keys.length > L.props)
+      throw new Error(`analytics.event("${name}", props): ${keys.length} props, at most ${L.props} are allowed. Send fewer, or split the event in two`);
+    const out = {};
+    for (const k of keys) {
+      if (!AN_NAME.test(k) || k.length > L.keyLength)
+        throw new Error(`analytics.event("${name}", props): the prop name ${inspect(k)} must be 1 to ${L.keyLength} characters, start with a letter and use only letters, digits, "_", "." and "-"`);
+      const v = props[k];
+      if (typeof v === "number") {
+        if (!Number.isFinite(v)) throw new Error(`analytics.event("${name}", props): prop '${k}' is ${v}; numbers must be finite (JSON has no NaN or Infinity)`);
+      } else if (typeof v === "string") {
+        if (v.length > L.stringLength)
+          throw new Error(`analytics.event("${name}", props): prop '${k}' is a text of ${v.length} characters, at most ${L.stringLength} are allowed. Send a short code, never what the player typed`);
+      } else if (typeof v !== "boolean" && v !== null) {
+        throw new Error(`analytics.event("${name}", props): prop '${k}' is ${inspect(v)}; a prop is a string, a number, a boolean or null (no objects, arrays or undefined). Flatten it into several props`);
+      }
+      out[k] = v;
+    }
+    const size = JSON.stringify(out).length;
+    if (size > L.eventBytes)
+      throw new Error(`analytics.event("${name}", props): the props take ${size} characters, at most ${L.eventBytes} are allowed. Send fewer or shorter props`);
+    return out;
+  }
+
+  function analyticsFlush(why) {
+    let cfg;
+    try { cfg = analyticsCfg("analytics.flush()"); } catch (e) { return Promise.reject(e); }
+    if (!analyticsAllowed() || an.queue.length === 0) return Promise.resolve({ sent: 0, ok: true });
+    if (an.inflight) return an.inflight;
+    const batch = an.queue.splice(0, AN_LIMITS.batch);
+    const s = svcSettings();
+    const body = { game: s.id, version: s.version, sentOn: game.today().utc.iso,
+                   events: batch.map((e) => ({ name: e.name, props: e.props, t: e.t })) };
+    const copy = () => body.events.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t }));
+    const gen = anGen;
+    const settle = (ok, status, error) => {
+      if (gen !== anGen) return { sent: 0, ok: false };  // the session was reset (a new test run) while the request was on its way
+      an.inflight = null;
+      if (svcInTest()) {  // a log for game.analytics.sent() / requests(); a shipped game keeps none
+        an.requests.push({ endpoint: cfg.endpoint, reason: why, ok, status, error, events: copy() });
+        if (an.requests.length > 200) an.requests.shift();
+        if (ok) { an.sent.push(...copy()); if (an.sent.length > 1000) an.sent.splice(0, an.sent.length - 1000); }
+      }
+      if (ok) { an.failures = 0; return { sent: batch.length, ok: true }; }
+      const retriable = status === undefined || status === 408 || status === 429 || status >= 500;
+      if (!retriable) {  // the server refused the batch: sending it again cannot help
+        console.warn(`analytics: ${cfg.endpoint} answered ${status}; the ${batch.length} events were dropped (a 4xx answer is a refusal). Check the endpoint in factoria.json`);
+        an.dropped += batch.length;
+        return { sent: 0, ok: false };
+      }
+      an.failures++;
+      an.retryAt = svcClock + Math.min(cfg.flushSeconds * Math.pow(2, an.failures - 1), 600);
+      const keep = [];
+      for (const e of batch) { e.attempts++; if (e.attempts < AN_LIMITS.attempts) keep.push(e); else an.dropped++; }
+      if (analyticsAllowed()) {  // a refusal while the request was on its way forgets the batch, it is not put back
+        an.queue = keep.concat(an.queue);
+        while (an.queue.length > AN_LIMITS.queue) { an.queue.shift(); an.dropped++; }
+      }
+      return { sent: 0, ok: false };
+    };
+    let p;
+    try { p = http.fetch(cfg.endpoint, { method: "POST", body, timeout: cfg.timeoutSeconds }); }
+    catch (e) { an.queue = batch.concat(an.queue); return Promise.reject(e); }
+    an.inflight = p.then((r) => settle(r.ok, r.status), (e) => settle(false, undefined, e && e.message));
+    return an.inflight;
+  }
+  function analyticsAuto(why) {
+    analyticsFlush(why).catch((e) => { if (!an.warned) { an.warned = true; console.warn(`analytics: ${e.message}`); } });
+  }
+  function analyticsReset() {
+    anGen++;
+    Object.assign(an, { queue: [], inflight: null, failures: 0, retryAt: 0, dropped: 0, requests: [], sent: [], adsAnswer: null, adsAsked: false, warned: false });
+  }
+
+  const analytics = {
+    // True when factoria.json has an "analytics" section with an endpoint. event(), flush() and setConsent() throw without it.
+    get configured() { const a = svcSettings().analytics; return !!a && typeof a.endpoint === "string" && a.endpoint.length > 0; },
+    // The player's answer: "granted", "denied" or "unknown" (never asked: nothing is queued or sent). Kept across runs.
+    consent() { askAds(); return svcSettings().analytics ? analyticsConsent() : "unknown"; },
+    // setConsent(true | false): the player's answer, kept across runs. false forgets everything waiting to be sent.
+    setConsent(yes) {
+      analyticsCfg("analytics.setConsent(yes)");
+      if (typeof yes !== "boolean") throw new Error(`analytics.setConsent(yes) expects true or false, but got ${inspect(yes)}`);
+      N.storageSet(SVC_KEY_CONSENT, { consent: yes ? "granted" : "denied", on: game.today().utc.iso });
+      if (!yes) an.queue = [];
+    },
+    // event(name, props?): queues one event; true when queued, false when the player has not consented (nothing is kept).
+    event(name, props) {
+      const cfg = analyticsCfg("analytics.event(name, props)");
+      const clean = checkEvent(name, props);
+      askAds();
+      if (!analyticsAllowed()) return false;
+      an.queue.push({ name, props: clean, t: Math.round(svcClock * 1000) / 1000, attempts: 0 });
+      while (an.queue.length > AN_LIMITS.queue) { an.queue.shift(); an.dropped++; }
+      if (an.queue.length >= cfg.batch && svcClock >= an.retryAt && !an.inflight) analyticsAuto("batch");
+      return true;
+    },
+    // flush(): sends what waits now (one request of at most 100 events). Resolves { sent, ok }; a network failure is ok: false.
+    flush() { return analyticsFlush("flush"); },
+    // status(): { configured, consent, queued, inFlight, dropped, failures, retryInSeconds, endpoint } for debugging.
+    status() {
+      const a = svcSettings().analytics;
+      return { configured: analytics.configured, consent: analytics.consent(), queued: an.queue.length, inFlight: an.inflight !== null,
+               dropped: an.dropped, failures: an.failures, retryInSeconds: Math.max(0, Math.ceil(an.retryAt - svcClock)), endpoint: a && a.endpoint ? a.endpoint : "" };
+    },
+    limits: AN_LIMITS,
+  };
+
+  // ---- remote config
+  function rcCfg() {
+    const c = svcSettings().remoteConfig;
+    return c && typeof c.url === "string" && c.url
+      ? { url: c.url, timeoutSeconds: typeof c.timeoutSeconds === "number" && c.timeoutSeconds >= 0.5 && c.timeoutSeconds <= 30 ? c.timeoutSeconds : 5 } : null;
+  }
+  function rcSettleWaiters() {
+    const ws = rc.waiters; rc.waiters = [];
+    for (const w of ws) w.resolve(rc.source);
+  }
+  const rcValid = (o) => isObj(o) && !Array.isArray(o) && Object.keys(o).length <= RC_LIMITS.keys;
+  function rcFetch() {
+    const cfg = rcCfg();
+    if (!cfg || rc.loading) return;
+    rc.loading = true;
+    const gen = rcGen;
+    let p;
+    try { p = http.fetch(cfg.url, { timeout: cfg.timeoutSeconds }); }
+    catch (e) { rc.loading = false; rc.fetched = true; console.warn(`remoteConfig: ${e.message}`); rcSettleWaiters(); return; }
+    p.then((r) => {
+      if (gen !== rcGen) return;  // a reset or a restart happened while the request was on its way
+      rc.loading = false; rc.fetched = true;
+      let obj = null;
+      if (r.ok && r.text.length <= RC_LIMITS.bytes) { try { obj = r.json(); } catch (e) { obj = null; } }
+      if (rcValid(obj)) {  // the whole answer or nothing: a bad answer never reaches the values
+        rc.values = obj; rc.source = "remote";
+        N.storageSet(SVC_KEY_CONFIG, { values: obj, on: game.today().utc.iso });
+      } else {
+        console.warn(`remoteConfig: ${cfg.url} ${r.ok ? `did not answer a JSON object of at most ${RC_LIMITS.keys} keys and ${RC_LIMITS.bytes} bytes` : `answered status ${r.status}`}: keeping the ${rc.source} values`);
+      }
+      rcSettleWaiters();
+    }, () => { if (gen !== rcGen) return; rc.loading = false; rc.fetched = true; rcSettleWaiters(); });  // offline: the cache (or the defaults) stay
+  }
+  function rcStart() {
+    if (rc.started) return;
+    rc.started = true;
+    if (!rcCfg()) return;
+    const cached = N.storageGet(SVC_KEY_CONFIG);
+    if (isObj(cached) && rcValid(cached.values)) { rc.values = cached.values; rc.source = "cache"; }
+    rcFetch();
+  }
+  function rcReset() { rcGen++; Object.assign(rc, { started: false, values: {}, source: "default", loading: false, waiters: [], fetched: false }); }
+
+  const remoteConfig = {
+    // True when factoria.json has a "remoteConfig" section with a url.
+    get configured() { return rcCfg() !== null; },
+    // get(key, fallback): the server's value, else the cached one (offline), else fallback. A value whose type differs from the
+    // fallback's (a number where you expect text) counts as missing, so a bad server file cannot break the game.
+    get(key, fallback) {
+      if (typeof key !== "string" || !key) throw new Error(`remoteConfig.get(key, fallback) expects the name of a value, e.g. remoteConfig.get("enemySpeed", 1), but got ${inspect(key)}`);
+      rcStart();
+      if (!Object.prototype.hasOwnProperty.call(rc.values, key)) return fallback;
+      const v = rc.values[key];
+      if (fallback !== undefined && fallback !== null && v !== null) {
+        const kind = (x) => (Array.isArray(x) ? "array" : typeof x);
+        if (kind(v) !== kind(fallback)) return fallback;
+      }
+      return v === undefined ? v : JSON.parse(JSON.stringify(v));
+    },
+    // source(): where the values come from now: "remote" (this run's fetch), "cache" (the last good answer, from an earlier run) or "default".
+    source() { rcStart(); return rc.source; },
+    // ready(timeoutSeconds = 3): a Promise of source() once the first fetch ended or the timeout (engine seconds) passed. Never rejects.
+    ready(timeoutSeconds = 3) {
+      if (typeof timeoutSeconds !== "number" || !(timeoutSeconds >= 0)) throw new Error(`remoteConfig.ready(timeoutSeconds) expects a number of seconds, 0 or more, but got ${inspect(timeoutSeconds)}`);
+      rcStart();
+      if (!rcCfg() || rc.fetched) return Promise.resolve(rc.source);
+      return new Promise((resolve) => { rc.waiters.push({ resolve, deadline: svcClock + timeoutSeconds }); });
+    },
+    // refresh(): fetches again; resolves with source() when the answer (or the failure) arrived.
+    refresh() {
+      rcStart();
+      if (!rcCfg()) return Promise.resolve(rc.source);
+      rc.fetched = false;
+      const p = new Promise((resolve) => { rc.waiters.push({ resolve, deadline: Infinity }); });
+      rcFetch();
+      return p;
+    },
+  };
+
+  function serviceTick(dt) {
+    svcClock += dt;
+    if (!svcInTest()) { rcStart(); askAds(); }  // tests fetch on first use, so an unscripted answer never lands in the call log
+    if (rc.waiters.length) {
+      const due = rc.waiters.filter((w) => svcClock >= w.deadline);
+      if (due.length) { rc.waiters = rc.waiters.filter((w) => svcClock < w.deadline); for (const w of due) w.resolve(rc.source); }
+    }
+    if (an.queue.length && !an.inflight && svcClock >= an.retryAt && analytics.configured && analyticsAllowed()) {
+      if (svcClock - an.queue[0].t >= analyticsCfg("analytics").flushSeconds) analyticsAuto("timer");
+    }
+  }
+  function serviceSuspend() { if (an.queue.length && !an.inflight && analytics.configured) analyticsAuto("suspend"); }
+  // Called when the game is about to close: sends what waits and tells how many requests are in flight (the engine then waits
+  // for them, 3 seconds at most).
+  function serviceQuit() {
+    if (an.queue.length && !an.inflight && analytics.configured) analyticsAuto("quit");
+    return an.inflight ? 1 : 0;
+  }
+  function servicePending() { return an.inflight ? 1 : 0; }
+  function servicesReset() { analyticsReset(); rcReset(); svcConfig = null; svcClock = 0; }
+
   // ======================================================================================================= i18n
   // Localization (docs/LOCALIZATION.md): the string tables are locales/<language>.json, the languages are listed in factoria.json
   // "localization". Without that section the game is not localized: t(key) returns the key, languages is [].
@@ -2107,14 +2395,172 @@
       }
       return out;
     },
+    // findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): A* over the cells of a Tilemap
+    // entity (or its id) or of a grid { width, height, cost, origin?, cellSize? } (docs/NAVIGATION.md, "Tile paths").
+    // Cells are { col, row } or [col, row], row 0 = top. Result { found, complete, cells: {col,row}[], points: Vec2[], cost,
+    // length } or { found: false, reason, message, hint }. Never throws for "no route".
+    findTilePath(map, from, to, o) {
+      const label = "nav.findTilePath(map, from, to)";
+      const cell = (c, what) => {
+        const a = Array.isArray(c) ? c : (c && typeof c === "object" && "col" in c && "row" in c) ? [c.col, c.row] : null;
+        if (!a || a.length !== 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1]))
+          throw new Error(`${label}: \`${what}\` must be a cell { col, row } or [col, row] (0-based, row 0 = top), but got ${inspect(c)}`);
+        return [a[0], a[1]];
+      };
+      const args = { from: cell(from, "from"), to: cell(to, "to") };
+      if (typeof map === "string") args.tilemap = map;
+      else if (map instanceof Entity) args.tilemap = map.id;
+      else if (map && typeof map === "object" && Array.isArray(map.cost)) {
+        const cost = new Array(map.cost.length);
+        for (let i = 0; i < cost.length; i++) { const c = map.cost[i]; cost[i] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : -1; }
+        args.grid = { width: map.width, height: map.height, cost };
+        if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
+        if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id) or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      if (o) {
+        for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+        if (o.costs !== undefined) {
+          const costs = {};
+          for (const k of Object.keys(o.costs)) { const c = o.costs[k]; costs[k] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : null; }
+          args.costs = costs;
+        }
+      }
+      const r = N.navFindTilePath(args);
+      const out = { found: r.found, complete: r.complete, cells: r.cells.map((c) => ({ col: c[0], row: c[1] })),
+                    points: r.points.map((p) => new Vec2(p[0], p[1])), cost: r.cost, length: r.length };
+      if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
+      return out;
+    },
+    // tileVersion(tilemap): how many tiles were written to the Tilemap with setTile / tilemap.set_tile so far; compare it
+    // with the value you saw when you searched to know a path is stale. Writes that replace `tiles` as a whole do not count.
+    tileVersion(tilemap) {
+      const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
+      if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);
+      return N.tileVersion(e.$h);
+    },
     // bake(mesh?): bakes now (autoBake does it by itself) and returns the stats.
     bake(mesh) { return N.navBake(mesh === undefined ? "" : String(mesh)); },
   };
 
+  // ================================================================================================================== bt
+  // bt: a small behaviour tree in plain JS (docs/SCRIPTING.md, "AI: behaviour trees"). Deterministic: time only advances by
+  // the dt the script passes to tick().
+  const BT_SUCCESS = "success", BT_FAILURE = "failure", BT_RUNNING = "running";
+  const btNode = (label, node) => node;
+  function btChildren(label, list) {
+    list.forEach((c, i) => {
+      if (!c || typeof c.type !== "string") throw new Error(`bt.${label}: child ${i} is not a node (${inspect(c)}); build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+    });
+    return list;
+  }
+  function btFn(label, fn) {
+    if (typeof fn !== "function") throw new Error(`bt.${label} expects a function, e.g. bt.${label}((bb) => bb.ready), but got ${inspect(fn)}`);
+    return fn;
+  }
+  function btSeconds(label, s) {
+    if (!(typeof s === "number" && s >= 0)) throw new Error(`bt.${label}(seconds): seconds must be a number >= 0, but got ${inspect(s)}`);
+    return s;
+  }
+  class BtTree {
+    // `blackboard` is the object every condition and action receives: the state of the thing the tree drives.
+    constructor(root, blackboard = {}) {
+      if (!root || typeof root.type !== "string") throw new Error(`new bt.Tree(root, blackboard): root must be a node built with bt.sequence, bt.selector, bt.action..., but got ${inspect(root)}`);
+      this.root = root; this.blackboard = blackboard; this.clock = 0; this.count = 0; this.dt = 0;
+      this.memory = new Map(); this.status = BT_FAILURE;
+    }
+    tick(dt) {
+      if (!(typeof dt === "number" && dt >= 0)) throw new Error(`tree.tick(dt): dt must be a number of seconds >= 0 (pass the dt of onUpdate), but got ${inspect(dt)}`);
+      this.clock += dt; this.count++; this.dt = dt;
+      this.status = this.run(this.root);
+      for (const [node, mem] of this.memory)
+        if (node.type === "action" && mem.running && mem.seen !== this.count) { mem.running = false; node.hooks?.onExit?.(this.blackboard, "aborted"); }
+      return this.status;
+    }
+    reset() {
+      for (const [node, mem] of this.memory) if (node.type === "action" && mem.running) node.hooks?.onExit?.(this.blackboard, "aborted");
+      this.memory.clear();
+    }
+    mem(node) {
+      let m = this.memory.get(node);
+      if (!m) { m = { seen: -10 }; this.memory.set(node, m); }
+      if (m.seen !== this.count - 1 && m.seen !== this.count) {
+        const keep = node.type === "cooldown" ? m.until : undefined;
+        for (const k of Object.keys(m)) if (k !== "seen" && k !== "running") delete m[k];
+        if (keep !== undefined) m.until = keep;
+      }
+      m.seen = this.count;
+      return m;
+    }
+    run(node) {
+      const bb = this.blackboard;
+      switch (node.type) {
+        case "condition": this.mem(node); return node.fn(bb) ? BT_SUCCESS : BT_FAILURE;
+        case "action": {
+          const m = this.mem(node);
+          if (!m.running) { m.running = true; node.hooks?.onEnter?.(bb); }
+          const st = node.fn(bb, this.dt, this);
+          if (st !== BT_SUCCESS && st !== BT_FAILURE && st !== BT_RUNNING)
+            throw new Error(`bt.action: the function returned ${inspect(st)}; it must return bt.SUCCESS, bt.FAILURE or bt.RUNNING`);
+          if (st !== BT_RUNNING) { m.running = false; node.hooks?.onExit?.(bb, st); }
+          return st;
+        }
+        case "sequence": {
+          const m = this.mem(node);
+          for (let i = m.index ?? 0; i < node.children.length; i++) {
+            const st = this.run(node.children[i]);
+            if (st === BT_RUNNING) { m.index = i; return BT_RUNNING; }
+            if (st === BT_FAILURE) { m.index = 0; return BT_FAILURE; }
+          }
+          m.index = 0; return BT_SUCCESS;
+        }
+        case "selector": {
+          this.mem(node);
+          for (const child of node.children) { const st = this.run(child); if (st !== BT_FAILURE) return st; }
+          return BT_FAILURE;
+        }
+        case "wait": {
+          const m = this.mem(node);
+          m.waited = (m.waited ?? 0) + this.dt;
+          if (m.waited >= node.seconds) { m.waited = 0; return BT_SUCCESS; }
+          return BT_RUNNING;
+        }
+        case "cooldown": {
+          const m = this.mem(node);
+          if (m.until !== undefined && this.clock < m.until) return BT_FAILURE;
+          const st = this.run(node.children[0]);
+          if (st !== BT_RUNNING) m.until = this.clock + node.seconds;
+          return st;
+        }
+        case "inverter": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_SUCCESS ? BT_FAILURE : st === BT_FAILURE ? BT_SUCCESS : BT_RUNNING;
+        }
+        case "succeeder": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_RUNNING ? BT_RUNNING : BT_SUCCESS;
+        }
+      }
+      throw new Error(`bt: unknown node type '${node.type}'; build nodes with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter or bt.succeeder`);
+    }
+  }
+  const bt = {
+    SUCCESS: BT_SUCCESS, FAILURE: BT_FAILURE, RUNNING: BT_RUNNING, Tree: BtTree,
+    sequence: (...children) => btNode("sequence", { type: "sequence", children: btChildren("sequence", children) }),
+    selector: (...children) => btNode("selector", { type: "selector", children: btChildren("selector", children) }),
+    condition: (fn) => ({ type: "condition", fn: btFn("condition", fn) }),
+    action: (fn, hooks = {}) => ({ type: "action", fn: btFn("action", fn), hooks }),
+    wait: (seconds) => ({ type: "wait", seconds: btSeconds("wait", seconds) }),
+    cooldown: (seconds, child) => ({ type: "cooldown", seconds: btSeconds("cooldown", seconds), children: btChildren("cooldown", [child]) }),
+    inverter: (child) => ({ type: "inverter", children: btChildren("inverter", [child]) }),
+    succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
+  };
+
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, i18n,
-    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
+    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens, bt,
   };
 
   // ============================================================================================ eval serialization
@@ -2591,8 +3037,8 @@
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
     // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
-    // shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, materials, materialFallbacks, textureMB, width, height,
-    // renderScale }. lights are the 3D lights, lights2d the Light2D ones. Throws
+    // shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, width, height,
+    // renderScale }. lights are the 3D lights, lights2d the Light2D ones (lights2dShadowed: those with a shadow). Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();
@@ -2631,14 +3077,38 @@
       // ad(outcome, options): how the fake's test ad ends from now on: "watched" (default), "closedEarly", "noFill" or
       // "consentRefused"; options { gdpr, tracking } are what platform.ads.consent() answers. reset() restores the defaults.
       ad(outcome, options = {}) { fa.call("platform.set_ad", { outcome, ...plain(options) }); },
+      // remotePlayConnect(info?): a guest joins Remote Play Together: info { guestName?, guestId?, deviceName?, formFactor?, resolution? }
+      // (what is left out is made up); remotePlay.sessions() lists the guest and platform.on("remotePlay") listeners get
+      // { status: "connected", session } at the next game.step(). Returns the session, with its id.
+      remotePlayConnect(info = {}) { return fa.call("platform.remote_play_connect", plain(info)); },
+      // remotePlayDisconnect(id): the guest with that session id leaves; listeners get { status: "disconnected", session }.
+      remotePlayDisconnect(id) { return fa.call("platform.remote_play_disconnect", { id }); },
       reset() { fa.call("platform.reset"); },
-      // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
+      // set({ signedIn, delayFrames, backend, cloudClock }): signedIn false rejects everything with notSignedIn; delayFrames holds each
       // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().
       // An unknown option throws with a "did you mean".
       set(options) { fa.call("platform.set_fake", plain(options)); },
       state() { return fa.call("platform.state"); },
       // Every request the game made: [{ seq, frame, method, args, ok, result | error }], oldest first.
       calls() { const s = fa.call("platform.state"); return s.fake ? s.fake.calls : []; },
+    },
+    // What analytics (docs/ANALYTICS.md) did in this test run, without a network: the batches go through http.fetch, so script the
+    // server with game.platform.respond("http.fetch", ...) (an unscripted request fails like an offline player and is retried).
+    analytics: {
+      // The events the server accepted (a 2xx answer), oldest first: [{ name, props, t }] (t = engine seconds since the run started).
+      sent() { return an.sent.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t })); },
+      // Every request made: [{ endpoint, reason: "batch" | "timer" | "suspend" | "quit" | "flush", ok, status?, error?, events }].
+      requests() { return an.requests.map((r) => Object.assign({}, r, { events: r.events.map((e) => Object.assign({}, e)) })); },
+      // The events waiting for the next batch: [{ name, props, t }].
+      queued() { return an.queue.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t })); },
+      // restart(): the next run of the game: the queue and the logs are forgotten, the player's consent stays (it is in storage).
+      restart() { analyticsReset(); },
+    },
+    // The remote config of this test run (docs/ANALYTICS.md): script the server with game.platform.respond("http.fetch", { json: {...} }).
+    remoteConfig: {
+      // restart(): the next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use,
+      // starting from the cache that earlier runs left in storage (an unscripted fetch fails: that is an offline player).
+      restart() { rcReset(); },
     },
   };
   // An unknown member (game.pasued) throws with a "did you mean" instead of being undefined.
@@ -2720,6 +3190,7 @@
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); },
+    serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
     entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); },
