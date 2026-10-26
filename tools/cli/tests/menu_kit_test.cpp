@@ -190,6 +190,54 @@ TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and
     CHECK_FALSE(has(add(dir2, {"main-menu"})["parts"], "ageGate"));
 }
 
+TEST_CASE("project.add_menu_kit: the analyticsConsent part asks once, and the Options switch and the main menu follow the game's analytics section") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const std::string dir = new_game("analytics");
+    const fa::Json r = add(dir, {"analyticsConsent"});
+    CAPTURE(r.dump(2));
+    CHECK(r["parts"] == fa::Json::parse(R"(["core","analyticsConsent"])"));
+    CHECK(has(r["added"], "prefabs/ui/analytics_consent.prefab.json"));
+    CHECK(has(r["added"], "scripts/ui/analytics_consent.js"));
+    CHECK(has(r["added"], "tests/analytics_consent.test.js"));
+    CHECK(read_json(stdfs::path(dir) / "locales" / "en.json")["analyticsConsent"].contains("deny"));
+    bool mentionsSection = false;
+    for (const fa::Json& step : r["nextSteps"]) mentionsSection = mentionsSection || step.get<std::string>().find("\"analytics\" section") != std::string::npos;
+    CHECK(mentionsSection);
+
+    // Without an "analytics" section there is nothing to ask: its test passes and says so.
+    {
+        fa::cli::SessionOptions so;
+        so.gfx = fa::cli::Gfx::None;
+        auto session = fa::cli::Session::open(dir, so);
+        fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+        CHECK_MESSAGE(rep.ok(), rep.summary());
+        CHECK(rep.passed == 4);
+        session.reset();
+        fa::fs::set_project_root(oldRoot);
+    }
+
+    // With the section (and its host declared) the question is real: the same test now checks the answers, and the game validates.
+    fa::Json project = read_json(stdfs::path(dir) / "factoria.json");
+    project["network"] = fa::Json::parse(R"({"hosts": ["stats.example.com"], "purpose": "Anonymous usage counts the player agreed to."})");
+    project["analytics"] = fa::Json::parse(R"({"endpoint": "https://stats.example.com/events"})");
+    {
+        std::ofstream out(stdfs::path(dir) / "factoria.json", std::ios::binary);
+        out << project.dump(2) << "\n";
+    }
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::None;
+    auto session = fa::cli::Session::open(dir, so);
+    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    REQUIRE(v["ok"] == true);
+    CAPTURE(v["result"].dump(2));
+    CHECK(v["result"]["errors"].empty());
+    fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+    CHECK_MESSAGE(rep.ok(), rep.summary());
+    CHECK(rep.passed == 4);
+    session.reset();
+    fa::fs::set_project_root(oldRoot);
+}
+
 namespace {
 
 // Opens the game as `factoria validate` and `factoria test` do: no validation error, every test passes.

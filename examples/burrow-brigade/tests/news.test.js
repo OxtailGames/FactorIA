@@ -1,9 +1,9 @@
 // P5: the title's news, from a fixture served by a fake server.
-import { test, describe, expect } from "factoria:test";
+import { test, describe, expect, game } from "factoria:test";
 import { storage } from "factoria";
 import fixture from "./fixtures/news.json";
 import * as news from "../scripts/game/news.js";
-import { freshOnline, fakeServer } from "./helpers/online.js";
+import { freshOnline, serveConfig, requests, CONFIG_URL } from "./helpers/online.js";
 
 describe("news", () => {
   freshOnline();
@@ -40,12 +40,13 @@ describe("news", () => {
   });
 
   test("refresh reads the server, remembers the news and falls back to them offline", async () => {
-    const server = fakeServer({ "/v1/news.json": fixture });
+    serveConfig({ news: fixture });
     const a = await news.refresh();
     expect(a.source).toBe("server");
     expect(a.items.length).toBe(3);
-    expect(server.calls[0]).toMatchObject({ method: "GET", path: "/v1/news.json" });
-    server.restore();
+    expect(requests()[0]).toMatchObject({ method: "GET", url: CONFIG_URL });
+    game.remoteConfig.restart(); // the next run starts offline
+    game.platform.reset();
     const b = await news.refresh();
     expect(b.source).toBe("cache");
     expect(b.items).toEqual(a.items);
@@ -54,18 +55,19 @@ describe("news", () => {
 
   test("offline with nothing remembered: no news, no error", async () => {
     storage.clear();
+    serveConfig(null);
     const r = await news.refresh();
     expect(r).toEqual({ source: "none", items: [] });
   });
 
   test("a bad file from the server keeps the remembered news", async () => {
-    const good = fakeServer({ "/v1/news.json": fixture });
+    serveConfig({ news: fixture });
     await news.refresh();
-    good.restore();
-    const bad = fakeServer({ "/v1/news.json": { version: 9 } });
+    game.remoteConfig.restart();
+    game.platform.reset();
+    serveConfig({ news: { version: 9 } });
     const r = await news.refresh();
     expect(r.source).toBe("cache");
-    bad.restore();
   });
 
   test("line joins title and body", () => {

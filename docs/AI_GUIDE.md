@@ -1402,6 +1402,23 @@ Animation runs in the fixed step, so headless tests and replays match (`game.ste
 The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
 Each animated model is its own draw call, so keep crowds of animated characters modest.
 
+### 9.25.1 Analytics with consent and remote config
+
+For a game that must count what players do or tune values without a new build ([ANALYTICS.md](ANALYTICS.md); `docs_read {"name":"analytics"}`).
+Nothing is sent before the player says yes, so ask first, and say in the privacy policy what is sent.
+
+1. `factoria.json`: `"network": {"hosts": ["stats.example.com"], "purpose": "..."}`, `"analytics": {"endpoint": "https://stats.example.com/events"}`
+   and, for values, `"remoteConfig": {"url": "https://stats.example.com/game.json"}`. `factoria validate` checks the hosts and the numbers.
+2. The question: add the menu kit part `analyticsConsent` (`project.add_menu_kit {"parts":["analyticsConsent"]}`) or call
+   `analytics.setConsent(true | false)` from your own button. `analytics.consent()` is `"unknown"` until the player answers.
+3. Events: `analytics.event("level_done", { level: 3, won: true })` (flat props, short codes and numbers, never typed text). It returns `false` and keeps nothing
+   without consent. Batches go out at `batch` events, after `flushSeconds`, on suspend and on quit (the quit waits up to 3 seconds).
+4. Values: `remoteConfig.get("enemySpeed", 1.5)` always works (cache, then the fallback). To wait for the first answer at a loading screen,
+   check that the scene is still current: `const here = scene.current; remoteConfig.ready().then(() => { if (scene.current !== here) return; ... })`.
+5. Tests: `game.platform.respond("http.fetch", { status: 204 })` plays the server, `game.analytics.sent()` shows what it accepted, `game.analytics.queued()` what waits,
+   `game.remoteConfig.restart()` starts a new run from the cache. A test that loads a main menu in a game with analytics sets the answer first
+   (`analytics.setConsent(true)`), or the question is on screen.
+
 ### 9.26 2D production: flipped tiles, 9-slice, lights, parallax, joints
 
 - **Flipped and rotated tiles.** A tile value in `Tilemap.tiles` is the index plus flag bits: `+268435456` flip X, `+536870912` flip Y, `+1073741824` transpose (applied first, then X, then Y). Turn 90 degrees clockwise = `1342177280 + i`, 180 = `805306368 + i`, 90 counter-clockwise = `1610612736 + i`. `solidTiles`, the tileset range check and collision use the plain index only. In `scene.import_ascii` a legend object takes `{"tile": 3, "flipX": true, "flipY": false, "rotate": 90}` (rotate is clockwise: 0, 90, 180, 270) so you never write the numbers.
@@ -1608,4 +1625,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read ai-costs` (MCP `docs_read {"name":"ai-costs"}`): what a whole game cost in tokens and money
   (measured), what drives the cost, the `limits` that cap it and where to see what was spent. Tell the user when a
   task is going to be long or dear.
+- `factoria docs read analytics` (MCP `docs_read {"name":"analytics"}`): usage events sent after the player consents,
+  values read from your server with an offline cache, the menu kit's question, tests without a server and what to tell the
+  stores. `factoria docs read networking` has the `http.fetch` they stand on.
 - The project's `AGENTS.md`: short rules for this game.

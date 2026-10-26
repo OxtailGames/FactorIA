@@ -37,10 +37,17 @@
       "localeKeys": ["ageGate"]
     },
     {
+      "name": "analyticsConsent",
+      "description": "The analytics question for a game whose factoria.json has an \"analytics\" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.",
+      "requires": ["core"],
+      "files": ["prefabs/ui/analytics_consent.prefab.json", "scripts/ui/analytics_consent.js", "tests/analytics_consent.test.js"],
+      "localeKeys": ["analyticsConsent"]
+    },
+    {
       "name": "main-menu",
-      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, and the line that opens the age gate, are written only when the shop and ageGate parts are added too (all parts by default).",
+      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).",
       "requires": ["core", "options", "credits"],
-      "prunes": {"shop": ["shop_button", "shop"], "ageGate": ["age_gate"]},
+      "prunes": {"shop": ["shop_button", "shop"], "ageGate": ["age_gate"], "analyticsConsent": ["analytics_consent"]},
       "files": ["scenes/menu.scene.json", "scripts/main_menu.js", "tests/recipe.test.js"],
       "localeKeys": []
     },

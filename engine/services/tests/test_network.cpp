@@ -370,3 +370,39 @@ TEST_CASE("http.fetch: the http log hands answers over in request order, with th
     FakeBackend replay;
     for (const HttpLogEntry& e : log) CHECK(replay.respond("http.fetch", e.answer).ok());
 }
+
+TEST_CASE("analytics and remoteConfig sections: the endpoint must be https and its host declared") {
+    const NetworkPolicy net = policy(R"(["stats.example.com"])");
+    auto a = parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":10,"flushSeconds":15})"), net);
+    CHECK(a.ok());
+    CHECK(a.settings.configured);
+    CHECK(a.settings.batch == 10);
+    CHECK(a.settings.flushSeconds == 15);
+
+    auto none = parse_analytics(Json(), net);
+    CHECK(none.ok());
+    CHECK_FALSE(none.settings.configured);
+
+    auto host = parse_analytics(Json::parse(R"({"endpoint":"https://other.example.com/e"})"), net);
+    REQUIRE_FALSE(host.ok());
+    CHECK(has(host.issues[0].pointer, "/endpoint"));
+    CHECK(has(host.issues[0].message, "network"));
+
+    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"http://stats.example.com/e"})"), net).ok());
+
+    auto typo = parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batchh":3})"), net);
+    REQUIRE_FALSE(typo.ok());
+    CHECK(has(typo.issues[0].message, "batch"));
+
+    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":0})"), net).ok());
+    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":101})"), net).ok());
+    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","flushSeconds":0})"), net).ok());
+    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","consentFromAds":"yes"})"), net).ok());
+    CHECK_FALSE(parse_analytics(Json::parse(R"({"batch":3})"), net).ok());  // no endpoint
+
+    auto r = parse_remote_config(Json::parse(R"({"url":"https://stats.example.com/cfg.json","timeoutSeconds":2})"), net);
+    CHECK(r.ok());
+    CHECK(r.settings.timeoutSeconds == 2);
+    CHECK_FALSE(parse_remote_config(Json::parse(R"({"url":"https://stats.example.com/cfg.json","timeoutSeconds":31})"), net).ok());
+    CHECK_FALSE(parse_remote_config(Json::parse(R"({"url":"https://nope.example.com/cfg.json"})"), net).ok());
+}

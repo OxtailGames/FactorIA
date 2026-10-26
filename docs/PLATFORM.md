@@ -23,7 +23,10 @@ Do not confuse `platform` (this API) with `game.platform` of the `factoria` modu
 
 A game's own web requests (`http.fetch`) go through the same machinery (a Promise, `platform.has("http")`, the fake in
 tests, `game.platform.respond`) but are **not** a store service: they are served by the system's HTTP client in a running
-game, need hosts declared in `factoria.json` and are written up in [NETWORKING.md](NETWORKING.md).
+game, need hosts declared in `factoria.json` and are written up in [NETWORKING.md](NETWORKING.md). The same goes for the two
+services built on it, `analytics` (events sent after the player consents) and `remoteConfig` (values read from your server,
+cached for offline play): [ANALYTICS.md](ANALYTICS.md). They are not store services either, and a store backend never
+sees them.
 
 ## 1. The catalog: `"platform"` in factoria.json
 

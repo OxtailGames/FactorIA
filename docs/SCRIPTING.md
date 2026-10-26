@@ -936,7 +936,8 @@ the browser's `fetch`). The game declares the servers it may call in `factoria.j
 "purpose": "..." }`); `https://` only; an undeclared host throws at once. Tests get the fake: `game.platform.respond("http.fetch",
 { status: 200, json: {...} })`, no network. The answer may arrive after the scene changed: check `scene.current` before
 using it. Limits, the recipe, replays, per-platform notes (CORS on the web, the Android permission) and the privacy side:
-[NETWORKING.md](NETWORKING.md).
+[NETWORKING.md](NETWORKING.md). Usage events (after the player consents) and values read from your server, both on top of
+`http.fetch`: `analytics.event(name, props)` and `remoteConfig.get(key, fallback)`, in [ANALYTICS.md](ANALYTICS.md).
 
 ```js
 const r = await http.fetch("https://api.example.com/daily").catch(() => null);   // rejects on a network failure

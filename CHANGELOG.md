@@ -4,6 +4,27 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Analytics with consent and remote config
+
+- New `analytics` and `remoteConfig` in `factoria`, on top of `http.fetch` (docs/ANALYTICS.md). `analytics.event(name,
+  props)` queues small events and sends them in batches to the `endpoint` of the new `"analytics"` section of
+  `factoria.json`, but only after `analytics.setConsent(true)`: before that nothing is kept or sent, and a refusal forgets
+  the queue. A batch goes out at `batch` events, after `flushSeconds`, on suspend and on quit (the quit waits up to 3
+  seconds for the request). A failed send (no connection, 408, 429, 5xx) is retried with a doubling wait, at most 3
+  attempts per event; another 4xx drops the batch. `consentFromAds: true` lets the ad consent answer the question until
+  the player does. `remoteConfig.get(key, fallback)` reads the JSON of the new `"remoteConfig"` section, caches the last
+  good answer in `storage` for offline runs and checks each value against the type of its fallback.
+- `factoria validate` checks both sections (hosts declared in `"network"`, `https://`, ranges, misspelled keys) and warns
+  about an `analytics.event(` call in a game without the section. The iOS export adds a Product Interaction (Analytics, not
+  linked, no tracking) entry to the privacy manifest when the section exists.
+- Menu kit: new part `analyticsConsent` (the question on the first run, from the main menu) and an Options switch,
+  with `analyticsConsent.*` and `options.analytics` in the locale tables. The kit's own `recipe.test.js` answers the
+  question before it opens the main menu.
+- Tests: `game.analytics` (`sent`, `requests`, `queued`, `restart`) and `game.remoteConfig.restart`; the answers come from
+  the fake `http.fetch`. `storage.keys()` hides the engine's `factoria.*` keys and `storage.clear()` removes them.
+- No new command and no `api_since` row: both services are script modules, listed in `factoria api`.
+- Burrow Brigade's statistics, balance and online news now use the engine API.
+
 Recording input and starting a scene with props
 
 - The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads
