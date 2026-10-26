@@ -192,7 +192,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 
 Since 0.1.6.
 
-Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
+Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}. The box is one line of the label high (fontSize at the player's text size, times 1.2, plus 4 px), centred in the widget and never bigger than its height minus 12: a wrapped label or a taller widget does not make the box bigger. autoShrink and minFontSize shrink the label to the room right of the box.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -216,7 +216,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
-| `label` | string | `"Toggle"` | Text to the right of the box. |
+| `label` | string | `"Toggle"` | Text to the right of the box, which follows the font size (see the Toggle description). |
 | `maxWidth` | float | `0.0` | > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the toggle is at most maxWidth plus the box and margins wide and grows taller instead. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
 | `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button, Toggle or Slider label wraps at its `maxWidth` (and the widget grows taller); with no maxWidth the label does not wrap. autoSize makes room for the full-size label, so autoShrink only works on a widget that does not grow. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). (since 0.2.0) |
 | `autoShrink` | bool | `false` | true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced. (not released yet, on main after 0.2.0) |

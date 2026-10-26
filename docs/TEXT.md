@@ -126,7 +126,7 @@ there, and the mark takes no width and draws nothing.
 `{ width, height, fontSize }` of exactly the layout that is drawn (`fontSize` is the size it is laid out at, in pixels), shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
 `"world"`; it matters only for the text size option below. It is exact in tests, `factoria call` and headless runs
 (they draw with an offscreen renderer); only when no graphics device can be created does it approximate 0.6 ×
-`fontSize` per character and warn once. A wrapped text is as wide as its `maxWidth` and as tall as its lines.
+`fontSize` per character and warn once. A wrapped text is as wide as its widest line (at most `maxWidth`, and less for a short label, with a renderer and headless alike) and as tall as its lines. A `Text` with `align` center or right still lays its lines out inside the `maxWidth` box (the pivot is that box's), while its measured size, `ui.rectOf` and `ui.overflowed` use the widest line; widget labels are aligned inside their widest line.
 
 ## Text size (`ui.textScale`)
 
@@ -183,7 +183,10 @@ the renderers all use the same size, so what a test measures is what is drawn:
   at 0.8 the text is drawn at 0.8. `0` (default) = no cap. `autoSize` and layout measure the capped size.
 - **`Toggle.maxWidth`, `Slider.maxWidth`** wrap the label at that width like `Button.maxWidth` (an `autoSize` widget
   grows taller instead of wider), and **`Slider.labelAbove`** puts the label above the track on the full width, with the
-  track, knob and value in a 28 px row under it.
+  track, knob and value in a 28 px row under it. A `Toggle`'s box is one line of its label high (`fontSize` at the
+  player's text size, times 1.2, plus 4 px), centred, and never taller than the widget minus 12 px: a wrapped label or
+  an `autoSize` toggle that grew taller does not make the box bigger. `Toggle.autoShrink` and `minFontSize` work like
+  the Button's and fit the label into the room right of the box.
 - **`ui.overflowed(entityOrId)`** is `true` when a text still does not fit its box at the size it is drawn at (after
   the scale, the cap and the shrink did what they could). `ui.state` has `"overflowed": true` on those widgets and Texts.
   A test: `ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);`

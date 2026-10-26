@@ -89,7 +89,12 @@ Vec2 approx_text_size(const Text& t, float textScale) {
     return fit_text(text_fit_spec(t), t.text, t.font, textScale, approx_text_extent()).size;
 }
 
-std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r) {
+float ui_toggle_box_side(const Toggle& t, float height, float textScale) {
+    const float px = t.fontSize * effective_text_scale(textScale, t.maxTextScale);
+    return std::max(0.0f, std::min(height - 12.0f, std::ceil(px * 1.2f + 4.0f)));
+}
+
+std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float textScale) {
     UiLabel l;
     if (const Button* b = w.get<Button>(e)) {
         l.text = &b->text;
@@ -100,7 +105,7 @@ std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r) {
         l.text = &t->label;
         l.font = &t->font;
         l.spec = {t->fontSize, t->minFontSize, t->autoShrink, t->maxTextScale, true, t->maxWidth, 0, 0};
-        const float side = std::max(0.0f, r.h - 12.0f), x0 = r.x + 6 + side + 10;
+        const float side = ui_toggle_box_side(*t, r.h, textScale), x0 = r.x + 6 + side + 10;
         l.zone = {x0, r.y + 2, std::max(1.0f, r.x + r.w - 12 - x0), std::max(1.0f, r.h - 4)};
     } else if (const Slider* s = w.get<Slider>(e)) {
         l.text = &s->label;
@@ -125,7 +130,7 @@ std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r) {
 }
 
 std::optional<UiLabelFit> ui_label_fit(const World& w, Entity e, const Rect& r, float textScale, const TextExtent& extent) {
-    std::optional<UiLabel> l = ui_label(w, e, r);
+    std::optional<UiLabel> l = ui_label(w, e, r, textScale);
     if (!l || l->text->empty()) return std::nullopt;
     UiLabelFit out{*l, {}};
     out.fit = fit_text(l->spec, *l->text, *l->font, textScale, extent);
