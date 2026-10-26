@@ -911,6 +911,7 @@ NATIVE(uiUnclickable) {  // (entity) -> null | string: why a widget cannot be cl
 NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left origin | null
     SETUP;
     ENTITY(e, 0);
+    if (!W.active_in_hierarchy(e)) return JS_NULL;  // hidden by itself or a parent: not on screen, like ui.state
     const VisualMeasure measure = script_measure(I, "ui.rectOf() of a Text");
     const std::optional<Rect> box = ui_screen_rect(W, e, I->host->design_size(), measure);
     if (!box) return JS_NULL;
