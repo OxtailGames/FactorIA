@@ -1588,19 +1588,31 @@
     {
      "kind": "interface",
      "name": "CameraAPI",
-     "doc": "Main camera helpers.",
+     "doc": "Camera helpers. A game draws every active camera with primary = true, in ascending depth, each into its own rectangle of the screen (Camera.viewport): a split screen is two or more such cameras. The conversions take the camera to use; without one they use the camera whose viewport contains the point, or the first camera for a world point.",
      "members": [
       {
        "sig": "readonly main: Entity | null",
-       "doc": "The primary camera entity."
+       "doc": "The first camera drawn (the lowest depth among the active cameras with primary = true), or null when there is none. In a split screen it is player one's camera; use `all` or `at` for the others."
       },
       {
-       "sig": "worldToScreen(v: Vec3Like): Vec2",
-       "doc": ""
+       "sig": "readonly all: Entity[]",
+       "doc": "Every camera drawn, in draw order (ascending depth, equal depths in the order they were created); at most 8 are drawn. One entry for a game with a single camera."
       },
       {
-       "sig": "screenToWorld(v: Vec2Like, depth?: number): Vec3",
-       "doc": ""
+       "sig": "at(v: Vec2Like): Entity | null",
+       "doc": "The camera whose viewport contains the screen point `v` (design pixels): where two viewports overlap, the one drawn last. A point outside every viewport gives the first camera; null when no camera is active. Use it to pick which player a click belongs to."
+      },
+      {
+       "sig": "worldToScreen(v: Vec3Like, camera?: Entity | string): Vec2",
+       "doc": "Where the world point `v` appears on the screen (design pixels, top-left origin) as seen by `camera` (default: the first camera drawn). The result is inside that camera's viewport when the point is in its view."
+      },
+      {
+       "sig": "screenToWorld(v: Vec2Like, depth?: number | Entity | string, camera?: Entity | string): Vec3",
+       "doc": "The world point under the screen point `v` (design pixels). `depth` is the world z of a 2D view (default 0), or the distance along the ray of a perspective view. `camera` defaults to the camera whose viewport contains `v`, else the first camera; the camera may also be given as the second argument: screenToWorld(v, cam)."
+      },
+      {
+       "sig": "screenRay(v: Vec2Like, camera?: Entity | string): { origin: Vec3; direction: Vec3 }",
+       "doc": "The ray under the screen point `v` (design pixels) through `camera` (default: the camera whose viewport contains `v`, else the first camera). For a 3D pick: physics.raycast(origin, origin + direction * distance)."
       }
      ]
     },

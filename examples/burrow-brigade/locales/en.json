@@ -93,6 +93,7 @@
     },
     "monitor": "Monitor: {width} x {height}",
     "soundCaptions": "Sound captions",
+    "splitScreen": "Split screen when players part",
     "holdMode": "Dig: {mode}",
     "holdModeHold": "hold",
     "holdModeToggle": "press to start, press to stop",

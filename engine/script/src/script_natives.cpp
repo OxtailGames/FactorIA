@@ -2335,15 +2335,30 @@ NATIVE(moveCharacter) {  // (entity, dx, dy, dz) -> { position, moved, isGrounde
 }
 
 // ---- camera / debug -----------------------------------------------------------------------------------------------
+// The cameras a frame draws, in draw order: every active camera with primary = true by ascending depth (equal depths keep
+// the order of creation), at most 8 as the renderer draws. The first is "the" camera (camera.main).
+std::vector<Entity> rendering_cameras(World& W) {
+    struct Found { Entity e; int depth; };
+    std::vector<Found> found;
+    W.each<Camera>([&](Entity e, Camera& c) {
+        if (c.primary && W.active_in_hierarchy(e)) found.push_back({e, c.depth});
+    });
+    std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
+    if (found.size() > 8) found.resize(8);
+    std::vector<Entity> out;
+    for (const Found& f : found) out.push_back(f.e);
+    return out;
+}
+
 NATIVE(cameraMain) {
     SETUP;
-    Entity best = kNullEntity;
-    int bestDepth = 0;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (!c.primary || !W.active_in_hierarchy(e)) return;
-        if (best.is_null() || c.depth < bestDepth) { best = e; bestDepth = c.depth; }
-    });
-    return ent_val(ctx, best);
+    const std::vector<Entity> cams = rendering_cameras(W);
+    return ent_val(ctx, cams.empty() ? kNullEntity : cams.front());
+}
+
+NATIVE(cameraAll) {
+    SETUP;
+    return entities_array(ctx, rendering_cameras(W));
 }
 
 Vec2 design_size(Impl* I) {
@@ -2351,48 +2366,110 @@ Vec2 design_size(Impl* I) {
     return I->host->design_size();
 }
 
-float camera_scale(Impl* I, World& W, Entity cam, Vec2 size) {
+// Without a renderer (no GPU at all): the same maths as the renderer for an orthographic camera, with the camera's viewport.
+struct FallbackView {
+    Vec3 position{};
+    Vec2 center;   // the centre of the camera's rectangle, in design pixels
+    float scale = 1.0f;   // design pixels per world unit
+    Rect viewport{0, 0, 1, 1};
+};
+
+Rect clamped_viewport(const Camera& c) {
+    Rect v = c.viewport;
+    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f || v.h <= 0.0f) return Rect{0, 0, 1, 1};
+    v.x = std::clamp(v.x, 0.0f, 0.999f);
+    v.y = std::clamp(v.y, 0.0f, 0.999f);
+    v.w = std::min(v.w, 1.0f - v.x);
+    v.h = std::min(v.h, 1.0f - v.y);
+    return v;
+}
+
+// `named` when it is a camera that is drawn; else (a `point` in design pixels given) the last camera whose viewport contains
+// the point; else the first one.
+FallbackView fallback_view(Impl* I, World& W, Entity named, const Vec2* point) {
+    const Vec2 size = design_size(I);
+    const std::vector<Entity> cams = rendering_cameras(W);
+    Entity cam = cams.empty() ? kNullEntity : cams.front();
+    if (!named.is_null() && std::find(cams.begin(), cams.end(), named) != cams.end()) {
+        cam = named;
+    } else if (point && cams.size() > 1) {
+        for (std::size_t i = cams.size(); i-- > 0;) {
+            const Rect v = clamped_viewport(*W.get<Camera>(cams[i]));
+            const float nx = point->x / size.x, ny = point->y / size.y;
+            if (nx >= v.x && nx < v.x + v.w && ny >= v.y && ny < v.y + v.h) { cam = cams[i]; break; }
+        }
+    }
+    FallbackView fv;
     const Camera* c = cam.is_null() ? nullptr : W.get<Camera>(cam);
-    float ortho = c && c->orthoSize > 0 ? c->orthoSize : size.y * 0.5f;
-    (void)I;
-    return size.y * 0.5f / ortho;
+    if (c) fv.viewport = clamped_viewport(*c);
+    const float viewH = size.y * fv.viewport.h;
+    const float ortho = c && c->orthoSize > 0 ? c->orthoSize : viewH * 0.5f;
+    fv.scale = viewH * 0.5f / ortho;
+    fv.position = cam.is_null() ? Vec3{} : W.world_position(cam);
+    fv.center = {(fv.viewport.x + fv.viewport.w * 0.5f) * size.x, (fv.viewport.y + fv.viewport.h * 0.5f) * size.y};
+    return fv;
+}
+
+// The optional camera argument of the conversions at index `i`.
+Entity arg_camera(JSContext* ctx, int argc, JSValueConst* argv, int i) {
+    return i < argc ? ent_from(ctx, argv[i]) : kNullEntity;
 }
 
 NATIVE(worldToScreen) {
     SETUP;
     Vec3 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    const Entity camera = arg_camera(ctx, argc, argv, 3);
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
-        Vec2 s = r->world_to_screen(p);
+        Vec2 s = r->world_to_screen(p, camera);
         return array_of(ctx, {s.x, s.y});
     }
-    Vec2 size = design_size(I);
-    Entity cam = kNullEntity;
-    int bestDepth = 0;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && W.active_in_hierarchy(e) && (cam.is_null() || c.depth < bestDepth)) { cam = e; bestDepth = c.depth; }
-    });
-    Vec3 cp = cam.is_null() ? Vec3{} : W.world_position(cam);
-    float s = camera_scale(I, W, cam, size);
-    return array_of(ctx, {size.x * 0.5f + (p.x - cp.x) * s, size.y * 0.5f - (p.y - cp.y) * s});
+    const FallbackView fv = fallback_view(I, W, camera, nullptr);
+    return array_of(ctx, {fv.center.x + (p.x - fv.position.x) * fv.scale, fv.center.y - (p.y - fv.position.y) * fv.scale});
 }
 
 NATIVE(screenToWorld) {
     SETUP;
     Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
     float depth = static_cast<float>(arg_num(ctx, argc, argv, 2));
+    const Entity camera = arg_camera(ctx, argc, argv, 3);
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
-        Vec3 w = r->screen_to_world(sp, depth);
+        Vec3 w = r->screen_to_world(sp, depth, camera);
         return array_of(ctx, {w.x, w.y, w.z});
     }
-    Vec2 size = design_size(I);
-    Entity cam = kNullEntity;
-    int bestDepth = 0;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && W.active_in_hierarchy(e) && (cam.is_null() || c.depth < bestDepth)) { cam = e; bestDepth = c.depth; }
-    });
-    Vec3 cp = cam.is_null() ? Vec3{} : W.world_position(cam);
-    float s = camera_scale(I, W, cam, size);
-    return array_of(ctx, {cp.x + (sp.x - size.x * 0.5f) / s, cp.y - (sp.y - size.y * 0.5f) / s, depth});
+    const FallbackView fv = fallback_view(I, W, camera, &sp);
+    return array_of(ctx, {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, depth});
+}
+
+NATIVE(screenRay) {
+    SETUP;
+    Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
+    const Entity camera = arg_camera(ctx, argc, argv, 2);
+    Vec3 o, d;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        r->screen_ray(sp, o, d, camera);
+    } else {
+        const FallbackView fv = fallback_view(I, W, camera, &sp);
+        o = {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, fv.position.z};
+        d = kForward;
+    }
+    return array_of(ctx, {o.x, o.y, o.z, d.x, d.y, d.z});
+}
+
+NATIVE(cameraAt) {
+    SETUP;
+    Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
+    if (Renderer* r = I->host->renderer(); r && r->initialized() && !r->cameras().empty()) {
+        const Entity e = r->camera_at(sp);
+        if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
+    }
+    const Vec2 size = design_size(I);
+    const std::vector<Entity> cams = rendering_cameras(W);
+    for (std::size_t i = cams.size(); i-- > 0;) {
+        const Rect v = clamped_viewport(*W.get<Camera>(cams[i]));
+        const float nx = sp.x / size.x, ny = sp.y / size.y;
+        if (nx >= v.x && nx < v.x + v.w && ny >= v.y && ny < v.y + v.h) return ent_val(ctx, cams[i]);
+    }
+    return ent_val(ctx, cams.empty() ? kNullEntity : cams.front());
 }
 
 Color arg_color(JSContext* ctx, int argc, JSValueConst* argv, int i) {
@@ -2967,7 +3044,7 @@ const Reg kRegs[] = {
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
-    R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
+    R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),

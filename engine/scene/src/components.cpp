@@ -1,5 +1,7 @@
 #include "fa/scene/components.h"
 
+#include <cmath>
+#include <cstdio>
 #include <mutex>
 
 #include "fa/core/reflect.h"
@@ -157,9 +159,12 @@ void register_builtin_components(TypeRegistry& r) {
 
     // ----------------------------------------------------------- Camera ---
     r.add<Camera>("Camera",
-                  "Renders the scene to the screen. The active camera with primary=true and the lowest depth draws the "
-                  "game (only one camera renders for now; split-screen/overlay cameras are on the roadmap). 3D cameras "
-                  "look down their local -Z axis.",
+                  "Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport "
+                  "(the whole screen by default), in ascending depth order: the lowest depth draws first and is \"the\" "
+                  "camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own "
+                  "viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera "
+                  "culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, "
+                  "after all the cameras. 3D cameras look down their local -Z axis.",
                   "Camera")
         .enum_field("projection", &Camera::projection, {"orthographic", "perspective"},
                     "orthographic: flat 2D view (no perspective). perspective: 3D view with depth.")
@@ -175,16 +180,37 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0.01f, 1000000)
         .field("clearColor", &Camera::clearColor, "Background color the camera clears to when clear is true.")
         .field("clear", &Camera::clear,
-               "Clear the target before drawing. Set false on overlay cameras that draw on top of another camera.")
-        .field("primary", &Camera::primary, "The first active primary camera renders the game.")
-        .field("depth", &Camera::depth, "Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).")
+               "Clear this camera's viewport to clearColor before it draws. Set false on an overlay camera that draws on top of "
+               "what an earlier camera (a lower depth) drew in the same area. The first camera in depth order clears the whole "
+               "target, also the part its viewport does not cover; a camera with clear false first in depth order keeps the "
+               "previous frame under it.")
+        .field("primary", &Camera::primary,
+               "true: this camera renders (when it is active), into its viewport, in depth order with the other primary "
+               "cameras. false: it does not render (an unused camera, or one a script switches on for a split screen).")
+        .field("depth", &Camera::depth,
+               "Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest "
+               "is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, "
+               "colorFilter) use. Cameras with the same depth keep the order of creation.")
+        .field("viewport", &Camera::viewport,
+               "The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the "
+               "TOP-LEFT corner and +Y down (like screen space). [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left "
+               "half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap "
+               "inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. "
+               "The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel "
+               "(it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it "
+               "equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its "
+               "own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) "
+               "are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' "
+               "values are ignored. UI and screen-space items cover the whole screen, not one viewport. "
+               "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point.")
         .field("bloom", &Camera::bloom,
                "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
                "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
                "included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend \"additive\" on Sprite, Shape2D or "
                "ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few "
                "extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). "
-               "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.")
+               "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several "
+               "cameras the bloom settings of the lowest-depth camera apply to the whole frame.")
         .field("bloomThreshold", &Camera::bloomThreshold,
                "Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: "
                "pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully "
@@ -218,7 +244,7 @@ void register_builtin_components(TypeRegistry& r) {
                     "and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours "
                     "that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game "
                     "without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate "
-                    "instead.");
+                    "instead. With several cameras the lowest-depth camera's filter covers the whole frame.");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",
@@ -991,7 +1017,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000);
 
     r.add<AudioListener>("AudioListener",
-                         "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the primary camera is used.",
+                         "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).",
                          "Audio")
         .field("volume", &AudioListener::volume, "Master volume multiplier for everything this listener hears.").range(0, 4);
 
@@ -1338,4 +1364,24 @@ void ensure_builtin_components() {
     });
 }
 
+}  // namespace fa
+
+namespace fa {
+std::string camera_viewport_problem(const Rect& v) {
+    constexpr float eps = 1e-4f;
+    const auto num = [](float f) {
+        char b[32];
+        std::snprintf(b, sizeof b, "%g", double(f));
+        return std::string(b);
+    };
+    const std::string shown = "[" + num(v.x) + ", " + num(v.y) + ", " + num(v.w) + ", " + num(v.h) + "]";
+    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h))
+        return "Camera.viewport " + shown + " has a value that is not a number";
+    if (v.x < -eps || v.y < -eps || v.x > 1 + eps || v.y > 1 + eps)
+        return "Camera.viewport " + shown + " starts outside the screen (x and y are 0..1)";
+    if (v.w <= eps || v.h <= eps) return "Camera.viewport " + shown + " has no size (width and height must be above 0)";
+    if (v.x + v.w > 1 + eps || v.y + v.h > 1 + eps)
+        return "Camera.viewport " + shown + " reaches past the edge of the screen (x + width and y + height must be at most 1)";
+    return {};
+}
 }  // namespace fa
