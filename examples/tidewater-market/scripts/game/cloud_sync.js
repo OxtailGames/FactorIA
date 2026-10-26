@@ -105,6 +105,18 @@ export async function pushEntry(slot, kind, entry = localEntry(slot, kind)) {
   return true;
 }
 
+/** Push an entry after it was written, when the platform has cloud saves. Never throws and never waits: the device's copy is what counts. */
+export function pushQuietly(slot, kind) {
+  if (!cloudAvailable()) return;
+  pushEntry(slot, kind).catch(() => {});
+}
+
+/** Remove the cloud copies of a slot (the player deleted it: a later sync must not bring it back from the cloud). Never throws. */
+export function removeQuietly(slot) {
+  if (!cloudAvailable()) return;
+  for (const kind of /** @type {const} */ (["manual", "auto"])) platform.cloud.remove(cloudKey(slot, kind)).catch(() => {});
+}
+
 function pullEntry(slot, kind, remote) {
   storage.set(dataKey(slot, kind), remote.save);
   storage.set(metaKey(slot, kind), { ...remote.meta, slot, kind, revision: remote.revision });

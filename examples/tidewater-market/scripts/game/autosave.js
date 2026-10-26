@@ -34,6 +34,8 @@ export class Autosaver {
     this.log = [];
     /** The last failure of a save, or null (the screen shows a toast once). */
     this.lastError = /** @type {any} */ (null);
+    /** Called with (slot, kind) after every entry written: the save controller pushes it to the cloud. @type {((slot: number, kind: "manual" | "auto") => void) | null} */
+    this.onWritten = null;
   }
 
   /** Does this game belong to a slot (so it can be autosaved)? */
@@ -41,10 +43,11 @@ export class Autosaver {
     return Number.isInteger(this.run.slot) && this.run.slot >= 1;
   }
 
-  /** A cheap fingerprint of "did anything change since the last save": the clock, the money and the buildings. */
+  /** A cheap fingerprint of "did anything change since the last save": the clock, the money, the buildings and the goals reached. */
   signature() {
     const s = this.state;
-    return `${s.clock.ticks}|${s.economy.coins}|${s.buildings.size}|${s.nextId}`;
+    const goals = this.run.tracker ? Object.keys(this.run.tracker.done).length + (this.run.tracker.won ? 1 : 0) : 0;
+    return `${s.clock.ticks}|${s.economy.coins}|${s.buildings.size}|${s.nextId}|${goals}`;
   }
 
   /** Real seconds passed (not game time: the clock's speed does not count). Call once a frame. */
@@ -117,6 +120,7 @@ export class Autosaver {
       progress: tracker ? tracker.metaFields() : undefined,
     });
     this.lastError = res.ok ? null : res.error;
+    if (res.ok && this.onWritten) this.onWritten(run.slot, kind);
     return res;
   }
 }

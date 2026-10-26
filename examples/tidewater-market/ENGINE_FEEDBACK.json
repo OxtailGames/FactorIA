@@ -141,6 +141,51 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-26",
+      "reporter": { "kind": "ai", "agent": "worker-tidewater-p4", "model": "claude-sonnet-5-5" },
+      "category": "api",
+      "severity": "minor",
+      "title": "No screenshot of the running game as a texture, for a save slot picture",
+      "missing": "A save slot should show a picture of the town at the moment of the save. A script cannot capture the frame (game.screenshot exists only in tests and as a CLI command, and writes a file) and cannot create a texture at run time from pixels or a file it wrote, so a Sprite cannot show it.",
+      "workaround": "scripts/game/thumbnail.js saves a top-down map of at most 48 x 48 cells (one colour per cell, run-length text, about 0.3 KB) and the slot screen draws it as coloured Panel quads in layout rows.",
+      "workaroundFiles": ["scripts/game/thumbnail.js", "scripts/ui/slots_screen.js"],
+      "suggestion": "render.captureTexture({width, height}) returning a texture id a Sprite or Image can use (and storage-friendly PNG bytes), or a Sprite field that takes a data URL.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-26",
+      "reporter": { "kind": "ai", "agent": "worker-tidewater-p4", "model": "claude-sonnet-5-5" },
+      "category": "docs",
+      "severity": "minor",
+      "title": "No documented hide or close signal on the web for an autosave",
+      "missing": "An autosave on leaving needs a signal before the tab is hidden or closed. game.on('quit') is raised on desktop only (docs/MENUS.md says mobile apps never quit by themselves); game.on('blur'/'suspend') are what a script has otherwise. Nothing in the docs says what a web export raises when a tab is hidden or closed, and a test cannot show it (this package could not run a web export).",
+      "workaround": "scripts/save_controller.js saves on blur, suspend and quit, and the autosaver also writes at the end of every season and every 120 s of play when the town changed, so a tab closed without any signal loses at most that.",
+      "workaroundFiles": ["scripts/save_controller.js", "scripts/game/autosave.js"],
+      "suggestion": "Document which of blur / suspend / quit each platform raises (web: visibilitychange and pagehide), and raise suspend on a hidden tab and quit on pagehide in the web runtime.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-26",
+      "reporter": { "kind": "ai", "agent": "worker-tidewater-p4", "model": "claude-sonnet-5-5" },
+      "category": "performance",
+      "severity": "minor",
+      "title": "Large saves: storage is one file, no size query, no compression, the write runs inside a frame",
+      "missing": "The stress town (640 villagers) saves to 281 KB of JSON; a write (serialize, stringify, storage.set) took 143 ms and a read with the restore 75 ms in a debug build on an Apple M5 (tests/stress.test.js prints them), a one-frame hitch when the game saves. docs say all of storage lives in one storage.json, so with 3 slots, an autosave each and a cloud copy, a full set of big towns is a file of about 1.7 MB (computed from the sizes, not measured on disk) that is rewritten on every save. There is no storage size query, no compression and no way to write off the frame.",
+      "workaround": "Save format v2 packs terrain as run lengths and road runs as one array each; saves are written at the end of the frame, never inside a clock step, and an unchanged town is not autosaved.",
+      "workaroundFiles": ["scripts/game/savegame.js", "scripts/game/autosave.js", "tests/stress.test.js"],
+      "suggestion": "storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
