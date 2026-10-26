@@ -1770,6 +1770,11 @@ declare module "factoria" {
      */
     shuffle<T>(items: readonly T[]): T[];
     /**
+     * The generator's 32-bit state, an integer from 0 to 4294967295: one number that is the whole stream. Store it in a save and assign it later (or create the generator with it as the seed: rng.create(state) continues exactly where state was read) to resume the sequence. STABLE across engine versions like the algorithm. Assigning anything that is not such an integer throws. Example: const saved = r.state; r.float(); r.state = saved; r.float() // the same number again.
+     * @since unreleased
+     */
+    state: number;
+    /**
      * Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG.
      */
     seed(n: number): void;
@@ -3624,6 +3629,12 @@ declare module "factoria" {
    * @since 0.2.0
    */
   export const ease: EaseAPI;
+
+  /**
+   * The choice closest to `word` (case-insensitive edit distance, accepted when within about a third of the word's length, at least 2), or "" when none is near. For errors that teach: `const near = didYouMean(id, goodIds); throw new ToolError(`unknown good '${id}'`, near ? `Did you mean '${near}'?` : "")`. Example: didYouMean("woood", ["wood", "stone"]) is "wood".
+   * @since unreleased
+   */
+  export function didYouMean(word: string, choices: readonly string[]): string;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).

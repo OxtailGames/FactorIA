@@ -9,7 +9,7 @@
 //   ships      the ships in the bay: { id, cls, name, berth, route, t, pt, state, order, wait, deadline }
 //   reputation 0..100, unlocks better ships
 //   queue/card the event cards waiting and the one on screen ({ stage: "choose" | "result" })
-//   rng        the state of three Rng streams (ships, events, outcomes)
+//   rng        the state of three rng streams (ships, events, outcomes)
 //   stats      counters (orders filled, missed, ...) and the achievements unlocked
 //
 // It reacts to the clock ("clock.day" once a day, "clock.tick" for the sailing), "building.removed" (a pier torn down sends its
@@ -17,7 +17,7 @@
 // ship.docked, ship.left, order.filled, order.missed, reputation, class.unlocked, card, choice, card.closed, story.finished,
 // achievement. Money and goods only ever move through `economy.apply(delta, cause)` (causes "trade" and "event").
 import { getTradeData } from "./trade_data.js";
-import { Rng, streamSeed } from "./rng.js";
+import { stream, streamSeed } from "./rng.js";
 import { berthOf, along } from "./sea.js";
 
 export const SNAPSHOT_VERSION = 1;
@@ -62,9 +62,9 @@ export class Trade {
     this.unlocked = [];
     /** @type {string[]} ship classes announced to the player */
     this.classesSeen = [];
-    this.rngShips = new Rng(1);
-    this.rngEvents = new Rng(2);
-    this.rngOutcomes = new Rng(3);
+    this.rngShips = stream(1);
+    this.rngEvents = stream(2);
+    this.rngOutcomes = stream(3);
   }
 
   /**
@@ -79,9 +79,9 @@ export class Trade {
     this.data = getTradeData();
     this.cards = this.data.story.scenarios[scenario] || [];
     const seed = this.state.map.seed || 0;
-    this.rngShips = new Rng(streamSeed(seed, "ships"));
-    this.rngEvents = new Rng(streamSeed(seed, "events"));
-    this.rngOutcomes = new Rng(streamSeed(seed, "outcomes"));
+    this.rngShips = stream(streamSeed(seed, "ships"));
+    this.rngEvents = stream(streamSeed(seed, "events"));
+    this.rngOutcomes = stream(streamSeed(seed, "outcomes"));
     this.startDay = this.state.clock.day;
     this.stats.lastBrokeDay = this.startDay;
     this.reputation = this.data.ships.reputation.start;

@@ -23,6 +23,14 @@
     return bd <= Math.max(2, Math.floor(String(name).length / 3)) ? best : "";
   }
 
+  // didYouMean(word, choices): the choice closest to `word`, or "" when none is near. Exported from "factoria".
+  function didYouMean(word, choices) {
+    if (typeof word !== "string" || !Array.isArray(choices)) {
+      throw new Error(`didYouMean(word, choices) expects a string and an array of strings, e.g. didYouMean("woood", ["wood", "stone"]), but got ${typeof word} and ${Array.isArray(choices) ? "an array" : typeof choices}`);
+    }
+    return closest(word, choices.map(String));
+  }
+
   // ======================================================================================================= console
   function inspect(x, depth = 0) {
     if (typeof x === "string") return x;
@@ -838,8 +846,17 @@
     onCollisionEnter: 2, onCollisionExit: 1, onTriggerEnter: 1, onTriggerExit: 1, onEvent: 3 };
   // Methods that were meant to be hooks but are never called: a hook without its `on` (update, fixedUpdate, Start) or a
   // near-miss of a name that starts with `on` (onupdate, onStrat). Helpers (loadLevel, clickCell) are not near a hook.
+  // `factoria validate`: the same, plus the fields that shadow a Behaviour member (needs a throw-away instance).
   function checkHooks(Cls) {
     if (!isBehaviourClass(Cls)) return [];
+    const out = [];
+    const dummy = new Entity(-2);
+    binding = dummy;
+    try { out.push(...checkShadowed(Cls, new Cls())); } catch (e) { /* checkProps reports a constructor that throws */ }
+    finally { binding = null; timers.dropOwner(-2); }
+    return out.concat(hookTypos(Cls));
+  }
+  function hookTypos(Cls) {
     const out = [];
     for (const m of Object.getOwnPropertyNames(Cls.prototype)) {
       const fn = Object.getOwnPropertyDescriptor(Cls.prototype, m).value;
@@ -856,6 +873,20 @@
   }
   const checkedHookClasses = new WeakSet();
 
+  // Fields of `inst` that replace a method or getter of Behaviour (on, after, every, world): the class field is an own
+  // property, so it wins over the prototype and the base member silently stops working.
+  const BEHAVIOUR_MEMBERS = Object.getOwnPropertyNames(Behaviour.prototype).filter((m) => m !== "constructor");
+  function checkShadowed(Cls, inst) {
+    const out = [];
+    for (const k of Object.keys(inst)) {
+      if (!BEHAVIOUR_MEMBERS.includes(k)) continue;
+      out.push(`class ${Cls.name}: the field '${k}' shadows Behaviour.${k}, so this.${k} is the field and not the Behaviour member. ` +
+        `Rename the field (for example '${k}Flag').`);
+    }
+    return out;
+  }
+
+  const checkedShadowClasses = new WeakSet();
   const warnedProps = new Set();
   function unknownProps(inst, props) {
     const out = [];
@@ -871,11 +902,15 @@
   function instantiate(Cls, h, props, entityId, path) {
     if (!checkedHookClasses.has(Cls)) {  // once per class (a hot reload is a new class)
       checkedHookClasses.add(Cls);
-      for (const t of checkHooks(Cls)) N.log(3, `${path}: ${t}`);
+      for (const t of hookTypos(Cls)) N.log(3, `${path}: ${t}`);
     }
     binding = entityOf(h);
     let inst;
     try { inst = new Cls(); } finally { binding = null; }
+    if (!checkedShadowClasses.has(Cls)) {  // once per class, from the first instance
+      checkedShadowClasses.add(Cls);
+      for (const t of checkShadowed(Cls, inst)) N.log(3, `${path}: ${t}`);
+    }
     const bad = unknownProps(inst, props);
     if (bad.length) {
       const key = `${path}|${bad.map((b) => b.key).join(",")}`;
@@ -1593,6 +1628,14 @@
       chance(p = 0.5) { return next() < p; },
       pick(arr) { if (!arr || arr.length === 0) return undefined; return arr[Math.floor(next() * arr.length)]; },
       shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(next() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; },
+      // The 32-bit state (an integer 0..4294967295): store it in a save, assign it to resume the stream where it stopped.
+      get state() { return state; },
+      set state(n) {
+        if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > 4294967295) {
+          throw new Error(`generator.state expects an integer from 0 to 4294967295 (a value read from generator.state), but got ${inspect(n)}`);
+        }
+        state = n;
+      },
       seed(n) {
         if (typeof n !== "number" || !Number.isFinite(n)) throw new Error(`generator.seed(n) expects a finite number, e.g. generator.seed(12345), but got ${inspect(n)}`);
         state = n >>> 0;
@@ -2665,7 +2708,7 @@
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens, bt,
   };
 

@@ -117,6 +117,10 @@ mean", and `factoria validate` reports the same for every behaviour script (unde
 `scripts/` or named by a `Script.path`). Helpers with other names (`loadLevel()`)
 are not affected.
 
+A class **field** with the name of a `Behaviour` member (`on`, `after`, `every`, `world`) replaces that member for the
+instance: `on = false;` makes `this.on("x", fn)` fail. The first behaviour of the class created logs ONE warning naming the
+field, and `factoria validate` reports it too; rename the field (`tradeOn`).
+
 ### Behaviour members
 - `this.entity` — the owning `Entity`; `this.world` — the world.
 - `this.after(seconds, fn)` / `this.every(seconds, fn)` — timers, cancelled
@@ -963,6 +967,10 @@ const width = r.int(30, 60);           // 30..60 inclusive
 const hill = r.chance(0.3);
 const order = r.shuffle(["a", "b", "c"]);
 r.seed(42);                            // start over; same as rng.create(42)
+
+const saved = r.state;                 // one 32-bit number: the whole stream, for a save game
+r.float();
+r.state = saved;                       // the stream resumes there: the next float() repeats
 ```
 
 `rng.create(seed)` returns a generator with the same methods as `rng` (`float`, `range`, `int`, `chance`, `pick`,
@@ -981,6 +989,10 @@ r.seed(42);                            // start over; same as rng.create(42)
 - **Seed.** A finite number, reduced to 32 bits (`seed >>> 0`: the integer part, modulo 2^32). `0` is valid, `1` and
   `4294967297` give the same sequence, and so do `1` and `1.9`. A non-number or `NaN` throws an error that shows an
   example.
+- **State.** `generator.state` is the 32-bit state, an integer from 0 to 4294967295: the seed advanced by `0x6d2b79f5`
+  (modulo 2^32) per draw. Read it to store the stream in a save; assign it (or pass it to `rng.create`) to resume. It
+  is as stable as the algorithm. Assigning something that is not such an integer throws and keeps the old state. Keep one
+  generator per purpose (ships, events) so a new draw in one does not shift the others.
 - 32 bits of state means a period of 2^32 draws: plenty for a level or a table, not meant for cryptography.
 
 ### math & values

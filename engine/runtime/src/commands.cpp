@@ -985,13 +985,53 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     // ------------------------------------------------------------------- script
-    I.commands.add({"script.eval", "Evaluate JavaScript in the running game context (REPL) and return the value.",
-           "The last expression is returned as JSON. Example: script.eval {\"code\":\"world.find('player').get('Transform').position\"}",
-           parse_schema(R"({"type":"object","required":["code"],"properties":{
-               "code":{"type":"string","description":"JavaScript source."}}})"),
+    I.commands.add({"script.eval", "Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.",
+           "The last expression is returned as JSON. Example: script.eval {\"code\":\"world.find('player').get('Transform').position\"}. "
+           "With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, \"default\" "
+           "for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) "
+           "as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is "
+           "awaited if it settles without time passing. Example: script.eval {\"module\":\"scripts/game/rules.js\","
+           "\"call\":\"price\",\"args\":[\"wood\",3]}",
+           parse_schema(R"({"type":"object","properties":{
+               "code":{"type":"string","description":"JavaScript source. Required unless `module` is given."},
+               "module":{"type":"string","description":"Project path of a script module to import (scripts/game/rules.js); use with `call`."},
+               "call":{"type":"string","description":"Name of the exported function of `module` to call (\"default\" for the default export)."},
+               "args":{"type":"array","description":"Arguments (JSON values) for the call.","items":{}}}})"),
            false, "script"},
           [&engine, &I](const Json& a) {
-              auto r = I.scripts.eval(a["code"].get<std::string>());
+              std::string code;
+              if (a.contains("module")) {
+                  if (a.contains("code"))
+                      throw CommandError("invalid_args", "script.eval takes either `code` or `module` with `call`, not both",
+                                         "Drop `code`, or drop `module`, `call` and `args`.");
+                  const std::string module = a["module"].get<std::string>();
+                  if (!a.contains("call") || !a["call"].is_string() || a["call"].get<std::string>().empty())
+                      throw CommandError("invalid_args", "script.eval with `module` needs `call`, the exported function to run",
+                                         "Example: {\"module\":\"" + module + "\",\"call\":\"myFunction\",\"args\":[1,2]}");
+                  auto norm = fs::normalize_checked(module);
+                  if (!norm) throw CommandError("invalid_args", "script.eval module '" + module + "': " + norm.error().message, norm.error().hint);
+                  std::string path = *norm;
+                  if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js")) path += ".js";
+                  if (!fs::exists(path))
+                      throw CommandError("not_found", "script.eval module '" + module + "' does not exist",
+                                         did_you_mean(path, fs::list("", true, ".js")));
+                  Json args = a.contains("args") ? a["args"] : Json::array();
+                  if (!args.is_array())
+                      throw CommandError("invalid_args", "script.eval `args` must be a JSON array of arguments", "Example: \"args\":[\"wood\", 3]");
+                  // The REPL scope is "factoria": didYouMean is the engine's helper to name the exports when `call` is wrong.
+                  code = "import(" + Json(path).dump() + ").then((m) => { const f = m[" + a["call"].dump() + "]; "
+                         "if (typeof f !== 'function') { const names = Object.keys(m).filter((k) => typeof m[k] === 'function'); "
+                         "const near = didYouMean(" + a["call"].dump() + ", names); "
+                         "throw new Error(`module " + path + " has no exported function '${" + a["call"].dump() + "}'. ` + "
+                         "(near ? `Did you mean '${near}'?` : names.length ? `Exported functions: ${names.join(', ')}.` : "
+                         "'The module exports no function.')); } return f(...(" + args.dump() + ")); })";
+              } else if (a.contains("code")) {
+                  code = a["code"].get<std::string>();
+              } else {
+                  throw CommandError("invalid_args", "script.eval needs `code`, or `module` and `call`",
+                                     "Example: {\"code\":\"1 + 2\"} or {\"module\":\"scripts/game/rules.js\",\"call\":\"price\",\"args\":[\"wood\"]}");
+              }
+              auto r = I.scripts.eval(code);
               if (!r.ok()) throw CommandError("script_error", r.error().message, r.error().hint);
               return Json::object({{"value", r.value()}});
           });
