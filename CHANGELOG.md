@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Web exports download the game's code once
+
+- The page of a web export handed the downloaded wasm to the player through `Module.wasmBinary`, which Emscripten 6 no
+  longer reads, so the browser fetched the 8 MB file a second time on every load. It now uses `Module.instantiateWasm`:
+  one download, with the progress bar, and a plain error when the browser cannot compile it. Re-export a web game to get
+  the new page.
+
 Versions for the script API
 
 - `tools/common/api_since.json` has a `"script"` section: each function, type and member of the scripting API says which
