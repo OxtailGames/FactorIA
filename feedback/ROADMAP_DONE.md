@@ -1627,7 +1627,7 @@ keyboard-only and gamepad-only tests drive the menus; the three exports are made
 is a by-hand check, ROADMAP.md); the busiest floor stays under its draw-call and light budgets in a headless run;
 `factoria feedback collect` includes the game.
 
-## M29. Found by the third reference game — DONE (the `m29/*` branches; their PRs wait for GitHub)
+## M29. Found by the third reference game — DONE (the `m29/*` PRs)
 
 Planned 2026-10-25, against `c7e6ef6`, from the triage above: 21 packages, ranked by points (occurrences x severity
 weight) and size. Each ships with its doctest or JS test, its docs and the `"unreleased"` rows in

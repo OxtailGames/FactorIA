@@ -547,7 +547,7 @@ plays nothing while `state().audio.music` says it plays (M29.7). The open entrie
 part of BB/FB-0036 (Thai without marked boundaries) and parts of BB/FB-0015 and BB/FB-0018 stay out (M29's last
 paragraph).
 
-Re-triage 2026-10-26, after M29 (the `m29/*` branches; each package's commit is in ROADMAP_DONE.md): the 21 packages are
+Re-triage 2026-10-26, after M29 (the `m29/*` PRs; each package's commit is in ROADMAP_DONE.md): the 21 packages are
 built and the entries of Burrow Brigade have a `Fixed in <commit>` note (the `m29/bookkeeping` branch). Burrow Brigade
 dropped its light pool and `activeLights` helper, its own A* and behaviour tree, its whole-array tile writes, its binding
 table, its transport seam and its stdout recordings; what it keeps on purpose is under M29, "Left open".
@@ -859,10 +859,10 @@ Cloud saves take JSON values only (no binary blobs, no conflict resolution beyon
 Next M12 packages, ranked 2026-10-22 with Clockwork Courier's entries: 1. ads with consent on M26.9's API and fake:
 Google UMP and AdMob, Apple ATT and the GDPR/COPPA screen (CC/FB-0028); 2. leaderboard periods on Steam, Game Center and
 Play Games (CC/FB-0030); 3. the Steam Deck's keyboard with Steamworks (CC/FB-0020; M26.17 makes the in-game one);
-4. ~~analytics and remote config~~ (done in M29.21, after M29.20's networking); 5. push notifications and deep links; 6. Epic Online Services
-and GOG Galaxy; 7. the Android stores outside Play. A game asked for the first three only: they are M27.1-M27.4, done
-2026-10-25. The other four wait for a game that asks for them. Burrow Brigade asked for the fourth (BB/FB-0020), done in M29.21
-on M29.20's `http.fetch`; the remaining three wait.
+4. ~~analytics and remote config~~ (done in M29.21, on M29.20's networking); 5. push notifications and deep links;
+6. Epic Online Services and GOG Galaxy; 7. the Android stores outside Play. A game asked for the first three only: they
+are M27.1-M27.4, done 2026-10-25. The other four wait for a game that asks for them. Burrow Brigade asked for the
+fourth (BB/FB-0020), done in M29.21 on M29.20's `http.fetch`; the remaining three wait.
 
 ## M13. Store-ready desktop export (M-L, high) — DONE (PRs #65, #66, #67, #68 and the `m13/sign` PR)
 
@@ -1211,7 +1211,7 @@ Left open:
   online features ran against the game's fake server only, and no Steam Deck was tried.
 - The Russian and Thai texts (game and store) were not read by a native speaker.
 
-## M29. Found by the third reference game (S-L each, high; 37 Burrow Brigade entries) — DONE (the `m29/*` branches; PRs to open when GitHub is back)
+## M29. Found by the third reference game (S-L each, high; 37 Burrow Brigade entries) — DONE (the `m29/*` PRs)
 
 Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M29 (M29.1-M29.21). The engine gained what Burrow Brigade asked for: Light2D in
 the stats and the perf budget, a light buffer with no 16-light cap and tile shadows, split-screen cameras, per-player
@@ -1231,17 +1231,16 @@ Left open:
   one-bar loops and listening); the store scenes are generated and the bot replays kept (BB/FB-0030); the capsules were
   not redrawn (BB/FB-0034); the exported builds were not checked by hand (BB/FB-0029, BB/FB-0033); the cloud revision
   counter stays because Apple has no modified time (BB/FB-0018); unmarked Thai needs a dictionary (BB/FB-0036).
-- Out of M29, as planned: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary), a cloud conflict event, mapping
-  a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling plugins from the Mac, and WebSocket.
-- M29.1: the budget it compares against is 256 since M29.14.
+- Out of M29, as planned: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary), a cloud conflict event,
+  mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling plugins from the Mac, and WebSocket.
+- M29.1: the light budget it reports against is M29.14's 256 per frame, not 16 (its test expects 17 lights kept).
 - M29.2: the Burrow Brigade daily dig uses `game.today().utc`; Game Center and Play Games take only the local or UTC today.
 - M29.5: the capsule focus is the worker's reading of the spec.
 - M29.6: `game.click` now throws for a hidden or unlaid-out widget: a test that clicked one by mistake fails.
 - M29.7: layers of unequal length drift.
 - M29.8: the kit has an unused `platform` import.
 - M29.9: the non-Apple pad backends are untested here; `SteamDeck=1` is Steam's unofficial variable.
-- M29.10: slice limits, floor fragmentation, a 4096-edit cap, `tilemap.set_tile` missing from AI_GUIDE's MCP table, the
-  `tileDims` native.
+- M29.10: slice limits, floor fragmentation, a 4096-edit cap, the `tileDims` native.
 - M29.11: `nav.tileVersion` does not count replacing `tiles` as a whole; no `parallel` or `repeat` nodes.
 - M29.12: no wheel, locked mouse or text in the replay; props are not in the replay.
 - M29.13: the player has no `--props`; screenshots may differ across GPUs.
@@ -1264,8 +1263,8 @@ Left open:
   translated docs are not updated; no `api_since` rows; requests still in flight when a recording stops are not recorded.
 - M29.21: Burrow's server URLs are placeholders (`burrow-brigade.example`, explained in its README); the iOS export's
   analytics privacy entry is untested; retries on network errors, 408, 429 and 5xx with backoff.
-- Clockwork Courier's test `market_3 > the expert shortcut wins too` is close to its 60 s limit and times out when the
-  machine is loaded (it did on `main` too).
+- Clockwork Courier's tests `rooftops_3` and `market_3 > the expert shortcut wins too` are close to their 60 s limit and
+  time out when the machine is loaded (they did on `main` too).
 
 Next: no feature is planned. The next milestone is whatever the next reference game or the store accounts ask for; what
 is left of M12 (push notifications, deep links, Epic and GOG, the Android stores outside Play), M19 (save slots, WebSocket)
