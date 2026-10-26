@@ -1,43 +1,36 @@
 // @ts-check
-// Opt-in analytics. OFF until the player says yes: the title shows a consent card until it is answered (scripts/title_online.js),
-// and Options has the same switch. Without a yes nothing is queued and nothing is sent: `record` returns before it queues and
-// `flush` returns before it builds a request. Events: floor_reached, shift_ended, quit (no id, name, device or seed in any).
+// Opt-in analytics on the engine's `analytics` service (docs/ANALYTICS.md). OFF until the player says yes: the title shows a
+// consent card until it is answered (scripts/title_online.js), and Options has the same switch. Without a yes the engine keeps
+// nothing and sends nothing: `analytics.event` returns false. The engine batches, retries after a failure, and sends what waits
+// when the app is suspended and when the game quits, so this file only says WHAT is counted. The server address is the
+// placeholder in factoria.json (see the README, "Server addresses").
 //
-//   consent()      "unknown" (never asked), "granted" or "denied"; kept in storage under "burrow.online".
-//   setConsent(b)  true / false. Saying no forgets what was waiting to be sent.
+//   consent()      "unknown" (never asked), "granted" or "denied"; kept by the engine.
+//   asked()        consent() !== "unknown"
 //   enabled()      consent() === "granted"
+//   setConsent(b)  true / false. Saying no forgets what was waiting to be sent.
 //   start()/stop() subscribe / unsubscribe to the game events (events.keep). Idempotent.
-//   flush()        sends the waiting events (one request); resolves { sent, ok }.
-//   quit()         records the "quit" event and flushes (the Quit button calls it: the engine has no event for closing the window).
-//   queued()       the events waiting to be sent (tests).
+//   flush()        sends the waiting events now (one request); resolves { sent, ok }.
+//   recordQuit()   queues the "quit" event; the engine's quit flush sends it.
 //
-// Three events, each a name, the time of the run in whole seconds and a few numbers. No player id, no name, no device, no text the
-// player typed:
+// Three events, each a name and a few numbers. No player id, no name, no device, no text the player typed:
 //   shift_ended   { outcome, stratum, floor, players, banked, seconds }
 //   floor_reached { stratum, floor, players }
 //   quit          { shifts }   how many shifts the session played
-import { storage } from "factoria";
+import { analytics } from "factoria";
 import * as events from "./events.js";
-import * as online from "./online.js";
 
-export const KEY = "burrow.online";
-/** Events kept while waiting for a flush; the oldest go first. */
-export const MAX_QUEUE = 50;
 /** The whole-session counters (not saved). */
 const session = { shifts: 0, stratum: 0, floor: 0, players: 1 };
-/** @type {Array<{name: string, data: Record<string, number|string>}>} */
-let queue = [];
 /** @type {Array<() => void>} */
 let unsubscribers = [];
 
 /** @returns {"unknown"|"granted"|"denied"} */
 export function consent() {
-  const v = storage.get(KEY, null);
-  const c = v && typeof v === "object" ? v.analytics : null;
-  return c === "granted" || c === "denied" ? c : "unknown";
+  return analytics.consent();
 }
 
-/** Whether the player was asked already (the first-launch prompt shows only while this is false). */
+/** Whether the player was asked already (the first-launch card shows only while this is false). */
 export function asked() {
   return consent() !== "unknown";
 }
@@ -48,39 +41,22 @@ export function enabled() {
 
 /** @param {boolean} yes */
 export function setConsent(yes) {
-  const v = storage.get(KEY, {});
-  storage.set(KEY, { ...(v && typeof v === "object" ? v : {}), analytics: yes ? "granted" : "denied" });
-  if (!yes) queue = [];
+  analytics.setConsent(yes);
 }
 
-/** Adds an event to the queue, only with consent. @param {string} name @param {Record<string, number|string>} data */
-function record(name, data) {
-  if (!enabled()) return;
-  queue.push({ name, data });
-  if (queue.length > MAX_QUEUE) queue.shift();
+/** Queues an event; the engine returns false (and keeps nothing) without consent. @param {string} name @param {Record<string, number|string>} props */
+function record(name, props) {
+  analytics.event(name, props);
 }
 
-export function queued() {
-  return queue.map((e) => ({ name: e.name, data: { ...e.data } }));
+/** Sends what waits. Resolves { sent: number, ok: boolean }; a failed send keeps the events for a later try. */
+export function flush() {
+  return enabled() ? analytics.flush() : Promise.resolve({ sent: 0, ok: true });
 }
 
-/** Sends what waits. Resolves { sent: number, ok: boolean }; a failed send keeps the events for the next flush. */
-export async function flush() {
-  if (!enabled() || !queue.length) return { sent: 0, ok: true };
-  const batch = queue;
-  queue = [];
-  const r = await online.request("POST", online.PATHS.analytics, { events: batch });
-  if (!r.ok) {
-    if (enabled()) queue = [...batch, ...queue].slice(-MAX_QUEUE);
-    return { sent: 0, ok: false };
-  }
-  return { sent: batch.length, ok: true };
-}
-
-/** The Quit button: record and send, then the caller quits. */
-export async function quit() {
+/** The Quit button: queue the event, then the caller quits (the engine waits up to 3 seconds for the send). */
+export function recordQuit() {
   record("quit", { shifts: session.shifts });
-  return flush();
 }
 
 export function start() {
@@ -106,6 +82,5 @@ export function start() {
 export function stop() {
   for (const off of unsubscribers) off();
   unsubscribers = [];
-  queue = [];
   Object.assign(session, { shifts: 0, stratum: 0, floor: 0, players: 1 });
 }

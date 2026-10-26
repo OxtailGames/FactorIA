@@ -27,16 +27,18 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 | `credits` | `scripts/ui/credits.js` | `credits.*` |
 | `shop` | `scripts/ui/shop.js`, `scripts/store_events.js` | `shop.*` |
 | `ageGate` | `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, `tests/age_gate.test.js` | `ageGate.*` |
+| `analyticsConsent` | `prefabs/ui/analytics_consent.prefab.json`, `scripts/ui/analytics_consent.js`, `tests/analytics_consent.test.js` | `analyticsConsent.*` |
 | `main-menu` | `scenes/menu.scene.json`, `scripts/main_menu.js`, `tests/recipe.test.js` | none of its own |
 | `pause` | `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js` | `pause.*` |
 | `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` adds `core`, `main-menu` adds `core`, `options` and `credits`. The result
-lists them in `requiredBy`. The shop and the age gate are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
-panel and the line that opens the age gate; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop` or `age_gate` in the
-scene, no import of `age_gate.js` in `scripts/main_menu.js`), and `{"parts":["main-menu","shop"]}` or `["main-menu","ageGate"]` adds just that one.
+A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` and `analyticsConsent` add `core`, `main-menu` adds `core`, `options` and `credits`. The result
+lists them in `requiredBy`. The shop, the age gate and the analytics question are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
+panel and the lines that open the age gate and the analytics question; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop`,
+`age_gate` or `analytics_consent` in the scene, no import of `age_gate.js` or `analytics_consent.js` in `scripts/main_menu.js`), and
+`{"parts":["main-menu","shop"]}`, `["main-menu","ageGate"]` or `["main-menu","analyticsConsent"]` adds just that one.
 Adding a part to a game that already has the main menu changes `scenes/menu.scene.json` and `scripts/main_menu.js`: they are listed in `skipped`
 (the game's files are never touched) until you pass `overwrite: true` or add the button, panel and lines yourself, as in steps 7 and 8.
 
@@ -70,7 +72,9 @@ What the command does, file by file; do it by hand when you want to see each fil
    `input.actions` except the `ui_*` ones, labelled with the string `options.action.<action>` (the action's own name when the
    game has no such string). To pick and order them, set the `actions` property of the prefab's Script:
    `"Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig", "place"] } }`; an action the game does
-   not have gets no row.
+   not have gets no row. A game with local multiplayer (several people on one machine, each on their own pad or key
+   block with `input.player(i)`) sets `"players": 2` (up to 4) in the same `props`: the Controls tab gets a "Player N" button
+   on top, and each player rebinds their own keys and pad buttons, saved by player.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
@@ -86,11 +90,14 @@ What the command does, file by file; do it by hand when you want to see each fil
 9. **On-screen keyboard (only for a game with a TextField).** `prefabs/ui/keyboard.prefab.json` and
    `scripts/ui/keyboard.js`, and one entity with that script in every scene that has a TextField (`keyboard_host` in
    `scenes/name.scene.json`). See "On-screen keyboard" below.
-10. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
+10. **Analytics question (only for a game with an `"analytics"` section).** `prefabs/ui/analytics_consent.prefab.json`,
+   `scripts/ui/analytics_consent.js`, the `analytics_consent` panel of `scenes/menu.scene.json`, the line in `main_menu.js` that opens it and the
+   `analytics_toggle` switch of the options panel (that one comes with `options`); see "Analytics question" below and [ANALYTICS.md](ANALYTICS.md).
+11. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
    Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
    texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
    `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
-11. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
+12. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` and `tests/keyboard.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.
@@ -203,6 +210,15 @@ What the command does, file by file; do it by hand when you want to see each fil
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
   `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
+  With the `players` property above 1 (local multiplayer) the tab starts with a "Player N" button that cycles through the
+  players and every row shows the player's keys and its pad buttons (`input.player(i).bindings(action, "keys")` and
+  `"pad"`, which also work for a player with no device yet, as in a menu). A key replaces the keyboard list of the
+  action, a pad button the pad list: `input.player(i).rebind(action, [pressed], family)` for that player only, and the
+  other players keep theirs. The mouse and touch are not bindings there (they belong to every player), and a key outside
+  the player's key scheme is refused by the engine and logged. `player(i).export()` is saved in `settings.playerBindings`
+  (by player), "Reset to defaults" is `input.player(i).reset()` for the shown player, and `settings.apply` imports
+  them again at the next start, logging what `import()` skipped. Assigning the devices (`input.player(i).use(...)`)
+  stays with the game: the menu only edits bindings. With `players` at 1 (the default) nothing changes.
 - **Language.** The Language tab's button names the current language (`i18n.name`) and cycles through `i18n.languages`
   with `i18n.setLanguage`: every Text and widget with a `key` is rewritten at once. The choice is saved in `settings`
   (`language`); `settings.apply` restores it at the next start, and ignores, with a warning, a language the game no
@@ -229,6 +245,17 @@ What the command does, file by file; do it by hand when you want to see each fil
   answer is sent again at start and the panel stays closed. A game that asks the age its own way calls
   `platform.ads.setUnderAge` itself and deletes this part. `tests/age_gate.test.js` drives the gate with the pad against the
   fake store.
+- **Analytics question.** <a id="analytics-question"></a>`analytics.event()` sends nothing until the player said yes
+  ([ANALYTICS.md](ANALYTICS.md)), so a game with an `"analytics"` section in factoria.json asks once. With the `analyticsConsent` part,
+  `main_menu.js` opens the `analytics_consent` panel over the title screen on the first run, when `analytics.consent()` is still `"unknown"`
+  (the age gate comes first when the audience is `"mixed"`; a game without the section, or whose ad consent already answered it with
+  `consentFromAds`, never sees the panel). "Allow" and "No thanks" both call `analytics.setConsent`, both are kept and the question does
+  not come back; Back and Escape cannot skip it. The options panel has the matching switch (`analytics_toggle`, shown only when
+  `analytics.configured`): the player changes the answer there at any time, and switching it off forgets what waited to be sent. Edit
+  `analyticsConsent.what` in `locales/*.json` so the text says what your game really sends ([LEGAL.md](LEGAL.md)).
+  `tests/analytics_consent.test.js` checks the question; in a game without the section it only checks that there is nothing to ask. A
+  game of your own that has no main menu calls `openAnalyticsConsent(menus)` from its first scene. A test of yours that loads the
+  main menu of a game with analytics sets the answer first, as `tests/recipe.test.js` does.
 - **Ad privacy button.** The options panel has a hidden "Ad privacy settings" button (`privacy_options`). `options.js` shows
   it only when the game has the `ads` service and `platform.ads.consent().privacyOptions` is `"required"`, and its click
   calls `platform.ads.privacyOptions()`, which opens Google's form where the player changes their ad choices.
@@ -447,6 +474,7 @@ function defaults() {
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
+    playerBindings: {}, // player ("0"."3") -> input.player(i).export(), only for a game with several local players (options.js `players`)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
@@ -460,7 +488,7 @@ export function load() {
   const saved = storage.get("settings", {});
   if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
 }
 
 export function save(s) {
@@ -514,6 +542,11 @@ export function apply(s = load()) {
     } catch (e) {
       console.warn(`settings: the saved controls of "${action}" were ignored: ${e.message}`);
     }
+  }
+  for (const [player, rebound] of Object.entries(s.playerBindings)) {
+    const index = Number(player);
+    if (!Number.isInteger(index) || index < 0 || index > 3) continue;
+    for (const problem of input.player(index).import(rebound)) console.warn(`settings: the saved controls of player ${index + 1}: ${problem}`);
   }
   if (!window.available) return; // headless runs and tests have no window
   const tryApply = (what, fn) => {
@@ -623,6 +656,7 @@ export class MenuStack {
       ] },
     { "id": "options", "active": false, "prefab": "prefabs/ui/options.prefab.json" },
     { "id": "age_gate", "active": false, "prefab": "prefabs/ui/age_gate.prefab.json" },
+    { "id": "analytics_consent", "active": false, "prefab": "prefabs/ui/analytics_consent.prefab.json" },
     { "id": "shop", "active": false,
       "components": {
         "Panel": { "size": [760, 520], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
@@ -662,6 +696,7 @@ import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
 import { openAgeGate } from "./ui/age_gate.js"; // @kit:ageGate
+import { openAnalyticsConsent } from "./ui/analytics_consent.js"; // @kit:analyticsConsent
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -676,6 +711,8 @@ export default class MainMenu extends Behaviour {
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).  // @kit:ageGate
     if (platform.ads.audience === "mixed") openAgeGate(this.menus); // @kit:ageGate
+    // A game with an "analytics" section in factoria.json asks once whether it may count usage; nothing is sent before the answer (docs/ANALYTICS.md).  // @kit:analyticsConsent
+    else openAnalyticsConsent(this.menus); // @kit:analyticsConsent
     ui.on("click", "play", () => {
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
@@ -972,6 +1009,7 @@ export default class StoreEvents extends Behaviour {
         "children": [
           { "id": "language", "components": { "Button": { "autoSize": true, "text": "Language: English", "size": [560, 44], "layer": 302 } } }
         ] },
+      { "id": "analytics_toggle", "active": false, "components": { "Toggle": { "autoSize": true, "label": "Share anonymous usage data", "key": "options.analytics", "size": [560, 44], "layer": 302 } } },
       { "id": "privacy_options", "active": false, "components": { "Button": { "autoSize": true, "text": "Ad privacy settings", "key": "options.privacyOptions", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
       { "id": "options_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
     ]
@@ -985,10 +1023,10 @@ export default class StoreEvents extends Behaviour {
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
 // monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
-// applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
+// (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -1006,10 +1044,18 @@ export default class Options extends Behaviour {
    * The labels are the strings "options.action.<action>"; an action without one is labelled with its name.
    */
   actions = null;
+  /**
+   * Local players that rebind their own controls (docs: scripting, input.player). 1 (the default) is a game with one set of
+   * bindings: the Controls tab changes the global input. Above 1 the tab gets a "Player N" button on top that cycles through the
+   * players, and each rebinds the keys and the gamepad buttons of input.player(i) only; what a player rebound is saved by player
+   * (settings.playerBindings) and put back by settings.apply(). Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "players": 2 } }.
+   */
+  players = 1;
 
   onStart() {
     this.s = settings.load();
     this.waiting = null; // the action waiting for "press a key or button"
+    this.seat = 0; // the player the Controls tab shows (only when players > 1)
     this.release = false;
     for (const tab of TABS) ui.on("click", `tab_${tab}`, () => this.showTab(tab));
     this.showTab("video");
@@ -1136,6 +1182,15 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
+    this.players = Math.max(1, Math.min(4, Math.round(Number(this.players)) || 1));
+    if (this.players > 1) {
+      world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      ui.on("click", "controls_player", () => {
+        if (this.waiting) return;
+        this.seat = (this.seat + 1) % this.players;
+        this.refreshControls();
+      });
+    }
     const have = input.actions();
     // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
     this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
@@ -1149,8 +1204,13 @@ export default class Options extends Behaviour {
       });
     }
     ui.on("click", "reset_controls", () => {
-      input.resetBindings();
-      this.s.bindings = {};
+      if (this.players > 1) {
+        input.player(this.seat).reset(); // this player only
+        delete this.s.playerBindings[String(this.seat)];
+      } else {
+        input.resetBindings();
+        this.s.bindings = {};
+      }
       settings.save(this.s);
       this.refreshControls();
     });
@@ -1163,13 +1223,22 @@ export default class Options extends Behaviour {
     return i18n.has(key) ? i18n.t(key) : action;
   }
 
+  /** The buttons bound to an action for one list of a player ("keys" or "pad") as the player reads them: "Space / J", or "-" for none. */
+  playerButtons(action, family) {
+    const player = input.player(this.seat);
+    const names = player.bindings(action, family);
+    return names.length ? names.map((name) => input.buttonName(name, Math.max(0, player.pad))).join(" / ") : "-";
+  }
+
   refreshControls() {
+    if (this.players > 1) world.find("controls_player").get("Button").text = i18n.t("options.player", { n: this.seat + 1 });
     for (const action of this.actions) {
       const label = this.actionLabel(action);
-      world.find(`bind_${action}`).get("Button").text =
-        this.waiting?.action === action
-          ? i18n.t("options.pressKey", { action: label })
+      const text =
+        this.players > 1
+          ? i18n.t("options.playerBinding", { action: label, keys: this.playerButtons(action, "keys"), pad: this.playerButtons(action, "pad") })
           : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+      world.find(`bind_${action}`).get("Button").text = this.waiting?.action === action ? i18n.t("options.pressKey", { action: label }) : text;
     }
   }
 
@@ -1194,6 +1263,7 @@ export default class Options extends Behaviour {
   // ------------------------------------------------------------------------------------------------------- privacy
   /** The "Ad privacy settings" button: only where ads exist and the consent sheet says the player must be able to change their choice. */
   setupPrivacy() {
+    this.setupAnalytics();
     if (!platform.has("ads")) return;
     const button = world.find("privacy_options");
     platform.ads
@@ -1207,6 +1277,15 @@ export default class Options extends Behaviour {
     });
   }
 
+  /** The usage-data switch: only in a game whose factoria.json has an "analytics" section. It is the player's answer (analytics.setConsent); off forgets what waits to be sent. */
+  setupAnalytics() {
+    const row = world.find("analytics_toggle");
+    row.active = analytics.configured;
+    if (!analytics.configured) return;
+    row.get("Toggle").value = analytics.consent() === "granted";
+    ui.on("change", "analytics_toggle", (e) => row.alive && analytics.setConsent(e.value));
+  }
+
   onUpdate() {
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
@@ -1218,7 +1297,20 @@ export default class Options extends Behaviour {
     const { action, button } = this.waiting;
     this.waiting = null;
     this.release = true;
-    if (pressed !== "Escape") {
+    if (pressed !== "Escape" && this.players > 1) {
+      // A key replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
+      // mouse and touch belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
+      const player = input.player(this.seat);
+      if (!/^(Mouse|Touch)/.test(pressed)) {
+        try {
+          player.rebind(action, [pressed], pressed.startsWith("Gamepad") ? "pad" : "keys");
+          this.s.playerBindings[String(this.seat)] = player.export();
+          settings.save(this.s);
+        } catch (e) {
+          console.warn(`options: ${pressed} was not taken as a binding: ${e.message}`);
+        }
+      }
+    } else if (pressed !== "Escape") {
       // Replace the bindings of the device that was pressed and keep the other device's: rebinding the keyboard
       // does not take the gamepad's buttons away.
       const pad = (b) => b.startsWith("Gamepad");
@@ -1489,6 +1581,190 @@ test("the next run does not ask again and tells the network the saved answer", (
   game.step(2);
   expect(menus.top).toBe(null);
   expect(platform.ads.underAge).toBe(true);
+});
+```
+
+### `prefabs/ui/analytics_consent.prefab.json`
+
+```json prefabs/ui/analytics_consent.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "AnalyticsConsent",
+    "components": {
+      "Panel": {
+        "size": [760, 420],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      }
+    },
+    "children": [
+      {
+        "id": "analytics_title",
+        "components": {
+          "Text": { "text": "Help us improve the game?", "key": "analyticsConsent.title", "fontSize": 40, "space": "screen", "layer": 301 }
+        }
+      },
+      {
+        "id": "analytics_what",
+        "components": {
+          "Text": {
+            "text": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+            "key": "analyticsConsent.what",
+            "fontSize": 24,
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "analytics_change",
+        "components": {
+          "Text": {
+            "text": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+            "key": "analyticsConsent.change",
+            "fontSize": 18,
+            "color": [0.75, 0.8, 0.9, 1],
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "analytics_allow",
+        "components": {
+          "Button": { "autoSize": true, "text": "Allow", "key": "analyticsConsent.allow", "layer": 302, "autoFocus": true }
+        }
+      },
+      {
+        "id": "analytics_deny",
+        "components": {
+          "Button": { "autoSize": true, "text": "No thanks", "key": "analyticsConsent.deny", "layer": 302 }
+        }
+      }
+    ]
+  }
+}
+```
+
+### `scripts/ui/analytics_consent.js`
+
+```js scripts/ui/analytics_consent.js
+// @ts-check
+// The analytics question (prefabs/ui/analytics_consent.prefab.json), for a game whose factoria.json has an "analytics" section
+// (docs/ANALYTICS.md): analytics.event() sends nothing until the player said yes, so the game asks once, on its first screen.
+// Both answers are fine: "No thanks" is kept like "Allow" (analytics.setConsent in storage), the question does not come back, and
+// the player can change the answer in Options (the "analytics_consent" switch, scripts/ui/options.js). Say what is collected in your
+// privacy policy and edit the texts "analyticsConsent.what" in locales/*.json to match what your game sends (docs/LEGAL.md).
+import { ui, world, analytics } from "factoria";
+import { MenuStack } from "./menu_stack.js";
+
+/**
+ * From the scene that opens first (the main menu calls it only when analytics.configured): opens the question over the menu
+ * when the player has not answered yet. `menus` is the scene's MenuStack, `panel` the id of the entity of the prefab in the scene.
+ * Returns true when the question is open; false when the game has no analytics or the player already answered (the answer
+ * of an earlier run, or the ad consent when factoria.json says "consentFromAds"). The player cannot close it with Back.
+ */
+export function openAnalyticsConsent(menus, panel = "analytics_consent") {
+  if (!analytics.configured || analytics.consent() !== "unknown") return false;
+  const allow = world.find("analytics_allow");
+  const answer = (/** @type {boolean} */ yes) => {
+    analytics.setConsent(yes);
+    MenuStack.busy = false;
+    menus.back();
+  };
+  // A click reaches the handler of every question this scene opened; only the one that is still there answers.
+  ui.on("click", "analytics_allow", () => allow.alive && answer(true));
+  ui.on("click", "analytics_deny", () => allow.alive && answer(false));
+  menus.show(panel);
+  ui.focus(allow); // a widget under the question may hold the focus
+  MenuStack.busy = true; // Escape / gamepad B must not skip the question
+  return true;
+}
+```
+
+### `tests/analytics_consent.test.js`
+
+```js tests/analytics_consent.test.js
+// The analytics question (scripts/ui/analytics_consent.js): asked once, both answers are kept, it cannot be skipped with Back, and
+// nothing is queued until the player said yes. The prompt is spawned from its prefab into whatever scene the test starts in, so
+// this test passes in any game with the analyticsConsent part; a game without an "analytics" section in factoria.json has nothing
+// to ask and the tests only check that. The fake network plays the server (docs/ANALYTICS.md), driven with a gamepad.
+import { test, expect, game } from "factoria:test";
+import { world, ui, storage, analytics } from "factoria";
+import { MenuStack } from "../scripts/ui/menu_stack.js";
+import { openAnalyticsConsent } from "../scripts/ui/analytics_consent.js";
+
+const pad = game.gamepad(0);
+
+// An empty store, then the question over a menu stack of its own. Returns the stack.
+function open() {
+  storage.clear();
+  game.platform.reset();
+  game.analytics.restart();
+  world.find("analytics_consent")?.destroy(); // the panel of the test before
+  game.step(1);
+  const panel = world.spawnPrefab("prefabs/ui/analytics_consent.prefab.json");
+  panel.id = "analytics_consent"; // MenuStack shows panels by id
+  panel.active = false;
+  const menus = new MenuStack(null);
+  expect(openAnalyticsConsent(menus)).toBe(true);
+  game.step(2);
+  expect(menus.top).toBe("analytics_consent");
+  return menus;
+}
+
+function press(id) {
+  ui.focus(world.find(id)); // the menu under the question has widgets of its own: do not walk to the button
+  pad.tap("A");
+  game.step(2);
+}
+
+test("a game without analytics has nothing to ask", () => {
+  if (analytics.configured) return;
+  expect(openAnalyticsConsent(new MenuStack(null))).toBe(false);
+  expect(analytics.consent()).toBe("unknown");
+});
+
+test("before the answer no event is kept; Allow lets them through", () => {
+  if (!analytics.configured) return;
+  const menus = open();
+  expect(analytics.event("level_start", { level: 1 })).toBe(false);
+  expect(game.analytics.queued().length).toBe(0);
+  press("analytics_allow");
+  expect(analytics.consent()).toBe("granted");
+  expect(menus.top).toBe(null);
+  expect(MenuStack.busy).toBe(false);
+  expect(analytics.event("level_start", { level: 1 })).toBe(true);
+  expect(game.analytics.queued().map((e) => e.name)).toEqual(["level_start"]);
+});
+
+test("No thanks is an answer too: nothing is kept and it is not asked again", () => {
+  if (!analytics.configured) return;
+  open();
+  press("analytics_deny");
+  expect(analytics.consent()).toBe("denied");
+  expect(analytics.event("level_start")).toBe(false);
+  expect(openAnalyticsConsent(new MenuStack(null))).toBe(false); // the next run
+});
+
+test("Back does not skip the question", () => {
+  if (!analytics.configured) return;
+  const menus = open();
+  pad.tap("B");
+  game.step(1);
+  expect(menus.top).toBe("analytics_consent");
+  expect(analytics.consent()).toBe("unknown");
+  expect(MenuStack.busy).toBe(true);
+  press("analytics_allow");
+  expect(MenuStack.busy).toBe(false);
 });
 ```
 
@@ -2078,12 +2354,15 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
     "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
     "privacyOptions": "Ad privacy settings",
+    "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
     "percent": "{value} percent"
@@ -2117,6 +2396,13 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "year": "Birth year",
     "continue": "Continue",
     "skip": "I would rather not say"
+  },
+  "analyticsConsent": {
+    "title": "Help us improve the game?",
+    "what": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+    "change": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+    "allow": "Allow",
+    "deny": "No thanks"
   }
 }
 ```
@@ -2162,12 +2448,15 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
     "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
     "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
     "privacyOptions": "Privacidad de los anuncios",
+    "analytics": "Compartir datos de uso anónimos",
     "on": "activado",
     "off": "desactivado",
     "percent": "{value} por ciento"
@@ -2201,6 +2490,13 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "year": "Año de nacimiento",
     "continue": "Continuar",
     "skip": "Prefiero no decirlo"
+  },
+  "analyticsConsent": {
+    "title": "¿Nos ayudas a mejorar el juego?",
+    "what": "Nos gustaría contar qué niveles se juegan y cómo terminan, y qué versión del juego usas. Nunca recogemos tu nombre, tus contactos ni nada de lo que escribes.",
+    "change": "Puedes cambiar de opinión en Opciones cuando quieras. Si dices que no, no se envía nada.",
+    "allow": "Permitir",
+    "deny": "No, gracias"
   }
 }
 ```
@@ -2211,10 +2507,11 @@ third language by editing the values only (keep the keys and the `{placeholders}
 // The test that ships with the menu kit (project.add_menu_kit): it opens the kit's main menu itself, so it passes whatever the
 // game's mainScene is, and drives the menus with a gamepad only.
 import { test, expect, game } from "factoria:test";
-import { ui, storage, audio, scene } from "factoria";
+import { ui, storage, audio, scene, analytics } from "factoria";
 
 // Each test file starts on the project's mainScene with empty storage.
 test("gamepad only: main menu -> options -> music volume -> back, and the volume is saved", () => {
+  if (analytics.configured) analytics.setConsent(true); // a game with analytics: the question of the first run is answered (tests/analytics_consent.test.js)
   scene.load("scenes/menu.scene.json");
   const pad = game.gamepad(0);
   game.step(2);

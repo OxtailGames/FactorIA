@@ -190,7 +190,7 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | Colors | `[r, g, b, a]` with values 0..1, `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`, or a name: white, black, red, green, blue, yellow, cyan, magenta, gray, grey, orange, purple, pink, brown, transparent. If any value in an array is above 1, the engine reads the array as 0..255 bytes, so keep to 0..1. |
 | Rects | `{x, y, w, h}` or `[x, y, w, h]` (`physics.overlapBox`, `debug.rect`, `entity.bounds()`): `(x, y)` is the minimum corner, the BOTTOM-LEFT in the +Y-up world, and `w`, `h` the size. |
 | Vectors | In scripts, a vector argument accepts `Vec2`/`Vec3` values, `{x, y}` or `[x, y]`. In JSON, use arrays (`[x, y]` or `[x, y, z]`); `{x, y}` objects also work in component fields. |
-| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer, `input.gamepad(1).down("A")` reads one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android and the web (the browser's Gamepad API). Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. `game.on("gamepadConnected" | "gamepadDisconnected", (pad) => ...)` gives `{ slot, id, name, type }`; `id` is the same for the same physical pad every time, and a pad that returns gets its old slot when that is free (`input.gamepad(i).id` and `.name` read them; pads plugged in before the first scene are not announced). Tests: `game.gamepad(1).connect({ id, name, type })`. |
+| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer give each person `input.player(i)`: the same actions read from that person's own pad or key block, with bindings of their own (section 9.28); `input.gamepad(1).down("A")` reads the raw buttons of one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android and the web (the browser's Gamepad API). Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. `game.on("gamepadConnected" | "gamepadDisconnected", (pad) => ...)` gives `{ slot, id, name, type }`; `id` is the same for the same physical pad every time, and a pad that returns gets its old slot when that is free (`input.gamepad(i).id` and `.name` read them; pads plugged in before the first scene are not announced). Tests: `game.gamepad(1).connect({ id, name, type })`. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. To create a sprite or other binary file from text tools, call `fs_write` with `"encoding": "base64"` and the base64 of the PNG bytes as `content` (generate the PNG in a JS tool or script, or encode it yourself); the default `"utf8"` is text only. |
 | Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
@@ -297,7 +297,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the screen, 0..1, top-left origin, default [0, 0, 1, 1]), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.28), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the screen, 0..1, top-left origin, default [0, 0, 1, 1]), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
 | `Video` | `path`, `autoplay`, `loop`, `volume`, `bus`, `fit`, `tint` + the UiBox fields; runtime `playing`, `time`, `duration`, `ended` | An `.mpg` (MPEG-1 + MP2) drawn in a UI rectangle with its sound; time follows the game clock. Script: `entity.video.play()`, `.seek(s)`, `.on("ended", fn)`. Bring any video with `assets.import` (needs ffmpeg). [ASSETS.md](ASSETS.md) "Video", [MENUS.md](MENUS.md) studio intro. |
@@ -382,12 +382,12 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | Import | Members |
 |---|---|
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, index, props})`, `spawnPrefab(path, {position, rotation, scale, parent, index, props, overrides, childOverrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
-| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
+| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); `player(i)` (local multiplayer: `use({pad})` / `use({keys})`, then `down`, `pressed`, `value`, `axis`, `vector`, `rebind`, `export`, section 9.28); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
 | `screen` | `safeArea` (a `Rect` in design pixels: what a phone's notch, rounded corners and system bars leave free; the whole screen on desktop and headless), `insets` (`{left, top, right, bottom}`), `size`. Put `safeArea: true` beside `anchor` on a Sprite, Shape2D, Text, ParticleEmitter or UI widget to anchor it to the safe area. Test with `game.setSafeArea("phone-portrait")` / `screen_set_safe_area` (`docs_read {"name":"mobile"}`) |
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity`, `moveCharacter(entity, delta)` |
-| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `camera.all`, `camera.at(point)`, `worldToScreen(v, camera?)`, `screenToWorld(v, depth?, camera?)`, `screenRay(point, camera?)` (with several cameras they default to the camera under the point, section 9.28); `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
+| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `camera.all`, `camera.at(point)`, `worldToScreen(v, camera?)`, `screenToWorld(v, depth?, camera?)`, `screenRay(point, camera?)` (with several cameras they default to the camera under the point, section 9.29); `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.platform` (`"windows"`, `"android"`...), `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
@@ -1402,6 +1402,23 @@ Animation runs in the fixed step, so headless tests and replays match (`game.ste
 The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
 Each animated model is its own draw call, so keep crowds of animated characters modest.
 
+### 9.25.1 Analytics with consent and remote config
+
+For a game that must count what players do or tune values without a new build ([ANALYTICS.md](ANALYTICS.md); `docs_read {"name":"analytics"}`).
+Nothing is sent before the player says yes, so ask first, and say in the privacy policy what is sent.
+
+1. `factoria.json`: `"network": {"hosts": ["stats.example.com"], "purpose": "..."}`, `"analytics": {"endpoint": "https://stats.example.com/events"}`
+   and, for values, `"remoteConfig": {"url": "https://stats.example.com/game.json"}`. `factoria validate` checks the hosts and the numbers.
+2. The question: add the menu kit part `analyticsConsent` (`project.add_menu_kit {"parts":["analyticsConsent"]}`) or call
+   `analytics.setConsent(true | false)` from your own button. `analytics.consent()` is `"unknown"` until the player answers.
+3. Events: `analytics.event("level_done", { level: 3, won: true })` (flat props, short codes and numbers, never typed text). It returns `false` and keeps nothing
+   without consent. Batches go out at `batch` events, after `flushSeconds`, on suspend and on quit (the quit waits up to 3 seconds).
+4. Values: `remoteConfig.get("enemySpeed", 1.5)` always works (cache, then the fallback). To wait for the first answer at a loading screen,
+   check that the scene is still current: `const here = scene.current; remoteConfig.ready().then(() => { if (scene.current !== here) return; ... })`.
+5. Tests: `game.platform.respond("http.fetch", { status: 204 })` plays the server, `game.analytics.sent()` shows what it accepted, `game.analytics.queued()` what waits,
+   `game.remoteConfig.restart()` starts a new run from the cache. A test that loads a main menu in a game with analytics sets the answer first
+   (`analytics.setConsent(true)`), or the question is on screen.
+
 ### 9.26 2D production: flipped tiles, 9-slice, lights, parallax, joints
 
 - **Flipped and rotated tiles.** A tile value in `Tilemap.tiles` is the index plus flag bits: `+268435456` flip X, `+536870912` flip Y, `+1073741824` transpose (applied first, then X, then Y). Turn 90 degrees clockwise = `1342177280 + i`, 180 = `805306368 + i`, 90 counter-clockwise = `1610612736 + i`. `solidTiles`, the tileset range check and collision use the plain index only. In `scene.import_ascii` a legend object takes `{"tile": 3, "flipX": true, "flipY": false, "rotate": 90}` (rotate is clockwise: 0, 90, 180, 270) so you never write the numbers.
@@ -1470,10 +1487,49 @@ export default class Enemy extends Behaviour {
 }
 ```
 
+
 Digging or building (`entity.tilemap.setTile`) bumps the version, so the next `chase` finds the new way. A game whose real
 map is not a Tilemap passes its own `{width, height, cost}` grid instead of `this.map`.
 
-### 9.28 Split screen: two or four players, one camera each
+### 9.28 Local multiplayer: one player per pad or key block
+
+Two to four people on one machine, each with their own controls and the same action names. Do not read `input.gamepad(i)` button by button and do not write a second set of key tables: declare the actions once in `factoria.json`, give each player a device, and read `input.player(i)`.
+
+```json
+"input": {
+  "actions": { "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"], "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"], "jump": ["Space", "Up", "GamepadA"] },
+  "schemes": { "arrows": { "extends": "right", "actions": { "jump": ["Enter"] } } }
+}
+```
+
+- **Devices.** `input.player(i).use({ pad: 0 })` (a gamepad slot), `use({ padId: input.gamepad(0).id })` (follow that physical pad if it returns in another slot) and `use({ keys: "left" })` (a key scheme). A player may have a pad and a key scheme; with neither (`use()`) it reads nothing. The schemes are `"all"`, `"left"` (the WASD half of the keyboard), `"right"` (the arrows half) and the ones in `factoria.json` `input.schemes` (`extends` a built-in one, `keys` to add keys, `actions` to give a scheme its own keys for some actions); `input.keySchemes()` lists them. A bad slot or scheme throws and says what exists. Assign the devices every time your scene starts: a test starts with none.
+- **Reading.** `down`, `pressed`, `released`, `value`, `axis(neg, pos)` and `vector(left, right, down, up)` have the names of the global `input`, and answer only for that player's device: pad bindings of an action read that pad alone, key bindings count only keys of the player's scheme (`"left"`: `A` and `D` yes, `Left` no), and the mouse and touch belong to nobody. The global `input.down("jump")` still hears every device, which is right for menus.
+- **Bindings per player.** Defaults are the project's bindings filtered to the device. `input.player(i).rebind("jump", ["Q"])` changes this player only (all names keys, or all pad buttons; pass `"keys"` or `"pad"` as the third argument to say which list, also when the player has no such device yet). `bindings(action, family)`, `reset(action?)` and `lastPressed()` are per player too. Save with `storage.set("p" + i, input.player(i).export())` and restore with `input.player(i).import(saved)`, which returns what it had to skip.
+- **Tests.** `game.keyDown("A")` and `game.gamepad(1).press("A")` drive them; assert that each player's action moves only their character.
+
+```js
+import { Behaviour, input } from "factoria";
+
+export default class Runner extends Behaviour {
+  index = 0;       // the player: set per instance in the scene with Script.props
+  speed = 300;
+  jumpSpeed = 620;
+
+  onStart() {
+    this.me = input.player(this.index);
+    this.body = this.entity.get("RigidBody2D");
+    // players 0 and 1 on pads 0 and 1, player 2 on the left half of the keyboard, player 3 on the "arrows" scheme of factoria.json (jump is Enter there)
+    this.me.use(this.index < 2 ? { pad: this.index } : { keys: this.index === 2 ? "left" : "arrows" });
+  }
+
+  onUpdate() {
+    this.body.velocity.x = this.me.axis("move_left", "move_right") * this.speed;
+    if (this.me.pressed("jump") && this.entity.isGrounded()) this.body.velocity.y = this.jumpSpeed;
+  }
+}
+```
+
+### 9.29 Split screen: two or four players, one camera each
 
 Every active `Camera` with `primary: true` draws into its own `viewport` (`[x, y, width, height]`, each 0..1, `[0, 0]` is the
 TOP-LEFT of the screen, +Y down), in ascending `depth`. A split screen is two or more cameras whose viewports share the screen;
@@ -1517,10 +1573,8 @@ export default class FollowTarget extends Behaviour {
 }
 ```
 
-Per-player input with today's API: declare one action set per player in `factoria.json` (`p1_left`, `p1_right`, `p1_jump`,
-`p2_left`, ... with a keyboard half or the gamepad buttons of the player) and give the player script a `prefix` prop
-(`input.axis(`${this.prefix}_left`, `${this.prefix}_right`)`); raw device state of one pad is `input.gamepad(i)`. Once
-M29.15 lands, `input.player(i)` is the per-player way: it gives each player their own actions bound to their pad or keyboard half.
+Per-player input: each player's script reads `input.player(i)` (section 9.28) with its own pad or key scheme, so the
+camera scripts only follow the players and the controls stay the same with one screen or four.
 
 Screen points and cameras: `camera.all` lists the cameras drawn (draw order), `camera.at(point)` is the one whose viewport
 contains a screen point (the one drawn last, on top, when viewports overlap; a point outside every viewport gives the first camera), and `camera.screenToWorld(point)`,
@@ -1724,4 +1778,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read ai-costs` (MCP `docs_read {"name":"ai-costs"}`): what a whole game cost in tokens and money
   (measured), what drives the cost, the `limits` that cap it and where to see what was spent. Tell the user when a
   task is going to be long or dear.
+- `factoria docs read analytics` (MCP `docs_read {"name":"analytics"}`): usage events sent after the player consents,
+  values read from your server with an offline cache, the menu kit's question, tests without a server and what to tell the
+  stores. `factoria docs read networking` has the `http.fetch` they stand on.
 - The project's `AGENTS.md`: short rules for this game.

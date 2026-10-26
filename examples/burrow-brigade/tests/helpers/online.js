@@ -1,7 +1,6 @@
-// Helpers for the P5 tests: a fake game server behind scripts/game/online.js (no test touches a network), a clean store layer and
+// Helpers for the P5 tests: a fake game server behind the engine's http.fetch (no test touches a network), a clean store layer and
 // the services started the way a scene starts them.
 import { game, beforeEach, afterEach } from "factoria:test";
-import * as online from "../../scripts/game/online.js";
 import * as services from "../../scripts/game/services.js";
 import * as balance from "../../scripts/game/balance.js";
 import * as events from "../../scripts/game/events.js";
@@ -9,37 +8,38 @@ import { storage } from "factoria";
 import { startRun, run } from "../../scripts/game/run_state.js";
 import * as players from "../../scripts/game/players.js";
 
-/**
- * Puts a fake server behind online.js. `routes` maps a path to what GET answers (an object), or to a function(method, body) that
- * returns the answer or throws. A path with no route answers like a server that is down.
- * @param {Record<string, any>} routes
- */
-export function fakeServer(routes = {}) {
-  /** @type {Array<{method: string, path: string, body: any}>} */
-  const calls = [];
-  const transport = {
-    name: "fake",
-    request(method, path, body) {
-      calls.push({ method, path, body });
-      const r = routes[path];
-      if (r === undefined) {
-        const e = /** @type {any} */ (new Error(`the fake server has no route ${path}`));
-        e.code = "network";
-        return Promise.reject(e);
-      }
-      try {
-        return Promise.resolve(typeof r === "function" ? r(method, body) : r);
-      } catch (e) {
-        return Promise.reject(e);
-      }
-    },
-  };
-  const old = online.setTransport(transport);
-  return { calls, restore: () => online.setTransport(old) };
-}
+/** Where factoria.json sends the statistics and where it reads the config file (placeholders: README, "Server addresses"). */
+export const EVENTS_URL = "https://burrow-brigade.example/v1/events";
+export const CONFIG_URL = "https://burrow-brigade.example/v1/config.json";
 
 /**
- * Each test starts with a clean bus, no players, the offline transport, the shipped balance numbers, a fresh fake store and the
+ * The server's answer to the config fetch, the first `http.fetch` of a run: a file (an object), or null for a server that is
+ * down. Call it BEFORE anything fetches (the title does at its first frame); the answers go out first in, first out.
+ * @param {any} file
+ */
+export function serveConfig(file) {
+  game.platform.respond("http.fetch", file === null ? { error: "network", message: "the server is down" } : { json: file });
+}
+
+/** The server accepts the statistics batches that follow: `status` for the next `times` requests. */
+export function serveEvents(status = 204, times = 50) {
+  game.platform.respond("http.fetch", { status }, times);
+}
+
+/** The requests the game made to its server: `{ method, url, body }` (the body parsed when it is JSON). */
+export function requests() {
+  return game.platform.calls().filter((c) => c.method === "http.fetch").map((c) => ({
+    method: c.args.method ?? "GET",
+    url: c.args.url,
+    body: typeof c.args.body === "string" && c.args.body ? JSON.parse(c.args.body) : null,
+  }));
+}
+
+/** The batches of statistics posted so far. */
+export const posts = () => requests().filter((r) => r.url === EVENTS_URL);
+
+/**
+ * Each test starts with a clean bus, no players, an offline server (nothing scripted), the shipped balance numbers, a fresh fake store and the
  * services started. Returns nothing: import what the test needs.
  */
 export function freshOnline() {
@@ -48,8 +48,10 @@ export function freshOnline() {
     events.clear();
     services.stop();
     storage.clear();
+    game.setDate("2026-10-25"); // the first one starts the title scene, which asks the server for its config
     game.platform.reset();
-    game.setDate("2026-10-25");
+    game.analytics.restart();
+    game.remoteConfig.restart();
     startRun({ seed: 7, stratum: 0, floor: 1 });
     /** @type {any} */ (run).mode = "normal";
     /** @type {any} */ (run).dailyKey = null;
@@ -58,7 +60,6 @@ export function freshOnline() {
   afterEach(() => {
     services.stop();
     balance.reset();
-    online.setTransport(online.offlineTransport);
   });
 }
 

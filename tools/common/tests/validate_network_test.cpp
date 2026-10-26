@@ -108,3 +108,25 @@ TEST_CASE("validate: a script that calls http.fetch in a game with no declared h
     r = p.validate();
     for (const auto& w : r.warnings) CHECK_FALSE(has(w.message, "calls http.fetch"));
 }
+
+TEST_CASE("validate: analytics and remoteConfig need https URLs whose host is in network.hosts") {
+    auto with = [](const char* extra) {
+        NetProject p(R"({"hosts": ["stats.example.com"], "purpose": "Stats."})");
+        auto j = load_json_file(p.dir + "/factoria.json");
+        REQUIRE(j.ok());
+        const Json add = *parse_json(extra);
+        for (const auto& [k, v] : add.items()) (*j)[k] = v;
+        REQUIRE(save_json_file(p.dir + "/factoria.json", *j).ok());
+        return p.validate();
+    };
+    auto good = with(R"({"analytics": {"endpoint": "https://stats.example.com/e"}, "remoteConfig": {"url": "https://stats.example.com/c.json"}})");
+    for (const auto& e : good.errors) CHECK_MESSAGE(false, e.to_string());
+
+    auto bad = with(R"({"analytics": {"endpoint": "https://other.example.com/e", "batch": 500}, "remoteConfig": {"url": "http://stats.example.com/c.json"}})");
+    CHECK_FALSE(bad.ok);
+    const auto host = at(bad.errors, "factoria.json", "/analytics/endpoint");
+    REQUIRE(host.size() == 1);  // once: the section parser's message replaces the schema's
+    CHECK(has(host[0]->message, "network"));
+    CHECK(at(bad.errors, "factoria.json", "/analytics/batch").size() == 1);
+    CHECK(at(bad.errors, "factoria.json", "/remoteConfig/url").size() == 1);
+}

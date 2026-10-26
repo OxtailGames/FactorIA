@@ -1,10 +1,10 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
 // monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
-// applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
+// (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -22,10 +22,18 @@ export default class Options extends Behaviour {
    * The labels are the strings "options.action.<action>"; an action without one is labelled with its name.
    */
   actions = null;
+  /**
+   * Local players that rebind their own controls (docs: scripting, input.player). 1 (the default) is a game with one set of
+   * bindings: the Controls tab changes the global input. Above 1 the tab gets a "Player N" button on top that cycles through the
+   * players, and each rebinds the keys and the gamepad buttons of input.player(i) only; what a player rebound is saved by player
+   * (settings.playerBindings) and put back by settings.apply(). Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "players": 2 } }.
+   */
+  players = 1;
 
   onStart() {
     this.s = settings.load();
     this.waiting = null; // the action waiting for "press a key or button"
+    this.seat = 0; // the player the Controls tab shows (only when players > 1)
     this.release = false;
     for (const tab of TABS) ui.on("click", `tab_${tab}`, () => this.showTab(tab));
     this.showTab("video");
@@ -152,6 +160,15 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
+    this.players = Math.max(1, Math.min(4, Math.round(Number(this.players)) || 1));
+    if (this.players > 1) {
+      world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      ui.on("click", "controls_player", () => {
+        if (this.waiting) return;
+        this.seat = (this.seat + 1) % this.players;
+        this.refreshControls();
+      });
+    }
     const have = input.actions();
     // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
     this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
@@ -165,8 +182,13 @@ export default class Options extends Behaviour {
       });
     }
     ui.on("click", "reset_controls", () => {
-      input.resetBindings();
-      this.s.bindings = {};
+      if (this.players > 1) {
+        input.player(this.seat).reset(); // this player only
+        delete this.s.playerBindings[String(this.seat)];
+      } else {
+        input.resetBindings();
+        this.s.bindings = {};
+      }
       settings.save(this.s);
       this.refreshControls();
     });
@@ -179,13 +201,22 @@ export default class Options extends Behaviour {
     return i18n.has(key) ? i18n.t(key) : action;
   }
 
+  /** The buttons bound to an action for one list of a player ("keys" or "pad") as the player reads them: "Space / J", or "-" for none. */
+  playerButtons(action, family) {
+    const player = input.player(this.seat);
+    const names = player.bindings(action, family);
+    return names.length ? names.map((name) => input.buttonName(name, Math.max(0, player.pad))).join(" / ") : "-";
+  }
+
   refreshControls() {
+    if (this.players > 1) world.find("controls_player").get("Button").text = i18n.t("options.player", { n: this.seat + 1 });
     for (const action of this.actions) {
       const label = this.actionLabel(action);
-      world.find(`bind_${action}`).get("Button").text =
-        this.waiting?.action === action
-          ? i18n.t("options.pressKey", { action: label })
+      const text =
+        this.players > 1
+          ? i18n.t("options.playerBinding", { action: label, keys: this.playerButtons(action, "keys"), pad: this.playerButtons(action, "pad") })
           : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+      world.find(`bind_${action}`).get("Button").text = this.waiting?.action === action ? i18n.t("options.pressKey", { action: label }) : text;
     }
   }
 
@@ -210,6 +241,7 @@ export default class Options extends Behaviour {
   // ------------------------------------------------------------------------------------------------------- privacy
   /** The "Ad privacy settings" button: only where ads exist and the consent sheet says the player must be able to change their choice. */
   setupPrivacy() {
+    this.setupAnalytics();
     if (!platform.has("ads")) return;
     const button = world.find("privacy_options");
     platform.ads
@@ -223,6 +255,15 @@ export default class Options extends Behaviour {
     });
   }
 
+  /** The usage-data switch: only in a game whose factoria.json has an "analytics" section. It is the player's answer (analytics.setConsent); off forgets what waits to be sent. */
+  setupAnalytics() {
+    const row = world.find("analytics_toggle");
+    row.active = analytics.configured;
+    if (!analytics.configured) return;
+    row.get("Toggle").value = analytics.consent() === "granted";
+    ui.on("change", "analytics_toggle", (e) => row.alive && analytics.setConsent(e.value));
+  }
+
   onUpdate() {
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
@@ -234,7 +275,20 @@ export default class Options extends Behaviour {
     const { action, button } = this.waiting;
     this.waiting = null;
     this.release = true;
-    if (pressed !== "Escape") {
+    if (pressed !== "Escape" && this.players > 1) {
+      // A key replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
+      // mouse and touch belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
+      const player = input.player(this.seat);
+      if (!/^(Mouse|Touch)/.test(pressed)) {
+        try {
+          player.rebind(action, [pressed], pressed.startsWith("Gamepad") ? "pad" : "keys");
+          this.s.playerBindings[String(this.seat)] = player.export();
+          settings.save(this.s);
+        } catch (e) {
+          console.warn(`options: ${pressed} was not taken as a binding: ${e.message}`);
+        }
+      }
+    } else if (pressed !== "Escape") {
       // Replace the bindings of the device that was pressed and keep the other device's: rebinding the keyboard
       // does not take the gamepad's buttons away.
       const pad = (b) => b.startsWith("Gamepad");

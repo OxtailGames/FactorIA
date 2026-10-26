@@ -221,7 +221,7 @@ export default class Options extends Behaviour {
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
-  // One page per player (Player 1 to 4): each rebinds its own keyboard and gamepad (scripts/game/controls.js), saved by seat. The
+  // One page per player (Player 1 to 4): each rebinds its own keyboard and gamepad (input.player(seat), scripts/game/controls.js), saved by seat. The
   // button at the top cycles the player; a row waits for a key or button and rebinds the list of the device that was pressed.
   setupControls() {
     const list = world.find("bindings");
@@ -315,7 +315,11 @@ export default class Options extends Behaviour {
     // Escape cancels; a mouse or touch press is not a binding. A key replaces the keyboard list of the action for this player,
     // a gamepad button or stick direction replaces its gamepad list: rebinding one does not take the other away.
     if (pressed !== "Escape" && !/^(Mouse|Touch)/.test(pressed)) {
-      controls.rebind(this.seat, pressed.startsWith("Gamepad") ? "pad" : "keys", action, [pressed]);
+      try {
+        controls.rebind(this.seat, pressed.startsWith("Gamepad") ? "pad" : "keys", action, [pressed]);
+      } catch (e) {
+        console.warn(`options: ${pressed} was not taken as a binding: ${e.message}`); // the engine refuses a name the player's device cannot use
+      }
     }
     this.refreshControls();
     ui.focus(button); // the key that was pressed may also have moved the focus

@@ -289,7 +289,12 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   an `HttpClient` of `fa_platform` (`fa/platform/http.h`: WinHTTP, `NSURLSession`, libcurl loaded with dlopen, Android's
   `HttpURLConnection` through JNI, the browser's `fetch`; one `http_<platform>` file each). Headless runs and tests ask for
   the fake backend, which never touches the network. A plugin cannot offer the "http" service.
-Docs: [PLATFORM.md](PLATFORM.md), [NETWORKING.md](NETWORKING.md).
+- **`analytics` and `remoteConfig`** are script services in `factoria.js`, not platform services: they call `http.fetch`
+  (so the same host check and fake apply) and keep their state in `storage` under the engine's own `factoria.*` keys.
+  `fa/services/network.h` parses their `factoria.json` sections (`parse_analytics`, `parse_remote_config`) and `factoria
+  validate` checks them. The script system ticks them with the unscaled frame time, and runs `app.suspend` and the quit
+  flush (`request_quit` and `close_requested` wait up to 3 seconds for a pending request) through hooks of the prelude.
+Docs: [PLATFORM.md](PLATFORM.md), [NETWORKING.md](NETWORKING.md), [ANALYTICS.md](ANALYTICS.md).
 
 ### Localization
 Text lives in string tables, `locales/<language>.json`, and the engine shows the player's language (docs:

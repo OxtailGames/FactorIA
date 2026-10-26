@@ -167,6 +167,14 @@ struct ScriptSystem::Impl {
     bool quitCancelled = false;  // a game.on("quit") handler called event.cancel() during close_requested()
     std::vector<std::string> testSystemLanguages;
     void request_quit();  // the host's quit, except in a test run, where it only sets testQuitRequested
+    // Analytics and remote config (the prelude's serviceTick / serviceSuspend / serviceQuit / servicePending): a quit first
+    // flushes the analytics queue and waits, at most kQuitFlushSeconds of engine time, for the request that carries it.
+    bool quitDeferred = false;
+    double quitWaited = 0.0;
+    int service_call(const char* method, std::initializer_list<JSValue> args);  // the prelude's number answer, 0 on failure
+    bool begin_quit_flush();   // flushes; true when a request is still in flight (the quit waits)
+    void update_quit_wait(double dt);  // each frame while quitDeferred
+    void do_request_quit();    // the host's quit itself, without the flush
 
     // ---- game.device: game.setDevice() in tests overrides some of the host's values
     Json testDevice = Json::object();

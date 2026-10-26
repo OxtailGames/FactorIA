@@ -2000,11 +2000,11 @@ Not released yet (on main after 0.2.0).
 
 Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.
 
-The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options and credits) and are listed in `requiredBy`. The shop and ageGate parts are optional for the main menu: its Shop button, shop panel and age gate call are written only when those parts are added (all parts by default). A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
+The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options and credits) and are listed in `requiredBy`. The shop, ageGate and analyticsConsent parts are optional for the main menu: its Shop button, shop panel, age gate call and analytics question call are written only when those parts are added (all parts by default). A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, and the line that opens the age gate, are written only when the shop and ageGate parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own). |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own). |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -3259,6 +3259,76 @@ declare module "factoria" {
   }
 
   /**
+   * One local player, from input.player(index): the project's input actions (the same names input.down() takes) read through that player's own devices, for games where two to four people share the machine. The devices are a gamepad (pad bindings read only that pad) and/or a key scheme (key bindings read only the keys of that scheme, such as the left half of the keyboard); mouse and touch bindings belong to the shared pointer and players do not read them. A player with no device reads nothing. input.down() and the rest of the global API keep hearing every device. Each player has its own bindings: the defaults are the project's, filtered to the device, and rebind() changes this player only.
+   */
+  export interface PlayerInputAPI {
+    /**
+     * The player number, 0 to 3.
+     */
+    readonly index: number;
+    /**
+     * Gives the player its devices; every field left out means none, and use() or use(null) takes them all away. pad is a gamepad slot (0..3); padId is the stable id of a pad (input.gamepad(i).id) and makes the player follow that pad when it comes back in another slot (it reads nothing while that pad is unplugged); use one of the two. keys names a key scheme: "all" (every key), "left" (the left half: Q W E R T A S D F G Z X C V B, 1-5, Space, Tab, LeftShift...), "right" (the right half: arrows, Enter, Backspace, U I O P H J K L N M, 6-0, punctuation...) or one from factoria.json input.schemes (input.keySchemes() lists them). A bad slot, an unknown scheme (with "did you mean"), or both pad and padId throws and changes nothing. What the player rebound stays with the player when its device changes.
+     */
+    use(device?: { pad?: number; padId?: string; keys?: string } | null): void;
+    /**
+     * What use() was given (pad -1, padId "" and keys "" for none) and slot, the pad the player reads right now (-1 for no pad, or for a padId pad that is unplugged).
+     */
+    readonly device: { pad: number; padId: string; keys: string; slot: number };
+    /**
+     * The pad slot the player reads now (device.slot); -1 for none.
+     */
+    readonly pad: number;
+    /**
+     * The action is held on this player's devices (analog bindings count from 0.5). Unknown actions throw with a suggestion; a player with no device gives false.
+     */
+    down(action: string): boolean;
+    /**
+     * Went down this frame on this player's devices.
+     */
+    pressed(action: string): boolean;
+    /**
+     * Went up this frame on this player's devices.
+     */
+    released(action: string): boolean;
+    /**
+     * 0..1 strength of the action on this player's devices (the maximum over its bindings).
+     */
+    value(action: string): number;
+    /**
+     * -1..1 from two actions: value(positive) - value(negative), on this player's devices.
+     */
+    axis(negative: string, positive: string): number;
+    /**
+     * 2D vector from four actions (+Y up), normalized only when longer than 1, on this player's devices.
+     */
+    vector(left: string, right: string, down: string, up: string): Vec2;
+    /**
+     * The player's bindings of an action, as names rebind() accepts. With a family: only that list ("keys": the keys of its scheme, "pad": gamepad bindings), also when the player has no such device now. Without: the lists of the devices the player has, keys first. The defaults are the project's bindings of the action that belong to the player's scheme (a key scheme may give its own with input.schemes.<name>.actions) and to a pad.
+     */
+    bindings(action: string, family?: "keys" | "pad"): string[];
+    /**
+     * Replaces this player's bindings of one action, for one family: all the names must be keys ("Space", "W") or all gamepad bindings ("GamepadA", "GamepadLeftStickUp"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with "did you mean" and changes nothing. Other players and the global input.rebind() are unaffected.
+     */
+    rebind(action: string, bindings: string[], family?: "keys" | "pad"): void;
+    /**
+     * Puts this player's bindings of one action, or of every action, back to the defaults.
+     */
+    reset(action?: string): void;
+    /**
+     * Like input.lastPressed() but only for this player's devices: a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a "press a key to rebind" screen.
+     */
+    lastPressed(): string | null;
+    /**
+     * What the player rebound, for the game to save with storage.set(): only the actions that differ from the defaults ({} when nothing). The device is not part of it.
+     */
+    export(): { keys?: Record<string, string[]>; pad?: Record<string, string[]> };
+    /**
+     * Replaces the player's rebinds with what export() gave. An entry that is no longer valid (an action the project dropped, a name that is not a binding or is of the other family) is skipped and described in the returned array (empty when all applied); the rest applies. No data (or {}) resets the player.
+     */
+    import(data?: { keys?: Record<string, string[]>; pad?: Record<string, string[]> }): string[];
+  }
+
+  /**
    * Input through named actions (factoria.json input.actions), raw keys or gamepads.
    */
   export interface InputAPI {
@@ -3287,6 +3357,22 @@ declare module "factoria" {
      * Pad 0..3 (default 0); a bad index throws.
      */
     gamepad(index?: number): GamepadAPI;
+    /**
+     * How many players input.player() has: 4 (one per gamepad slot).
+     */
+    readonly maxPlayers: number;
+    /**
+     * Player 0..3 for local multiplayer: the same actions as input.down() but read from that player's own gamepad and/or key scheme (see PlayerInputAPI). Assign devices with input.player(i).use({pad: i}) or use({keys: "left"}); a player with no device reads nothing. A bad index throws. The game assigns devices each time its scene starts (a test starts with none, like it starts with the project's bindings).
+     */
+    player(index: number): PlayerInputAPI;
+    /**
+     * The key schemes input.player(i).use({keys}) accepts: "all", "left", "right" and the ones in factoria.json input.schemes.
+     */
+    keySchemes(): string[];
+    /**
+     * The keys of a key scheme, as key names. An unknown scheme throws with a suggestion.
+     */
+    keySchemeKeys(scheme: string): string[];
     /**
      * Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu.
      */
@@ -4072,7 +4158,13 @@ declare module "factoria" {
     get<T = any>(key: string, fallback?: T): T;
     set(key: string, value: Json): void;
     remove(key: string): void;
+    /**
+     * The keys of the game's own values. The engine's own ("factoria.analytics", "factoria.remoteConfig") are not listed.
+     */
     keys(): string[];
+    /**
+     * Removes every value, the engine's too: the player is asked about analytics again.
+     */
     clear(): void;
     /**
      * True when storage.json did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started with empty save data, so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
@@ -4803,6 +4895,156 @@ declare module "factoria" {
   }
 
   /**
+   * What analytics.status() returns, for debugging.
+   */
+  export interface AnalyticsStatus {
+    /**
+     * True when factoria.json has an "analytics" section with an endpoint.
+     */
+    configured: boolean;
+    /**
+     * The player's answer (analytics.consent()).
+     */
+    consent: "granted" | "denied" | "unknown";
+    /**
+     * Events waiting for the next batch.
+     */
+    queued: number;
+    /**
+     * True while a batch is on its way.
+     */
+    inFlight: boolean;
+    /**
+     * Events given up on since the start: a 4xx answer, too many attempts, or a queue over its limit.
+     */
+    dropped: number;
+    /**
+     * Failed attempts in a row (0 after a batch got through).
+     */
+    failures: number;
+    /**
+     * Seconds until the next attempt after a failure, 0 when none is waited for.
+     */
+    retryInSeconds: number;
+    /**
+     * The endpoint of factoria.json, "" when not configured.
+     */
+    endpoint: string;
+  }
+
+  /**
+   * What analytics.flush() resolves with.
+   */
+  export interface AnalyticsFlushResult {
+    /**
+     * Events the server accepted in this request.
+     */
+    sent: number;
+    /**
+     * False when the request failed (no connection, a server error, a 4xx answer): a failure never rejects.
+     */
+    ok: boolean;
+  }
+
+  /**
+   * The limits analytics.event checks, so a game can stay inside them.
+   */
+  export interface AnalyticsLimits {
+    /**
+     * Longest event name.
+     */
+    readonly nameLength: number;
+    /**
+     * Most props of one event.
+     */
+    readonly props: number;
+    /**
+     * Longest prop name.
+     */
+    readonly keyLength: number;
+    /**
+     * Longest text value of a prop.
+     */
+    readonly stringLength: number;
+    /**
+     * Most characters of the props of one event, as JSON.
+     */
+    readonly eventBytes: number;
+    /**
+     * Most events kept while waiting; the oldest is dropped over it.
+     */
+    readonly queue: number;
+    /**
+     * Most events of one request.
+     */
+    readonly batch: number;
+    /**
+     * Attempts per event before it is dropped.
+     */
+    readonly attempts: number;
+  }
+
+  /**
+   * Usage analytics with consent (docs/ANALYTICS.md). analytics.event(name, props) queues small anonymous events and sends them in batches to the endpoint of factoria.json "analytics" through http.fetch, but only after the player said yes with analytics.setConsent(true): before that nothing is kept or sent, and a refusal forgets what waited. A batch goes out when `batch` events wait, when the oldest waited `flushSeconds`, when the app is suspended and when the game quits (the quit waits up to 3 seconds for the request). A network failure keeps the events and retries later; a 4xx answer drops them. Without the section, event(), flush() and setConsent() throw with what to add; check `configured` in code shared between games. Say what is sent in your privacy policy (docs/LEGAL.md). Example: `if (analytics.consent() === "unknown") askPlayer(); analytics.event("level_done", { level: 3, won: true });`.
+   */
+  export interface AnalyticsAPI {
+    /**
+     * True when factoria.json has an "analytics" section with an endpoint.
+     */
+    readonly configured: boolean;
+    /**
+     * The player's answer, kept between runs; "unknown" when not asked yet (event() then keeps nothing). With factoria.json analytics.consentFromAds, an unanswered question follows the ad consent (granted when the GDPR consent is granted and tracking is authorized or not required); the player's own answer always wins.
+     */
+    consent(): "granted" | "denied" | "unknown";
+    /**
+     * Records the player's answer (kept between runs). false forgets every event waiting to be sent. Throws when the game has no analytics section or yes is not a boolean.
+     */
+    setConsent(yes: boolean): void;
+    /**
+     * Queues one event and returns true; returns false (keeping nothing) when the player has not said yes. The name starts with a letter and uses letters, digits, "_", "." and "-" (at most 64 characters). props is a flat object of strings, numbers, booleans or null: at most 20 props, texts of at most 200 characters (never what the player typed), at most 2048 characters of props as JSON. A mistake throws with the limit (analytics.limits). The time of the event is engine seconds since the run started.
+     */
+    event(name: string, props?: Record<string, string | number | boolean | null>): boolean;
+    /**
+     * Sends what waits now, in one request of at most 100 events. Resolves { sent, ok }; a failure is ok: false and keeps the events for a retry. Rejects only for a mistake of the call (no analytics section). The answer settles at the start of an engine frame, maybe after the scene changed.
+     */
+    flush(): Promise<AnalyticsFlushResult>;
+    /**
+     * The state, for debugging: queue length, failures, retry time, consent.
+     */
+    status(): AnalyticsStatus;
+    /**
+     * The limits event() checks.
+     */
+    readonly limits: AnalyticsLimits;
+  }
+
+  /**
+   * Values the game reads from a server (docs/ANALYTICS.md): balance numbers, an event flag, a message. The JSON object at factoria.json "remoteConfig".url is fetched once, at the first use, through http.fetch, and its last good answer is cached in storage, so an offline player gets the values of the last run and a first-time offline player gets the defaults. get(key, fallback) always works: with no section, no connection or a value of the wrong type it returns fallback. A bad answer (not a JSON object, over 64 KB or 500 keys, a 4xx or 5xx status) is ignored as a whole, never half applied. Example: `const speed = remoteConfig.get("enemySpeed", 1.5);`. A script that awaits ready() or refresh() must check that its scene is still the current one (scene.current) before it uses the answer.
+   */
+  export interface RemoteConfigAPI {
+    /**
+     * True when factoria.json has a "remoteConfig" section with a url.
+     */
+    readonly configured: boolean;
+    /**
+     * The server's value of key; else the cached one; else fallback. A value whose type differs from the fallback's (a text where you expect a number) counts as missing. Returns a copy: changing it changes nothing. The first call starts the fetch.
+     */
+    get<T extends Json>(key: string, fallback: T): T;
+    /**
+     * Where the values come from now: this run's fetch, the cache of an earlier run, or only the defaults.
+     */
+    source(): "remote" | "cache" | "default";
+    /**
+     * Resolves with source() when the first fetch ended or timeoutSeconds (engine seconds, default 3) passed. Never rejects: a game waits for it at its loading screen and plays on with whatever it has.
+     */
+    ready(timeoutSeconds?: number): Promise<"remote" | "cache" | "default">;
+    /**
+     * Fetches again; resolves with source() when the answer (or the failure) arrived.
+     */
+    refresh(): Promise<"remote" | "cache" | "default">;
+  }
+
+  /**
    * The payload of i18n.on("change").
    */
   export interface I18nChange {
@@ -4994,6 +5236,16 @@ declare module "factoria" {
    * http.fetch(url, options): HTTP requests to the hosts declared in factoria.json "network" (docs/NETWORKING.md).
    */
   export const http: HttpAPI;
+
+  /**
+   * analytics.event(name, props), setConsent(yes), consent(), flush(): anonymous usage events sent in batches after the player consented (docs/ANALYTICS.md).
+   */
+  export const analytics: AnalyticsAPI;
+
+  /**
+   * remoteConfig.get(key, fallback): values a server serves as JSON, cached for offline runs (docs/ANALYTICS.md).
+   */
+  export const remoteConfig: RemoteConfigAPI;
 
   /**
    * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
@@ -8480,6 +8732,38 @@ declare module "factoria:test" {
   }
 
   /**
+   * What analytics did in this test run, for tests (docs/ANALYTICS.md). Nothing leaves the test: the batches go through http.fetch, so script the server with game.platform.respond("http.fetch", { status: 204 }); an unscripted request fails like an offline player and is retried later.
+   */
+  export interface TestAnalytics {
+    /**
+     * The events the server accepted (a 2xx answer), oldest first; t is engine seconds since the run started.
+     */
+    sent(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
+    /**
+     * Every request made, with why it was made and how it ended.
+     */
+    requests(): { endpoint: string; reason: "batch" | "timer" | "suspend" | "quit" | "flush"; ok: boolean; status?: number; error?: string; events: { name: string; props: Json; t: number }[] }[];
+    /**
+     * The events waiting for the next batch.
+     */
+    queued(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
+    /**
+     * The next run of the game: the queue and the logs are forgotten; the player's consent stays (it is in storage; storage.clear() forgets it).
+     */
+    restart(): void;
+  }
+
+  /**
+   * The remote config of this test run, for tests (docs/ANALYTICS.md). Script the server with game.platform.respond("http.fetch", { json: { ... } }).
+   */
+  export interface TestRemoteConfig {
+    /**
+     * The next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use, starting from the cache earlier runs left in storage (an unscripted fetch fails: an offline player).
+     */
+    restart(): void;
+  }
+
+  /**
    * The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.
    */
   export interface TestPlatform {
@@ -8716,6 +9000,14 @@ declare module "factoria:test" {
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
      */
     readonly platform: TestPlatform;
+    /**
+     * What analytics sent in this test run: game.analytics.sent(), requests(), queued(), restart().
+     */
+    readonly analytics: TestAnalytics;
+    /**
+     * The remote config of this test run: game.remoteConfig.restart().
+     */
+    readonly remoteConfig: TestRemoteConfig;
   }
 
   /**

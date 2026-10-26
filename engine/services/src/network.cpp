@@ -185,6 +185,119 @@ Result<NetworkPolicy> load_network(const Json& section) {
     return std::move(parsed.policy);
 }
 
+// ----------------------------------------------------------------------------------------- analytics, remote config ---
+namespace {
+
+// A key of the section that holds a number in [lo, hi] (integer when `whole`); reports and returns false when it does not.
+bool number_field(Parser& p, const Json& section, const char* key, const std::string& section_ptr, double lo, double hi, bool whole,
+                  double& out, const char* example) {
+    auto it = section.find(key);
+    if (it == section.end()) return true;
+    const std::string ptr = section_ptr + "/" + key;
+    if (!it->is_number() || (whole && !it->is_number_integer())) {
+        p.issue(ptr, "must be " + std::string(whole ? "a whole number" : "a number") + ", got " + describe_json_value(*it), example);
+        return false;
+    }
+    const double v = it->get<double>();
+    if (v < lo || v > hi) {
+        p.issue(ptr, "is " + describe_json_value(*it) + ", but it must be from " + Json(lo).dump() + " to " + Json(hi).dump(), example);
+        return false;
+    }
+    out = v;
+    return true;
+}
+
+void unknown_keys(Parser& p, const Json& section, const std::string& section_ptr, const std::vector<std::string>& known) {
+    for (auto it = section.begin(); it != section.end(); ++it) {
+        if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
+        std::string list;
+        for (const std::string& k : known) list += (list.empty() ? "" : ", ") + in_quotes(k);
+        p.issue(section_ptr + "/" + it.key(), "unknown key " + in_quotes(it.key()) + "; the keys here are " + list, did_you_mean(it.key(), known));
+    }
+}
+
+// The URL field `key` of a section: https, host declared in "network". Returns the URL or "" after reporting.
+std::string url_field(Parser& p, const Json& section, const char* key, const std::string& section_ptr, const NetworkPolicy& network,
+                      const char* example) {
+    const std::string ptr = section_ptr + "/" + key;
+    auto it = section.find(key);
+    if (it == section.end()) {
+        p.issue(ptr, "missing: the section must say where to " + std::string(key == std::string("endpoint") ? "send the events" : "read the values"), example);
+        return {};
+    }
+    if (!it->is_string()) {
+        p.issue(ptr, "must be an https:// URL string, got " + describe_json_value(*it), example);
+        return {};
+    }
+    Result<HttpUrl> u = check_http_url(it->get<std::string>(), network);
+    if (!u.ok()) {
+        p.issue(ptr, u.error().message, u.error().hint);
+        return {};
+    }
+    return u.value().url;
+}
+
+}  // namespace
+
+bool AnalyticsParse::ok() const {
+    return std::none_of(issues.begin(), issues.end(), [](const NetworkIssue& i) { return !i.warning; });
+}
+
+bool RemoteConfigParse::ok() const {
+    return std::none_of(issues.begin(), issues.end(), [](const NetworkIssue& i) { return !i.warning; });
+}
+
+AnalyticsParse parse_analytics(const Json& section, const NetworkPolicy& network) {
+    Parser p;
+    AnalyticsParse out;
+    const char* example = "Example: \"analytics\": {\"endpoint\": \"https://stats.example.com/events\", \"batch\": 20, \"flushSeconds\": 30} "
+                          "and \"network\": {\"hosts\": [\"stats.example.com\"]} (docs/ANALYTICS.md).";
+    if (section.is_null()) return out;
+    if (!section.is_object()) {
+        p.issue("/analytics", "expected an object like {\"endpoint\": \"https://stats.example.com/events\"}, got " + describe_json_value(section), example);
+        out.issues = std::move(p.out.issues);
+        return out;
+    }
+    unknown_keys(p, section, "/analytics", {"endpoint", "batch", "flushSeconds", "timeoutSeconds", "consentFromAds"});
+    AnalyticsSettings s;
+    s.endpoint = url_field(p, section, "endpoint", "/analytics", network, example);
+    double v = 0;
+    v = s.batch;          if (number_field(p, section, "batch", "/analytics", 1, 100, true, v, "Events that make a batch go out at once: 1 to 100 (default 20).")) s.batch = static_cast<int>(v);
+    v = s.flushSeconds;   if (number_field(p, section, "flushSeconds", "/analytics", 1, 3600, false, v, "The longest an event waits before it is sent: 1 to 3600 seconds (default 30).")) s.flushSeconds = v;
+    v = s.timeoutSeconds; if (number_field(p, section, "timeoutSeconds", "/analytics", 0.5, 120, false, v, "Seconds one request may take: 0.5 to 120 (default 10).")) s.timeoutSeconds = v;
+    if (auto it = section.find("consentFromAds"); it != section.end()) {
+        if (!it->is_boolean()) p.issue("/analytics/consentFromAds", "must be true or false, got " + describe_json_value(*it),
+                                       "true: until the player answers the analytics question, the ads consent decides (docs/ANALYTICS.md).");
+        else s.consentFromAds = it->get<bool>();
+    }
+    s.configured = !s.endpoint.empty();
+    out.issues = std::move(p.out.issues);
+    out.settings = std::move(s);
+    return out;
+}
+
+RemoteConfigParse parse_remote_config(const Json& section, const NetworkPolicy& network) {
+    Parser p;
+    RemoteConfigParse out;
+    const char* example = "Example: \"remoteConfig\": {\"url\": \"https://cdn.example.com/config.json\"} and "
+                          "\"network\": {\"hosts\": [\"cdn.example.com\"]} (docs/ANALYTICS.md).";
+    if (section.is_null()) return out;
+    if (!section.is_object()) {
+        p.issue("/remoteConfig", "expected an object like {\"url\": \"https://cdn.example.com/config.json\"}, got " + describe_json_value(section), example);
+        out.issues = std::move(p.out.issues);
+        return out;
+    }
+    unknown_keys(p, section, "/remoteConfig", {"url", "timeoutSeconds"});
+    RemoteConfigSettings s;
+    s.url = url_field(p, section, "url", "/remoteConfig", network, example);
+    double v = s.timeoutSeconds;
+    if (number_field(p, section, "timeoutSeconds", "/remoteConfig", 0.5, 30, false, v, "Seconds the fetch may take: 0.5 to 30 (default 5).")) s.timeoutSeconds = v;
+    s.configured = !s.url.empty();
+    out.issues = std::move(p.out.issues);
+    out.settings = std::move(s);
+    return out;
+}
+
 // ---------------------------------------------------------------------------------------------------------- URLs ---
 Result<HttpUrl> parse_http_url(const std::string& url) {
     const std::string shown = url.size() > 80 ? url.substr(0, 77) + "..." : url;
