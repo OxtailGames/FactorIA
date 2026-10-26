@@ -129,7 +129,7 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `shape` | enum: rectangle \\| circle \\| line \\| triangle \\| diamond \\| polygon \\| star | `"rectangle"` | Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers). polygon: a regular polygon with `sides` sides whose vertices lie on the ellipse inscribed in the size box, first vertex pointing up (hexagons, pentagons, octagons; many sides approach a circle). star: `points` tips on that ellipse, first tip pointing up, with notches at `innerRadius` of the outer radius in between. Outlines (filled = false) of triangle, diamond, polygon and star grow INWARD from the silhouette, like the rectangle's, so a thick outline never pokes out of the size box. |
-| `size` | vec2 | `[32.0,32.0]` | rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. |
+| `size` | vec2 | `[32.0,32.0]` | rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. In screen space (space "screen", +Y down) a line's size.y points UP, unlike the size.y of Panels, Texts and Sprites, which grows downwards: size [100, 40] ends 100 px right and 40 px above the start, [100, -40] ends below it. A chart bar is a rectangle, not a line: give it pivot [0, 1] so size [w, h] hangs w right and h down from its position. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Fill or outline color. |
 | `filled` | bool | `true` | true = solid shape, false = outline only (lines are always drawn as strokes). |
 | `thickness` | float | `2.0` | Outline / line thickness in world units. Range 0.0..10000.0. |
@@ -2988,7 +2988,13 @@ declare module "factoria" {
     id: string;
     name: string;
     tags: string[];
+    /**
+     * This entity's own flag. false hides it and everything under it (not drawn, no UI, no scripts), but setting a parent's `active` to false does not change the flags of its children: a child of a hidden Panel keeps `active` true. To ask whether an entity is really on, read `activeInHierarchy`.
+     */
     active: boolean;
+    /**
+     * true when this entity and every ancestor are active, i.e. it is really in the game. A child of a hidden Panel has `active` true and `activeInHierarchy` false. Use it to ask whether a menu is open; `ui.rectOf` and `ui.state` agree with it.
+     */
     readonly activeInHierarchy: boolean;
     /**
      * False once the entity was destroyed.
@@ -4541,7 +4547,7 @@ declare module "factoria" {
      */
     overflowed(entityOrId: Entity | string): boolean;
     /**
-     * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite) and for one that is hidden, by itself or by an inactive parent (`activeInHierarchy` false), like `ui.state`, which does not list it. Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
      * @since 0.2.0
      */
     rectOf(entityOrId: Entity | string): Rect | null;
@@ -6659,7 +6665,7 @@ declare module "factoria" {
      */
     shape: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star";
     /**
-     * rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.
+     * rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. In screen space (space "screen", +Y down) a line's size.y points UP, unlike the size.y of Panels, Texts and Sprites, which grows downwards: size [100, 40] ends 100 px right and 40 px above the start, [100, -40] ends below it. A chart bar is a rectangle, not a line: give it pivot [0, 1] so size [w, h] hangs w right and h down from its position.
      */
     get size(): Vec2;
     set size(value: Vec2Like);

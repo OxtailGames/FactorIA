@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+`ui.rectOf` and hidden parents; docs for what was already there
+
+- `ui.rectOf(entity)` returns `null` for a widget or screen-space Text hidden by an inactive parent, as `ui.state` already
+  left it out; it used to give the rectangle it would have had. The docs now say that a child of a hidden Panel keeps
+  `active` true (ask `activeInHierarchy`), that a screen-space line's `size.y` points up, how a Panel's children are
+  placed, how to press the focused widget in a test, and the test section of SCRIPTING.md uses `fa.call("ui.state")`.
+
 A wrapped text measures its widest line; a Toggle's box follows the font size
 
 - With a renderer a wrapped text was at least as wide as its `maxWidth`, so `ui.overflowed`, `ui.check_layout` and
