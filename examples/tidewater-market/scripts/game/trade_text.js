@@ -28,7 +28,7 @@ export function effectsMarkup(effects, t) {
   }
   if (effects && effects.shipDelay) {
     const d = effects.shipDelay;
-    parts.push(`[c:muted]${d > 0 ? t("trade.card.later", { n: d }) : t("trade.card.sooner", { n: -d })}[/c]`);
+    parts.push(`[c:muted]${d > 0 ? t("trade.card.later", { count: d }) : t("trade.card.sooner", { count: -d })}[/c]`);
   }
   return parts.join("  ");
 }

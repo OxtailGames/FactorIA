@@ -1,5 +1,11 @@
 {
   "$name": "English",
+  "format": {
+    "list": ", "
+  },
+  "number": {
+    "units": "1000=k;1000000=M"
+  },
   "credits": {
     "madeWith": "Made with FactorIA",
     "software": "This game uses the following software:",
@@ -93,12 +99,12 @@
     "on": "on",
     "off": "off",
     "percent": "{value} percent",
-    "safeColors": "Colour-blind safe signals (patterns and marks)",
-    "reducedMotion": "Reduced motion (no camera easing, no fading notices, a still title picture)",
-    "holdFree": "Hold-free controls (clicks, not holds and drags)",
+    "safeColors": "Colour-blind safe signals",
+    "reducedMotion": "Reduced motion",
+    "holdFree": "Hold-free controls",
     "textScale": "Text size: {value}%",
     "uiScale": "Interface size: {value}%",
-    "accessNote": "Each change applies at once and is saved. The colour filter of the Video tab shows the game as a colour-blind player sees it.",
+    "accessNote": "Safe signals add patterns and marks. Reduced motion: no camera easing, no fading notices, a still title picture. Hold-free: clicks, not holds and drags. Each change applies at once and is saved.",
     "conflict": "{button} already does '{other}'. Pick another button for '{action}', or change '{other}' first."
   },
   "pause": {
@@ -194,11 +200,24 @@
     "spring": "Spring",
     "summer": "Summer",
     "autumn": "Autumn",
-    "winter": "Winter"
+    "winter": "Winter",
+    "date": {
+      "spring": "Spring",
+      "summer": "Summer",
+      "autumn": "Autumn",
+      "winter": "Winter"
+    }
   },
   "amount": {
-    "coins": "{n} coins",
-    "good": "{n} {name}",
+    "coins": {
+      "one": "{count:number} coin",
+      "other": "{count:number} coins"
+    },
+    "good": "{n:number} {name}",
+    "villagers": {
+      "one": "{count:number} villager",
+      "other": "{count:number} villagers"
+    },
     "none": "free"
   },
   "hud": {
@@ -229,11 +248,17 @@
     "building": "{name}  ({c}, {r})",
     "placing": "{name}: {cost}.  Click to build, R to turn, Q or right-click to stop.",
     "placingRoad": "Road: drag to lay it, {cost} per piece.  Q or right-click to stop.",
-    "roadDrag": "Road: {count} new pieces for {cost}",
+    "roadDrag": {
+      "one": "Road: {count} new piece for {cost}",
+      "other": "Road: {count} new pieces for {cost}"
+    },
     "demolish": "Demolish: click or drag over buildings. Half the cost comes back.  Q or right-click to stop.",
     "demolishHover": "Demolish {name}: {refund} back",
     "palette": "{name}: {desc}  Cost: {cost}.",
-    "house": "{name}  ({c}, {r}): {count} of {cap} villagers live here.",
+    "house": {
+      "one": "{name}  ({c}, {r}): {n} of {cap} villager lives here.",
+      "other": "{name}  ({c}, {r}): {n} of {cap} villagers live here."
+    },
     "work": "{name}  ({c}, {r}): {present} of {workers} at work - {state}.",
     "paused": "Paused. Press Space or 2 to go on."
   },
@@ -249,9 +274,15 @@
   },
   "toast": {
     "built": "Built {name}.",
-    "roads": "Laid {count} road pieces.",
+    "roads": {
+      "one": "Laid {count} road piece.",
+      "other": "Laid {count} road pieces."
+    },
     "demolished": "Demolished {name}.",
-    "demolishedMany": "Demolished {count} things.",
+    "demolishedMany": {
+      "one": "Demolished {count} thing.",
+      "other": "Demolished {count} things."
+    },
     "undone": "Undone: {label}.",
     "redone": "Redone: {label}.",
     "nothingToUndo": "Nothing to undo.",
@@ -300,10 +331,13 @@
   },
   "goal": {
     "title": "Goals",
-    "population": "Have {n} villagers",
-    "coins": "Save {n} coins",
-    "produced_in_season": "Make {n} {good} in one season",
-    "progress": "{value} / {target}",
+    "population": {
+      "one": "Have {count} villager",
+      "other": "Have {count} villagers"
+    },
+    "coins": "Save {coins}",
+    "produced_in_season": "Make {amount} in one season",
+    "progress": "{value:number} / {target:number}",
     "done": "done",
     "toast": "Goal reached: {goal}",
     "won": {
@@ -328,8 +362,11 @@
     "delete": "Delete",
     "damaged": "This save is damaged",
     "info": "{scenario}, {date}",
-    "stats": "{coins} coins, {population} villagers",
-    "goals": "{done} of {total} goals",
+    "stats": "{coins}, {population}",
+    "goals": {
+      "one": "{done} of {total} goal",
+      "other": "{done} of {total} goals"
+    },
     "completed": "Completed",
     "autoInfo": "Autosave: {date}",
     "playTime": "Played {hours} h {minutes} min",
@@ -727,11 +764,17 @@
       "close": "Close",
       "nopier": "Build a pier on the coast and ships will come to trade.",
       "empty": "No ship in the bay. The next sail is on its way.",
-      "next": "Next ship in about {days} days",
+      "next": {
+        "one": "Next ship in about {count} day",
+        "other": "Next ship in about {count} days"
+      },
       "unlock": "At reputation {value}: {class} ships",
       "fill": "Fill order",
       "missing": "Missing: {list}",
-      "left": "{days} days left",
+      "left": {
+        "one": "{count} day left",
+        "other": "{count} days left"
+      },
       "left1": "Last day",
       "sailing": "Sailing in...",
       "leaving": "Leaving...",
@@ -745,8 +788,14 @@
       "free": "Costs nothing",
       "risky": "Risky",
       "cannot": "Not enough: {list}",
-      "later": "Next ship {n} days later",
-      "sooner": "Next ship {n} days sooner"
+      "later": {
+        "one": "Next ship {count} day later",
+        "other": "Next ship {count} days later"
+      },
+      "sooner": {
+        "one": "Next ship {count} day sooner",
+        "other": "Next ship {count} days sooner"
+      }
     },
     "hud": {
       "orders": "Orders",
@@ -754,7 +803,7 @@
     },
     "toast": {
       "docked": "{ship} docks at the pier.",
-      "filled": "{ship} sails away happy: +{reward} coins.",
+      "filled": "{ship} sails away happy: +{reward}.",
       "missed": "{ship} left without its goods. Reputation {delta}.",
       "unlocked": "Reputation opens up {class} ships.",
       "achievement": "Achievement: {name}",
@@ -765,7 +814,10 @@
     }
   },
   "ui": {
-    "hungryShort": "{count} hungry",
+    "hungryShort": {
+      "one": "{shown} hungry",
+      "other": "{shown} hungry"
+    },
     "btn": {
       "build": "Build  (B)",
       "goods": "Goods  (G)",
@@ -818,8 +870,14 @@
       "nearWater": "next to the water",
       "road": "a road at its door",
       "needs": "Needs: {needs}",
-      "housing": "Houses {count} villagers.",
-      "workers": "{count} workers, upkeep {upkeep} coins a day.",
+      "housing": {
+        "one": "Houses {count} villager.",
+        "other": "Houses {count} villagers."
+      },
+      "workers": {
+        "one": "{count} worker, upkeep {upkeep} a day.",
+        "other": "{count} workers, upkeep {upkeep} a day."
+      },
       "recipe": "Makes {outputs} from {inputs} in {seconds} s.",
       "nothing": "nothing",
       "storage": "Holds {count} of each good.",
@@ -827,15 +885,15 @@
       "usedIn": "Used in: {list}",
       "nowhere": "nowhere yet",
       "eaten": "Villagers eat it (feeds {n}).",
-      "basePrice": "Usual price: {price} coins",
+      "basePrice": "Usual price: {price}",
       "coinsTitle": "Coins",
-      "coins": "You have {n} coins.",
+      "coins": "You have {money}.",
       "coinsFlow": "Today so far: sales {sales}, wages and upkeep {wages}.",
       "stock": "In stock: {n} (a warehouse network holds {cap} of each)",
       "rates": "Made {made} a day, used {used} a day.",
-      "price": "Price now: {price} coins (usual {base})",
+      "price": "Price now: {price} (usual {base})",
       "popTitle": "Villagers",
-      "pop": "{pop} villagers, room for {housing}. {employed} of {jobs} jobs filled.",
+      "pop": "{population}, room for {housing}. Jobs filled: {employed} of {jobs}.",
       "popHungry": "Hungry now: {n}",
       "speed0": "Pause the clock.",
       "speed1": "Normal speed.",
@@ -872,9 +930,11 @@
       "good": "Good: {name}",
       "pick": "Pick the good",
       "pickHint": "Click to show the next good.",
-      "since": "last {n} days",
+      "since": {
+        "one": "last {count} day",
+        "other": "last {count} days"
+      },
       "dayTip": "Day {day}",
-      "coinsTip": "{n} coins",
       "madeTip": "{n} made"
     },
     "help": {
@@ -893,7 +953,13 @@
       "notice": "Jump to the newest notification",
       "speed": "Pause / game speed",
       "camera": "Move and zoom the camera",
-      "help": "This help"
+      "help": "This help",
+      "keys": {
+        "delete": "Del",
+        "cancel": "Esc / Q / right-click",
+        "speed": "Space, 1 - 4",
+        "camera": "WASD, arrows, wheel"
+      }
     },
     "overlay": {
       "none": "off",
@@ -963,7 +1029,10 @@
       "noRoad": "{name} has no road to its door.",
       "noWorkers": "{name} has no workers.",
       "noInput": "{name} waits for {goodName}.",
-      "hungry": "{count} villagers are hungry.",
+      "hungry": {
+        "one": "{count} villager is hungry.",
+        "other": "{count} villagers are hungry."
+      },
       "storageFull": "The warehouses are full of {goodName}.",
       "broke": "Not enough coins for wages and upkeep.",
       "left": "A villager left: {reasonText}.",

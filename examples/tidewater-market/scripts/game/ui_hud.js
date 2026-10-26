@@ -18,14 +18,14 @@ import { live } from "../settings.js";
 import { cellToWorld } from "./iso.js";
 import { COLORS as MAP_COLORS } from "./map_view.js";
 import { footprintCells } from "./rules.js";
-import { amountText, buildingName, dateText } from "./format.js";
+import { amountText, buildingName, compactText, coinsText, dateText, goodsBagText, listText, numberText, villagersText } from "./format.js";
 import { DESIGN } from "./camera_math.js";
 import {
   COLORS, FONT, LAYER, Tooltips, button, icon, inside, isActive, label, panel, rule, setActive, setIcon,
 } from "./ui_kit.js";
 import {
   COVERAGE, GOODS_COLUMNS, Notices, Recorder, SHORTCUTS, Traffic, canDropWorker, categories, centreOf, describeBuilding,
-  describeVillager, formatCompact, goodsRows, overlayField, rotatable, walkerNear,
+  describeVillager, goodsRows, overlayField, rotatable, walkerNear,
 } from "./ui_model.js";
 
 const t = (key, args) => i18n.t(`ui.${key}`, args);
@@ -39,8 +39,9 @@ const CHART_POINTS = 40;
 const DRAG_SLOP = 6;
 /** The most diamonds an overlay draws in one frame (the ones in view; the map has 100 x 100 cells). */
 const OVERLAY_BUDGET = 900;
-const COLUMN_WIDTHS = { name: 170, stock: 100, made: 100, used: 100, price: 90 };
-const ROW_H = 24;
+const COLUMN_WIDTHS = { name: 200, stock: 100, made: 100, used: 100, price: 90 };
+const ROW_H = 28; // a row of the goods table: the text may grow to 120 % (TABLE_CAP) of its size and still fit
+const TABLE_CAP = 1.2;
 const ROWS_SHOWN = 7;
 /** The pip an overlay cell gets in the colour-blind safe mode (a white mark on any tint). */
 const PIP = [1, 1, 1, 0.9];
@@ -191,7 +192,7 @@ export class Hud {
       for (const type of c.buildings) {
         const item = panel(`item_${type}`, row, { layout: "column", fit: true, spacing: 2, padding: [0, 0, 0, 0], color: CLEAR, align: "center" });
         icon(`item_icon_${type}`, item, this.data.atlas, type === "road" ? "road.road" : `building.${type}.0`, ICON_BOX);
-        this.itemButtons[type] = button(`tool_${type}`, item, type, { size: [118, 44], autoSize: true, maxWidth: 108, fontSize: FONT.small });
+        this.itemButtons[type] = button(`tool_${type}`, item, type, { size: [118, 44], autoSize: true, maxWidth: 90, fontSize: FONT.small });
       }
     }
     this.addPanel("build", { root: this.bar, refresh: () => this.refreshBar(), every: 0.25 });
@@ -233,7 +234,7 @@ export class Hud {
     const widthSum = GOODS_COLUMNS.reduce((n, c) => n + COLUMN_WIDTHS[c], 0);
     const header = panel("goods_header", root, { layout: "row", fit: true, spacing: 0, padding: [0, 0, 0, 0], color: CLEAR });
     this.sortButtons = {};
-    for (const c of GOODS_COLUMNS) this.sortButtons[c] = button(`gsort_${c}`, header, c, { size: [COLUMN_WIDTHS[c], 28], fontSize: FONT.small + 1 });
+    for (const c of GOODS_COLUMNS) this.sortButtons[c] = button(`gsort_${c}`, header, c, { size: [COLUMN_WIDTHS[c], 28], fontSize: FONT.small + 1, maxTextScale: TABLE_CAP });
     this.goodsList = world.spawn(
       { id: "goods_list", components: { Transform: { position: [0, 0, 0] }, ScrollList: { size: [widthSum, ROW_H * ROWS_SHOWN], pivot: [0, 1], padding: [0, 0, 0, 0], spacing: 0, color: [0, 0, 0, 0.25], layer: LAYER.panel + 2 } } },
       { parent: root },
@@ -249,9 +250,9 @@ export class Hud {
       const row = panel(`grow_${i}`, this.goodsList, { layout: "none", size: [widthSum, ROW_H], pivot: [0, 1], color: i % 2 ? [1, 1, 1, 0.05] : CLEAR, padding: [0, 0, 0, 0], layer: LAYER.panel + 3 });
       const cells = {
         icon: icon(`grow_${i}_icon`, row, this.data.atlas, this.data.goods[id].icon, 20, { position: [16, ROW_H / 2, 0] }),
-        name: label(`grow_${i}_name`, row, "", { position: [34, 3, 0] }),
+        name: label(`grow_${i}_name`, row, "", { position: [34, 3, 0], maxTextScale: TABLE_CAP }),
       };
-      for (const c of ["stock", "made", "used", "price"]) cells[c] = label(`grow_${i}_${c}`, row, "", { position: [x[c], 3, 0], pivot: [1, 1] });
+      for (const c of ["stock", "made", "used", "price"]) cells[c] = label(`grow_${i}_${c}`, row, "", { position: [x[c], 3, 0], pivot: [1, 1], maxTextScale: TABLE_CAP });
       this.goodsRows.push({ root: row, cells, good: id });
     });
     this.addPanel("goods", { root, refresh: () => this.refreshGoods(), every: 0.5 });
@@ -320,7 +321,7 @@ export class Hud {
     });
     this.noticeButtons = [];
     for (let i = 0; i < NOTICE_SLOTS; i++) {
-      const b = button(`notice_${i}`, this.noticeRoot, "", { size: [330, 28], fontSize: FONT.small + 1, autoSize: true, maxWidth: 320, layer: LAYER.notice + 5 });
+      const b = button(`notice_${i}`, this.noticeRoot, "", { size: [330, 28], fontSize: FONT.small + 1, autoSize: true, maxWidth: 300, layer: LAYER.notice + 5 });
       setActive(b, false);
       this.noticeButtons.push(b);
     }
@@ -361,11 +362,13 @@ export class Hud {
     this.goodsTitle.get("Text").text = t("goods.title");
     this.chartsTitle.get("Text").text = t("charts.title");
     this.helpTitle.get("Text").text = t("help.title");
-    this.helpKeys.get("Text").text = SHORTCUTS.map((s) => s.keys).join("\n");
+    this.helpKeys.get("Text").text = SHORTCUTS.map((s) => (i18n.has(`ui.help.keys.${s.action}`) ? t(`help.keys.${s.action}`) : s.keys)).join("\n");
     this.helpActions.get("Text").text = SHORTCUTS.map((s) => t(`help.${s.action}`)).join("\n");
     this.helpHint.get("Text").text = t("help.hint");
     this.shown = {};
     this.refreshGoodsHeader();
+    // the open panels write their numbers and names again now, not at their next timer tick (up to a second later)
+    for (const [name, panel] of this.panels) if (this.isOpen(name)) panel.refresh();
   }
 
   relabelOverlayButton() {
@@ -575,7 +578,7 @@ export class Hud {
         L[6] = { text: t("insp.makes", { out: amountText(r.outputs), seconds: r.seconds, percent: Math.round(info.recipe.progress * 100) }) };
         if (Object.keys(r.inputs).length) L[7] = { text: t("insp.needs", { goods: amountText(r.inputs) }) };
       }
-      const bag = (b) => Object.entries(b).filter(([, n]) => n > 0).map(([g, n]) => `${n} ${i18n.t(`good.${g}`)}`).join(", ");
+      const bag = goodsBagText;
       if (bag(info.inbox)) L[8] = { text: t("insp.inbox", { goods: bag(info.inbox) }) };
       if (bag(info.outbox)) L[9] = { text: t("insp.outbox", { goods: bag(info.outbox) }) };
       if (bag(info.shelf)) L[9] = { text: t("insp.shelf", { goods: bag(info.shelf) }) };
@@ -591,9 +594,9 @@ export class Hud {
         ? { text: t(v.job.pinned ? "insp.jobPinned" : "insp.job", { name: buildingName(v.job.type), c: v.job.cell[0], r: v.job.cell[1] }) }
         : { text: t("insp.noJob"), color: COLORS.red };
       L[6] = v.carrying
-        ? { text: t("insp.carrying", { goods: Object.entries(v.cargo).filter(([, n]) => n > 0).map(([g, n]) => `${n} ${i18n.t(`good.${g}`)}`).join(", ") }) }
+        ? { text: t("insp.carrying", { goods: goodsBagText(v.cargo) }) }
         : v.carrier ? { text: t("insp.carrierEmpty") } : null;
-      L[7] = { text: v.hungry ? t("insp.hungry") : t("insp.fed", { food: v.food.toFixed(1) }), color: v.hungry ? COLORS.red : COLORS.text };
+      L[7] = { text: v.hungry ? t("insp.hungry") : t("insp.fed", { food: numberText(v.food, 1) }), color: v.hungry ? COLORS.red : COLORS.text };
       none.buttons = ["home", ...(v.job ? ["job"] : []), ...(v.job && v.job.pinned ? ["release"] : []), "close"];
     }
     return none;
@@ -663,12 +666,12 @@ export class Hud {
     const def = this.data.buildings[type];
     const lines = [{ text: i18n.t(`building.${type}.desc`) }, { text: t("tip.cost", { cost: amountText(def.cost) }), color: COLORS.gold }];
     const needs = [];
-    if (def.terrain) needs.push(t("tip.terrain", { terrain: def.terrain.map((x) => i18n.t(`terrain.${x}`)).join(", ") }));
+    if (def.terrain) needs.push(t("tip.terrain", { terrain: listText(def.terrain.map((x) => i18n.t(`terrain.${x}`))) }));
     if (def.nearWater) needs.push(t("tip.nearWater"));
     if (def.kind !== "road") needs.push(t("tip.road"));
     lines.push({ text: t("tip.needs", { needs: needs.join("; ") }), color: COLORS.blue });
     if (def.housing) lines.push({ text: t("tip.housing", { count: def.housing }), color: COLORS.green });
-    if (def.workers) lines.push({ text: t("tip.workers", { count: def.workers, upkeep: def.upkeep || 0 }) });
+    if (def.workers) lines.push({ text: t("tip.workers", { count: def.workers, upkeep: coinsText(def.upkeep || 0) }) });
     for (const id of def.recipes || []) {
       const r = this.data.recipes[id];
       const inputs = Object.keys(r.inputs).length ? amountText(r.inputs) : t("tip.nothing");
@@ -701,10 +704,10 @@ export class Hud {
         tx.color = color;
       };
       set("name", r.name);
-      set("stock", formatCompact(r.stock));
-      set("made", r.made >= 0.05 ? r.made.toFixed(1) : "-", r.made >= 0.05 ? COLORS.green : COLORS.dim);
-      set("used", r.used >= 0.05 ? r.used.toFixed(1) : "-", r.used >= 0.05 ? COLORS.red : COLORS.dim);
-      set("price", String(r.price), r.price > r.base ? COLORS.green : r.price < r.base ? COLORS.red : COLORS.text);
+      set("stock", compactText(r.stock));
+      set("made", r.made >= 0.05 ? numberText(r.made, 1) : "-", r.made >= 0.05 ? COLORS.green : COLORS.dim);
+      set("used", r.used >= 0.05 ? numberText(r.used, 1) : "-", r.used >= 0.05 ? COLORS.red : COLORS.dim);
+      set("price", numberText(r.price), r.price > r.base ? COLORS.green : r.price < r.base ? COLORS.red : COLORS.text);
     });
   }
 
@@ -718,10 +721,10 @@ export class Hud {
     }
     const g = this.data.goods[id];
     const lines = [];
-    lines.push({ text: t("tip.madeIn", { list: makers.size ? [...makers].join(", ") : t("tip.nowhere") }), color: COLORS.green });
-    lines.push({ text: t("tip.usedIn", { list: users.size ? [...users].join(", ") : t("tip.nowhere") }), color: COLORS.red });
+    lines.push({ text: t("tip.madeIn", { list: makers.size ? listText([...makers]) : t("tip.nowhere") }), color: COLORS.green });
+    lines.push({ text: t("tip.usedIn", { list: users.size ? listText([...users]) : t("tip.nowhere") }), color: COLORS.red });
     if (g.nutrition) lines.push({ text: t("tip.eaten", { n: g.nutrition }), color: COLORS.blue });
-    lines.push({ text: t("tip.basePrice", { price: g.basePrice }), color: COLORS.dim });
+    lines.push({ text: t("tip.basePrice", { price: coinsText(g.basePrice) }), color: COLORS.dim });
     return { title: i18n.t(`good.${id}`), lines };
   }
 
@@ -744,12 +747,12 @@ export class Hud {
     let hi = Math.max(...pts.map((p) => p.value), zeroBased ? 1 : -Infinity);
     if (!isFinite(lo)) lo = 0;
     if (!isFinite(hi) || hi <= lo) hi = lo + 1;
-    chart.top.get("Text").text = formatCompact(hi);
-    chart.bottom.get("Text").text = formatCompact(lo);
+    chart.top.get("Text").text = compactText(hi);
+    chart.bottom.get("Text").text = compactText(lo);
     const step = n > 1 ? (w - 2 * pad) / (CHART_POINTS - 1) : 0;
     const y = (v) => pad / 2 + (1 - (v - lo) / (hi - lo)) * (h - pad - 6);
     const x = (i) => w - pad - (n - 1 - i) * step;
-    chart.left.get("Text").text = n ? t("charts.since", { n }) : "";
+    chart.left.get("Text").text = n ? t("charts.since", { count: n }) : "";
     if (chart.kind === "line") {
       chart.items.forEach((seg, i) => {
         const on = i < n - 1;
@@ -797,7 +800,7 @@ export class Hud {
     const step = (r.w - 2 * pad) / (CHART_POINTS - 1);
     const i = Math.round(n - 1 - (r.x + r.w - pad - this.mouse.x) / step);
     const p = chart.points[Math.max(0, Math.min(n - 1, i))];
-    return { title: t("charts.dayTip", { day: p.day + 1 }), lines: [{ text: chart.kind === "line" ? t("charts.coinsTip", { n: p.value }) : t("charts.madeTip", { n: p.value }) }] };
+    return { title: t("charts.dayTip", { day: p.day + 1 }), lines: [{ text: chart.kind === "line" ? coinsText(p.value) : t("charts.madeTip", { n: numberText(p.value) }) }] };
   }
 
   // ---- notifications -------------------------------------------------------------------------------------------------------------------------
@@ -876,7 +879,7 @@ export class Hud {
     tips.add(coins, () => {
       const sim = this.state.sim;
       const l = sim.ledger;
-      return { title: t("tip.coinsTitle"), lines: [{ text: t("tip.coins", { n: this.state.economy.coins }) }, { text: t("tip.coinsFlow", { sales: l.sales, wages: l.wages + l.upkeep }), color: COLORS.dim }] };
+      return { title: t("tip.coinsTitle"), lines: [{ text: t("tip.coins", { money: coinsText(this.state.economy.coins) }) }, { text: t("tip.coinsFlow", { sales: numberText(l.sales), wages: numberText(l.wages + l.upkeep) }), color: COLORS.dim }] };
     });
     for (const id of this.data.goodIds) {
       const text = world.find(`good_${id}_text`);
@@ -884,9 +887,9 @@ export class Hud {
       tips.add(text, () => {
         const r = this.recorder.rates(id);
         const lines = [
-          { text: t("tip.stock", { n: Math.floor(this.state.economy.get(id)), cap: this.state.sim.capacity() }) },
-          { text: t("tip.rates", { made: r.made.toFixed(1), used: r.used.toFixed(1) }), color: COLORS.dim },
-          { text: t("tip.price", { price: this.state.sim.priceOf(id), base: this.data.goods[id].basePrice }), color: COLORS.gold },
+          { text: t("tip.stock", { n: numberText(Math.floor(this.state.economy.get(id))), cap: numberText(this.state.sim.capacity()) }) },
+          { text: t("tip.rates", { made: numberText(r.made, 1), used: numberText(r.used, 1) }), color: COLORS.dim },
+          { text: t("tip.price", { price: coinsText(this.state.sim.priceOf(id)), base: numberText(this.data.goods[id].basePrice) }), color: COLORS.gold },
         ];
         return { title: i18n.t(`good.${id}`), lines };
       });
@@ -895,7 +898,7 @@ export class Hud {
     if (pop) {
       tips.add(pop, () => {
         const s = this.state.sim.summary();
-        return { title: t("tip.popTitle"), lines: [{ text: t("tip.pop", { pop: s.population, housing: s.housing, employed: s.employed, jobs: s.jobs }) }, { text: t("tip.popHungry", { n: s.hungry }), color: s.hungry ? COLORS.red : COLORS.dim }] };
+        return { title: t("tip.popTitle"), lines: [{ text: t("tip.pop", { population: villagersText(s.population), housing: numberText(s.housing), employed: s.employed, jobs: s.jobs }) }, { text: t("tip.popHungry", { n: s.hungry }), color: s.hungry ? COLORS.red : COLORS.dim }] };
       });
     }
     for (let i = 0; i < 4; i++) {

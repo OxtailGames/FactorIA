@@ -53,6 +53,16 @@
         "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the pier, the rock tile, the goods, star and ship icons, the villager and carrier walkers and the three ship classes in four headings)"
       }
     },
+    "assets/fonts/NotoSansSC-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
+        "license": "OFL-1.1",
+        "author": "Google Fonts / Adobe (Noto Sans SC)",
+        "notes": "Variable font NotoSansSC[wght].ttf instanced to wght 400 and subset to the characters of locales/*.json with assets/fonts/make_subset.py. Used for Chinese, and for the language name in the language list, through localization.fallbackFonts. Licence text: assets/fonts/OFL.txt."
+      }
+    },
     "assets/music/autumn.wav": {
       "provenance": {
         "origin": "imported",

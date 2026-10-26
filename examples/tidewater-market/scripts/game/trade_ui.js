@@ -13,7 +13,8 @@
 import { Behaviour, world, ui, i18n, input, game, scene } from "factoria";
 import { ShipView } from "./ship_view.js";
 import { StoreBridge } from "./achievements.js";
-import { RichView } from "./rich_view.js";
+import { RichView, RICH_CAP } from "./rich_view.js";
+import { amountText, coinsText, numberText } from "./format.js";
 import { effectsMarkup, orderGoodsMarkup, shipName, amountMarkup } from "./trade_text.js";
 
 const t = (key, args) => i18n.t(key, args);
@@ -61,7 +62,7 @@ export default class TradeUi extends Behaviour {
       id: "btn_orders",
       components: {
         Transform: { position: [14, 52, 0] },
-        Button: { text: "", size: [150, 30], fontSize: 18, anchor: [0, 0], pivot: [0, 1], layer: 210, color: COLOR_BUTTON },
+        Button: { text: "", size: [150, 30], fontSize: 18, anchor: [0, 0], pivot: [0, 1], layer: 210, color: COLOR_BUTTON, autoShrink: true, minFontSize: 8, maxTextScale: 1.5 },
       },
     });
     const ev = this.state.events;
@@ -71,7 +72,7 @@ export default class TradeUi extends Behaviour {
       ev.on("trade.card.closed", () => this.closeCard()),
       ev.on("trade.restored", () => this.resync()),
       ev.on("trade.ship.docked", (e) => toast("trade.toast.docked", { ship: shipName(e.ship, t) })),
-      ev.on("trade.order.filled", (e) => toast("trade.toast.filled", { ship: shipName(e.ship, t), reward: e.reward })),
+      ev.on("trade.order.filled", (e) => toast("trade.toast.filled", { ship: shipName(e.ship, t), reward: coinsText(e.reward) })),
       ev.on("trade.order.missed", (e) =>
         toast("trade.toast.missed", { ship: shipName(e.ship, t), delta: this.trade.data.ships.reputation.missed }),
       ),
@@ -79,7 +80,10 @@ export default class TradeUi extends Behaviour {
       ev.on("trade.achievement", (e) => toast("trade.toast.achievement", { name: t(`achievement.${e.id}.name`) })),
       ev.on("trade.story.finished", (e) => toast("trade.toast.story", { name: t(`story.${e.scenario}.name`) })),
       ui.on("click", (e) => this.onClick(e.id)),
+      // the board and the card are written by this script: write them again when the language changes
+      i18n.on("change", () => this.redraw()),
     ];
+    this.shownScale = ui.textScale;
     this.refreshHud();
     if (this.trade.card) {
       // a game saved with a card open was saved at speed 0 (the card holds the clock): go on at x1 after the answer
@@ -114,7 +118,21 @@ export default class TradeUi extends Behaviour {
     }
     if (input.pressed("order_board") && !this.trade.card) this.toggleBoard();
     this.refreshHud();
+    if (this.shownScale !== ui.textScale) this.redraw(); // the text size option changed: the card's layout depends on it
     if (this.boardUi) this.drawBoard();
+  }
+
+  /** The language or the text size changed: lay the open card and board out again. */
+  redraw() {
+    this.shownScale = ui.textScale;
+    if (!this.tradeOn) return;
+    if (this.cardUi) this.renderCard();
+    if (this.boardUi) {
+      this.boardUi.footer.key = "";
+      for (const v of this.boardUi.views) v.key = "";
+      this.drawBoard();
+    }
+    this.refreshHud();
   }
 
   // ---- HUD ---------------------------------------------------------------------------------------------------------
@@ -152,9 +170,7 @@ export default class TradeUi extends Behaviour {
 
   /** "4 wood, 2 fish" for a list of goods (a toast is plain text). */
   plainList(list) {
-    return Object.entries(list)
-      .map(([k, n]) => (k === "coins" ? t("amount.coins", { n }) : t("amount.good", { n, name: t(`good.${k}`) })))
-      .join(", ");
+    return amountText(list);
   }
 
   choose(choiceId) {
@@ -207,16 +223,17 @@ export default class TradeUi extends Behaviour {
     const wanted = new Set();
     for (const ship of ships) {
       const title = `[b]${shipName(ship, t)}[/b]  [c:muted]${t("ship.class." + ship.cls)}[/c]`;
-      b.views[v++].set(title, { x: X, y, maxWidth: 520, fontSize: 24 });
+      const rowTop = y;
+      const r1 = b.views[v++].set(title, { x: X, y, maxWidth: 520, fontSize: 24 });
       const goods = `${t("trade.board.wants")} ${orderGoodsMarkup(ship.order.goods)}   [c:gold]${t("trade.board.pays")}[/c] ${amountMarkup("coins", ship.order.reward)}`;
-      b.views[v++].set(goods, { x: X, y: y + 34, maxWidth: W - 160, fontSize: 22 });
+      const r2 = b.views[v++].set(goods, { x: X, y: rowTop + r1.height + 2, maxWidth: W - 160, fontSize: 22 });
       let status;
       if (ship.state === "arriving") status = `[c:sea]${t("trade.board.sailing")}[/c]`;
       else if (ship.state === "leaving") status = `[c:muted]${t("trade.board.leaving")}[/c]`;
       else {
         const left = trade.daysLeft(ship);
         const can = trade.canFill(ship.id);
-        status = `[c:${left <= 1 ? "bad" : "muted"}]${left <= 1 ? t("trade.board.left1") : t("trade.board.left", { days: left })}[/c]`;
+        status = `[c:${left <= 1 ? "bad" : "muted"}]${left <= 1 ? t("trade.board.left1") : t("trade.board.left", { count: left, days: numberText(left) })}[/c]`;
         if (!can.ok && can.missing) {
           const list = Object.entries(can.missing).map(([k, n]) => amountMarkup(k, n)).join("  ");
           status += `   [c:bad]${t("trade.board.missing", { list: "" }).trim()}[/c] ${list}`;
@@ -228,21 +245,25 @@ export default class TradeUi extends Behaviour {
             {
               id: `fill_${ship.id}`,
               components: {
-                Transform: { position: [X + W - 130, y + 6, 0] },
-                Button: { text: t("trade.board.fill"), size: [130, 38], fontSize: 20, anchor: [0, 0], pivot: [0, 1], layer: 302 },
+                Transform: { position: [X + W - 130, rowTop + 6, 0] },
+                Button: { text: t("trade.board.fill"), size: [130, 38], fontSize: 20, anchor: [0, 0], pivot: [0, 1], layer: 302, autoShrink: true, minFontSize: 8, maxTextScale: RICH_CAP },
               },
             },
             { parent: b.root },
           );
           b.buttons.push(btn);
         }
-        btn.position = [X + W - 130, y + 6, 0];
+        btn.position = [X + W - 130, rowTop + 6, 0];
         const bc = btn.get("Button");
+        const fill = t("trade.board.fill"); // written again: the language may have changed since the button was made
+        if (bc.text !== fill) bc.text = fill;
+        bc.size = [130, Math.round(38 * Math.min(ui.textScale, RICH_CAP))];
         bc.interactable = can.ok;
         bc.color = can.ok ? [0.2, 0.45, 0.28, 1] : COLOR_DISABLED;
       }
-      b.views[v++].set(status, { x: X, y: y + 68, maxWidth: W - 160, fontSize: 20 });
-      y += 104;
+      const r3 = b.views[v++].set(status, { x: X, y: rowTop + r1.height + r2.height + 4, maxWidth: W - 160, fontSize: 20 });
+      // a row is as tall as its three lines (the text size option and a longer translation make them taller); the fill button may be taller than a short row
+      y = rowTop + Math.max(r1.height + r2.height + r3.height + 4, 6 + Math.round(38 * Math.min(ui.textScale, RICH_CAP))) + 14;
     }
     for (let i = v; i < b.views.length; i++) b.views[i].clear();
     // buttons of ships that left
@@ -260,7 +281,7 @@ export default class TradeUi extends Behaviour {
     else foot = "";
     const lines = [foot];
     if (docks && trade.nextShipDay !== Infinity && trade.nextShipDay > this.state.clock.day) {
-      lines.push(`[c:muted]${t("trade.board.next", { days: trade.nextShipDay - this.state.clock.day })}[/c]`);
+      lines.push(`[c:muted]${t("trade.board.next", { count: trade.nextShipDay - this.state.clock.day })}[/c]`);
     }
     const locked = Object.keys(trade.data.ships.classes)
       .filter((id) => trade.data.ships.classes[id].minReputation > trade.reputation)
@@ -269,7 +290,8 @@ export default class TradeUi extends Behaviour {
       lines.push(`[c:muted]${t("trade.board.unlock", { value: trade.data.ships.classes[locked].minReputation, class: t(`ship.class.${locked}`) })}[/c]`);
     }
     lines.push(`[c:gold]${t("trade.reputation", { value: trade.reputation })}[/c][icon:star]`);
-    b.footer.set(lines.filter(Boolean).join("\n"), { x: X, y: 390, maxWidth: W, fontSize: 20 });
+    const foot2 = b.footer.set(lines.filter(Boolean).join("\n"), { x: X, y: y + 6, maxWidth: W, fontSize: 20 });
+    b.root.get("Panel").size = [720, Math.round(y + 6 + foot2.height + 24)];
   }
 
   // ---- the event / story card --------------------------------------------------------------------------------------
@@ -308,9 +330,13 @@ export default class TradeUi extends Behaviour {
     kindText.get("Text").text = t(card.kind === "story" ? "trade.card.story" : "trade.card.event");
     const title = t(`${base}.title`);
     titleText.get("Text").text = title;
+    // the text size option grows the card's text up to RICH_CAP: the title sits under the kind line, and a button is as tall as its text
+    const k = Math.min(ui.textScale, RICH_CAP);
+    const titleY = Y + 16 + Math.round(18 * k * 1.3) + 4;
     kindText.position = [X + pad, Y + 16, 0];
-    titleText.position = [X + pad, Y + 42, 0];
-    let y = Y + 42 + ui.measureText(title, { fontSize: 32, maxWidth: W - pad * 2, space: "screen" }).height + 16;
+    titleText.position = [X + pad, titleY, 0];
+    const buttonH = Math.round(38 * k);
+    let y = titleY + ui.measureText(title, { fontSize: 32, maxWidth: W - pad * 2, space: "screen", maxTextScale: RICH_CAP }).height + 16;
     if (card.stage === "choose") {
       const body = rich().set(t(`${base}.body`), { x: X + pad, y, maxWidth: W - pad * 2, fontSize: 20 });
       y += body.height + 18;
@@ -323,11 +349,14 @@ export default class TradeUi extends Behaviour {
               Transform: { position: [X + pad, y, 0] },
               Button: {
                 text: t(`${base}.choice.${choice.id}`),
-                size: [W - pad * 2, 38],
+                size: [W - pad * 2, buttonH],
                 fontSize: 20,
                 anchor: [0, 0],
                 pivot: [0, 1],
                 layer: 302,
+                autoShrink: true,
+                minFontSize: 8,
+                maxTextScale: RICH_CAP,
                 interactable: can.ok,
                 color: can.ok ? COLOR_BUTTON : COLOR_DISABLED,
               },
@@ -336,7 +365,7 @@ export default class TradeUi extends Behaviour {
           { parent: c.root },
         );
         c.buttons.push(btn);
-        y += 42;
+        y += buttonH + 4;
         let line;
         if (choice.outcomes) line = `[c:gold]${t("trade.card.risky")}[/c]`;
         else if (!can.ok) line = `[c:bad]${t("trade.card.cannot", { list: Object.entries(can.missing).map(([k, n]) => amountMarkup(k, n)).join("  ") })}[/c]`;
@@ -359,13 +388,13 @@ export default class TradeUi extends Behaviour {
             id: "card_continue",
             components: {
               Transform: { position: [X + W - pad - 160, y, 0] },
-              Button: { text: t("trade.card.continue"), size: [160, 38], fontSize: 20, anchor: [0, 0], pivot: [0, 1], layer: 302, autoFocus: true },
+              Button: { text: t("trade.card.continue"), size: [160, buttonH], fontSize: 20, anchor: [0, 0], pivot: [0, 1], layer: 302, autoFocus: true, autoShrink: true, minFontSize: 8, maxTextScale: RICH_CAP },
             },
           },
           { parent: c.root },
         ),
       );
-      y += 42;
+      y += buttonH + 4;
     }
     c.root.get("Panel").size = [W, y + pad];
     c.root.position = [320, 100, 0];

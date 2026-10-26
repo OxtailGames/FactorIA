@@ -20,7 +20,7 @@ import { SLOTS, listSlots, latestEntry, loadEntry, renameEntry, deleteSlot, read
 import { scenarioIds } from "../game/scenarios.js";
 import { syncCloud, removeQuietly, listConflicts } from "../game/cloud_sync.js";
 import { thumbRuns, THUMB_COLORS } from "../game/thumbnail.js";
-import { dateText } from "../game/format.js";
+import { coinsText, dateText, villagersText } from "../game/format.js";
 
 const THUMB_BOX = 104; // the thumbnail fits a square this big, in design pixels
 const BOX_COLOR = [0.05, 0.07, 0.1, 0.94];
@@ -44,7 +44,7 @@ export function problemText(error) {
 
 const button = (id, label, extra = {}) => ({
   id,
-  components: { Button: { text: label, autoSize: true, fontSize: 22, layer: 0, ...extra } },
+  components: { Button: { text: label, autoSize: true, fontSize: 22, layer: 0, autoShrink: true, minFontSize: 9, maxTextScale: 1.5, ...extra } },
 });
 
 export class SlotsScreen {
@@ -96,7 +96,7 @@ export class SlotsScreen {
       },
       children,
     });
-    const title = (id, size = 36) => ({ id, components: { Text: { text: "", fontSize: size, space: "screen", layer: 10 } } });
+    const title = (id, size = 36) => ({ id, components: { Text: { text: "", fontSize: size, space: "screen", layer: 10, maxTextScale: 1.25 } } });
     const rows = [];
     for (let n = 1; n <= SLOTS; n++) rows.push(this.slotRow(n));
     this.slots = this.spawnPanel(
@@ -105,7 +105,7 @@ export class SlotsScreen {
         title("slots_title"),
         { ...button("slots_continue", "", { layer: 10, autoFocus: this.mode === "play", size: [320, 44] }) },
         ...rows,
-        { id: "slots_message", components: { Text: { text: "", fontSize: 20, space: "screen", layer: 10, maxWidth: 640, color: [1, 0.85, 0.5, 1] } } },
+        { id: "slots_message", components: { Text: { text: "", fontSize: 20, space: "screen", layer: 10, maxWidth: 640, maxTextScale: 1.5, color: [1, 0.85, 0.5, 1] } } },
         button("slots_back", "", { layer: 10 }),
       ]),
     );
@@ -113,14 +113,14 @@ export class SlotsScreen {
       "scenario_panel",
       column("scenario_panel", [
         title("scenario_title"),
-        ...scenarioIds().map((id, i) => button(`scenario_${id}`, "", { layer: 10, autoFocus: i === 0, maxWidth: 560, fontSize: 22 })),
+        ...scenarioIds().map((id, i) => button(`scenario_${id}`, "", { layer: 10, autoFocus: i === 0, size: [640, 44], maxWidth: 600, fontSize: 20, maxTextScale: 1.3 })),
         button("scenario_back", "", { layer: 10 }),
       ]),
     );
     this.confirm = this.spawnPanel(
       "confirm_panel",
       column("confirm_panel", [
-        { id: "confirm_text", components: { Text: { text: "", fontSize: 26, space: "screen", layer: 10, maxWidth: 520 } } },
+        { id: "confirm_text", components: { Text: { text: "", fontSize: 26, space: "screen", layer: 10, maxWidth: 520, maxTextScale: 1.5 } } },
         {
           id: "confirm_buttons",
           components: { Panel: { layout: "row", spacing: 16, fit: true, padding: [0, 0, 0, 0], color: CLEAR, layer: 1 } },
@@ -144,13 +144,14 @@ export class SlotsScreen {
   }
 
   slotRow(n) {
-    const small = { size: [132, 36], autoSize: false, fontSize: 18, layer: 10 };
+    // the four small buttons keep their size: a longer label (fr "Sauvegarde auto") or a larger text size shrinks the label instead
+    const small = { size: [148, 36], autoSize: false, fontSize: 18, layer: 10, maxTextScale: 1.3 };
     return {
       id: `slot_${n}`,
       components: { Panel: { layout: "row", spacing: 14, fit: true, padding: [10, 10, 10, 10], align: "center", color: ROW_COLOR, layer: 2 } },
       children: [
         { id: `slot_${n}_thumb`, components: { Panel: { layout: "column", spacing: 0, fit: true, padding: [0, 0, 0, 0], align: "start", color: CLEAR, layer: 3 } } },
-        { id: `slot_${n}_info`, components: { Text: { text: "", fontSize: 18, space: "screen", layer: 10, maxWidth: 330 } } },
+        { id: `slot_${n}_info`, components: { Text: { text: "", fontSize: 18, space: "screen", layer: 10, maxWidth: 380, maxTextScale: 1.2 } } },
         {
           id: `slot_${n}_buttons`,
           components: { Panel: { layout: "grid", columns: 2, spacing: 6, fit: true, padding: [0, 0, 0, 0], color: CLEAR, layer: 3 } },
@@ -344,9 +345,9 @@ export class SlotsScreen {
       lines.push(meta.name || i18n.t("slots.slot", { n }));
       lines.push(i18n.t("slots.info", { scenario: this.scenarioName(meta.scenario), date: dateText({ season: meta.season, dayOfSeason: meta.dayOfSeason, year: meta.year }) }));
       lines.push(playTimeText(meta.playSeconds));
-      lines.push(i18n.t("slots.stats", { coins: meta.coins, population: meta.population }));
+      lines.push(i18n.t("slots.stats", { coins: coinsText(meta.coins), population: villagersText(meta.population) }));
       if (meta.won) lines.push(i18n.t("slots.completed"));
-      else if (meta.goalsTotal) lines.push(i18n.t("slots.goals", { done: meta.goalsDone || 0, total: meta.goalsTotal }));
+      else if (meta.goalsTotal) lines.push(i18n.t("slots.goals", { done: meta.goalsDone || 0, total: meta.goalsTotal, count: meta.goalsTotal }));
     } else {
       lines.push(i18n.t("slots.slot", { n }));
       lines.push(manual ? i18n.t("slots.damaged") : i18n.t("slots.empty"));
