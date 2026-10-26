@@ -811,13 +811,13 @@
       "severity": "major",
       "title": "Web export does not check the web player against the engine build",
       "missing": "factoria export refuses a Windows or Linux player with no build fingerprint, but the web export used the installed web player (older than the engine) without a word. The exported game then failed in the browser: scripts/ui/options.js could not import `analytics`, scene.preload was missing, and after patching those, game.sceneProps and the audio bus API were missing too, so the game never left a dark loading screen.",
-      "workaround": "None that works: a scratch copy of the game with the missing APIs guarded got as far as the slot screen. The save/continue flow in the browser was not verified; the same flow is covered by headless tests.",
+      "workaround": "Build the web player from the checkout (cmake --preset web-release; cmake --build --preset web-release) and export with --player build/web-release/player. With it the game runs in the browser and new game, build, save, reload, continue works (SHIPPING.md, \"Web\").",
       "workaroundFiles": [
         "SHIPPING.md"
       ],
       "suggestion": "Apply the same fingerprint check to the web (and mobile) players, and print the missing API when a script fails to import or call something the player lacks.",
       "effort": "small",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -832,7 +832,7 @@
       "severity": "major",
       "title": "No way to get players for a development build",
       "missing": "`factoria setup players --force` fails for a development build ('this factoria 0.2.0 has no release v0.2.0 on GitHub'), and the web player needs emcc, which a Mac does not have by default. So a developer on a development checkout cannot export Windows, Linux or a current web build from a Mac.",
-      "workaround": "Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused.",
+      "workaround": "Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused. Later the orchestrator built the web player with the emsdk in ~/emsdk (Emscripten 6.0.10, the CI version); Windows and Linux are still refused.",
       "workaroundFiles": [
         "SHIPPING.md"
       ],
@@ -937,6 +937,46 @@
       "workaround": "tests/perf/tidewater-market.perf.json checks the stress scene (the heaviest); -title and -game files are checked by hand.",
       "workaroundFiles": [],
       "suggestion": "Let a perf file list several scenes (scenes: [{scene, budgets}]) or let the CMake loop pick up every <example>*.perf.json.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0070",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "Web page downloaded the 8 MB wasm twice",
+      "missing": "platforms/web/shell.html downloads factoria_player.wasm itself (for the progress bar) and passed it as Module.wasmBinary, which Emscripten 6 no longer reads. The runtime then fetched the wasm again: every load of every web game cost 3 MB of gzip twice and the progress bar ended before the real download.",
+      "workaround": "Fixed in the engine while testing the export: the page hands its copy to the player through Module.instantiateWasm, which Emscripten still reads. The server log shows one GET of the wasm per load.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "A test that exports a game, serves it and counts the requests per file, so the next Emscripten update cannot bring this back.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine"
+    },
+    {
+      "id": "FB-0071",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Web export writes no favicon",
+      "missing": "The game has an icon (assets/icon, used by the macOS export), but the web page has no <link rel=icon> and no favicon.ico, so the browser asks for /favicon.ico and gets a 404 and a blank tab icon.",
+      "workaround": "None in the game; a host could add favicon.ico by hand next to index.html.",
+      "workaroundFiles": [],
+      "suggestion": "Write the game's icon as favicon.png in the web export and link it from index.html.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"
