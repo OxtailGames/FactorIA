@@ -948,6 +948,7 @@ factoria export --platform web --player path/to/web-player-folder
 build/export/
   my-game-web/                 the folder: any web host serves it as it is
     index.html                 the loading page (progress for the wasm and the pack), then the game
+    favicon.png                64x64 icon of the browser tab, made from the game's `icon`; only when the game has one
     factoria_player.js         the Emscripten glue
     factoria_player.wasm       the engine
     game.pak                   the whole game
@@ -992,7 +993,7 @@ it. `--json` and the plan (`dryRun`) report where the player came from as `mode`
 
 **The page.** `index.html` is `platforms/web/shell.html`, embedded in the factoria binary, with `{{title}}` (the game's
 `name`, HTML-escaped), `{{wasmBytes}}` and `{{pakBytes}}` (the sizes of the two downloads, for the progress bar when the
-server sends no `Content-Length`) replaced. A placeholder this factoria does not know stays as it is, with a warning.
+server sends no `Content-Length`) and `{{favicon}}` (`favicon.png`, or `data:,` when the game has no icon) replaced. A placeholder this factoria does not know stays as it is, with a warning.
 
 **What differs from the other exports.**
 
@@ -1007,10 +1008,22 @@ server sends no `Content-Length`) replaced. A placeholder this factoria does not
   On a phone or tablet, a `TextField` with focus makes the browser show its keyboard through a hidden `<input>`; iOS Safari
   may need a second tap on the field. Details: [TEXT.md](TEXT.md#typing-text). A gamepad alone types with the on-screen
   keyboard of [MENUS.md](MENUS.md).
-- **No icon** and no `export.web` settings: the page and the browser tab are the game's face. The `platforms` list of
+- **The icon** is only the tab's: the export scales the game's `icon` (the top-level one; there is no `export.web` section)
+  into `favicon.png`, 64x64, and the page links it. A game without an icon gets an empty icon (`data:,`, so a host without a
+  favicon logs no 404), and no "No icon" warning; an icon file that cannot be read is a warning. The `platforms` list of
   `factoria.json` is not checked for `web`.
 - **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria
   validate` already warns about big files; the zip is deflated, so a host that compresses (gzip, brotli) saves little more.
+  See "The size report" below.
+
+**The size report.** Every export names the five folders that weigh most in what ships (`largestFolders` in `--json`: the
+folder cut to two levels, such as `assets/audio`, its files and bytes, after the asset steps), and warns when a folder
+called `store`, `screenshots` or `src`, at any depth, is packed: it names the folder, its size and the `export.exclude`
+entry that leaves it out (a game that does load such a folder keeps it). A web export also lists each file of the zip
+with its raw size and about its gzip size (the deflate size the zip holds plus the 18 bytes of a gzip frame; brotli is
+not measured), the total, and how long that total takes to download at 1, 5, 20 and 100 Mbit/s (`webFiles`, `webBytes`,
+`webGzipBytes` and `webDownloadSeconds` in `--json`). The times assume the host serves the files compressed; without that
+the raw total is what travels.
 
 ## Mobile exports: prebuilt or source
 

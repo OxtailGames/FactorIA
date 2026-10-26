@@ -132,9 +132,32 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
     if (!shell)
         return err(std::string("export: the page template ") + kShellPath + " is not in this factoria",
                    "this build of factoria lacks the platforms/ folder: build it from a complete checkout, or use the FactorIA download");
+    // The tab's icon: the game's icon (factoria.json "icon") as a 64x64 favicon.png. Without one, or with an icon that cannot be read
+    // (the warning says why), the page keeps an empty icon, so that a host without a favicon logs no 404.
+    std::string favicon = "data:,";
+    {
+        std::vector<std::string> ignored;  // load_icon_image's remarks (not square, under 512 px) are about app icons
+        auto icon = load_platform_icon(p, "web", ignored);
+        if (!icon.ok()) {
+            report.warnings.push_back(icon.error().message + (icon.error().hint.empty() ? "" : ". " + icon.error().hint) +
+                                      ". The page has no icon in the browser tab");
+        } else if (!icon->empty()) {
+            const Image small = fit_image(*icon, 64, 1.0f, Color{0, 0, 0, 0});
+            const std::vector<std::uint8_t> png = encode_png(small);
+            if (png.empty()) {
+                report.warnings.push_back("The game's icon could not be written as favicon.png, so the page has no icon in the browser tab");
+            } else {
+                std::string why;
+                if (!write_file(outRoot / "favicon.png", std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &why))
+                    return err("export: cannot write " + generic(outRoot / "favicon.png") + (why.empty() ? "" : ": " + why));
+                favicon = "favicon.png";
+            }
+        }
+    }
     std::vector<std::string> unknown;
     const std::string page = fill_page(*shell,
                                        {{"title", xml_escape(p.name)},
+                                        {"favicon", favicon},
                                         {"wasmBytes", std::to_string(file_size_of(player.wasm))},
                                         {"pakBytes", std::to_string(file_size_of(outRoot / kPackFileName))}},
                                        unknown);
@@ -181,6 +204,23 @@ Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, Exp
     }
     if (auto r = zip.finish(); !r.ok()) return r;
     const std::vector<ZipEntry>& entries = zip.entries();
+    // The size of each file as a browser downloads it: a host that gzips sends the deflate stream in an 18-byte gzip frame (never more
+    // than the raw file plus the frame). Biggest first.
+    report.webBytes = report.webGzipBytes = 0;
+    report.webFiles.clear();
+    for (const ZipEntry& e : entries) {
+        ExportSize row;
+        row.name = e.name;
+        row.files = 1;
+        row.bytes = e.size;
+        row.gzipBytes = std::min<std::uint64_t>(e.compressedSize, e.size) + 18;
+        report.webBytes += row.bytes;
+        report.webGzipBytes += row.gzipBytes;
+        report.webFiles.push_back(std::move(row));
+    }
+    std::sort(report.webFiles.begin(), report.webFiles.end(), [](const ExportSize& a, const ExportSize& b) {
+        return std::make_pair(b.bytes, a.name) < std::make_pair(a.bytes, b.name);
+    });
 
     // What itch.io documents for an HTML5 game (https://itch.io/docs/creators/html5).
     constexpr std::uint64_t kMiB = 1024 * 1024;
