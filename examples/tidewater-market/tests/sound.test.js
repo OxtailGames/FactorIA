@@ -51,48 +51,67 @@ test("sound mix: the zoom, the beds and where a sound comes from", () => {
 });
 
 test("sound mix: the voice book never holds more than its cap, nearer sounds win", () => {
-  const book = new VoiceBook(3);
-  let id = 0;
+  let alive = new Set();
+  const book = new VoiceBook(3, () => alive);
+  let id = 1;
   for (let i = 0; i < 10; i++) {
-    const offer = book.offer(0, 0.2 + i * 0.01);
-    if (offer.play) book.add(id++, 0, 5, 0.2 + i * 0.01, offer.evict);
+    const offer = book.offer(0.2 + i * 0.01);
+    if (offer.play) {
+      alive.add(id);
+      if (offer.evict !== null) alive.delete(offer.evict);
+      book.add(id++, 0.2 + i * 0.01, offer.evict);
+    }
     expect(book.count).toBeLessThanOrEqual(3);
   }
   expect(book.dropped).toBeGreaterThan(0);
   // a much louder one takes the place of the weakest
-  const loud = book.offer(0, 1);
+  const loud = book.offer(1);
   expect(loud.play).toBe(true);
   expect(loud.evict).not.toBe(null);
-  // after the sounds end the book is empty again
-  book.prune(6);
+  // after the engine says the sounds are gone the book is empty again
+  alive = new Set();
   expect(book.count).toBe(0);
   expect(book.peak).toBe(3);
 });
 
-test("buses: each volume of the options reaches the mixer; ambience scales the beds", () => {
+test("sound mix: the book follows the engine's voices (audio.activeVoices) and audio.play's onEnded", () => {
+  townScene();
+  const book = new VoiceBook(2);
+  const scene0 = scene.current;
+  const ended = [];
+  const ids = [];
+  for (let i = 0; i < 2; i++) {
+    const offer = book.offer(1);
+    expect(offer.play).toBe(true);
+    const id = audio.play("assets/sfx/ui_click.ogg", { bus: "ui", onEnded: (v) => { if (scene.current === scene0) ended.push(v); } });
+    ids.push(id);
+    book.add(id, 1);
+  }
+  expect(book.offer(1).play).toBe(false); // two play, the cap is two
+  expect(audio.activeVoices().filter((v) => ids.includes(v.id)).map((v) => v.bus)).toEqual(["ui", "ui"]);
+  game.step(240); // longer than the clip
+  expect(ended.slice().sort()).toEqual(ids.slice().sort()); // each end reported once
+  expect(book.count).toBe(0);
+  expect(book.offer(1).play).toBe(true);
+});
+
+test("buses: each volume of the options reaches the mixer; the ambience bus scales the beds", () => {
   const { ctl } = townScene({ trade: true });
   const s = settings.load();
   s.volume = { master: 0.9, music: 0.31, ambience: 0.5, sfx: 0.42, ui: 0.27 };
   settings.apply(s);
-  expect(audio.getVolume("master")).toBeCloseTo(0.9);
-  expect(audio.getVolume("music")).toBeCloseTo(0.31);
-  expect(audio.getVolume("sfx")).toBeCloseTo(0.42);
-  expect(audio.getVolume("ui")).toBeCloseTo(0.27);
-  expect(settings.live().ambience).toBeCloseTo(0.5);
-  // the ambience volume is the soundscape's own bus: the beds are sent at level * bed volume * ambience
+  for (const bus of settings.BUSES) expect(audio.getVolume(bus)).toBeCloseTo(s.volume[bus]);
+  // the beds play on the ambience bus (a child of sfx) at level * bed volume: the slider is the bus volume, not a multiplier
   const sound = ctl.soundscape;
   sound.refresh(true);
+  expect(audio.activeVoices().filter((v) => Object.values(sound.beds).includes(v.id)).map((v) => v.bus)).toEqual(["ambience", "ambience", "ambience"]);
   const full = { ...sound.sent };
   s.volume.ambience = 0.25;
   settings.apply(s);
   sound.refresh(true);
-  for (const name of Object.keys(full)) {
-    if (full[name] > 0) expect(sound.sent[name]).toBeCloseTo(full[name] / 2, 3);
-  }
-  s.volume.ambience = 0;
-  settings.apply(s);
-  sound.refresh(true);
-  for (const name of Object.keys(full)) expect(sound.sent[name]).toBe(0);
+  expect(audio.getVolume("ambience")).toBeCloseTo(0.25);
+  for (const name of Object.keys(full)) expect(sound.sent[name]).toBeCloseTo(full[name], 3); // the voices do not change
+  expect(audio.bus("ambience").state().volume).toBeCloseTo(0.25);
 });
 
 test("buses: the interface sounds play on the ui bus, with a gap after the same sound", () => {
@@ -121,11 +140,15 @@ test("ambience follows the camera: the sea at the coast, the market in the stree
   expect(coast.sea).toBeGreaterThan(town.sea);
   const high = look(5, 5, 0.45);
   expect(high.wind).toBeGreaterThan(town.wind);
-  // the volume sent to the engine moves with it
+  // the volume sent to the engine moves with it, and the audio log shows each change
+  game.clearAudioLog();
   look(5, 5, 3);
   const marketSent = sound.sent.market;
   look(0, 0, 3);
   expect(sound.sent.market).toBeLessThan(marketSent);
+  const changes = game.audioLog().filter((e) => e.kind === "setVoiceVolume" && e.voice === sound.beds.market);
+  expect(changes.length).toBeGreaterThan(0);
+  expect(changes[changes.length - 1].volume).toBeCloseTo(sound.sent.market);
 });
 
 test("voice cap: the stress town never plays more voices than its caps", () => {

@@ -346,7 +346,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | Component | Key fields | Typical use |
 |---|---|---|
 | `AudioSource` | `clip`, `volume` (0..1), `pitch`, `loop`, `playOnStart`, `spatial`, `range`, `playing` (runtime: set true to play) | A sound on an entity. Formats: .wav, .ogg, .mp3. |
-| `AudioListener` | `volume` | The "ears" for spatial sound. Without one, the first camera drawn listens (the primary camera with the lowest `depth`: player one's in a split screen). |
+| `AudioListener` | `volume`, `zoom` (scales how far spatial sounds are heard: 2 doubles the reach) | The "ears" for spatial sound. Without one, the first camera drawn listens (the primary camera with the lowest `depth`: player one's in a split screen). |
 | `Script` | `path` (module), `props` (values that override the class fields), `enabled` | Attaches a Behaviour to the entity. |
 
 ## 8. Scripts: behaviours and the JavaScript API
@@ -647,6 +647,8 @@ For a state that changes several buses at once, name it in factoria.json and app
 audio.snapshot("underwater");                     // or audio.snapshot("underwater", { fade: 2 })
 audio.snapshot("normal");                         // when the player surfaces
 ```
+
+Group sounds on a bus of your own under a parent (`"audio": { "buses": { "ambience": { "parent": "sfx" } } }`), play on it with `audio.play(clip, { bus: "ambience" })` and set it with `audio.setVolume("ambience", 0.5)`; its parent scales it too (SCRIPTING.md, "Project buses"). `audio.play` takes `onEnded` and `audio.activeVoices()` lists what plays.
 
 Effects stay across scene loads, like volumes, so apply `normal` when you leave. `project_validate` checks the catalog (a misspelled bus or key gets a "did you mean"). To check it from outside, call `audio_bus {"bus":"music"}` or `audio_snapshot {}`; the mix is deterministic, so `factoria run --headless --record-audio out.wav` records what the effect does.
 
