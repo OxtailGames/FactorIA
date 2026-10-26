@@ -159,7 +159,7 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid) {
     return g;
 }
 
-TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
+TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, bool tightBox) {
     Impl& im = *impl_;
     FontFace* primary = face(t.font);
     if (!primary || !primary->ok) return {};
@@ -170,7 +170,7 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
 
     struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align; } head{};
     head.fontSize = fontSize; head.maxWidth = t.maxWidth; head.pivotX = t.pivot.x; head.pivotY = t.pivot.y;
-    head.px = px; head.align = int(t.align);
+    head.px = px; head.align = int(t.align) + (tightBox ? 1000 : 0);
     std::string cacheKey(reinterpret_cast<const char*>(&head), sizeof head);
     cacheKey += t.font;
     cacheKey.push_back('\0');
@@ -201,9 +201,10 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
         out = TextLayout{};
         float boxW = 0;
         for (const ShapedLine& l : shaped.lines) boxW = std::max(boxW, l.width);
-        if (maxW > 0) boxW = std::max(boxW, maxW);
         const float boxH = lineH * float(shaped.lines.size());
-        out.size = {boxW * unitsPerPx, boxH * unitsPerPx};
+        out.size = {boxW * unitsPerPx, boxH * unitsPerPx};  // the widest line: what measuring and ui.overflowed see
+        // Centre and right alignment still work inside the maxWidth box (the pivot is that box's); the reported size is not.
+        if (maxW > 0 && !tightBox && t.align != Align::Left) boxW = std::max(boxW, maxW);
 
         // ---- place glyphs (raster pixels, y down from the box top) ----
         const float ox = -t.pivot.x * boxW;

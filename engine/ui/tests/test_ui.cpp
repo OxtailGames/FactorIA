@@ -1380,6 +1380,46 @@ TEST_CASE("text fit: a long Toggle label wraps at maxWidth and the toggle grows 
     CHECK_FALSE(fit->fit.overflow);
 }
 
+TEST_CASE("text fit: a Toggle's box follows the font size, so a two-line label keeps the box and autoShrink fits the label") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity tg = t.add<Toggle>("tg", {10, 10}, {240, 40});
+    Toggle& toggle = *t.w.get<Toggle>(tg);
+    const float box = ui_toggle_box_side(toggle, 40.0f, 1.0f);
+    CHECK(box == doctest::Approx(28.0f));  // the old height - 12 at the default size
+    toggle.autoSize = true;
+    toggle.label = "Reduce flashing";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const float oneLineBox = ui_toggle_box_side(toggle, toggle.size.y, 1.0f);
+    toggle.label = "Reduce screen shake and flashing lights during combat";
+    toggle.maxWidth = 200;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(toggle.size.y > 60);  // several lines
+    CHECK(ui_toggle_box_side(toggle, toggle.size.y, 1.0f) == doctest::Approx(oneLineBox));
+    CHECK(ui_toggle_box_side(toggle, toggle.size.y, 2.0f) > oneLineBox);  // it grows with the text size
+    CHECK(ui_toggle_box_side(toggle, 20.0f, 1.0f) == doctest::Approx(8.0f));  // never past the height minus 12
+    // a short word in a roomy maxWidth: measured by its own width, not overflowed
+    toggle.autoSize = false;
+    toggle.label = "VSync";
+    toggle.maxWidth = 440;
+    toggle.size = {560, 40};
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const auto fit = ui_label_fit(t.w, tg, t.rect(tg), 1.0f, text_extent_of(measure_at(1.0f)));
+    REQUIRE(fit.has_value());
+    CHECK(fit->fit.size.x < 100);
+    CHECK_FALSE(fit->fit.overflow);
+    // autoShrink on a Toggle shrinks the label into the room beside the box
+    toggle.label = "A long label that cannot fit in a narrow toggle";
+    toggle.maxWidth = 0;
+    toggle.size = {200, 40};
+    CHECK(ui_text_overflowed(t.w, tg, t.design, measure_at(1.0f)));
+    toggle.autoShrink = true;
+    const auto shrunk = ui_label_fit(t.w, tg, t.rect(tg), 1.0f, text_extent_of(measure_at(1.0f)));
+    REQUIRE(shrunk.has_value());
+    CHECK(shrunk->fit.shrunk);
+    CHECK(shrunk->fit.px < toggle.fontSize);
+}
+
 TEST_CASE("text fit: Slider labelAbove gives the track the whole width and maxWidth wraps the label") {
     Ui t;
     t.design = {1280, 720};
