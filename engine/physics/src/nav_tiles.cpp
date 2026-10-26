@@ -53,6 +53,13 @@ NavTilePath fail(const char* reason, std::string message, std::string hint) {
 
 }  // namespace
 
+float nav_tile_min_open_cost(const NavTileGrid& grid) {
+    float m = std::numeric_limits<float>::infinity();
+    for (const float c : grid.cost)
+        if (c >= 0.0f) m = std::min(m, c);
+    return std::isfinite(m) ? m : 0.0f;
+}
+
 NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow, int toCol, int toRow,
                                const NavTileOptions& o) {
     const int W = grid.width, H = grid.height;
@@ -74,10 +81,9 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
                     "Aim at an open cell, pass closest: true to get the nearest reachable one, or allowBlockedGoal: true to end ON a blocked cell.");
 
     // The cheapest cell bounds how cheap a step can be, so the heuristic never overestimates.
-    float minCost = std::numeric_limits<float>::infinity();
-    for (std::size_t i = 0; i < total; ++i)
-        if (grid.cost[i] >= 0.0f) minCost = std::min(minCost, grid.cost[i]);
-    if (!std::isfinite(minCost)) minCost = 0.0f;
+    // (A grid kept by a script has it already: a short route must not sweep the whole map.)
+    float minCost = grid.minOpenCost;
+    if (!(minCost >= 0.0f)) minCost = nav_tile_min_open_cost(grid);
     if (o.allowBlockedGoal) minCost = std::min(minCost, 1.0f);
     auto heuristic = [&](int c, int r) {
         const float dx = float(std::abs(c - toCol)), dy = float(std::abs(r - toRow));
@@ -217,42 +223,35 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
 
 namespace {
 
-Result<std::pair<int, int>> cell_arg(const Json& a, const char* key) {
-    const Json v = a.value(key, Json());
+Result<std::pair<int, int>> cell_value(const Json& v, const char* who, const std::string& key) {
     if (!v.is_array() || v.size() != 2 || !v[0].is_number() || !v[1].is_number())
-        return Error{std::format("nav.findTilePath: '{}' must be a cell [col, row] of two numbers, but got {}.", key, v.dump()),
-                     std::string("Cells are 0-based with row 0 at the top, e.g. \"") + key + "\":[3,2]."};
+        return Error{std::format("{}: '{}' must be a cell [col, row] of two numbers, but got {}.", who, key, v.dump()),
+                     "Cells are 0-based with row 0 at the top, e.g. \"" + key + "\":[3,2]."};
     return std::make_pair(int(std::floor(v[0].get<double>())), int(std::floor(v[1].get<double>())));
 }
 
+Result<std::pair<int, int>> cell_arg(const Json& a, const char* key) { return cell_value(a.value(key, Json()), "nav.findTilePath", key); }
+
 }  // namespace
 
-Result<Json> nav_tile_query(World& world, const Json& args) {
+Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld, bool& worldPoints) {
     const bool hasMap = args.contains("tilemap") && !args["tilemap"].is_null();
     const bool hasGrid = args.contains("grid") && !args["grid"].is_null();
     if (hasMap == hasGrid)
-        return Error{"nav.findTilePath: pass exactly one of `tilemap` (an entity with a Tilemap) or `grid` ({width, height, cost}).",
+        return Error{std::string(who) + ": pass exactly one of `tilemap` (an entity with a Tilemap) or `grid` ({width, height, cost}).",
                      "Example: {\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3]} or {\"grid\":{\"width\":4,\"height\":3,\"cost\":[1,1,1,1,1,-1,-1,1,1,1,1,1]},\"from\":[0,0],\"to\":[3,2]}."};
-    auto from = cell_arg(args, "from");
-    if (!from.ok()) return from.error();
-    auto to = cell_arg(args, "to");
-    if (!to.ok()) return to.error();
-
-    NavTileGrid grid;
-    Mat4 toWorld;
-    bool worldPoints = false;
     if (hasMap) {
         const std::string id = args["tilemap"].is_string() ? args["tilemap"].get<std::string>() : args["tilemap"].dump();
         const Entity e = world.find_by_id(id);
         if (e.is_null())
-            return Error{"nav.findTilePath: no entity '" + id + "'.", "Pass the id of an entity that has a Tilemap component."};
+            return Error{std::string(who) + ": no entity '" + id + "'.", "Pass the id of an entity that has a Tilemap component."};
         const Tilemap* tm = world.get<Tilemap>(e);
         if (!tm)
-            return Error{"nav.findTilePath: entity '" + id + "' has no Tilemap component.",
+            return Error{std::string(who) + ": entity '" + id + "' has no Tilemap component.",
                          "Pass a Tilemap entity, or a plain grid {width, height, cost}."};
         grid = nav_tile_grid_from_tilemap(*tm, args.value("costs", Json()));
         if (grid.width <= 0 || grid.height <= 0)
-            return Error{"nav.findTilePath: the Tilemap on '" + id + "' has no tiles.", "Fill Tilemap.tiles (and width/height for a flat list)."};
+            return Error{std::string(who) + ": the Tilemap on '" + id + "' has no tiles.", "Fill Tilemap.tiles (and width/height for a flat list)."};
         toWorld = world.world_matrix(e);
         worldPoints = true;
     } else {
@@ -261,8 +260,8 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
         const int h = gj.is_object() && gj.value("height", Json()).is_number() ? int(gj["height"].get<double>()) : 0;
         const Json cost = gj.is_object() ? gj.value("cost", Json()) : Json();
         if (w <= 0 || h <= 0 || !cost.is_array() || cost.size() != std::size_t(w) * std::size_t(h))
-            return Error{std::format("nav.findTilePath: `grid` needs width > 0, height > 0 and a `cost` array of width * height numbers (got {}).",
-                                     cost.is_array() ? std::format("{} entries for {} x {}", cost.size(), w, h) : std::string("no cost array")),
+            return Error{std::string(who) + ": `grid` needs width > 0, height > 0 and a `cost` array of width * height numbers (got " +
+                             (cost.is_array() ? std::format("{} entries for {} x {}", cost.size(), w, h) : std::string("no cost array")) + ").",
                          "cost is row-major with row 0 at the top; a number >= 0 is the cost of entering the cell, null or a negative number blocks it."};
         grid.width = w;
         grid.height = h;
@@ -280,7 +279,25 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
         grid.origin = vec2("origin", {0, 0});
         grid.cellSize = vec2("cellSize", {1, 1});
     }
+    return true;
+}
 
+Result<Json> nav_tile_query(World& world, const Json& args) {
+    NavTileGrid grid;
+    Mat4 toWorld;
+    bool worldPoints = false;
+    auto map = nav_tile_map(world, args, "nav.findTilePath", grid, toWorld, worldPoints);
+    if (!map.ok()) return map.error();
+    auto from = cell_arg(args, "from");
+    if (!from.ok()) return from.error();
+    auto to = cell_arg(args, "to");
+    if (!to.ok()) return to.error();
+
+    return nav_tile_run(grid, worldPoints ? &toWorld : nullptr, args, from.value(), to.value());
+}
+
+Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Json& args, std::pair<int, int> from,
+                          std::pair<int, int> to) {
     // Checked before reading: Json::value throws on a wrong type, and a script passes whatever it was given.
     for (const char* key : {"diagonals", "closest", "allowBlockedGoal"})
         if (args.contains(key) && !args[key].is_boolean())
@@ -294,7 +311,7 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
     o.closest = args.value("closest", false);
     o.allowBlockedGoal = args.value("allowBlockedGoal", false);
     o.maxNodes = std::max(1, args.value("maxNodes", o.maxNodes));
-    const NavTilePath p = nav_find_tile_path(grid, from.value().first, from.value().second, to.value().first, to.value().second, o);
+    const NavTilePath p = nav_find_tile_path(grid, from.first, from.second, to.first, to.second, o);
 
     Json out = Json::object();
     out["found"] = p.found;
@@ -304,8 +321,8 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
         cells.push_back(Json::array({c.first, c.second}));
         const float lx = grid.origin.x + (float(c.first) + 0.5f) * grid.cellSize.x;
         const float ly = grid.origin.y - (float(c.second) + 0.5f) * grid.cellSize.y;
-        if (worldPoints) {
-            const Vec3 w = toWorld.transform_point({lx, ly, 0.0f});
+        if (toWorld) {
+            const Vec3 w = toWorld->transform_point({lx, ly, 0.0f});
             points.push_back(Json::array({w.x, w.y}));
         } else {
             points.push_back(Json::array({lx, ly}));
@@ -319,6 +336,57 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
         out["reason"] = p.reason;
         out["message"] = p.message;
         out["hint"] = p.hint;
+    }
+    return out;
+}
+
+Result<Json> nav_flow_query(World& world, const Json& args) {
+    const char* who = "nav.flow_field";
+    NavTileGrid grid;
+    Mat4 toWorld;
+    bool worldPoints = false;
+    auto map = nav_tile_map(world, args, who, grid, toWorld, worldPoints);
+    if (!map.ok()) return map.error();
+    if (!args.contains("goals") || !args["goals"].is_array() || args["goals"].empty())
+        return Error{std::string(who) + ": `goals` must be a non-empty list of cells [[col,row], ...].",
+                     "Example: {\"tilemap\":\"ground\",\"goals\":[[3,2],[9,9]],\"from\":[0,0]}."};
+    for (const char* key : {"diagonals"})
+        if (args.contains(key) && !args[key].is_boolean())
+            return Error{std::format("{}: `{}` must be true or false, but got {}.", who, key, args[key].dump()), "Pass true, or leave it out (default false)."};
+    auto cg = std::make_shared<NavCostGrid>(grid.width, grid.height, grid.origin, grid.cellSize);
+    cg->assign(grid.cost);
+    std::vector<std::pair<int, int>> goals;
+    for (std::size_t i = 0; i < args["goals"].size(); ++i) {
+        auto g = cell_value(args["goals"][i], who, "goals[" + std::to_string(i) + "]");
+        if (!g.ok()) return g.error();
+        if (!cg->inside(g.value().first, g.value().second))
+            return Error{std::format("{}: goal ({}, {}) is outside the {} x {} map.", who, g.value().first, g.value().second, grid.width, grid.height),
+                         "Cells are 0-based (col, row) with row 0 at the top."};
+        goals.push_back(g.value());
+    }
+    NavFlowField field(cg, goals, args.value("diagonals", false));
+    Json out = Json::object();
+    out["width"] = grid.width;
+    out["height"] = grid.height;
+    Json dist = Json::array();
+    for (int r = 0; r < grid.height; ++r)
+        for (int c = 0; c < grid.width; ++c) {
+            const float d = field.distance(c, r);
+            dist.push_back(std::isfinite(d) ? Json(d) : Json());
+        }
+    out["distance"] = std::move(dist);
+    if (args.contains("from")) {
+        auto from = cell_value(args["from"], who, "from");
+        if (!from.ok()) return from.error();
+        const auto [fc, fr] = from.value();
+        const float d = field.distance(fc, fr);
+        out["reachable"] = std::isfinite(d);
+        out["cost"] = std::isfinite(d) ? Json(d) : Json();
+        int nc = 0, nr = 0;
+        out["next"] = field.step_toward(fc, fr, nc, nr) ? Json::array({nc, nr}) : Json();
+        Json path = Json::array();
+        for (const auto& c : field.path_from(fc, fr)) path.push_back(Json::array({c.first, c.second}));
+        out["path"] = std::move(path);
     }
     return out;
 }

@@ -52,7 +52,7 @@ test("stress scene: the crowd is drawn with a handful of draw calls", () => {
   expect(stats.drawCalls).toBeLessThan(60);
 });
 
-test("walker routes: the engine's nav.findTilePath finds the same ways as the distance fields (the fields are the shortest)", () => {
+test("walker routes: nav.findTilePath on the kept grid finds the same ways as the flow fields (the fields are the shortest)", () => {
   const { state } = crowd(160);
   const net = state.sim.net;
   const houses = state.list("house").slice(0, 12);
