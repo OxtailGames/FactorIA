@@ -30,7 +30,8 @@
             "space": "screen",
             "anchor": [0, 0],
             "pivot": [0, 1],
-            "layer": 301
+            "layer": 301,
+            "maxTextScale": 1.25
           }
         }
       },
@@ -48,7 +49,10 @@
             "anchor": [0, 0],
             "pivot": [0, 1],
             "layer": 302,
-            "autoFocus": true
+            "autoFocus": true,
+            "maxTextScale": 1.25,
+            "autoShrink": true,
+            "minFontSize": 8
           }
         }
       }

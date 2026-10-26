@@ -54,7 +54,7 @@ test("title screen to a small town, mouse only", () => {
   const state = ctl.state;
   expect(state.economy.coins).toBe(1000);
   expect(ctl.tool.kind).toBe("none");
-  expect(game.find("coins_text").get("Text").text).toBe("1000");
+  expect(game.find("coins_text").get("Text").text).toBe("1,000");
   expect(game.find("hud_date").get("Text").text).toBe("Spring 1, year 1");
 
   // 1. a road along row 18, laid by dragging

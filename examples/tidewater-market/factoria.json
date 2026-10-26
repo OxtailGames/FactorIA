@@ -179,6 +179,7 @@
   "feedbackFile": "ENGINE_FEEDBACK.json",
   "localization": {
     "defaultLanguage": "en",
-    "languages": ["en"]
+    "languages": ["en", "es", "fr", "zh-Hans"],
+    "fallbackFonts": ["assets/fonts/NotoSansSC-Regular-subset.ttf"]
   }
 }

@@ -12,7 +12,8 @@ export default class Credits extends Behaviour {
   onStart() {
     this.list = this.world.find("credits_list");
     const text = (s, fontSize = 22, color = [1, 1, 1, 1], key = "") =>
-      this.world.spawn({ components: { Text: { text: s, key, fontSize, color, space: "screen", maxWidth: 680, layer: 302 } } }, { parent: this.list });
+      // autoShrink: a long address (one word) is smaller at a large text size instead of leaving the list
+      this.world.spawn({ components: { Text: { text: s, key, fontSize, color, space: "screen", maxWidth: 680, autoShrink: true, minFontSize: 10, layer: 302 } } }, { parent: this.list });
     // A Text with a key is translated by the engine, also when the player changes the language while the credits are open.
     const keyed = (key, fontSize, color) => text(key, fontSize, color, key);
     text(game.project.name, 34);

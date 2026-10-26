@@ -26,7 +26,7 @@ factoria call --project . project.validate_data               # check data/*.jso
 | P5 | The pier and its ships, orders, the order board, event cards, a story per scenario, achievements and stats on the store | done |
 | P6 | Saving, loading, the shop menu | planned |
 | P7 | Finished art and sound under the same frame names | planned |
-| P8 | Translations (es, fr, zh-Hans), accessibility, polish | planned |
+| P8 (languages) | Spanish, French and Simplified Chinese (with a font subset), one formatting module, a language choice that applies at once, every screen checked at 100% and 200% text in every language | done |
 | P4 (progress) | Three save slots with autosave, save format v2 with the v1 migration, cloud copies, four scenarios with goals and a win screen, the slot screen and the pause menu's Save | done |
 | P6 (sound, options) | Ambience beds that follow the camera, building work and walker sounds with a voice cap, UI sounds, five volume buses, the options screen (sizes, window, key rebinding, colour-blind safe signals, reduced motion, hold-free controls) and the gamepad cursor | done |
 | P7 (shipping) | Icon, key art, capsules, store texts, six screenshots and a trailer rebuilt by scripts from the game's own renders; the web and macOS exports; perf budgets; the dense-overlay fix | done; Windows, Linux and a full web play-through not checked, see SHIPPING.md |
@@ -392,7 +392,7 @@ at most the voice cap at once (the stress town stays under it: `sound.test.js`).
 **Options.** `scripts/ui/options.js` (prefab `prefabs/ui/options.prefab.json`) opens from the title and the pause menu; tabs Audio,
 Video, Controls, Access and Language. It edits one object saved in `storage` under `"settings"` (`scripts/settings.js`: `volume` per
 bus, `windowMode`, `vsync`, `frameCap`, `colorFilter`, `bindings` (action to binding names, only the ones the player changed), `textScale`
-and `uiScale` (1, 1.25, 1.5), `reducedMotion`, `safeColors`, `holdFree`, `language`, `subtitles`). `applyOnce()` applies it when the first
+(1, 1.25, 1.5, 2) and `uiScale` (1, 1.25, 1.5), `reducedMotion`, `safeColors`, `holdFree`, `language`, `subtitles`). `applyOnce()` applies it when the first
 scene starts. Key rebinding refuses a key another action already has, says which, and keeps the old binding. Safe colours add patterns to
 the overlays and a mark before each notice; reduced motion turns off camera easing, notice fades and the moving title picture; hold-free
 turns roads and demolishing into two clicks, workers into click-to-carry and the pan into a toggle. Interface size is a registry in
@@ -409,6 +409,51 @@ Fix in P6: a notice that repeats (`x3`) shows the number as it is now, not the n
 
 Tests: `sound.test.js`, `options.test.js`, `gamepad_game.test.js`, and the two layout tests in `ui_layout.test.js`. Engine gaps found:
 FB-0040 to FB-0046 in `ENGINE_FEEDBACK.json`; FB-0015 was withdrawn (the documented behaviour).
+
+## Languages (P8)
+
+**Languages.** English (the reference), Spanish, French and Simplified Chinese: `locales/en.json`, `es.json`, `fr.json`, `zh-Hans.json`, listed in
+`factoria.json` `localization`. Every string is translated, the data-driven names too (goods, buildings, ships, events, story cards,
+scenarios, achievements and the store texts). The Language tab names each language in its own script (`i18n.name`). The first run starts in the player's system language when it is one of the four (the engine does that; a headless run
+starts in English), and the Language tab of the options screen cycles through them: it applies at once, is saved in the `settings`
+and the next run starts with it. A save holds ids and numbers, never words, so a game saved in Spanish loads in Chinese
+(`tests/languages.test.js`).
+
+**Formatting.** Every number, amount, list and date the player sees is written by `scripts/game/format.js`; no screen formats by hand.
+The digits, the thousands separator and the decimal mark come from the engine (`i18n.number`: `12,345.5`, `12.345,5`, `12 345,5`). What a
+language writes in its own way is a string in its table, so a new language needs no code: `number.units` (`"1000=k;1000000=M"`,
+`"10000=万;100000000=亿"`), `format.list` (the separator of a list), `amount.coins` and `amount.villagers` (plural entries), `amount.good`
+(`{n} {name}`, `{n} × {name}`, `{name}×{n}`), `hud.date` with `season.date.<season>`. Plurals use the language's rules: French counts 0 and
+1 as singular, Chinese has one form. Spanish and French have grammatical gender and the engine has none (FB-0061), so the data-driven
+names are nouns or phrased so that no agreement is needed.
+
+**Chinese font.** DejaVu Sans, the engine's font, has no Chinese. `assets/fonts/NotoSansSC-Regular-subset.ttf` (Noto Sans SC, SIL Open
+Font License 1.1, `assets/fonts/OFL.txt`, recorded in `assets.json`) is a subset of 1190 characters, 340 KB, listed in `localization.fallbackFonts`
+so it covers every Text of every language. `factoria validate` checks every string of every language against the fonts of the chain and fails
+with the missing character (`U+9F98`) and the key. Rebuild after adding or changing Chinese strings:
+`python3 assets/fonts/make_subset.py --source <NotoSansSC[wght].ttf>` (fontTools needed only for this; the source font is 17 MB and not in the repository;
+`--check` lists the missing characters without writing). It keeps every character of `locales/*.json`, ASCII, Latin-1 and the punctuation line breaking needs.
+
+**Add a language.** Copy `locales/en.json` to `locales/<tag>.json` and translate it (keep the `{placeholders}` and the `[b]`, `[c:..]`,
+`[icon:..]` markup of the rich strings; `tests/languages.test.js` compares both with English, key by key), add the tag to `localization.languages`
+in `factoria.json`, give it `number.units`, `format.list`, the `season.date.*` strings and the plural forms of `amount.*`, and, when it needs
+glyphs the fonts lack, a font in `localization.languageFonts`. Then `factoria validate` and `factoria test`. The key names of the help panel
+(`ui.help.keys.*`) are strings too: the labels of the keys that have words (Del, Esc / Q / right-click, Space) are translated, the letters are not.
+
+**Text size and the layouts.** The text size option has four steps (100, 125, 150, 200%). Texts and buttons carry `maxTextScale` (`TEXT_CAP` 1.5
+in `ui_kit.js` for labels and buttons, 1.25 for headings and for the rich text of the order board and the cards, `RICH_CAP`) and `autoShrink`, so
+200% makes the text bigger where there is room and no bigger where the box is fixed; panels that grow (the goal panel, the goods table) are
+placed from the measured size, the goal panel under the bottom of the right menu column. The order board and the cards are laid out by script, so they redraw when the
+language or the text size changes. `tests/languages_layout.test.js` opens each screen the way a player does (title, credits, slots and the
+scenario list, every options tab, the HUD with the inspector open, goods table, charts, help, notices, order board, every event and story card as
+asked and as answered, goal panel, win screen, pause menu), switches to each language at 100% and 200% while the screen is open, and fails
+on a text that does not fit its box, a text that leaves the screen or two texts that overlap (`tests/layout_helper.js`; `ui.check_layout` finds
+only one issue left, in the engine's pseudo-language at 200% on the stress scene).
+
+Known limits: an achievement toast shows the language it was made in until it disappears; the pseudo-localisation of `ui.check_layout` makes the date
+overlap the villager count on the stress scene at 200%. Tests: `languages.test.js`, `languages_layout.test.js`. Engine gaps found: FB-0060 to FB-0065
+in `ENGINE_FEEDBACK.json`; FB-0005 (the menu kit's loading screen writes English over the localised Text) is worked around here and the loading text is a string
+of every language.
 
 ## Plug-in points
 
