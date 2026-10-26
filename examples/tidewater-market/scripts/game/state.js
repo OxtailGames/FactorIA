@@ -210,6 +210,32 @@ export class GameState {
   }
 
   /**
+   * Turn a building a quarter turn on the spot (the inspector's Rotate, key R with a building selected). Free, one undo step.
+   * It is built again as a NEW building (a new id): what was inside is lost, the villagers who worked there lose their
+   * place for a moment, and a house is refused (its villagers would be sent away; a house has no door to turn).
+   * @returns {{ ok: true, building: Building } | { ok: false, reasons: any[] }}
+   */
+  rotateBuilding(id) {
+    const old = this.buildings.get(id);
+    if (!old) return this.reject({ action: "rotate", id }, [{ code: "nothing_here" }]);
+    const def = this.data.buildings[old.type];
+    if (def.kind === "road" || def.housing) return this.reject({ action: "rotate", id }, [{ code: "cannot_rotate", detail: { type: old.type } }]);
+    const rot = (old.rot + 1) % 4;
+    const [x, y] = originFor(def, old.x + Math.floor((old.w - 1) / 2), old.y + Math.floor((old.h - 1) / 2), rot);
+    // check the new footprint with the old building out of the way (the cells are only cleared for the check)
+    const own = footprintCells(def, old.x, old.y, old.rot);
+    for (const [c, r] of own) this.map.setOccupant(c, r, 0);
+    const verdict = checkPlacement(this, old.type, x, y, rot);
+    for (const [c, r] of own) this.map.setOccupant(c, r, old.id);
+    const reasons = verdict.reasons.filter((r) => r.code !== "cannot_afford"); // turning is free
+    if (reasons.length) return this.reject({ action: "rotate", id, type: old.type, x, y, rot }, reasons);
+    this.removeBuilding(old, "rotate");
+    const building = this.addBuilding(old.type, x, y, rot, "rotate");
+    this.commit({ label: "rotate", type: old.type, ops: [{ op: "remove", building: old }, { op: "add", building }], delta: {} });
+    return { ok: true, building };
+  }
+
+  /**
    * Demolish the building (or road) standing on cell (c, r) and hand back part of its cost. One undo step.
    * @returns {{ ok: true, building: Building, refund: Record<string, number> } | { ok: false, reasons: any[] }}
    */
@@ -258,9 +284,11 @@ export class GameState {
       this.events.emit("action.rejected", { action: "undo", code: "cannot_afford", reasons: [{ code: "cannot_afford", detail: { missing: this.economy.canApply(delta).missing } }] });
       return { ok: false, code: "cannot_afford" };
     }
+    // a step that swaps a building for another (rotate) may find its own new building where the old one comes back
+    const added = new Set(tx.ops.filter((o) => o.op === "add").map((o) => o.building.id));
     for (const op of tx.ops) {
       if (op.op === "add" && this.map.occupantAt(op.building.x, op.building.y) !== op.building.id) return { ok: false, code: "changed" };
-      if (op.op === "remove" && footprintCells(this.data.buildings[op.building.type], op.building.x, op.building.y, op.building.rot).some(([c, r]) => this.map.occupantAt(c, r))) return { ok: false, code: "changed" };
+      if (op.op === "remove" && footprintCells(this.data.buildings[op.building.type], op.building.x, op.building.y, op.building.rot).some(([c, r]) => this.map.occupantAt(c, r) && !added.has(this.map.occupantAt(c, r)))) return { ok: false, code: "changed" };
     }
     this.undoStack.pop();
     for (const op of [...tx.ops].reverse()) {
@@ -282,8 +310,9 @@ export class GameState {
       this.events.emit("action.rejected", { action: "redo", code: "cannot_afford", reasons: [{ code: "cannot_afford", detail: { missing: this.economy.canApply(tx.delta).missing } }] });
       return { ok: false, code: "cannot_afford" };
     }
+    const gone = new Set(tx.ops.filter((o) => o.op === "remove").map((o) => o.building.id));
     for (const op of tx.ops) {
-      if (op.op === "add" && footprintCells(this.data.buildings[op.building.type], op.building.x, op.building.y, op.building.rot).some(([c, r]) => this.map.occupantAt(c, r))) return { ok: false, code: "changed" };
+      if (op.op === "add" && footprintCells(this.data.buildings[op.building.type], op.building.x, op.building.y, op.building.rot).some(([c, r]) => this.map.occupantAt(c, r) && !gone.has(this.map.occupantAt(c, r)))) return { ok: false, code: "changed" };
       if (op.op === "remove" && this.map.occupantAt(op.building.x, op.building.y) !== op.building.id) return { ok: false, code: "changed" };
     }
     this.redoStack.pop();

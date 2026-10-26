@@ -253,6 +253,7 @@ export class Simulation {
       feed(v.id);
       feed(v.home);
       feed(v.job);
+      if (v.pin) feed(0x5a);
       feed(v.at);
       feed(v.state === "walking" ? 1 : 0);
       feed(Math.round(v.food * 100));

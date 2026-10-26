@@ -62,11 +62,11 @@ export function roadCol(game, c, r0, r1) {
  *   r8   w D D M . . W W s s    w         D fisher dock (1,8)
  *
  * `parts` picks what is built: roads and houses always; "farm", "dock", "smokehouse", "bakery", "market", "warehouse".
- * @param {{ parts?: string[], seed?: number }} [options]
+ * @param {{ parts?: string[], game?: any }} [options] game = build into this state (the one of a running scene) instead of a new one
  */
 export function smallTown(options = {}) {
   const parts = options.parts || ["farm", "dock", "smokehouse", "bakery", "market", "warehouse"];
-  const game = createGame({ testMap: true });
+  const game = options.game || createGame({ testMap: true });
   rich(game);
   roadRow(game, 5, 1, 8);
   roadCol(game, 2, 6, 7);
