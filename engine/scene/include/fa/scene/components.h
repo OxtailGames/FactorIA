@@ -191,9 +191,12 @@ struct Tilemap {
     bool occludesLight = false;       // the tiles in solidTiles block the light of Light2D with castShadows
     // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
     std::vector<TileEdit> edits;
-    // Runtime only: goes up by one on every set_tilemap_tile() (never reset by physics), so `nav.tileVersion` tells a script
-    // cheaply that the map changed. Writes that bypass set_tilemap_tile (replacing `tiles` as a whole) do not count.
+    // Runtime only: goes up whenever `tiles` (or width / height) changes, so `nav.tileVersion` tells a script that the map
+    // changed. set_tilemap_tile() bumps it directly; a write that replaces `tiles` as a whole (script, scene.set_component,
+    // editor, load) is noticed by tilemap_version(), which compares a hash of the tiles with `versionHash`.
     std::uint32_t version = 0;
+    std::uint64_t versionHash = 0;    // runtime: hash of width, height and tiles when tilemap_version() last looked
+    bool versionHashValid = false;    // false until tilemap_version() looked once, and after a set_tilemap_tile()
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so

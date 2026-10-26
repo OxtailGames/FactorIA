@@ -11,6 +11,14 @@ Versions for the script API
   scripting API part of docs/COMPONENTS.md carry it as `@since` for what came after 0.1.0, so `nav.findTilePath`,
   `bt`, `http.fetch` or `game.today` tell when they appeared.
 
+Two more behaviour tree nodes, and a tile counter that sees every change
+
+- `bt.parallel(...children)` (or `bt.parallel({ succeed: "any" }, ...children)`) ticks all children each tick and fails at
+  the first failure; `bt.repeat(child, times?)` runs the child again after each success (once per tick), forever or `times`
+  times. SCRIPTING.md, "AI: behaviour trees".
+- `nav.tileVersion(tilemap)` now also counts writes that replace `tiles` as a whole (`tilemap.tiles = [...]`,
+  `scene.set_component`, editor edits), not only `setTile`.
+
 A smaller player
 
 - The linker drops the engine code no game reaches: `-dead_strip` on macOS and iOS (the macOS player goes from 10.2 to

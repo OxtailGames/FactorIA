@@ -1437,7 +1437,7 @@
       },
       {
        "sig": "tileVersion(tilemap: Entity | string): number",
-       "doc": "How many tiles were written to the Tilemap with setTile or tilemap.set_tile so far (a counter, cheap). Compare it with the value from when you searched to know a cached path is stale. Writes that replace `tiles` as a whole are not counted; starts at 0 on every scene load."
+       "doc": "A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles."
       },
       {
        "sig": "bake(mesh?: string): { mesh: string; cellsX: number; cellsZ: number; cells: number; spans: number; walkableCells: number; regions: number; obstacles: number }[]",
@@ -3490,11 +3490,11 @@
     {
      "kind": "interface",
      "name": "BtNode",
-     "doc": "A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter and bt.succeeder.",
+     "doc": "A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter and bt.succeeder.",
      "members": [
       {
        "sig": "readonly type: string",
-       "doc": "sequence, selector, condition, action, wait, cooldown, inverter or succeeder."
+       "doc": "sequence, selector, parallel, condition, action, wait, cooldown, repeat, inverter or succeeder."
       }
      ]
     },
@@ -3574,6 +3574,14 @@
        "doc": "Ticks the children in order from the FIRST one every tick, so a more important child can interrupt a running one; returns the first result that is not FAILURE."
       },
       {
+       "sig": "parallel(options: { succeed?: \"all\" | \"any\" }, ...children: BtNode[]): BtNode",
+       "doc": "Ticks the children in order every tick (the options object is optional: bt.parallel(a, b) is succeed \"all\"). FAILURE as soon as one child fails; with succeed \"all\" (default) SUCCESS once every child has succeeded (a child that succeeded is not ticked again meanwhile), with \"any\" SUCCESS at the first success; otherwise RUNNING. When it finishes, children still running are stopped (an action gets onExit(bb, \"aborted\")). No children: SUCCESS for \"all\", FAILURE for \"any\"."
+      },
+      {
+       "sig": "parallel(...children: BtNode[]): BtNode",
+       "doc": "Same as parallel({ succeed: \"all\" }, ...children): all children at once, FAILURE at the first failure, SUCCESS when all succeeded."
+      },
+      {
        "sig": "condition(fn: (blackboard: any) => unknown): BtNode",
        "doc": "Truthy = SUCCESS, falsy = FAILURE. Never RUNNING."
       },
@@ -3588,6 +3596,10 @@
       {
        "sig": "cooldown(seconds: number, child: BtNode): BtNode",
        "doc": "Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once."
+      },
+      {
+       "sig": "repeat(child: BtNode, times?: number): BtNode",
+       "doc": "Runs the child again each time it succeeds. Returns RUNNING while it repeats, FAILURE as soon as the child fails, and with `times` (a whole number >= 1) SUCCESS after that many successes; without `times` it repeats forever. One run of the child per tick: the next run starts on the NEXT tick, so a child that succeeds at once cannot loop forever inside one tick."
       },
       {
        "sig": "inverter(child: BtNode): BtNode",

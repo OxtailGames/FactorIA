@@ -185,9 +185,10 @@ export default class Rat extends Behaviour {
 - No route is a result, not an exception: `found: false` with `reason` (`start_off_map`, `goal_off_map`, `goal_blocked`,
   `blocked`, `too_far`), `message` and `hint`. A map that is not a Tilemap or a grid, or a malformed cell, throws.
 - Deterministic: the open list breaks ties by (f, h, cell index), so the same map and query give the same path on every run.
-- `nav.tileVersion(tilemap)` is how many tiles `setTile` (or `tilemap.set_tile`) wrote on that Tilemap so far, a cheap counter
-  to tell that a path you kept is stale. Replacing `tiles` as a whole does not count, and the count starts at 0 on every scene
-  load. For your own grid, keep your own counter.
+- `nav.tileVersion(tilemap)` is a counter that goes up whenever the tiles of that Tilemap change, to tell that a path you
+  kept is stale: `setTile` / `tilemap.set_tile`, and any write that replaces `tiles` (a script assigning `tilemap.tiles`,
+  `scene.set_component`, an editor edit). A call hashes the tiles once, so ask when you need a decision,
+  not for every cell; the count starts at 0 on every scene load. For your own grid, keep your own counter.
 
 Command (agents, tools): `nav.find_tile_path {"tilemap":"ground","from":[0,1],"to":[3,1],"diagonals":true,"costs":{"7":5,"9":null}}`
 or `{"grid":{"width":3,"height":2,"cost":[1,1,null,1,1,1]},"from":[0,0],"to":[2,1]}`; the result is the same object with
