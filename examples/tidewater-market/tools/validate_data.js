@@ -23,6 +23,7 @@ export default {
         goods: Object.keys(rawTables.goods.goods).length,
         buildings: Object.keys(rawTables.buildings.buildings).length,
         recipes: Object.keys(rawTables.recipes.recipes).length,
+        seasons: Object.keys(rawTables.seasons.seasons).length,
         atlasFrames: Object.keys(rawTables.atlas.frames).length,
       },
     };

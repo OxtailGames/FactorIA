@@ -6,7 +6,7 @@ with one atlas and thousands when two textures alternate (see ENGINE_FEEDBACK.js
 
 Inputs
   assets/src/kenney/*.png   Kenney "Isometric Roads" (CC0): terrain tiles, road pieces and trees, imported with assets.import.
-  this file                 the placeholder art drawn by hand: the buildings (4 rotations each), the rock tile, the goods icons.
+  this file                 the placeholder art drawn by hand: the buildings (4 rotations each), the rock tile, the goods icons, the walkers (2 kinds x 4 directions).
 Outputs
   assets/atlas.png          the atlas.
   data/atlas.json           name -> { rect: [x, y, w, h] in atlas pixels (top-left origin), pivot: [px, py] for Sprite.pivot (+Y up) }.
@@ -244,17 +244,51 @@ def draw_market(cv, rot):
     cv.poly([(0.15, h - 0.15, 34), (w - 0.15, h - 0.15, 34), (w - 0.15, h - 0.15, 24), (0.15, h - 0.15, 24)], (160, 44, 38, 255), 44)
 
 
+def draw_mill(cv, rot):
+    """A stone tower with a cone roof and four sails on the +c face."""
+    w, h = cv.w, cv.h
+    cu, cvv = w / 2, h / 2
+    cv.box(cu - 0.55, cvv - 0.55, cu + 0.55, cvv + 0.55, 0, 52, (222, 208, 184, 255))
+    cv.hip(cu - 0.66, cvv - 0.66, cu + 0.66, cvv + 0.66, 52, 24, (150, 84, 60, 255))
+    # sails: two crossed bars with cloth, on the plane just outside the +c face of the tower
+    ux = cu + 0.56
+    reach = 0.78
+    zr = 40
+    for k, (dv, dz) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
+        cv.poly([(ux + 0.01, cvv, 44), (ux + 0.01, cvv + dv * reach, 44 + dz * zr), (ux + 0.01, cvv + dv * reach + 0.18 * dz, 44 + dz * zr - 0.18 * dv * 40),
+                 (ux + 0.01, cvv + 0.18 * dz, 44 - 0.18 * dv * 40)], (240, 232, 214, 255), 90 + k * 0.01, (120, 100, 80, 255))
+    cv.poly([(ux + 0.02, cvv - 0.07, 44 - 3), (ux + 0.02, cvv + 0.07, 44 - 3), (ux + 0.02, cvv + 0.07, 44 + 3), (ux + 0.02, cvv - 0.07, 44 + 3)], (96, 70, 50, 255), 95)
+    cv.box(cu - 0.3, cvv + 0.55, cu + 0.3, cvv + 0.8, 0, 14, (200, 170, 120, 255))
+    facing_door(cv, rot, w, h, z1=18, width=0.16)
+
+
+def draw_smokehouse(cv, rot):
+    """A dark timber shed with a tall chimney and a few puffs of smoke."""
+    w, h = cv.w, cv.h
+    cv.box(0.14, 0.14, w - 0.14, h - 0.14, 0, 34, (126, 92, 66, 255))
+    cv.hip(0.06, 0.06, w - 0.06, h - 0.06, 34, 16, (84, 70, 62, 255))
+    cv.box(w - 0.62, 0.22, w - 0.4, 0.44, 34, 62, (110, 100, 96, 255))
+    for k, (du, dz, r) in enumerate([(0.0, 68, 0.1), (0.05, 76, 0.13), (0.12, 85, 0.16)]):
+        u, v = w - 0.5 + du, 0.33 + du * 0.5
+        cv.poly([(u - r, v - r, dz), (u + r, v - r, dz), (u + r, v + r, dz), (u - r, v + r, dz)], (190, 190, 196, 200 - k * 40), 120 + k)
+    # fish racks on the side
+    for k in range(3):
+        cv.box(0.3 + k * 0.5, h - 0.12, 0.42 + k * 0.5, h + 0.05, 0, 3, (226, 160, 90, 255), outline=False)
+    facing_door(cv, rot, w, h, col=(52, 36, 28, 255), z1=20, width=0.2)
+
+
 BUILDERS = {
     "house": draw_house, "farm": draw_farm, "fisher_dock": draw_dock, "lumber_camp": draw_lumber, "quarry": draw_quarry,
-    "sawmill": draw_sawmill, "bakery": draw_bakery, "workshop": draw_workshop, "warehouse": draw_warehouse,
-    "market": draw_market,
+    "sawmill": draw_sawmill, "mill": draw_mill, "bakery": draw_bakery, "smokehouse": draw_smokehouse,
+    "workshop": draw_workshop, "warehouse": draw_warehouse, "market": draw_market,
 }
 # base footprint (cells along c, cells along r) at rotation 0; odd rotations swap them. Kept in sync with data/buildings.json
 # by the data validator (it fails when a building has no frames here).
 SIZES = {"house": (1, 1), "farm": (2, 2), "fisher_dock": (2, 1), "lumber_camp": (2, 2), "quarry": (2, 2),
-         "sawmill": (2, 2), "bakery": (2, 2), "workshop": (2, 2), "warehouse": (3, 2), "market": (3, 2)}
+         "sawmill": (2, 2), "mill": (2, 2), "bakery": (2, 2), "smokehouse": (2, 2), "workshop": (2, 2), "warehouse": (3, 2),
+         "market": (3, 2)}
 HEIGHTS = {"house": 52, "farm": 44, "fisher_dock": 50, "lumber_camp": 40, "quarry": 54, "sawmill": 46, "bakery": 80,
-           "workshop": 84, "warehouse": 70, "market": 56}
+           "workshop": 84, "warehouse": 70, "market": 56, "mill": 100, "smokehouse": 96}
 
 
 def draw_building(bid, rot):
@@ -304,10 +338,62 @@ def icon(name):
         d.ellipse(q(3, 8, 25, 22), fill=(214, 150, 70, 255), outline=(150, 92, 34, 255), width=SS)
         for k in range(3):
             d.line(q(8 + k * 5, 11, 10 + k * 5, 17), fill=(246, 214, 150, 255), width=SS)
+    elif name == "flour":
+        d.polygon(q(6, 24, 4, 11, 9, 5, 19, 5, 24, 11, 22, 24), fill=(236, 226, 204, 255), outline=(150, 130, 96, 255))
+        d.rectangle(q(8, 4, 20, 8), fill=(200, 180, 140, 255), outline=(150, 130, 96, 255))
+        d.ellipse(q(10, 13, 18, 20), fill=(214, 198, 166, 255))
+    elif name == "smoked_fish":
+        d.ellipse(q(3, 8, 21, 20), fill=(170, 112, 60, 255), outline=(100, 62, 30, 255), width=SS)
+        d.polygon(q(19, 14, 26, 7, 26, 21), fill=(170, 112, 60, 255), outline=(100, 62, 30, 255))
+        d.ellipse(q(7, 11, 10, 14), fill=(250, 240, 220, 255))
+        d.line(q(6, 24, 10, 20), fill=(150, 150, 156, 255), width=SS)
+        d.line(q(14, 24, 17, 21), fill=(150, 150, 156, 255), width=SS)
+    elif name == "pop":
+        d.ellipse(q(9, 3, 19, 13), fill=(240, 200, 160, 255), outline=(150, 110, 70, 255), width=SS)
+        d.polygon(q(5, 26, 7, 15, 21, 15, 23, 26), fill=(86, 130, 190, 255), outline=(50, 80, 130, 255))
     elif name == "tools":
         d.line(q(6, 22, 20, 8), fill=(120, 84, 52, 255), width=3 * SS)
         d.rectangle(q(15, 3, 25, 11), fill=(140, 140, 150, 255), outline=(80, 80, 90, 255), width=SS)
     return im.resize((s, s), Image.LANCZOS)
+
+
+# ---- walkers ----------------------------------------------------------------------------------------------------
+# A walker is 18 x 30 px, feet at the bottom middle. dir 0 = +c (walks towards the lower right), 1 = +r (lower left),
+# 2 = -c (upper left, we see the back), 3 = -r (upper right, back). The two kinds differ in colour and the carrier's sack.
+
+
+def walker(kind, direction):
+    W, H = 18, 30
+    im = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+
+    def q(*xy):
+        return [v * SS for v in xy]
+
+    coat = (70, 110, 168, 255) if kind == "villager" else (176, 108, 56, 255)
+    pants = (74, 64, 56, 255)
+    skin = (240, 200, 160, 255)
+    hair = (84, 58, 40, 255)
+    lean = {0: 1.0, 1: -1.0, 2: -0.6, 3: 0.6}[direction]
+    back = direction in (2, 3)
+    # shadow
+    d.ellipse(q(3, 25, 15, 30), fill=(0, 0, 0, 60))
+    # legs
+    d.line(q(8 - lean, 19, 7 - lean * 1.5, 27), fill=pants, width=2 * SS)
+    d.line(q(10 + lean, 19, 11 + lean * 1.5, 27), fill=pants, width=2 * SS)
+    # sack on the back of a carrier
+    if kind == "carrier":
+        sx = 9 - lean * 4
+        d.ellipse(q(sx - 4, 8, sx + 4, 18), fill=(214, 190, 130, 255), outline=(140, 110, 60, 255), width=SS)
+    # torso
+    d.polygon(q(5.5 + lean * 0.5, 19, 6.5, 10, 11.5, 10, 12.5 + lean * 0.5, 19), fill=coat, outline=shade(coat, 0.6))
+    # head
+    d.ellipse(q(6, 2, 12, 9), fill=hair if back else skin, outline=shade(skin, 0.6), width=SS)
+    if not back:
+        ex = 9 + lean * 1.4
+        d.ellipse(q(ex - 0.5, 5, ex + 0.7, 6.2), fill=(40, 30, 24, 255))
+        d.pieslice(q(5.6, 1.4, 12.4, 8), 180, 360, fill=hair)
+    return im.resize((W, H), Image.LANCZOS)
 
 
 # ---- Kenney pieces ----------------------------------------------------------------------------------------------
@@ -344,7 +430,8 @@ ROAD_PIECE = {
     N | E | S: "crossroadNES", E | S | W: "crossroadESW", N | S | W: "crossroadNSW", N | E | W: "crossroadNEW",
     N | E | S | W: "crossroad",
 }
-GOODS = ["fish", "grain", "wood", "stone", "planks", "bread", "tools"]
+WALKER_KINDS = ["villager", "carrier"]
+GOODS = ["fish", "grain", "wood", "stone", "planks", "bread", "tools", "flour", "smoked_fish", "pop"]
 
 
 def main():
@@ -372,6 +459,9 @@ def main():
             add("building.%s.%d" % (bid, rot), im, (w / (w + h), 0.0))
     for g in GOODS + ["coin"]:
         add("icon." + g, icon(g), (0.5, 0.5))
+    for kind in WALKER_KINDS:
+        for direction in range(4):
+            add("walker.%s.%d" % (kind, direction), walker(kind, direction), (0.5, 0.0))
 
     # shelf packing, tallest first, in a 2048 wide atlas with a 2 px gutter of transparent pixels
     gutter = 2

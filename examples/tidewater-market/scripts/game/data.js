@@ -10,6 +10,7 @@ import goodsJson from "../../data/goods.json";
 import recipesJson from "../../data/recipes.json";
 import buildingsJson from "../../data/buildings.json";
 import economyJson from "../../data/economy.json";
+import seasonsJson from "../../data/seasons.json";
 import mapJson from "../../data/map.json";
 import testMapJson from "../../data/test_map.json";
 import atlasJson from "../../data/atlas.json";
@@ -22,6 +23,7 @@ export const rawTables = {
   recipes: recipesJson,
   buildings: buildingsJson,
   economy: economyJson,
+  seasons: seasonsJson,
   map: mapJson,
   testMap: testMapJson,
   atlas: atlasJson,
@@ -34,6 +36,7 @@ const FILES = {
   recipes: "data/recipes.json",
   buildings: "data/buildings.json",
   economy: "data/economy.json",
+  seasons: "data/seasons.json",
   map: "data/map.json",
   testMap: "data/test_map.json",
   atlas: "data/atlas.json",
@@ -155,8 +158,10 @@ export function validateTables(raw) {
     if (id === "coins") add("goods", p, "'coins' is the money and cannot also be a good", "choose another id");
     needFrame("goods", `${p}/icon`, g.icon);
     if (typeof g.basePrice !== "number" || !(g.basePrice > 0)) add("goods", `${p}/basePrice`, "basePrice must be a number above 0", "the coins one unit sells for at normal demand");
+    if (g.nutrition !== undefined && (typeof g.nutrition !== "number" || !(g.nutrition > 0))) add("goods", `${p}/nutrition`, "nutrition must be a number above 0", "how far one unit lowers a villager's hunger; leave it out for a good nobody eats");
     needLocale("goods", p, `good.${id}`);
   }
+  if (!goodIds.some((id) => goods[id].nutrition > 0)) add("goods", "/goods", "no good has a nutrition", "villagers need at least one food (fish, bread...) with \"nutrition\": 1");
 
   // costs, shared by buildings
   const checkAmounts = (table, pointer, amounts, allowCoins) => {
@@ -185,7 +190,8 @@ export function validateTables(raw) {
     else b.terrain.forEach((t, i) => terrain[t] || unknown("buildings", `${p}/terrain/${i}`, "terrain", t, terrainIds, "data/terrain.json"));
     if (b.requireRoad !== undefined && b.requireRoad !== "frontage") add("buildings", `${p}/requireRoad`, `requireRoad can only be "frontage" (got ${JSON.stringify(b.requireRoad)})`, "a road cell on the side the building faces");
     if (b.nearWater !== undefined && typeof b.nearWater !== "boolean") add("buildings", `${p}/nearWater`, "nearWater must be true or false");
-    for (const f of ["housing", "workers", "storage"]) if (b[f] !== undefined && (!isInt(b[f]) || b[f] < 0)) add("buildings", `${p}/${f}`, `${f} must be a whole number, 0 or more`);
+    for (const f of ["housing", "workers", "storage", "upkeep", "jobPriority"]) if (b[f] !== undefined && (!isInt(b[f]) || b[f] < 0)) add("buildings", `${p}/${f}`, `${f} must be a whole number, 0 or more`);
+    if (b.workers > 0 && b.recipes !== undefined && !b.recipes.length) add("buildings", `${p}/recipes`, "a building with workers and an empty recipe list has nothing to do", "list a recipe or remove the key");
     if (b.recipes !== undefined) {
       if (!Array.isArray(b.recipes)) add("buildings", `${p}/recipes`, "recipes must be a list of recipe ids");
       else {
@@ -228,6 +234,47 @@ export function validateTables(raw) {
     if (!isInt(cal.daysPerSeason) || cal.daysPerSeason < 1) add("economy", "/calendar/daysPerSeason", "daysPerSeason must be a whole number, 1 or more");
     if (typeof cal.secondsPerDay !== "number" || !(cal.secondsPerDay > 0)) add("economy", "/calendar/secondsPerDay", "secondsPerDay must be a number above 0");
     if (!isInt(cal.startYear)) add("economy", "/calendar/startYear", "startYear must be a whole number");
+    if (typeof cal.tickSeconds !== "number" || !(cal.tickSeconds > 0) || (typeof cal.secondsPerDay === "number" && cal.tickSeconds > cal.secondsPerDay)) {
+      add("economy", "/calendar/tickSeconds", "tickSeconds must be a number above 0 and not above secondsPerDay", "the fixed step of the simulation, for example 0.2");
+    }
+  }
+
+  // the knobs of the simulation
+  const sim = e.sim;
+  if (!isObject(sim)) add("economy", "/sim", "the sim block is missing", "see scripts/game/sim.js for the keys it reads");
+  else {
+    const positive = ["productionRate", "foodPerDay", "unpaidEfficiency", "dispatchSeconds", "patienceSeconds", "growthSeconds", "firstArrivalSeconds", "foodBuffer", "shopBelow", "growthFoodDays"];
+    for (const k of positive) if (typeof sim[k] !== "number" || !(sim[k] > 0)) add("economy", `/sim/${k}`, `${k} must be a number above 0 (got ${JSON.stringify(sim[k])})`);
+    for (const k of ["wagePerDay", "hungerLimitDays", "unemployedLimit", "baseStorage", "carrierCapacity", "outboxCycles", "inboxCycles", "marketTarget", "founders"]) {
+      if (!isInt(sim[k]) || sim[k] < 0) add("economy", `/sim/${k}`, `${k} must be a whole number, 0 or more (got ${JSON.stringify(sim[k])})`);
+    }
+    for (const k of ["workStartDay", "workEndDay", "marketCloseDay", "departSpreadDay"]) if (typeof sim[k] !== "number" || sim[k] < 0 || sim[k] > 1) add("economy", `/sim/${k}`, `${k} must be a fraction of a day from 0 to 1 (got ${JSON.stringify(sim[k])})`);
+    if (!(sim.workStartDay < sim.workEndDay && sim.workEndDay < sim.marketCloseDay)) add("economy", "/sim", "the day must run workStartDay < workEndDay < marketCloseDay", "for example 0.05, 0.62, 0.92");
+    if (typeof sim.foodBuffer === "number" && typeof sim.shopBelow === "number" && sim.shopBelow > sim.foodBuffer) add("economy", "/sim/shopBelow", "shopBelow must not be above foodBuffer", "a villager shops when its food drops below shopBelow and buys up to foodBuffer");
+    if (!isObject(sim.walkSpeed) || !["villager", "carrier"].every((k) => typeof sim.walkSpeed[k] === "number" && sim.walkSpeed[k] > 0)) add("economy", "/sim/walkSpeed", "walkSpeed needs a number above 0 (cells per second) for villager and carrier");
+  }
+
+  // seasons
+  const seasons = isObject(raw.seasons.seasons) ? raw.seasons.seasons : {};
+  if (isObject(cal) && Array.isArray(cal.seasons)) {
+    for (const id of cal.seasons) if (!seasons[id]) add("seasons", "/seasons", `the season '${id}' of the calendar has no entry`, `add "${id}" to data/seasons.json`);
+  }
+  for (const [id, season] of Object.entries(seasons)) {
+    const p = `/seasons/${id}`;
+    if (isObject(cal) && Array.isArray(cal.seasons) && !cal.seasons.includes(id)) unknown("seasons", p, "season", id, cal.seasons, "data/economy.json calendar.seasons");
+    for (const [field, list, what] of [["production", recipeIds, "recipe"], ["demand", goodIds, "good"]]) {
+      if (!isObject(season[field])) {
+        add("seasons", `${p}/${field}`, `${field} must be an object of multipliers`);
+        continue;
+      }
+      for (const [k, v] of Object.entries(season[field])) {
+        if (!list.includes(k)) unknown("seasons", `${p}/${field}/${k}`, what, k, list, field === "production" ? "data/recipes.json" : "data/goods.json");
+        if (typeof v !== "number" || v < 0) add("seasons", `${p}/${field}/${k}`, `the multiplier must be a number, 0 or more (got ${JSON.stringify(v)})`);
+      }
+    }
+    if (!Array.isArray(season.tint) || season.tint.length !== 4 || !season.tint.every((n) => typeof n === "number")) add("seasons", `${p}/tint`, "tint must be [r, g, b, a], four numbers", "1 leaves the colour as it is");
+    if (typeof season.music !== "string" || !season.music) add("seasons", `${p}/music`, "music must be the path of an audio file", 'for example "assets/music/spring.wav"');
+    if (typeof season.musicVolume !== "number" || season.musicVolume < 0 || season.musicVolume > 1) add("seasons", `${p}/musicVolume`, "musicVolume must be a number from 0 to 1");
   }
 
   // map settings
@@ -290,6 +337,9 @@ export function loadData(raw = rawTables) {
     buildings,
     recipes,
     economy: raw.economy,
+    calendar: raw.economy.calendar,
+    sim: raw.economy.sim,
+    seasons: raw.seasons.seasons,
     map: raw.map,
     testMap: raw.testMap,
     atlas: raw.atlas,

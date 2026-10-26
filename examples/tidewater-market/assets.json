@@ -8,7 +8,54 @@
         "date": "2026-10-26",
         "license": "CC0-1.0",
         "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces; the rest drawn by assets/src/make_atlas.py",
-        "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the rock tile and the goods icons)"
+        "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the rock tile, the goods icons and the villager and carrier walkers)"
+      }
+    },
+    "assets/music/autumn.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      }
+    },
+    "assets/music/spring.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      }
+    },
+    "assets/music/summer.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      }
+    },
+    "assets/music/winter.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      },
+      "analysis": {
+        "loudnessLufs": -16.87,
+        "peakDb": -5.19,
+        "seconds": 15.0,
+        "bytes": 480044,
+        "sha256": "ff6baed1862c7224a972329bf388ac933122b77894b091c8da341a96b4947ddc"
       }
     },
     "assets/src/kenney/beach.png": {
