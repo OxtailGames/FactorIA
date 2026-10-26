@@ -19,8 +19,11 @@ export function cleanBeforeEach() {
 export function addPlayers(n) {
   players.clear();
   const devices = [{ kind: "any" }, { kind: "keys", scheme: "arrows" }, { kind: "pad", index: 0 }, { kind: "pad", index: 1 }];
-  for (let i = 0; i < n; i++) players.add({ device: devices[i] });
-  plugPads();
+  for (let i = 0; i < n; i++) {
+    // like the join screen, plug the pad in first: the player then keeps the pad's id
+    if (devices[i].kind === "pad") game.gamepad(devices[i].index).connect();
+    players.add({ device: devices[i] });
+  }
 }
 
 /** Plugs in the gamepad of every player on a pad (a test starts with every pad unplugged; scripts/game/pad_watch.js pauses a shift whose pad is not there). */

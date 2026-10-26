@@ -169,11 +169,12 @@
               {
                 "id": "monitor",
                 "components": {
-                  "Text": {
+                  "Button": {
+                    "autoSize": true,
                     "text": "Monitor",
-                    "fontSize": 22,
-                    "space": "screen",
-                    "layer": 302
+                    "size": [560, 40],
+                    "layer": 302,
+                    "fontSize": 22
                   }
                 }
               },

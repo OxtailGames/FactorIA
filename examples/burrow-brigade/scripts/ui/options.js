@@ -1,6 +1,6 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
-// size, the monitor's size, vsync, frame cap, the colour filter, an accessibility option that works without a window, and the split screen for players who part),
+// size, the monitor, vsync, frame cap, the colour filter, an accessibility option that works without a window, and the split screen for players who part),
 // Audio (one slider per bus, read aloud, subtitles), Controls (rebinding, one page per player), Access (sound captions, reduced
 // flashing, game speed, hold or toggle for the dig button of each player) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
@@ -86,10 +86,17 @@ export default class Options extends Behaviour {
     vsync.interactable = has;
     this.refreshVideo();
 
-    // Window mode: the engine has windowed and full screen (its full screen is the window covering the monitor: borderless).
+    // The monitor row only exists where the game can move between monitors and this computer has more than one.
+    world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
+    // Window mode cycles windowed, borderless and full screen (windowed and full screen where there is no borderless mode).
     ui.on("click", "display_mode", () => {
-      const next = settings.DISPLAY_MODES[(settings.DISPLAY_MODES.indexOf(window.fullscreen ? "fullscreen" : "windowed") + 1) % settings.DISPLAY_MODES.length];
-      this.video("window mode", () => { window.setFullscreen(next === "fullscreen"); s.displayMode = next; s.fullscreen = next === "fullscreen"; });
+      const modes = window.supports("borderless") ? settings.DISPLAY_MODES : settings.DISPLAY_MODES.filter((m) => m !== "borderless");
+      const next = modes[(modes.indexOf(window.mode) + 1) % modes.length];
+      this.video("window mode", () => { window.setMode(next); s.displayMode = next; s.fullscreen = next !== "windowed"; });
+    });
+    ui.on("click", "monitor", () => {
+      const next = (window.monitor + 1) % window.monitors().length;
+      this.video("monitor", () => { window.setMonitor(next); s.monitor = settings.monitorChoice(next); });
     });
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
@@ -132,15 +139,16 @@ export default class Options extends Behaviour {
   refreshVideo() {
     const size = window.size;
     const resolution = world.find("resolution").get("Button");
-    resolution.text = window.fullscreen
+    const windowed = window.mode === "windowed";
+    resolution.text = !windowed
       ? i18n.t("options.windowSizeFullscreen")
       : i18n.t("options.windowSize", { width: Math.round(size.x), height: Math.round(size.y) });
-    resolution.interactable = window.supports("resize") && !window.fullscreen; // full screen uses the display's size
+    resolution.interactable = window.supports("resize") && windowed; // full screen uses the display's size
     const mode = world.find("display_mode").get("Button");
-    mode.text = i18n.t("options.displayMode", { mode: i18n.t(`options.mode.${window.fullscreen ? "fullscreen" : "windowed"}`) });
+    mode.text = i18n.t("options.displayMode", { mode: i18n.t(`options.mode.${window.mode}`) });
     mode.interactable = window.supports("fullscreen");
-    const display = window.displaySize;
-    world.find("monitor").get("Text").text = i18n.t("options.monitor", { width: Math.round(display.x), height: Math.round(display.y) });
+    const monitors = window.monitors();
+    world.find("monitor").get("Button").text = i18n.t("options.monitor", { n: window.monitor + 1, name: monitors[window.monitor]?.name ?? "" });
     world.find("frame_cap").get("Button").interactable = window.supports("frameCap");
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })

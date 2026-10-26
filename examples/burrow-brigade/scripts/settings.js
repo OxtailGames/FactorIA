@@ -8,8 +8,12 @@ import * as controls from "./game/controls.js"; // controls.js reads and saves t
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
 
-/** Window modes of the Video tab. The engine has full screen and windowed only: its full screen is the window covering the monitor (borderless), and it has no exclusive mode or monitor choice to offer (FB-0027). */
-export const DISPLAY_MODES = ["windowed", "fullscreen"];
+/**
+ * Window modes of the Video tab (window.setMode): a window, a borderless window covering the monitor, and exclusive full screen.
+ * Where the platform has no borderless mode (`window.supports("borderless")` is false) the Options row cycles windowed and
+ * fullscreen only, and a saved "borderless" is applied as "fullscreen".
+ */
+export const DISPLAY_MODES = ["windowed", "borderless", "fullscreen"];
 
 /** Game speeds of the assist option (1 = normal). A slower game does not post to the boards (scripts/game/boards.js). */
 export const GAME_SPEEDS = [1, 0.8, 0.6];
@@ -28,8 +32,9 @@ function defaults() {
   const system = game.accessibility;
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-    fullscreen: null, // null: keep factoria.json display.fullscreen (kept in step with displayMode)
-    displayMode: null, // null, "windowed" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
+    fullscreen: null, // null: keep factoria.json display.fullscreen (what an older save stored; kept in step with displayMode)
+    displayMode: null, // null, "windowed", "borderless" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
+    monitor: null, // { index, name } of the monitor the player chose (see monitorChoice), or null: where the OS opens the window
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
@@ -110,6 +115,19 @@ export function displayModeOf(s = current()) {
   return null;
 }
 
+/** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
+export function monitorChoice(index) {
+  return { index, name: window.monitors()[index]?.name ?? "" };
+}
+
+/** The index in window.monitors() of the monitor the player chose: the one with the same name (the same place when several share it), or -1 when it is not connected now. */
+export function savedMonitorIndex(choice) {
+  const monitors = window.monitors();
+  const same = monitors.map((m, i) => ({ m, i })).filter((x) => x.m.name === choice.name);
+  if (same.length === 0) return -1;
+  return (same.find((x) => x.i === choice.index) ?? same[0]).i;
+}
+
 /** The game speed in force (a saved value that is not one of GAME_SPEEDS counts as 1). */
 export function gameSpeedOf(s = current()) {
   return GAME_SPEEDS.includes(s.gameSpeed) ? s.gameSpeed : 1;
@@ -163,9 +181,17 @@ export function apply(s = load()) {
       console.warn(`settings: ${what} was not applied: ${e.message}`);
     }
   };
-  const mode = displayModeOf(s);
-  if (mode !== null) tryApply("window mode", () => window.setFullscreen(mode !== "windowed"));
-  if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
+  // The monitor first: a full screen or borderless window covers the monitor it is on when it switches.
+  if (s.monitor && window.supports("monitors")) {
+    const index = savedMonitorIndex(s.monitor);
+    if (index >= 0 && index !== window.monitor) tryApply("monitor", () => window.setMonitor(index));
+  }
+  const saved = displayModeOf(s);
+  if (saved !== null) {
+    const mode = saved === "borderless" && !window.supports("borderless") ? "fullscreen" : saved;
+    tryApply("window mode", () => window.setMode(mode));
+  }
+  if (s.resolution && window.mode === "windowed") tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
   if (s.frameCap) tryApply("frame cap", () => (window.frameCap = s.frameCap));
 }

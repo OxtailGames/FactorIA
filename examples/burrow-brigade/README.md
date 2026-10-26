@@ -107,7 +107,8 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   merges back when they come together. `camera_views.js` plans the views (clusters, viewports, hysteresis), `follow_camera.js`
   draws them with one extra `Camera` entity per view ("Split Camera 2"...), each with its own `Camera.viewport`. The HUD is drawn
   once over the whole screen. The cameras are their own module: the controls and the miners' input do not know about them.
-- **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes. Any other free
+- **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes, also when it
+  comes back in another slot (each pad player keeps the pad's id and the miner follows it). Any other free
   pad (A) or the keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad)
   or Backspace (keyboard): that miner leaves the mine and the shift goes on.
 - **Hazards**: sealed pockets of **water** (every stratum) and **magma** (Magma Deep) spread over the floor once a
@@ -116,8 +117,8 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   goes down, a miner on the exit lift is safe. The floor tiles of a cave-in become rock.
 - **Light**: besides the lamp, a team has 6 **torches** per shift to put down (they stay lit and reveal the tiles around them).
   Crystal walls (Crystal Caves) and magma glow. Every torch, crystal and magma source has its own Light2D (the engine
-  draws up to 256 per frame and skips the ones off screen), so none is left dark. The mine is under **fog of war**: tiles a lamp or torch reaches in a straight line are
-  clear, tiles seen once stay half dark, the rest is black, and enemies are drawn only on clear tiles.
+  draws up to 256 per frame and skips the ones off screen), so none is left dark. The mine is under **fog of war**: tiles a
+  lamp or torch reaches in a straight line are clear, tiles seen once stay half dark, the rest is black, and enemies are drawn only on clear tiles.
 - **Enemies**: **beetles** patrol, chase what their eyes find, wind up for 0.45 s and bite (a heart and 10 oil); **goblin
   thieves** take 25 percent of the ore the team carries and run to escape after 3 s (kill one and the ore drops); both follow
   the tunnels the miners dig. Magma Deep floor 3 holds the **Mole King**: it wakes when a miner comes near, slams the ground
@@ -130,9 +131,11 @@ Options has five tabs; every row works with the mouse, the keyboard (arrows or T
 is applied at once and saved in `settings` (`scripts/settings.js`). The texts are `locales/<language>.json` keys (English, Russian, Thai: see Languages below) and
 the rows grow with the text size.
 
-- **Video**: window mode (windowed or full screen), window size, vsync, frame cap, colour filter. The engine has no borderless
-  mode apart from its full screen (which is the window covering the monitor) and no monitor choice, so the monitor row only shows
-  the monitor's size (ENGINE_FEEDBACK FB-0027). Without a real window (headless, a test) the window rows are greyed out and a note says why.
+- **Video**: window mode (windowed, borderless window or full screen: `window.setMode`; borderless only where the platform has it),
+  the monitor (a button that goes through `window.monitors()`, shown only where the platform can move the window and there is
+  more than one monitor), window size, vsync, frame cap, colour filter, split screen. A save from before the borderless mode
+  that says full screen still means full screen (ENGINE_FEEDBACK FB-0027). Without a real window (headless, a test) the window
+  rows are greyed out and a note says why.
 - **Audio**: a slider per bus (master, music, effects, interface), read menus aloud, subtitles.
 - **Controls**: rebinding per player.
 - **Access**: sound captions (off by default), reduced flashing (starts from the system's "reduce motion"), game speed (100, 80 or
@@ -174,10 +177,11 @@ Options > Language cycles the three with the mouse, the keyboard or a gamepad. S
 slots, boards, camp prices) rewrite it on `i18n.on("change")`.
 
 - Russian plurals have `one`, `few`, `many`, `other` (daily tries, slot coins, miners in the presence line, volume percent).
-- Thai: the engine wraps only at spaces, so the Thai table has a real space between phrases and never a space-free run over 16 base letters
+- Thai: the engine wraps at spaces and at U+200B (FB-0036), but Burrow has no word-marked Thai, so the Thai table has a real space
+  between phrases and never a space-free run over 16 base letters
   (`tools/thai_spaces.py --check`, a test). The font is `assets/fonts/NotoSansThai-Regular-subset.ttf` (SIL OFL 1.1, `assets/fonts/OFL.txt`; rebuilt by
-  `assets/fonts/make_subset.py`, which keeps U+0E4D because the engine draws sara am as two letters: FB-0037). Engine gaps: FB-0036 (no Thai
-  word breaking), FB-0037, FB-0038 (`ui.check_layout` and ScrollLists).
+  `assets/fonts/make_subset.py`, which keeps U+0E4D because the engine draws sara am as two letters: FB-0037). Engine gaps met and since closed:
+  FB-0036 (Thai word breaks), FB-0037, FB-0038 (`ui.check_layout` and ScrollLists).
 - Text size: every screen was checked at 100 % and 200 % (`ui.textScale`) in the three languages: panels that fit their content
   (`fit`), a column or grid fallback when a row gets too wide (`fallbackLayout`), `maxTextScale` on headings, `autoSize` on buttons, scrolling
   lists for the camp shop and the Options rows, and a modal consent card on the title at big sizes. `tests/layout.test.js` covers it;
@@ -606,6 +610,6 @@ update the privacy sentence in `network.purpose` and the store texts (`docs/LEGA
 | P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split screen is an option, off by default; the engine draws a camera per `Camera.viewport`) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
 | P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics use the engine's `remoteConfig` and `analytics`; the server address is a placeholder, see "Server addresses") |
-| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
-| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`, FB-0028 to FB-0035) |
-| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai cannot be wrapped by words: FB-0036; sara am glyph: FB-0037; check_layout and ScrollLists: FB-0038) |
+| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are still emulated: FB-0025, FB-0026; window modes and monitor choice use the engine's, FB-0027) |
+| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`; the engine gaps met on the way, FB-0029 and FB-0031 to FB-0035, are closed) |
+| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai has real spaces because there is no word-marked Thai, though the engine now breaks at U+200B: FB-0036; sara am glyph: FB-0037; check_layout and ScrollLists: FB-0038) |

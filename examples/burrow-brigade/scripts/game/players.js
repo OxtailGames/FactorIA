@@ -37,8 +37,10 @@ export const KEY_SCHEMES = Object.freeze(["wasd", "arrows", "ijkl", "keyboard"])
  * Which input drives a player:
  *  - `{ kind: "any" }`: the project's actions (move_left ... dig in factoria.json): the keyboard and every gamepad. One player only.
  *  - `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" | "keyboard" }`: that block of keys ("keyboard": the whole keyboard, what the join screen gives).
- *  - `{ kind: "pad", index: 0..3 }`: that gamepad (left stick or d-pad to move, A or X to dig, B or Y to place a torch).
- * @typedef {{kind: "any"} | {kind: "keys", scheme: "wasd" | "arrows" | "ijkl" | "keyboard"} | {kind: "pad", index: number}} Device
+ *  - `{ kind: "pad", index: 0..3, padId? }`: that gamepad (left stick or d-pad to move, A or X to dig, B or Y to place a torch).
+ *    `padId` is the engine's stable id of the physical pad (`input.gamepad(i).id`), filled in when the pad is connected: the player
+ *    then follows that pad if it comes back in another slot (the engine's `input.player(i).use({ padId })`, and pad_watch.js moves `index`).
+ * @typedef {{kind: "any"} | {kind: "keys", scheme: "wasd" | "arrows" | "ijkl" | "keyboard"} | {kind: "pad", index: number, padId?: string}} Device
  */
 
 /**
@@ -58,8 +60,15 @@ let list = [];
 /** What the engine's `input.player(id).use()` is given for a device (`{ kind: "any" }`: nothing, that player reads the global input). */
 function engineDevice(device) {
   if (device.kind === "keys") return { keys: device.scheme };
-  if (device.kind === "pad") return { pad: device.index };
+  if (device.kind === "pad") return device.padId ? { padId: device.padId } : { pad: device.index };
   return null;
+}
+
+/** A pad device with the stable id of the pad on its slot, when that pad is plugged in and has one. @param {Device} device */
+function withPadId(device) {
+  if (device.kind !== "pad" || device.padId) return device;
+  const pad = input.gamepad(device.index);
+  return pad.connected && pad.id ? { ...device, padId: pad.id } : device;
 }
 
 /** Hands the engine the device of a player, or takes it away (`null`). Said again at every registry change: a test's input reset forgets devices. */
@@ -74,7 +83,7 @@ function assign(id, device) {
  */
 export function add(opts = {}) {
   if (list.length >= MAX_PLAYERS) throw new Error(`the mine has room for ${MAX_PLAYERS} miners and all are taken. Remove one first (players.remove(id)).`);
-  const device = opts.device ?? { kind: "any" };
+  const device = withPadId(opts.device ?? { kind: "any" });
   if (device.kind === "any" && list.some((p) => p.device.kind === "any")) throw new Error("only one player can use { kind: \"any\" } (the project's input actions); give the others { kind: \"keys\", scheme } or { kind: \"pad\", index }.");
   if (device.kind === "keys" && !KEY_SCHEMES.includes(device.scheme)) throw new Error(`unknown key scheme '${device.scheme}': use ${KEY_SCHEMES.join(", ")}.`);
   if (device.kind === "pad" && !(Number.isInteger(device.index) && device.index >= 0 && device.index < MAX_PLAYERS)) throw new Error(`gamepad index must be 0..${MAX_PLAYERS - 1}, got ${device.index}.`);
@@ -100,6 +109,7 @@ export function setDevice(id, device) {
   if (device.kind === "keys" && !KEY_SCHEMES.includes(device.scheme)) throw new Error(`unknown key scheme '${device.scheme}': use ${KEY_SCHEMES.join(", ")}.`);
   if (device.kind === "pad" && !(Number.isInteger(device.index) && device.index >= 0 && device.index < MAX_PLAYERS)) throw new Error(`gamepad index must be 0..${MAX_PLAYERS - 1}, got ${device.index}.`);
   const from = player.device;
+  device = withPadId(device);
   player.device = device;
   assign(id, device);
   events.emit("playerDevice", { player, from, to: device });
