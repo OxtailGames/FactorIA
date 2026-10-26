@@ -117,7 +117,42 @@ void reading_order(std::vector<Item>& items) {
     });
 }
 
+// Does a ScrollList have more content than it shows? Its children sit scroll pixels above their unscrolled place.
+bool scrollable(const World& w, Entity e, Vec2 design, const VisualMeasure& measure) {
+    const ScrollList& s = *w.get<ScrollList>(e);
+    const Rect r = *ui_rect(w, e, design);
+    float bottom = -1e30f;
+    for (Entity c : w.children(e))
+        if (w.active_in_hierarchy(c))
+            if (const std::optional<Rect> cr = ui_detail::screen_rect(w, c, design, measure)) bottom = std::max(bottom, cr->y + cr->h);
+    if (bottom < -1e29f) return false;
+    const float content = bottom + s.scroll - (r.y + s.padding.y);
+    return content - (r.h - s.padding.y - s.padding.w) > 0.5f;
+}
+
 }  // namespace
+
+Entity ui_widget_at(const World& w, Vec2 design, Vec2 p) {
+    Entity best;
+    int bestLayer = 0;
+    for (Entity e : w.entities()) {
+        const UiKind k = ui_kind(w, e);
+        if (k == UiKind::None || k == UiKind::Captions || !w.active_in_hierarchy(e)) continue;
+        const UiBox& box = *ui_box(w, e);
+        if (k == UiKind::Panel && box.color.a <= 0.0f && box.texture.empty()) continue;
+        if (const TouchStick* ts = w.get<TouchStick>(e); ts && !ts->shown) continue;
+        if (const TouchButton* tb = w.get<TouchButton>(e); tb && !tb->shown) continue;
+        const Rect r = *ui_rect(w, e, design);
+        if (!(r.w > 0) || !(r.h > 0) || !r.contains(p)) continue;
+        const std::optional<Rect> clip = ui_clip_rect(w, e, design);
+        if (clip && !clip->contains(p)) continue;
+        if (!best || box.layer >= bestLayer) {
+            best = e;
+            bestLayer = box.layer;
+        }
+    }
+    return best;
+}
 
 // --------------------------------------------------------------------------------------------------------- actions --
 static Json ui_default_actions() {
@@ -203,6 +238,8 @@ void UiSystem::reset() {
     release_platform_keyboard(nullptr);
     askedField_ = kNullEntity;
     focus_ = hover_ = press_ = kNullEntity;
+    focusCleared_ = false;
+    pointerOn_ = pointerDown_ = pointerPrevDown_ = pointerOverUi_ = wheelConsumed_ = false;
     scrollToFocus_ = false;
     for (Repeat& r : nav_) r = Repeat{};
     backspace_ = Repeat{};
@@ -211,10 +248,12 @@ void UiSystem::reset() {
 }
 
 bool UiSystem::set_focus(World& w, Entity e) {
+    if (!e) focusCleared_ = true;
     if (e) {
         const UiControl* c = w.alive(e) ? control_of(w, e) : nullptr;
         if (!c || !c->interactable || !w.active_in_hierarchy(e)) return false;
     }
+    if (e) focusCleared_ = false;
     if (e == focus_) return true;
     if (UiControl* old = focus_ && w.alive(focus_) ? control_of(w, focus_) : nullptr) old->focused = false;
     focus_ = e;
@@ -249,7 +288,14 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         const Item* it = find(press_);
         if (!it || !it->interactable) press_ = kNullEntity;
     }
-    if (!focus_) {
+    // set_focus(null) holds until the player navigates: the arrows' first press then lets autoFocus work again (and is
+    // spent on that, it does not also move the new focus).
+    bool navWoke = false;
+    if (focusCleared_) {
+        for (const char* a : kDirAction) navWoke = navWoke || in.action_pressed(a);
+        if (navWoke) focusCleared_ = false;
+    }
+    if (!focus_ && !focusCleared_) {
         for (const Item& it : ordered) {
             if (!it.interactable || !control_of(w, it.e)->autoFocus) continue;
             set_focus(w, it.e);
@@ -270,7 +316,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     // ---- keys and pad
     for (int d = 0; d < 4; ++d) {
-        if (!nav_[std::size_t(d)].tick(in.action_pressed(kDirAction[d]), in.action_down(kDirAction[d]), dt) || !focus_) continue;
+        if (!nav_[std::size_t(d)].tick(in.action_pressed(kDirAction[d]), in.action_down(kDirAction[d]), dt) || !focus_ || navWoke) continue;
         const UiKind kind = ui_kind(w, focus_);
         if (d >= Left && kind == UiKind::TextField) continue;  // ponytail: no caret movement, the caret stays at the end
         if (d >= Left && kind == UiKind::Slider) {
@@ -359,7 +405,13 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
 
     // ---- pointer: hovered = the top-most (highest layer, then latest) visible interactable widget under the mouse
-    const Vec2 mouse = in.mouse_position();
+    // The pointer: the virtual one (set_pointer) when there is one, else the mouse.
+    const Vec2 mouse = pointerOn_ ? pointerPos_ : in.mouse_position();
+    const bool ptrDown = pointerOn_ ? pointerDown_ : in.mouse_down(MouseButton::Left);
+    const bool ptrPressed = pointerOn_ ? pointerDown_ && !pointerPrevDown_ : in.mouse_pressed(MouseButton::Left);
+    const bool ptrReleased = pointerOn_ ? !pointerDown_ && pointerPrevDown_ : in.mouse_released(MouseButton::Left);
+    pointerPrevDown_ = pointerOn_ && pointerDown_;
+    pointerOverUi_ = ui_widget_at(w, design, mouse) != kNullEntity;
     hover_ = kNullEntity;
     int hoverLayer = 0;
     for (const Item& it : items) {  // creation order, so on equal layers the later entity wins
@@ -372,7 +424,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
     }
 
-    if (in.mouse_pressed(MouseButton::Left) && hover_) {
+    if (ptrPressed && hover_) {
         press_ = hover_;
         set_focus(w, hover_);
     }
@@ -387,7 +439,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
                 emit(w, "ui.change", press_, to_json(s->value));
             }
         }
-        if (in.mouse_released(MouseButton::Left) || !in.mouse_down(MouseButton::Left)) {
+        if (ptrReleased || !ptrDown) {
             if (hover_ == press_) {
                 if (ui_kind(w, press_) == UiKind::Button) {
                     emit(w, "ui.click", press_);
@@ -401,8 +453,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
 
     // ---- wheel: scrolls the innermost ScrollList under the pointer
+    wheelConsumed_ = false;
     if (in.mouse_wheel() != 0.0f) {
         ScrollList* target = nullptr;
+        Entity targetEntity;
         int targetDepth = -1;
         w.each<ScrollList>([&](Entity e, ScrollList& s) {
             if (!w.active_in_hierarchy(e) || !ui_rect(w, e, design)->contains(mouse)) return;
@@ -411,10 +465,19 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             const int depth = depth_of(w, e);
             if (depth >= targetDepth) {
                 target = &s;
+                targetEntity = e;
                 targetDepth = depth;
             }
         });
-        if (target) target->scroll -= in.mouse_wheel() * target->scrollSpeed;  // wheel up (positive) scrolls towards the top
+        if (target) {
+            const bool scrolls = scrollable(w, targetEntity, design, measure);  // before the scroll moves
+            target->scroll -= in.mouse_wheel() * target->scrollSpeed;           // wheel up (positive) scrolls towards the top
+            // A list with more to show keeps the wheel for itself, also at the end of its range (the map must not zoom there).
+            if (scrolls) {
+                wheelConsumed_ = true;
+                in.consume_mouse_wheel();
+            }
+        }
     }
 
     // ---- runtime flags the renderer and scripts read

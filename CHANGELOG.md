@@ -11,6 +11,18 @@ Web exports download the game's code once
   one download, with the progress bar, and a plain error when the browser cannot compile it. Re-export a web game to get
   the new page.
 
+A UI hit test, a virtual pointer, the consumed wheel and an empty focus
+
+- `ui.widgetAt(x, y)` returns the topmost visible widget or Panel at a screen point (nothing for empty space or a row a
+  ScrollList clips) and `ui.pointerOverUi` says whether the pointer is over one. A game with a gamepad cursor no longer
+  scans the scene itself.
+- `ui.setPointer(x, y, { down })` drives hover, press and click like the mouse, from the next frame on, until
+  `ui.setPointer(null)`: for a gamepad cursor and for tests.
+- A ScrollList with more content than it shows keeps the mouse wheel: `input.mouse.wheel` reads 0 that frame and
+  `ui.wheelConsumed` is true, so a camera that zooms with the wheel needs no check of its own.
+- `ui.focus(null)` holds until the next arrow / D-pad press: an open panel's `autoFocus` no longer takes the focus back
+  on the next frame.
+
 Versions for the script API
 
 - `tools/common/api_since.json` has a `"script"` section: each function, type and member of the scripting API says which

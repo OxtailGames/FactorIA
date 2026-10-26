@@ -1713,6 +1713,24 @@
     // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
     // the entity cannot take focus.
     focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
+    // The topmost visible widget (Button, Toggle, Slider, TextField, Panel, ScrollList...) under the screen point, or null over empty
+    // space or what a ScrollList clips away. x, y in design pixels, y down, like ui.rectOf.
+    widgetAt(x, y) {
+      if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`ui.widgetAt(x, y) expects two numbers (design pixels, y down), e.g. ui.widgetAt(640, 360), but got ${inspect(x)}, ${inspect(y)}`);
+      return entityOf(N.uiWidgetAt(x, y));
+    },
+    // Drives hover, press and click like the mouse from a point of your own (a gamepad cursor, a test), from the next UI update on.
+    // setPointer(null) gives the pointer back to the real mouse.
+    setPointer(x, y, o = {}) {
+      if (x === null && y === undefined) { N.uiSetPointer(); return; }
+      if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`ui.setPointer(x, y, { down }) expects two numbers (design pixels, y down), e.g. ui.setPointer(640, 360, { down: true }), or null to give the pointer back to the mouse, but got ${inspect(x)}, ${inspect(y)}`);
+      if (o === null || typeof o !== "object" || (o.down !== undefined && typeof o.down !== "boolean")) throw new Error(`ui.setPointer(x, y, { down }): the third argument is an options object such as { down: true }, but got ${inspect(o)}`);
+      N.uiSetPointer(x, y, o.down ?? false);
+    },
+    // True when the pointer (the mouse, or the one of setPointer) is over a visible widget or Panel at the last UI update.
+    get pointerOverUi() { return N.uiPointerState()[0]; },
+    // True when the wheel of this frame scrolled a ScrollList: input.mouse.wheel reads 0 then.
+    get wheelConsumed() { return N.uiPointerState()[1]; },
     get focused() { return entityOf(N.uiState()[0]); },
     get hovered() { return entityOf(N.uiState()[1]); },
   };
