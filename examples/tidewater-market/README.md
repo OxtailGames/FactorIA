@@ -372,13 +372,13 @@ a fingerprint for tests. The trade uses its own `Rng` (mulberry32, `scripts/game
 
 ## Sound, options and accessibility (P6)
 
-**Buses.** The engine has four (`master`, `music`, `sfx`, `ui`); the game adds a fifth, `ambience`, which is not an engine bus:
-the beds play on `sfx` and are multiplied by `settings.live().ambience` (FB-0041). The Audio tab of the options screen sets the five
-volumes; `settings.apply()` sends the four engine ones to `audio.setVolume`. Sound only reads the simulation: options and audio never
+**Buses.** The engine has four (`master`, `music`, `sfx`, `ui`); the game adds a fifth, `ambience`, declared in `factoria.json`
+(`"audio": { "buses": { "ambience": { "parent": "sfx" } } }`, FB-0041): the beds play on it, so the `sfx` and `master` volumes scale
+them too. The Audio tab of the options screen sets the five volumes; `settings.apply()` sends all of them to `audio.setVolume`. Sound only reads the simulation: options and audio never
 change the state hash (`6dee2f92` for the bot).
 
-**Sounds.** `data/sounds.json` lists every clip by role (`ui`, `ambience`, `work`, `walkers`, plus the `mix` and `voices` knobs) with its own level and, for one-shots,
-`seconds` (how long the voice cap counts it as playing; the engine reports no end of voice, FB-0045). To add a UI sound: put the CC0
+**Sounds.** `data/sounds.json` lists every clip by role (`ui`, `ambience`, `work`, `walkers`, plus the `mix` and `voices` knobs) with its own level. The voice caps (`VoiceBook`) ask the
+engine which voices still play (`audio.activeVoices()`, FB-0045). To add a UI sound: put the CC0
 clip in `assets/sfx/`, record it in `assets.json` (`project.validate_data` fails when a clip is not recorded), add it under `ui` and
 call `playUi("name")` from `scripts/game/sfx.js`. To add an ambience emitter: add the clip under `ambience` and a rule to
 `scripts/game/soundscape.js` that returns its wanted level from what the camera sees; `soundmix.js` has the pure maths (zoom gain,

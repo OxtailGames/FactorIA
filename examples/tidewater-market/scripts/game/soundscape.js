@@ -10,13 +10,12 @@
 // The engine's own spatial audio (AudioSource) falls off with world distance only and ignores the zoom of a strategy camera, so
 // this does it from screen positions (ENGINE_FEEDBACK FB-0040). Everything here reads the simulation and never changes it, so the
 // sound options and the camera cannot alter a game (the bot's state hash is the same with the sound on or off).
-// The beds play on the "sfx" bus and are multiplied by the "ambience" volume of the options (settings.live().ambience).
+// The beds play on the "ambience" bus (factoria.json "audio"."buses", under "sfx"), whose volume is the options' ambience slider.
 import { audio } from "factoria";
 import { soundData } from "./sound_data.js";
 import { VoiceBook, ambienceLevels, onScreen, sourceMix, SCREEN } from "./soundmix.js";
 import { cellToWorld } from "./iso.js";
 import { centreOf } from "./ui_model.js";
-import * as settings from "../settings.js";
 
 /** Rows of the grid of screen points that decides how much of the screen is sea (the columns are mix.seaSamples). */
 const SEA_ROWS = 8;
@@ -55,7 +54,7 @@ export class Soundscape {
     this.off = [this.state.events.on("production.done", (e) => this.onWork(e))];
     for (const name of Object.keys(this.data.ambience)) {
       const bed = this.data.ambience[name];
-      this.beds[name] = audio.play(bed.clip, { volume: 0, loop: true, bus: "sfx" });
+      this.beds[name] = audio.play(bed.clip, { volume: 0, loop: true, bus: "ambience" });
       this.sent[name] = 0;
     }
     this.refresh(true);
@@ -78,10 +77,8 @@ export class Soundscape {
     }
   }
 
-  /** Voices of the soundscape playing now: the beds and the one-shots counted by the books. */
+  /** Voices of the soundscape playing now: the beds and the one-shots counted by the books (which ask the engine). */
   get voices() {
-    this.work.prune(this.now);
-    this.walk.prune(this.now);
     return Object.keys(this.beds).length + this.work.count + this.walk.count;
   }
 
@@ -93,10 +90,9 @@ export class Soundscape {
     const view = this.sampleView();
     this.target = ambienceLevels(view, this.mix);
     const k = instant || dt <= 0 ? 1 : Math.min(1, dt / this.mix.ease);
-    const ambience = settings.live().ambience;
     for (const name of Object.keys(this.beds)) {
       this.levels[name] += (this.target[name] - this.levels[name]) * k;
-      const volume = this.levels[name] * this.data.ambience[name].volume * ambience;
+      const volume = this.levels[name] * this.data.ambience[name].volume;
       if (instant || Math.abs(volume - this.sent[name]) > 0.01 || (volume === 0) !== (this.sent[name] === 0)) {
         this.sent[name] = volume;
         audio.setVoiceVolume(this.beds[name], volume, instant ? 0 : this.mix.every * 1.5);
@@ -173,11 +169,11 @@ export class Soundscape {
 
   /** Play a one-shot through a book (the cap). @returns {boolean} it was started */
   oneShot(book, sound, m) {
-    const offer = book.offer(this.now, m.volume);
+    const offer = book.offer(m.volume);
     if (!offer.play) return false;
     if (offer.evict !== null) audio.stop(offer.evict);
     const voice = audio.play(sound.clip, { volume: sound.volume * m.volume, pan: m.pan, bus: "sfx" });
-    book.add(voice, this.now, sound.seconds, m.volume, offer.evict);
+    book.add(voice, m.volume, offer.evict);
     return true;
   }
 }

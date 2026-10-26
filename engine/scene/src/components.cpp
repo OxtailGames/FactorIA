@@ -1019,7 +1019,12 @@ void register_builtin_components(TypeRegistry& r) {
     r.add<AudioListener>("AudioListener",
                          "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).",
                          "Audio")
-        .field("volume", &AudioListener::volume, "Master volume multiplier for everything this listener hears.").range(0, 4);
+        .field("volume", &AudioListener::volume, "Master volume multiplier for everything this listener hears.").range(0, 4)
+        .field("zoom", &AudioListener::zoom,
+               "Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener "
+               "(gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. "
+               "A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener "
+               "(no AudioListener component) the zoom is 1.").range(0.01f, 100);
 
     // --------------------------------------------------------------- UI ---
     {

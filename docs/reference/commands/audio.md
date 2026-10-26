@@ -8,11 +8,11 @@ Not released yet (on main after 0.2.0).
 
 Set a bus's volume and effects (low-pass, reverb, ducking), or read its state.
 
-Buses are "sfx", "music", "ui" and "master" (the master has no ducking). Every voice of a bus is summed into its own buffer; the effects run on that sum in this order: low-pass, reverb, volume, ducking. `volume` is the player's volume (what audio.setVolume sets); `lowpass` is a 12 dB per octave cutoff in Hz (0 or null = off); `reverb` is the wet mix 0..1 (0 = off); `duck` lowers the bus by `amount` (the fraction removed) while the bus `by` is louder than -40 dBFS, with `attack` and `release` time constants in seconds (63% of the way in that time; null = off). `fade` (seconds) makes volume, lowpass and reverb slide instead of jumping (a volume change always ramps over about 10 ms so it does not click). Only the keys you pass change; with just `bus` it returns the state. Returns volume, snapshotVolume, lowpass, reverb and duck. A bus with no effect does no effect work. Example: audio.bus {"bus":"music","lowpass":800,"fade":0.5}
+Buses are "sfx", "music", "ui", "master" (the master has no ducking) and the project's own (factoria.json "audio"."buses"). Every voice of a bus, and the buses declared under it, is summed into its own buffer; the effects run on that sum in this order: low-pass, reverb, volume, ducking. `volume` is the player's volume (what audio.setVolume sets); `lowpass` is a 12 dB per octave cutoff in Hz (0 or null = off); `reverb` is the wet mix 0..1 (0 = off); `duck` lowers the bus by `amount` (the fraction removed) while the bus `by` is louder than -40 dBFS, with `attack` and `release` time constants in seconds (63% of the way in that time; null = off). `fade` (seconds) makes volume, lowpass and reverb slide instead of jumping (a volume change always ramps over about 10 ms so it does not click). Only the keys you pass change; with just `bus` it returns the state. Returns volume, snapshotVolume, lowpass, reverb and duck. A bus with no effect does no effect work. Example: audio.bus {"bus":"music","lowpass":800,"fade":0.5}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bus` | any ["sfx","music","ui","master"] | yes | The bus. |
+| `bus` | string | yes | The bus: sfx, music, ui, master or a bus of factoria.json audio.buses. |
 | `volume` | number | no | The bus volume, 1 = as recorded. |
 | `lowpass` | any | no | Low-pass cutoff in Hz; 0 or null = off. |
 | `reverb` | number | no | Reverb wet mix; 0 = off. |

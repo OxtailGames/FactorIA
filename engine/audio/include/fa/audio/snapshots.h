@@ -1,6 +1,7 @@
-// The "audio" section of factoria.json: the catalog of mixer snapshots (docs/SCRIPTING.md, "Audio buses").
+// The "audio" section of factoria.json: the project's own mixer buses and the catalog of mixer snapshots
+// (docs/SCRIPTING.md, "Audio buses").
 //
-//   "audio": {"snapshots": {
+//   "audio": {"buses": {"ambience": {"parent": "sfx"}}, "snapshots": {
 //       "underwater": {"fade": 0.8, "buses": {
 //           "sfx":   {"volume": 0.8, "lowpass": 600, "reverb": 0.3},
 //           "music": {"lowpass": 400, "duck": {"by": "ui", "amount": 0.5, "attack": 0.05, "release": 0.5}}}},
@@ -20,6 +21,7 @@ struct AudioIssue {
 };
 
 struct AudioSettingsParse {
+    std::vector<AudioBusDef> buses;    // the project's buses ("audio.buses"), in name order; a parent may come after its child
     AudioSnapshots snapshots;
     std::vector<AudioIssue> issues;    // every problem found; `snapshots` is only usable without any
     std::vector<AudioIssue> warnings;  // keys the engine does not know (a typo), with "did you mean"

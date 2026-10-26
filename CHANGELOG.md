@@ -4,6 +4,18 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Audio: buses of your own, the voices that play, `onEnded`, and a listener zoom
+
+- `factoria.json` `audio.buses` declares buses with a parent (`"ambience": { "parent": "sfx" }`). A bus scales the sounds
+  played on it (`audio.play(clip, { bus: "ambience" })`), its parent scales it in turn, and it takes `audio.setVolume`,
+  `audio.bus(name)` effects, ducking and snapshots like the built-in ones. `factoria validate` checks the names with a
+  "did you mean". The built-in buses (`master`, `sfx`, `music`, `ui`) work as before.
+- `audio.activeVoices()` lists the sounds that play now, and `audio.play(path, { onEnded })` calls back once when a sound
+  finishes, is stopped with `audio.stop` or is dropped by a full mixer (not on `stopAll` or a scene load).
+- `game.audioLog()` has an entry for every `audio.setVoiceVolume` on a playing voice (`kind: "setVoiceVolume"`, with
+  `voice` and `fade`); `toContainPlayed` skips them.
+- `AudioListener.zoom` (default 1) scales how far positional sounds reach: a zoom of 2 doubles the distance.
+
 A wrapped text measures its widest line; a Toggle's box follows the font size
 
 - With a renderer a wrapped text was at least as wide as its `maxWidth`, so `ui.overflowed`, `ui.check_layout` and

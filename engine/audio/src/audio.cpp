@@ -44,10 +44,13 @@ constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minute
 constexpr int kBlock = 512;
 constexpr std::size_t kMaxPlayLog = 4096;
 
-enum Bus { BusSfx = 0, BusMusic = 1, BusUi = 2, BusCount = 3 };
-const char* const kBusNames[BusCount] = {"sfx", "music", "ui"};
-constexpr int kMasterBus = BusCount;      // the effects of the master are bus[kMasterBus]
-constexpr int kFxBuses = BusCount + 1;
+// The bus table: 0..2 are the built-in buses, kMasterBus the master (its "buffer" is the output), and the project's buses
+// (factoria.json "audio.buses") follow from kFirstProjectBus.
+enum Bus { BusSfx = 0, BusMusic = 1, BusUi = 2, BusBuiltin = 3 };
+const char* const kBusNames[BusBuiltin] = {"sfx", "music", "ui"};
+constexpr int kMasterBus = BusBuiltin;
+constexpr int kFirstProjectBus = BusBuiltin + 1;
+constexpr std::size_t kMaxEnded = 1024;   // endings waiting for take_ended_voices()
 constexpr float kDuckThreshold = 0.01f;   // -40 dBFS: a bus that peaks above this ducks the buses that listen to it
 constexpr float kLowpassOpen = 20000.0f;  // where a cutoff slides from or to when the filter is switched on or off
 constexpr float kMaxBusVolume = 4.0f;
@@ -55,6 +58,9 @@ constexpr double kReverbTail = 4.0;       // seconds the reverb keeps running af
 
 // The state of one bus: its gain, its effects and its ducking. [kMasterBus] is the master.
 struct BusFx {
+    std::string name;
+    int parent = kMasterBus;  // the bus this one is summed into
+    int depth = 1;            // 1 = under the master; a bus is mixed after the buses under it
     Ramp vol;   // the volume (the player's options; audio.setVolume)
     Ramp snap;  // the scale a snapshot sets
     // Low-pass: the cutoff moves in octaves (log2 of Hz); lpHz is the target in Hz (0 = off).
@@ -109,6 +115,9 @@ struct Voice {
     float volTarget = 1.0f, volStep = 0.0f;
     long volFrames = 0;
     bool protect = false;  // music and its layers: never the voice a full mixer evicts
+    bool notify = false;   // its end goes to Impl::ended (PlayParams::notifyEnd)
+    std::string path;      // the clip (or the video file) it plays
+    std::string source;    // the entity id of the AudioSource / Video that started it
     bool dead = false;
     std::unique_ptr<Stream> stream;  // set for a streamed clip: `pos` then counts frames of the whole timeline
     std::unique_ptr<PcmFeed> pcm;    // set for a voice the game feeds (no clip)
@@ -177,9 +186,11 @@ struct Audio::Impl {
 
     std::vector<Voice> voices;
     VoiceId nextVoice = 1;
-    BusFx bus[kFxBuses];
-    std::vector<float> busBuf[BusCount];     // the sum of each bus's voices, before the master
-    std::vector<float> duckGains[BusCount];  // the ducking gain of each bus for the block being mixed
+    std::vector<BusFx> bus;                  // the bus table (see kMasterBus)
+    std::vector<int> mixOrder;               // the buses but the master, deepest first: a bus is summed into its parent
+    std::vector<std::vector<float>> busBuf;  // the sum of each bus's voices and child buses, before its parent
+    std::vector<std::vector<float>> duckGains;  // the ducking gain of each bus for the block being mixed
+    std::vector<VoiceId> ended;              // voices with notify that ended (take_ended_voices)
     AudioSnapshots snapshots;
     std::string snapshotName;
     VoiceId musicVoice = 0;
@@ -219,9 +230,55 @@ struct Audio::Impl {
     std::uint64_t playSeq = 0;
     std::uint64_t playDropped = 0;
 
+    Impl() { reset_bus_table(); }
+
+    // The built-in buses alone, all neutral.
+    void reset_bus_table() {
+        bus.clear();
+        bus.resize(std::size_t(kFirstProjectBus));
+        for (int i = 0; i < BusBuiltin; ++i) bus[std::size_t(i)].name = kBusNames[i];
+        bus[std::size_t(kMasterBus)].name = "master";
+        build_mix_order();
+    }
+
+    // Depths and the order buses are mixed in: the deepest first, so every bus has its children's sound when its turn comes.
+    void build_mix_order() {
+        mixOrder.clear();
+        for (std::size_t i = 0; i < bus.size(); ++i) {
+            int d = 1;
+            for (int at = int(i); at != kMasterBus && at >= 0 && d <= int(bus.size()); at = bus[std::size_t(at)].parent) ++d;
+            bus[i].depth = int(i) == kMasterBus ? 0 : d - 1;
+            if (int(i) != kMasterBus) mixOrder.push_back(int(i));
+        }
+        std::stable_sort(mixOrder.begin(), mixOrder.end(),
+                         [&](int a, int b) { return bus[std::size_t(a)].depth > bus[std::size_t(b)].depth; });
+        busBuf.resize(bus.size());
+        duckGains.resize(bus.size());
+    }
+
+    // The index of a bus by name (master included); -1 for an unknown name. Caller holds mu.
+    int fx_index(std::string_view name) const {
+        for (std::size_t i = 0; i < bus.size(); ++i)
+            if (bus[i].name == name) return int(i);
+        return -1;
+    }
+    // The buses a voice can play on (not the master). Caller holds mu.
+    int bus_index(std::string_view name) const {
+        const int b = fx_index(name);
+        return b == kMasterBus ? -1 : b;
+    }
+    std::vector<std::string> bus_names_locked(bool withMaster) const {
+        std::vector<std::string> names;
+        for (std::size_t i = 0; i < bus.size(); ++i)
+            if (withMaster || int(i) != kMasterBus) names.push_back(bus[i].name);
+        return names;
+    }
+
     void log_play(std::string_view path, const PlayParams& p, bool music, std::string_view source, bool ok,
-                  std::string_view layer = {}) {
+                  std::string_view layer = {}, VoiceId voice = 0) {
+        std::lock_guard<std::mutex> lk(mu);
         AudioEvent ev;
+        ev.voice = voice;
         ev.seq = ++playSeq;
         if (const World* w = clockWorld ? clockWorld : lastWorld) {
             ev.frame = w->frame();
@@ -237,7 +294,6 @@ struct Audio::Impl {
         ev.source = std::string(source);
         ev.layer = std::string(layer);
         ev.ok = ok;
-        std::lock_guard<std::mutex> lk(mu);
         playLog.push_back(std::move(ev));
         if (playLog.size() > kMaxPlayLog) {
             playLog.pop_front();
@@ -252,16 +308,25 @@ struct Audio::Impl {
             return 0;
         }
         auto clip = get_clip(clipPath);
-        log_play(clipPath, params, false, source, clip != nullptr);
-        if (!clip) return 0;
+        if (!clip) {
+            log_play(clipPath, params, false, source, false);
+            return 0;
+        }
         std::string err;
         auto stream = open_stream(*clip, params.loop, &err);
         if (clip->encoded && !stream) {
+            log_play(clipPath, params, false, source, true);
             FA_ERROR("audio", "Audio clip '{}' cannot be streamed: {}", clipPath, err);
             return 0;
         }
-        std::lock_guard<std::mutex> lk(mu);
-        return add_voice_locked(std::move(clip), params, std::move(stream));
+        VoiceId id = 0;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            id = add_voice_locked(std::move(clip), params, std::move(stream));
+            if (Voice* v = find_voice(id)) v->source = std::string(source);
+        }
+        log_play(clipPath, params, false, source, true, {}, id);
+        return id;
     }
 
     // The decoding state of a new voice on a streamed clip (null for a clip decoded whole). Made outside the lock: it
@@ -383,11 +448,6 @@ struct Audio::Impl {
     Json bus_state_json(const BusFx& fx) const;
 
     // ------------------------------------------------------------- voices
-    static int bus_index(std::string_view name) {
-        for (int i = 0; i < BusCount; ++i) if (name == kBusNames[i]) return i;
-        return -1;
-    }
-
     Voice* find_voice(VoiceId id) {
         if (id == 0) return nullptr;
         for (Voice& v : voices) if (v.id == id && !v.dead) return &v;
@@ -400,6 +460,7 @@ struct Audio::Impl {
             if (it == voices.end()) it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.protect; });
             if (it == voices.end()) it = voices.begin();
             if (it->id == musicVoice) musicVoice = 0;
+            note_ended_locked(*it);
             voices.erase(it);
         }
         Voice v;
@@ -413,11 +474,12 @@ struct Audio::Impl {
         v.loop = p.loop;
         int b = bus_index(p.bus);
         if (b < 0) {
-            std::vector<std::string> names(kBusNames, kBusNames + BusCount);
-            FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", p.bus, did_you_mean(p.bus, names));
+            FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", p.bus, did_you_mean(p.bus, bus_names_locked(false)));
             b = BusSfx;
         }
         v.bus = b;
+        v.notify = p.notifyEnd;
+        if (v.clip) v.path = v.clip->path;
         voices.push_back(std::move(v));
         return voices.back().id;
     }
@@ -458,6 +520,13 @@ struct Audio::Impl {
             v.volume += v.volStep;
             if (--v.volFrames == 0) v.volume = v.volTarget;
         }
+    }
+
+    // A voice that ends goes to `ended` when its play asked to be told.
+    void note_ended_locked(const Voice& v) {
+        if (!v.notify) return;
+        if (ended.size() >= kMaxEnded) ended.erase(ended.begin());
+        ended.push_back(v.id);
     }
 
     void erase_voice_locked(VoiceId id) {
@@ -602,21 +671,21 @@ struct Audio::Impl {
         const std::size_t n = std::size_t(frames) * 2;
         std::memset(out, 0, sizeof(float) * n);
         const double rateRatio = double(kRate) / double(deviceRate);
-        bool used[BusCount] = {false, false, false};
-        for (int b = 0; b < BusCount; ++b) {
+        std::vector<char> used(bus.size(), 0);
+        for (std::size_t b = 0; b < bus.size(); ++b) {
             busBuf[b].resize(n);
             std::memset(busBuf[b].data(), 0, sizeof(float) * n);
         }
         for (Voice& v : voices) {
             if (paused) break;
-            float* const dst = busBuf[v.bus].data();
+            float* const dst = busBuf[std::size_t(v.bus)].data();
             if (v.pcm) {
-                used[v.bus] = true;
+                used[std::size_t(v.bus)] = 1;
                 mix_pcm_locked(v, dst, frames);
                 continue;
             }
             if (v.dead || !v.clip || v.clip->frames == 0) { v.dead = true; continue; }
-            used[v.bus] = true;
+            used[std::size_t(v.bus)] = 1;
             const Clip& c = *v.clip;
             Stream* const stream = v.stream.get();
             const double n = double(c.frames);
@@ -658,35 +727,51 @@ struct Audio::Impl {
                 }
             }
         }
+        for (const Voice& v : voices)
+            if (v.dead) note_ended_locked(v);
         voices.erase(std::remove_if(voices.begin(), voices.end(), [](const Voice& v) { return v.dead; }), voices.end());
         if (!paused) {
-            bool live[BusCount];
+            // The buses go deepest first, a whole depth at a time: effects and volume of each, then the ducking (which reads
+            // the buses of that depth, or deeper, before any ducking; a bus nearer the master than the one that ducks is read as
+            // its own voices and the buses under it, before its effects), then each bus is summed into its parent.
+            std::vector<char> live(bus.size(), 0), ducking(bus.size(), 0);
             bool anyLive = false;
-            for (int b = 0; b < BusCount; ++b) {
-                live[b] = run_effects(bus[b], busBuf[b].data(), frames, used[b]);
-                apply_bus_gain(bus[b], busBuf[b].data(), frames, live[b]);
-            }
-            // Ducking reads the buses as they are before any ducking is applied, so two buses can listen to each other.
-            bool ducking[BusCount];
-            for (int b = 0; b < BusCount; ++b) {
-                const BusFx& fx = bus[b];
-                ducking[b] = fx.duckBy >= 0 && (live[b] || live[fx.duckBy] || fx.duckGain != 1.0f || fx.duckEnv != 0.0f);
-                if (ducking[b]) compute_duck(b, frames);
-            }
-            for (int b = 0; b < BusCount; ++b) {
-                if (ducking[b] && live[b]) {
-                    float* buf = busBuf[b].data();
-                    const float* g = duckGains[b].data();
-                    for (int f = 0; f < frames; ++f) {
-                        buf[2 * f] *= g[f];
-                        buf[2 * f + 1] *= g[f];
+            for (std::size_t from = 0; from < mixOrder.size();) {
+                std::size_t to = from;
+                const int depth = bus[std::size_t(mixOrder[from])].depth;
+                while (to < mixOrder.size() && bus[std::size_t(mixOrder[to])].depth == depth) ++to;
+                for (std::size_t k = from; k < to; ++k) {
+                    const std::size_t b = std::size_t(mixOrder[k]);
+                    live[b] = run_effects(bus[b], busBuf[b].data(), frames, used[b] != 0);
+                    apply_bus_gain(bus[b], busBuf[b].data(), frames, live[b] != 0);
+                }
+                for (std::size_t k = from; k < to; ++k) {
+                    const std::size_t b = std::size_t(mixOrder[k]);
+                    const BusFx& fx = bus[b];
+                    ducking[b] = fx.duckBy >= 0 && (live[b] || live[std::size_t(fx.duckBy)] || used[std::size_t(fx.duckBy)] ||
+                                                    fx.duckGain != 1.0f || fx.duckEnv != 0.0f);
+                    if (ducking[b]) compute_duck(int(b), frames);
+                }
+                for (std::size_t k = from; k < to; ++k) {
+                    const std::size_t b = std::size_t(mixOrder[k]);
+                    if (ducking[b] && live[b]) {
+                        float* buf = busBuf[b].data();
+                        const float* g = duckGains[b].data();
+                        for (int f = 0; f < frames; ++f) {
+                            buf[2 * f] *= g[f];
+                            buf[2 * f + 1] *= g[f];
+                        }
+                    }
+                    if (live[b]) {
+                        const int parent = bus[b].parent;
+                        float* dst = parent == kMasterBus ? out : busBuf[std::size_t(parent)].data();
+                        const float* buf = busBuf[b].data();
+                        for (std::size_t i = 0; i < n; ++i) dst[i] += buf[i];
+                        if (parent == kMasterBus) anyLive = true;
+                        else used[std::size_t(parent)] = 1;
                     }
                 }
-                if (live[b]) {
-                    anyLive = true;
-                    const float* buf = busBuf[b].data();
-                    for (std::size_t i = 0; i < n; ++i) out[i] += buf[i];
-                }
+                from = to;
             }
             BusFx& master = bus[kMasterBus];
             const bool masterLive = run_effects(master, out, frames, anyLive);
@@ -828,8 +913,16 @@ VoiceId Audio::open_pcm_voice(int sampleRate, const PlayParams& params, std::str
         FA_ERROR("audio", "Audio::open_pcm_voice('{}') called before Audio::init()", path);
         return 0;
     }
-    impl_->log_play(path, params, false, source, true);
-    return impl_->open_pcm(sampleRate, params);
+    const VoiceId id = impl_->open_pcm(sampleRate, params);
+    {
+        std::lock_guard<std::mutex> lk(impl_->mu);
+        if (Voice* v = impl_->find_voice(id)) {
+            v->path = fs::normalize(path);
+            v->source = std::string(source);
+        }
+    }
+    impl_->log_play(path, params, false, source, true, {}, id);
+    return id;
 }
 
 void Audio::push_pcm(VoiceId voice, const float* stereo, std::size_t frames) {
@@ -857,10 +950,9 @@ void Audio::set_voice_bus(VoiceId voice, std::string_view bus) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     Voice* v = impl_->find_voice(voice);
     if (!v) return;
-    int b = Impl::bus_index(bus);
+    int b = impl_->bus_index(bus);
     if (b < 0) {
-        std::vector<std::string> names(kBusNames, kBusNames + BusCount);
-        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus, did_you_mean(bus, names));
+        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus, did_you_mean(bus, impl_->bus_names_locked(false)));
         b = BusSfx;
     }
     v->bus = b;
@@ -869,12 +961,15 @@ void Audio::set_voice_bus(VoiceId voice, std::string_view bus) {
 void Audio::stop(VoiceId voice) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     auto& vs = impl_->voices;
+    for (const Voice& v : vs)
+        if (v.id == voice) impl_->note_ended_locked(v);
     vs.erase(std::remove_if(vs.begin(), vs.end(), [&](const Voice& v) { return v.id == voice; }), vs.end());
     if (impl_->musicVoice == voice) impl_->musicVoice = 0;
 }
 
 void Audio::stop_all() {
     std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->ended.clear();
     impl_->voices.clear();
     impl_->musicVoice = 0;
     impl_->musicPath.clear();
@@ -886,6 +981,7 @@ void Audio::on_scene_load() {
     Impl& im = *impl_;
     {
         std::lock_guard<std::mutex> lk(im.mu);
+        im.ended.clear();  // the scene that asked to be told is gone
         if (im.musicPersist) {
             // The persisted track (or layers) plays on; everything else stops.
             std::vector<VoiceId> keep;
@@ -912,29 +1008,71 @@ bool Audio::is_playing(VoiceId voice) const {
     return impl_->find_voice(voice) != nullptr;
 }
 
-void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds) {
+void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds, bool log) {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    if (Voice* v = impl_->find_voice(voice)) impl_->start_volume_ramp(*v, volume, fadeSeconds);
+    Impl& im = *impl_;
+    Voice* v = im.find_voice(voice);
+    if (!v) return;
+    im.start_volume_ramp(*v, volume, fadeSeconds);
+    if (!log) return;
+    AudioEvent ev;
+    ev.kind = "setVoiceVolume";
+    ev.voice = voice;
+    ev.seq = ++im.playSeq;
+    if (const World* w = im.clockWorld ? im.clockWorld : im.lastWorld) {
+        ev.frame = w->frame();
+        ev.time = w->time();
+    }
+    ev.path = v->path;
+    ev.volume = std::max(volume, 0.0f);
+    ev.pitch = v->pitch;
+    ev.pan = v->pan;
+    ev.fade = std::max(fadeSeconds, 0.0f);
+    ev.bus = im.bus[std::size_t(v->bus)].name;
+    ev.loop = v->loop;
+    ev.source = v->source;
+    im.playLog.push_back(std::move(ev));
+    if (im.playLog.size() > kMaxPlayLog) {
+        im.playLog.pop_front();
+        ++im.playDropped;
+    }
+}
+
+Json Audio::active_voices() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const Impl& im = *impl_;
+    Json list = Json::array();
+    for (const Voice& v : im.voices) {
+        if (v.dead) continue;
+        const bool music = v.id == im.musicVoice ||
+                           std::any_of(im.layers.begin(), im.layers.end(), [&](const Impl::Layer& l) { return l.voice == v.id; });
+        list.push_back(Json::object({{"id", v.id}, {"path", v.path}, {"bus", im.bus[std::size_t(v.bus)].name},
+                                     {"volume", v.volFrames > 0 ? v.volTarget : v.volume}, {"pitch", v.pitch}, {"pan", v.pan},
+                                     {"loop", v.loop}, {"music", music}, {"source", v.source}}));
+    }
+    return list;
+}
+
+std::vector<VoiceId> Audio::take_ended_voices() {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    std::vector<VoiceId> out;
+    out.swap(impl_->ended);
+    return out;
 }
 
 namespace {
 
-// "sfx", "music", "ui" or "master" -> its index in Impl::bus; -1 for anything else.
-int fx_bus_index(std::string_view name) {
-    if (name == "master") return kMasterBus;
-    for (int i = 0; i < BusCount; ++i)
-        if (name == kBusNames[i]) return i;
-    return -1;
-}
-
-// The error for a bus name no bus has: what to use, with a "did you mean".
-Error unknown_bus_error(std::string_view name, bool allowMaster) {
-    std::vector<std::string> names(kBusNames, kBusNames + BusCount);
-    if (allowMaster) names.push_back("master");
+// The error for a bus name no bus has: what to use, with a "did you mean". `names` are the buses that exist.
+Error unknown_bus_error(std::string_view name, const std::vector<std::string>& names, bool allowMaster) {
     std::string list;
-    for (const std::string& n : names) list += (list.empty() ? "\"" : ", \"") + n + "\"";
-    return make_error("Unknown audio bus '" + std::string(name) + "'. " + did_you_mean(name, names),
-                      "Use one of " + list + (allowMaster ? "" : " (the master has no ducking)") + ".");
+    for (const std::string& n : names)
+        if (allowMaster || n != "master") list += (list.empty() ? "\"" : ", \"") + n + "\"";
+    std::vector<std::string> candidates;
+    for (const std::string& n : names)
+        if (allowMaster || n != "master") candidates.push_back(n);
+    return make_error("Unknown audio bus '" + std::string(name) + "'. " + did_you_mean(name, candidates),
+                      "Use one of " + list + (allowMaster ? "" : " (the master has no ducking)") +
+                          ". A project declares its own in factoria.json \"audio\".\"buses\".");
 }
 
 }  // namespace
@@ -948,9 +1086,9 @@ long Audio::Impl::ramp_frames(float seconds, bool declick) const {
 void Audio::set_bus_volume(std::string_view bus, float volume, float fadeSeconds) {
     volume = clamp(volume, 0.0f, kMaxBusVolume);
     std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = fx_bus_index(bus);
+    const int b = impl_->fx_index(bus);
     if (b < 0) {
-        FA_ERROR("audio", "{}", unknown_bus_error(bus, true).message);
+        FA_ERROR("audio", "{}", unknown_bus_error(bus, impl_->bus_names_locked(true), true).message);
         return;
     }
     impl_->bus[b].vol.set(volume, impl_->ramp_frames(fadeSeconds, true));
@@ -958,19 +1096,19 @@ void Audio::set_bus_volume(std::string_view bus, float volume, float fadeSeconds
 
 float Audio::bus_volume(std::string_view bus) const {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = fx_bus_index(bus);
+    const int b = impl_->fx_index(bus);
     return b < 0 ? -1.0f : impl_->bus[b].vol.target;
 }
 
 void Audio::set_master_volume(float volume) { set_bus_volume("master", volume, 0.0f); }
 
 Result<void> Audio::set_bus_lowpass(std::string_view bus, float hz, float fadeSeconds) {
-    const int b = fx_bus_index(bus);
-    if (b < 0) return unknown_bus_error(bus, true);
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const int b = impl_->fx_index(bus);
+    if (b < 0) return unknown_bus_error(bus, impl_->bus_names_locked(true), true);
     if (!std::isfinite(hz) || hz < 0.0f)
         return make_error("A low-pass cutoff is a frequency in Hz, got " + std::to_string(hz),
                           "Use 20..20000 Hz, or 0 (or null in a script) to switch the filter off.");
-    std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->set_lowpass_locked(impl_->bus[b], hz, fadeSeconds);
     return {};
 }
@@ -1003,12 +1141,12 @@ void Audio::Impl::set_lowpass_locked(BusFx& fx, float hz, float fadeSeconds) {
 }
 
 Result<void> Audio::set_bus_reverb(std::string_view bus, float mix, float fadeSeconds) {
-    const int b = fx_bus_index(bus);
-    if (b < 0) return unknown_bus_error(bus, true);
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const int b = impl_->fx_index(bus);
+    if (b < 0) return unknown_bus_error(bus, impl_->bus_names_locked(true), true);
     if (!std::isfinite(mix) || mix < 0.0f || mix > 1.0f)
         return make_error("A reverb mix is a number from 0 to 1, got " + std::to_string(mix),
                           "0 is no reverb (and switches it off), 0.3 is a touch of room, 1 is all wet.");
-    std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->set_reverb_locked(impl_->bus[b], mix, fadeSeconds);
     return {};
 }
@@ -1039,15 +1177,16 @@ void Audio::Impl::set_reverb_locked(BusFx& fx, float mix, float fadeSeconds) {
 }
 
 Result<void> Audio::set_bus_duck(std::string_view bus, const DuckSettings& duck) {
-    const int b = fx_bus_index(bus);
-    if (b < 0 || b == kMasterBus) return unknown_bus_error(bus, false);
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const int b = impl_->fx_index(bus);
+    if (b < 0 || b == kMasterBus) return unknown_bus_error(bus, impl_->bus_names_locked(true), false);
     int by = -1;
     if (!std::isfinite(duck.amount) || duck.amount < 0.0f || duck.amount > 1.0f)
         return make_error("A duck amount is the fraction of the volume removed, 0..1, got " + std::to_string(duck.amount),
                           "0.5 halves the bus while the other one plays, 1 silences it, 0 turns ducking off.");
     if (!duck.by.empty() && duck.amount > 0.0f) {
-        by = fx_bus_index(duck.by);
-        if (by < 0 || by == kMasterBus) return unknown_bus_error(duck.by, false);
+        by = impl_->fx_index(duck.by);
+        if (by < 0 || by == kMasterBus) return unknown_bus_error(duck.by, impl_->bus_names_locked(true), false);
         if (by == b)
             return make_error("The bus '" + std::string(bus) + "' cannot duck itself",
                               "Name the other bus, for example the voice-over bus that should push the music down.");
@@ -1055,8 +1194,7 @@ Result<void> Audio::set_bus_duck(std::string_view bus, const DuckSettings& duck)
             return make_error("Duck attack and release are times in seconds, 0 or more",
                               "Typical values: attack 0.05, release 0.5.");
     }
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->set_duck_locked(impl_->bus[b], by, duck);
+    impl_->set_duck_locked(impl_->bus[std::size_t(b)], by, duck);
     return {};
 }
 
@@ -1072,11 +1210,70 @@ void Audio::Impl::set_duck_locked(BusFx& fx, int by, const DuckSettings& duck) {
     fx.duckRelease = coef(duck.release);
 }
 
+void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl& im = *impl_;
+    std::vector<BusFx> old = std::move(im.bus);
+    std::vector<std::string> oldDuckBy;  // by name: the indexes change with the table
+    for (const BusFx& fx : old) oldDuckBy.push_back(fx.duckBy >= 0 ? old[std::size_t(fx.duckBy)].name : std::string());
+    const std::vector<std::string> oldNames = [&] {
+        std::vector<std::string> n;
+        for (const BusFx& fx : old) n.push_back(fx.name);
+        return n;
+    }();
+    im.reset_bus_table();
+    for (int i = 0; i <= kMasterBus; ++i) im.bus[std::size_t(i)] = std::move(old[std::size_t(i)]);
+    // Accept the buses whose parent is known, repeating until nothing more is placed (a parent may be declared after its child).
+    std::vector<bool> placed(defs.size(), false);
+    for (bool progress = true; progress;) {
+        progress = false;
+        for (std::size_t d = 0; d < defs.size(); ++d) {
+            if (placed[d]) continue;
+            const AudioBusDef& def = defs[d];
+            const int parent = im.fx_index(def.parent.empty() ? "master" : def.parent);
+            if (parent < 0 || im.fx_index(def.name) >= 0) continue;
+            BusFx fx;
+            for (std::size_t o = 0; o < oldNames.size(); ++o)
+                if (oldNames[o] == def.name) { fx = std::move(old[o]); break; }
+            fx.name = def.name;
+            fx.parent = parent;
+            im.bus.push_back(std::move(fx));
+            placed[d] = true;
+            progress = true;
+        }
+    }
+    for (std::size_t d = 0; d < defs.size(); ++d)
+        if (!placed[d])
+            FA_ERROR("audio", "audio bus '{}' is skipped: its parent '{}' is not a bus, it loops, or the name is taken "
+                              "(`factoria validate` checks \"audio\".\"buses\")", defs[d].name, defs[d].parent);
+    for (std::size_t i = 0; i < im.bus.size(); ++i) {
+        BusFx& fx = im.bus[i];
+        const auto was = std::find(oldNames.begin(), oldNames.end(), fx.name);
+        if (was == oldNames.end() || oldDuckBy[std::size_t(was - oldNames.begin())].empty()) continue;
+        const int by = im.bus_index(oldDuckBy[std::size_t(was - oldNames.begin())]);
+        if (by >= 0 && by != int(i)) fx.duckBy = by;
+        else im.set_duck_locked(fx, -1, DuckSettings{});
+    }
+    im.build_mix_order();
+    // Voices on a bus that no longer exists go to sfx.
+    for (Voice& v : im.voices) {
+        if (v.bus < kFirstProjectBus) continue;
+        const std::string& was = v.bus < int(oldNames.size()) ? oldNames[std::size_t(v.bus)] : std::string();
+        const int now = im.bus_index(was);
+        v.bus = now < 0 ? int(BusSfx) : now;
+    }
+}
+
+std::vector<std::string> Audio::bus_names() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->bus_names_locked(true);
+}
+
 Json Audio::bus_state(std::string_view bus) const {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = fx_bus_index(bus);
+    const int b = impl_->fx_index(bus);
     if (b < 0) return Json();
-    return impl_->bus_state_json(impl_->bus[b]);
+    return impl_->bus_state_json(impl_->bus[std::size_t(b)]);
 }
 
 Json Audio::Impl::bus_state_json(const BusFx& fx) const {
@@ -1086,7 +1283,7 @@ Json Audio::Impl::bus_state_json(const BusFx& fx) const {
     j["lowpass"] = fx.lpHz;
     j["reverb"] = fx.rvOn ? fx.rvMix.target : 0.0f;
     if (fx.duckBy >= 0) {
-        j["duck"] = Json::object({{"by", kBusNames[fx.duckBy]}, {"amount", fx.duck.amount}, {"attack", fx.duck.attack},
+        j["duck"] = Json::object({{"by", bus[std::size_t(fx.duckBy)].name}, {"amount", fx.duck.amount}, {"attack", fx.duck.attack},
                                   {"release", fx.duck.release}});
     } else {
         j["duck"] = nullptr;
@@ -1128,15 +1325,15 @@ Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
     const AudioSnapshot& snap = it->second;
     const float fade = fadeSeconds >= 0.0f ? fadeSeconds : snap.fade;
     static const BusSnapshot neutral;
-    for (int b = 0; b < kFxBuses; ++b) {
-        auto entry = snap.buses.find(b == kMasterBus ? "master" : kBusNames[b]);
+    for (int b = 0; b < int(im.bus.size()); ++b) {
+        auto entry = snap.buses.find(im.bus[std::size_t(b)].name);
         const BusSnapshot& want = entry != snap.buses.end() ? entry->second : neutral;
-        BusFx& fx = im.bus[b];
+        BusFx& fx = im.bus[std::size_t(b)];
         fx.snap.set(want.volume, im.ramp_frames(fade, true));
         im.set_lowpass_locked(fx, want.lowpass, fade);
         im.set_reverb_locked(fx, want.reverb, fade);
         int by = -1;
-        if (want.duck && b != kMasterBus && want.duck->amount > 0.0f) by = fx_bus_index(want.duck->by);
+        if (want.duck && b != kMasterBus && want.duck->amount > 0.0f) by = im.bus_index(want.duck->by);
         if (by >= 0 && by != kMasterBus && by != b) im.set_duck_locked(fx, by, *want.duck);
         else im.set_duck_locked(fx, -1, DuckSettings{});
     }
@@ -1328,7 +1525,7 @@ std::uint64_t Audio::play_log_dropped() const {
 }
 
 Json AudioEvent::to_json() const {
-    return Json::object({{"seq", seq}, {"frame", frame}, {"time", time}, {"path", path}, {"volume", volume},
+    return Json::object({{"kind", kind}, {"voice", voice}, {"fade", fade}, {"seq", seq}, {"frame", frame}, {"time", time}, {"path", path}, {"volume", volume},
                          {"pitch", pitch}, {"pan", pan}, {"bus", bus}, {"loop", loop}, {"music", music},
                          {"source", source}, {"ok", ok}, {"layer", layer}});
 }
@@ -1409,11 +1606,16 @@ Json Audio::stats() const {
     j["master"] = im.bus[kMasterBus].vol.target;
     Json buses = Json::object();
     Json effects = Json::object();
-    for (int i = 0; i < BusCount; ++i) {
-        buses[kBusNames[i]] = im.bus[i].vol.target;
-        effects[kBusNames[i]] = im.bus_state_json(im.bus[i]);
+    Json parents = Json::object();
+    for (std::size_t i = 0; i < im.bus.size(); ++i) {
+        const BusFx& fx = im.bus[i];
+        if (int(i) != kMasterBus) {
+            buses[fx.name] = fx.vol.target;
+            parents[fx.name] = im.bus[std::size_t(fx.parent)].name;
+        }
+        effects[fx.name] = im.bus_state_json(fx);
     }
-    effects["master"] = im.bus_state_json(im.bus[kMasterBus]);
+    j["busParents"] = parents;
     j["buses"] = buses;
     j["busEffects"] = effects;
     j["snapshot"] = im.snapshotName;
@@ -1462,17 +1664,18 @@ void Audio::update(World& world, float dt) {
     // ---- listener: AudioListener entity, else the primary (or first) camera
     bool haveListener = false;
     Vec3 lpos{}, lright{1, 0, 0};
-    float lvol = 1.0f;
-    auto take = [&](Entity e, float vol) {
+    float lvol = 1.0f, lzoom = 1.0f;
+    auto take = [&](Entity e, float vol, float zoom) {
         Mat4 m = world.world_matrix(e);
         lpos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
         Vec3 r{m.at(0, 0), m.at(0, 1), m.at(0, 2)};
         lright = length_sq(r) > 1e-8f ? normalize(r) : Vec3{1, 0, 0};
         lvol = vol;
+        lzoom = zoom > 1e-3f ? zoom : 1e-3f;
         haveListener = true;
     };
     world.each<AudioListener>([&](Entity e, AudioListener& l) {
-        if (!haveListener && world.active_in_hierarchy(e)) take(e, l.volume);
+        if (!haveListener && world.active_in_hierarchy(e)) take(e, l.volume, l.zoom);
     });
     if (!haveListener) {
         // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
@@ -1486,8 +1689,8 @@ void Audio::update(World& world, float dt) {
                 first = e;
             }
         });
-        if (!primary.is_null()) take(primary, 1.0f);
-        else if (!first.is_null()) take(first, 1.0f);
+        if (!primary.is_null()) take(primary, 1.0f, 1.0f);
+        else if (!first.is_null()) take(first, 1.0f, 1.0f);
     }
 
     // ---- AudioSource components
@@ -1534,7 +1737,8 @@ void Audio::update(World& world, float dt) {
         float gain = 1.0f, pan = 0.0f;
         if (src->spatial && haveListener) {
             Vec3 d = world.world_position(e) - lpos;
-            float range = std::max(src->range, 1e-3f);
+            // The listener's zoom stretches the distance a sound is heard at: a zoom of 2 doubles the reach (and the pan's span).
+            float range = std::max(src->range, 1e-3f) * lzoom;
             gain = saturate(1.0f - length(d) / range);
             pan = clamp(dot(d, lright) / (range * 0.5f), -1.0f, 1.0f);
         }
@@ -1620,7 +1824,7 @@ void Audio::update(World& world, float dt) {
             ev.bus = vid->bus;
             set_voice_bus(ev.voice, vid->bus);
         }
-        set_voice_volume(ev.voice, vid->volume);
+        set_voice_volume(ev.voice, vid->volume, 0.0f, false);  // the video's own per-frame level is not a script's call
         im.videoScratch.clear();
         const std::size_t frames = dec->take_audio(0.08, im.videoScratch);
         if (frames > 0) push_pcm(ev.voice, im.videoScratch.data(), frames);

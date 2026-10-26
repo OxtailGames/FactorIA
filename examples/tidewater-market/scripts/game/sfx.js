@@ -9,7 +9,6 @@ import { VoiceBook } from "./soundmix.js";
 
 /** Frames between two plays of the same sound (60 per second). */
 const GAP_FRAMES = { click: 4, place: 8, demolish: 8, error: 12, notice: 30, filled: 20, card: 20, confirm: 10 };
-const LIFE = 0.3;
 
 /** @type {Map<string, number>} the frame each sound last played */
 const lastFrame = new Map();
@@ -28,12 +27,11 @@ export function playUi(name) {
   const last = lastFrame.get(name);
   if (last !== undefined && frame >= last && frame - last < (GAP_FRAMES[name] ?? 6)) return false;
   if (!book) book = new VoiceBook(data.voices.ui);
-  const now = frame / 60;
-  const offer = book.offer(now, 1);
+  const offer = book.offer(1);
   if (!offer.play) return false;
   if (offer.evict !== null) audio.stop(offer.evict);
   lastFrame.set(name, frame);
-  book.add(audio.play(sound.clip, { volume: sound.volume, bus: "ui" }), now, LIFE, 1, offer.evict);
+  book.add(audio.play(sound.clip, { volume: sound.volume, bus: "ui" }), 1, offer.evict);
   return true;
 }
 

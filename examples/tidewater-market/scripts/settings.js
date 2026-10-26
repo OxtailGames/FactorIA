@@ -4,13 +4,11 @@
 import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
 import { setUiScale } from "./game/ui_kit.js";
 
-/** The audio buses of the engine (audio.setVolume takes exactly these). */
-export const BUSES = ["master", "music", "sfx", "ui"];
 /**
- * The buses the Audio tab shows, in order. "ambience" is the game's own fifth bus: the engine has four, so the soundscape
- * (scripts/game/soundscape.js) plays its beds on "sfx" and multiplies every bed by this volume itself (ENGINE_FEEDBACK FB-0041).
+ * The audio buses the Audio tab shows, in order. "ambience" is the game's own bus, declared in factoria.json ("audio"."buses")
+ * under "sfx": the soundscape plays its beds on it, so audio.setVolume("ambience") sets them and the sfx volume scales them too.
  */
-export const MIX_BUSES = ["master", "music", "ambience", "sfx", "ui"];
+export const BUSES = ["master", "music", "ambience", "sfx", "ui"];
 /** The choices of the UI scale option (widget sizes: icons, buttons, rules, paddings). */
 export const UI_SCALES = [1, 1.25, 1.5];
 /** The choices of the text size option. */
@@ -63,7 +61,7 @@ export function save(s) {
 /**
  * The options the game code reads every frame, kept in `session` (storage.get parses JSON each call). save() and apply() refresh
  * it, so it is always what the player last chose; before anything was applied it comes from storage once.
- * @returns {{ ambience: number, reducedMotion: boolean, safeColors: boolean, holdFree: boolean, uiScale: number }}
+ * @returns {{ reducedMotion: boolean, safeColors: boolean, holdFree: boolean, uiScale: number }}
  */
 export function live() {
   if (!session.liveOptions) publish(load());
@@ -71,7 +69,7 @@ export function live() {
 }
 
 function publish(s) {
-  session.liveOptions = { ambience: s.volume.ambience, reducedMotion: !!s.reducedMotion, safeColors: !!s.safeColors, holdFree: !!s.holdFree, uiScale: s.uiScale };
+  session.liveOptions = { reducedMotion: !!s.reducedMotion, safeColors: !!s.safeColors, holdFree: !!s.holdFree, uiScale: s.uiScale };
 }
 
 /** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
@@ -106,7 +104,7 @@ export function applyScene(s = load()) {
 /** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
-  publish(s); // the ambience volume and the accessibility switches the game code reads
+  publish(s); // the accessibility switches the game code reads
   applyScene(s);
   ui.textScale = s.textScale;
   setUiScale(s.uiScale);
