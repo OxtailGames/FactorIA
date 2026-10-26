@@ -30,7 +30,8 @@ function tapKey(name) {
   game.step(1);
 }
 
-const devices = () => players.all().map((p) => p.device);
+// A pad device also carries the pad's `padId` (see players.js); most tests only care about kind and index.
+const devices = () => players.all().map(({ device: { padId, ...rest } }) => rest);
 
 describe("the join screen", () => {
   cleanBeforeEach();
@@ -507,7 +508,31 @@ describe("a pad unplugged mid-shift", () => {
     game.step(2);
     pad(2).tap("A");
     expect(game.paused).toBe(false);
-    expect(players.get(3).device).toEqual({ kind: "pad", index: 2 });
+    expect(players.get(3).device).toMatchObject({ kind: "pad", index: 2 });
+  });
+
+  test("a pad that comes back in another slot is still its player's: the miner follows it and the game goes on", () => {
+    playRows(HALL, { players: 4, padWatch: true }); // player 4 is on pad 1
+    const id = input.gamepad(1).id;
+    const log = record("controllerLost", "controllerRestored");
+    pad(2).disconnect(); // a free port
+    pad(1).disconnect();
+    game.step(5);
+    expect(game.paused).toBe(true);
+    pad(2).connect({ id }); // the same pad, plugged into another port
+    game.step(5);
+    expect(game.paused).toBe(false);
+    expect(players.get(3).device).toMatchObject({ kind: "pad", index: 2, padId: id });
+    expect(log[log.length - 1].data.how).toBe("reconnected");
+  });
+
+  test("a player on a pad remembers the pad's id; a player on the keyboard has none", () => {
+    players.clear();
+    pad(0).connect({ id: "pad-red" });
+    players.add({ device: { kind: "pad", index: 0 } });
+    players.add({ device: { kind: "keys", scheme: "keyboard" } });
+    expect(players.get(0).device.padId).toBe("pad-red");
+    expect(players.get(1).device.padId).toBeUndefined();
   });
 
   test("the keyboard takes over a miner whose pad is gone when no other player uses it", () => {

@@ -124,7 +124,7 @@ Steam keeps a file's executable bit only from a macOS or Linux machine: upload t
   `ACH_BUG_SQUASHER`; stats `NumOreDug`, `NumMolesRescued`, `NumFloorsCleared`, `NumEnemiesDefeated`; boards `BestRunCash`
   and `DailyRunCash`), rich presence from `scripts/online/presence.js`, and `steam_appid.txt` with 480.
 - **The plugin is not committed.** `platform.add_backend steam` builds `plugins/steam` on the machine that exports, and it
-  needs Valve's Steamworks SDK (a free download from Valve, not redistributable). Without it every run logs an ERROR and the
+  needs Valve's Steamworks SDK (a free download from Valve, not redistributable). Without it a run logs a warning (FB-0031 made it one) and the
   export warns that the Windows and Linux plugin builds are missing (FB-0031). So the committed project has no `plugins/steam`
   (it is in `.gitignore`), the game runs with platform services off ("no store backend"), and the exports above have no Steam
   library. Before the real Steam build, on each export machine:
@@ -154,12 +154,12 @@ The busiest floor is Crystal Caves floor 3 with four miners, six torches, the cr
 | `tools/cli/tests/perf/burrow-brigade.perf.json` (engine repo) | the same scene and budgets, with one entry per CI runner (`drawCalls` and `entities` are the same on all of them) |
 | `tests/render_budget.test.js` | the same caps, checked on every floor (all nine), with 4 miners, and the Light2D count (`renderStats().lights2d`, up to 24 in view) |
 
-Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 10 draw calls, 134 entities, 47 MB
+Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 11 draw calls, 145 entities, 47 MB
 peak, 1.4 ms CPU per frame on average (p95 2.3 ms), 0.08 MB of textures. CPU time and memory are CI's to measure; draw
 calls and entities are the same on every runner.
 
-`lights` reads 0 in the report: `renderStats().lights` counts 3D lights only and the game's lamps are `Light2D` (FB-0028).
-The test counts the active Light2D entities itself (16 on the busiest floor, the engine's cap).
+`lights` reads 20 in the report: `perf.measure` counts `Light2D` too since the engine fixed it (FB-0028, a duplicate of FB-0009).
+The render test reads `renderStats().lights2d` (more than 16 on the busiest floor, never over the cap of 24).
 
 ## 6. Could not be checked
 
@@ -167,5 +167,5 @@ The test counts the active Light2D entities itself (16 on the busiest floor, the
 - Anything that needs Valve's library: the plugin build, app 480, the overlay, Remote Play Together, the real
   `steamcmd` upload, achievements on a real Steam account.
 - Signing and notarizing the macOS app (needs a Developer ID).
-- Keyboard and pad input on the exported binary (no replay option, FB-0029): proven with the headless runtime instead.
+- Keyboard and pad input on the exported binary (the exported player has `--input` now, FB-0029, but it was not run): proven with the headless runtime instead.
 - The Russian and Thai store texts by a native reader, and the games' own Russian and Thai (package P8).

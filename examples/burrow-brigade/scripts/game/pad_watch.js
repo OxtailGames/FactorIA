@@ -1,13 +1,15 @@
 // @ts-check
 // A gamepad unplugged during a shift. Put this Script on one entity of the shift scene. While every player's pad is plugged in it
 // does nothing. When the pad of a player disappears the game PAUSES and a screen says "Reconnect the controller for P2". Then:
-//  - the pad comes back (same slot): the game goes on;
+//  - the pad comes back: the game goes on. The engine gives a returning pad its old slot when it is free; when it turns up in
+//    another slot, `gamepadConnected` carries the pad's stable id and this script moves the player's `device.index` there
+//    (players.js keeps the id of each pad, and the engine's `input.player(i).use({ padId })` already makes the miner read it);
 //  - on any other free controller (a pad that nobody uses and that is plugged in) A hands that player's miner to it, and on the
-//    keyboard Enter does, when no player uses the keyboard. This is also how a pad that came back in another slot rejoins: a
-//    system gives an unplugged pad's slot to whichever pad turns up next, and the engine has no way to say which pad is which;
+//    keyboard Enter does, when no player uses the keyboard;
 //  - another player drops the missing one with Y on their pad or Backspace on their keyboard: that miner leaves the mine.
 // The pause is the same `game.paused` the pause menu uses; this script keeps running meanwhile (runWhilePaused) and only unpauses
-// what it paused itself. Events: `controllerLost`, `controllerRestored`.
+// what it paused itself. Events: `controllerLost`, `controllerRestored`. Which pads are out is still read every frame
+// (`input.gamepad(i).connected`): the pads plugged in when the scene starts are not announced, and a state read cannot be missed.
 import { Behaviour, world, input, game } from "factoria";
 import * as players from "./players.js";
 import * as events from "./events.js";
@@ -22,9 +24,21 @@ export default class PadWatch extends Behaviour {
     this.owns = false; // this script paused the game
     this.ui = [];
     this.known = new Set(); // players already announced with controllerLost
+    this.offConnected = game.on("gamepadConnected", (e) => this.padConnected(e));
+  }
+
+  /** A pad was plugged in: the player that owned a pad with this id follows it to its new slot. */
+  padConnected(e) {
+    for (const p of players.all()) {
+      const d = p.device;
+      if (d.kind === "pad" && d.padId && d.padId === e.id && d.index !== e.slot) {
+        players.setDevice(p.id, { kind: "pad", index: e.slot, padId: e.id });
+      }
+    }
   }
 
   onDestroy() {
+    this.offConnected?.();
     this.hideScreen();
     if (this.owns && game.paused) game.paused = false;
   }

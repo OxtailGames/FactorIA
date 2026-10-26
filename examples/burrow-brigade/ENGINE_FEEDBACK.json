@@ -343,9 +343,10 @@
       "suggestion": "Camera.viewport [x,y,w,h] normalised, several primary cameras per frame, each with its own Light2D culling and HUD space.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-25 triage: confirmed open; work package M29.19 (Split screen: camera viewports) in feedback/ROADMAP.md."
+        "2026-10-25 triage: confirmed open; work package M29.19 (Split screen: camera viewports) in feedback/ROADMAP.md.",
+        "Fixed in f8ddc3e9 (M29.19): one render loop per active primary camera into its Camera.viewport (up to 8), and the screen conversions take a camera. Burrow Brigade: camera_views.js's plan is now drawn, one Camera per view made by follow_camera.js, when Options > Video > Split screen when players part is on (off by default); the leash (limitMove) stays only when it is off."
       ]
     },
     {
@@ -371,7 +372,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.9 (Gamepad connect events, a stable pad id and Steam Deck detection) in feedback/ROADMAP.md.",
-        "Fixed in fe840536 (M29.9): game.on(\"gamepadConnected\" | \"gamepadDisconnected\") with the slot and a stable id on the five backends, and a pad that comes back gets its old slot when it is free. Burrow Brigade keeps pad_watch.js and join.js polling input.gamepad(i).connected every frame: they read the state, which the events do not replace, and they were not switched to the events or the stable id in this pass."
+        "Fixed in fe840536 (M29.9) and M29.15 (padId): game.on(\"gamepadConnected\" | \"gamepadDisconnected\") with the slot and a stable id, and a returning pad gets its old slot when it is free. Burrow Brigade now uses them: players.js keeps each pad player's padId (input.player(i).use({ padId }), so the miner reads its own pad whatever slot it is in) and pad_watch.js listens to gamepadConnected to move a player's device.index when its pad comes back in another slot, so the pause screen clears by itself (test: coop.test.js, 'a pad that comes back in another slot'). Still polled on purpose: pad_watch.js reads input.gamepad(i).connected every frame (pads plugged in when the scene starts are not announced, and a state read cannot be missed) and join.js reads the button presses of the four slots, which are state, not events."
       ]
     },
     {
@@ -710,7 +711,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.17 (Monitor choice and window modes) in feedback/ROADMAP.md.",
-        "Fixed in 7156bfaf (M29.17): window.monitors(), window.setMonitor(i) and window.setMode(\"windowed\" | \"borderless\" | \"fullscreen\") on Windows, macOS and Linux. Burrow Brigade keeps its Options > Video as it was (windowed and full screen, the monitor's size as text: scripts/ui/options.js and scripts/settings.js): the Options screen is being reworked by M29.19, so the switch to the new window API is left to after it."
+        "Fixed in 7156bfaf (M29.17): window.monitors(), window.setMonitor(i) and window.setMode(\"windowed\" | \"borderless\" | \"fullscreen\") on Windows, macOS and Linux. Burrow Brigade now uses them: Options > Video cycles the three modes with window.setMode (borderless only where window.supports(\"borderless\")) and shows a monitor button (window.monitors() / window.setMonitor) only where window.supports(\"monitors\") and there is more than one monitor; settings.js saves displayMode and monitor and applies them at start, and an older save's fullscreen flag still means full screen."
       ]
     },
     {
