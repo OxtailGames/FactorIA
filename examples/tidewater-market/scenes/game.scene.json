@@ -56,7 +56,7 @@
           "components": {
             "Sprite": {
               "texture": "assets/atlas.png",
-              "region": [1764, 739, 28, 28],
+              "region": [1720, 951, 28, 28],
               "size": [24, 24],
               "space": "screen",
               "layer": 210,
@@ -95,6 +95,25 @@
       }
     },
     {
+      "id": "speed_bar",
+      "name": "Clock speed",
+      "components": {
+        "Transform": {
+          "position": [-210, 6, 0]
+        },
+        "Panel": {
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "color": [0, 0, 0, 0],
+          "layer": 200,
+          "layout": "row",
+          "spacing": 4,
+          "padding": [0, 0, 0, 0],
+          "fit": true
+        }
+      }
+    },
+    {
       "id": "palette",
       "name": "Build palette",
       "components": {
@@ -107,8 +126,8 @@
           "color": [0.05, 0.07, 0.1, 0.88],
           "layer": 200,
           "layout": "column",
-          "spacing": 4,
-          "padding": [8, 8, 8, 8],
+          "spacing": 3,
+          "padding": [8, 6, 8, 6],
           "fit": true
         }
       }

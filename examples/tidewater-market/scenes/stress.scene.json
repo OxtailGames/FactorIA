@@ -1,0 +1,201 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Strategy camera",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Camera": {
+          "projection": "orthographic",
+          "orthoSize": 360,
+          "clearColor": [0.1, 0.2, 0.32, 1],
+          "primary": true
+        },
+        "Script": {
+          "path": "scripts/game/camera_rig.js"
+        }
+      }
+    },
+    {
+      "id": "controller",
+      "name": "Game controller",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Script": {
+          "path": "scripts/game/game_controller.js",
+          "props": {
+            "stress": 640,
+            "startSpeed": 3,
+            "music": false
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_bar",
+      "name": "Top bar",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Panel": {
+          "size": [1280, 44],
+          "anchor": [0, 0],
+          "pivot": [0, 1],
+          "color": [0.05, 0.07, 0.1, 0.88],
+          "layer": 200,
+          "layout": "row",
+          "spacing": 10,
+          "padding": [14, 6, 14, 6],
+          "align": "center"
+        }
+      },
+      "children": [
+        {
+          "id": "coin_icon",
+          "components": {
+            "Sprite": {
+              "texture": "assets/atlas.png",
+              "region": [1720, 951, 28, 28],
+              "size": [24, 24],
+              "space": "screen",
+              "layer": 210,
+              "pixelArt": false
+            }
+          }
+        },
+        {
+          "id": "coins_text",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 22,
+              "space": "screen",
+              "layer": 210
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud_date",
+      "name": "Date",
+      "components": {
+        "Transform": {
+          "position": [-16, 10, 0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 22,
+          "space": "screen",
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "layer": 210
+        }
+      }
+    },
+    {
+      "id": "speed_bar",
+      "name": "Clock speed",
+      "components": {
+        "Transform": {
+          "position": [-210, 6, 0]
+        },
+        "Panel": {
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "color": [0, 0, 0, 0],
+          "layer": 200,
+          "layout": "row",
+          "spacing": 4,
+          "padding": [0, 0, 0, 0],
+          "fit": true
+        }
+      }
+    },
+    {
+      "id": "palette",
+      "name": "Build palette",
+      "components": {
+        "Transform": {
+          "position": [-8, 52, 0]
+        },
+        "Panel": {
+          "anchor": [1, 0],
+          "pivot": [1, 1],
+          "color": [0.05, 0.07, 0.1, 0.88],
+          "layer": 200,
+          "layout": "column",
+          "spacing": 3,
+          "padding": [8, 6, 8, 6],
+          "fit": true
+        }
+      }
+    },
+    {
+      "id": "status_bar",
+      "name": "Status bar",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Panel": {
+          "size": [1280, 34],
+          "anchor": [0, 1],
+          "pivot": [0, 0],
+          "color": [0.05, 0.07, 0.1, 0.88],
+          "layer": 200
+        }
+      }
+    },
+    {
+      "id": "status_text",
+      "name": "Status text",
+      "components": {
+        "Transform": {
+          "position": [14, -7, 0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 20,
+          "space": "screen",
+          "anchor": [0, 1],
+          "pivot": [0, 0],
+          "layer": 210,
+          "maxWidth": 1250
+        }
+      }
+    },
+    {
+      "id": "toast",
+      "name": "Toast",
+      "components": {
+        "Transform": {
+          "position": [0, 60, 0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0.5, 1],
+          "layer": 220
+        }
+      }
+    },
+    {
+      "id": "pause_menu",
+      "name": "Pause menu",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    }
+  ]
+}

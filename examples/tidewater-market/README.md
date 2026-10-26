@@ -19,7 +19,7 @@ factoria call --project . project.validate_data               # check data/*.jso
 | Package | What | State |
 |---|---|---|
 | P1 | Map, camera, building, undo, data tables, title screen, HUD | done |
-| P2 | Production, workers, the running clock and its speed control | planned |
+| P2 | Villagers and walkers, carriers, production chains, the running clock and its speed control, seasons and their music, wages and sales, the bot, the stress scene | done |
 | P3 | Prices, markets, trade | planned |
 | P4 | Population, housing, happiness | planned |
 | P5 | Contracts and goals | planned |
@@ -27,14 +27,16 @@ factoria call --project . project.validate_data               # check data/*.jso
 | P7 | Finished art and sound under the same frame names | planned |
 | P8 | Translations (es, fr, zh-Hans), accessibility, polish | planned |
 
-## How to play (P1)
+## How to play (P1, P2)
 
-The title screen has Play, Options, Credits and Quit; Play goes through the loading scene to the map. Everything can be done
-with the mouse.
+The title screen has Play, Options, Credits and Quit; Play goes through the loading scene to the map, with the camera on the
+harbour (the sea is in view). Everything can be done with the mouse. The game starts at x1; the town lives from the first
+house: villagers move in, walk to work, carry goods and shop at the market (see "Economy and simulation").
 
 | Input | Does |
 |---|---|
-| Palette button (right), or keys 1-9 | Pick a building; the cell under the mouse shows a ghost, green when it can go there and red with the reason in the status line when not |
+| Speed buttons (top, left of the date: pause, 1x, 2x, 4x), keys 1 (pause), 2 (x1), 3 (x2), 4 (x4) | Set the speed of the clock; Space pauses and goes on at the speed it had |
+| Palette button (right) | Pick a building; the cell under the mouse shows a ghost, green when it can go there and red with the reason in the status line when not |
 | Left click | Place the picked building (the footprint is centred on the cell under the mouse); with no tool, nothing but the info line |
 | Left drag with Road | Lay a road: along the longer side first, then the other; one payment, one undo step |
 | Rotate button, R | Turn the next building (its door faces +c, +r, -c, -r; the rotation is kept between picks) |
@@ -52,13 +54,13 @@ the ground cell behind it, not the building.
 
 | Path | What |
 |---|---|
-| `data/*.json` | The tables: `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
-| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`. Behaviours: `game_controller`, `camera_rig`, `map_view`, `title_backdrop` |
-| `scenes/` | `menu` (title), `loading`, `game` |
+| `data/*.json` | The tables: `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
+| `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, `camera_math`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (distance fields on the roads), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`. Engine-facing: `nav_backend` (the engine's path finder as a route backend, tests only). Behaviours: `game_controller`, `camera_rig`, `map_view`, `walker_view`, `music_director`, `title_backdrop` |
+| `scenes/` | `menu` (title), `loading`, `game`, `stress` (the game scene with a 640-villager town built at start: `perf.measure` with `{"scene": "scenes/stress.scene.json"}`) |
 | `locales/en.json` | Every text the player sees. Nothing is hard-coded in a script |
 | `assets/atlas.png` | One 2048 x 1024 atlas with every picture the map draws (one atlas is one draw call). `assets/src/make_atlas.py` builds it from the Kenney CC0 images in `assets/src/kenney/` plus placeholder art drawn in the script; `assets.json` has the provenance |
-| `tools/` | `project.map_preview`, `project.validate_data` |
-| `tests/` | map generation, rules, data tables, camera and picking, the pause menu, the mouse-only flow from the title screen, and screenshots to look at |
+| `tools/` | `project.map_preview`, `project.validate_data`, `project.grow_town` (the bot grows a town from a seed and reports it) |
+| `tests/` | map generation, rules, data tables, camera and picking, the pause menu, the mouse-only flow from the title screen, the clock and seasons, the HUD speed control, the simulation (walkers, road cuts, carriers, chains, wages, sales), the bot's year, the stress town, and screenshots to look at (`.factoria/tmp/*.png`) |
 
 ## Contracts for the next packages
 
@@ -87,22 +89,136 @@ numbers later packages read: `housing`, `workers`, `storage`, `recipes` (ids fro
 **Economy state (`state.economy`).** `coins` and `stock` (good id -> number). `get(key)` takes `"coins"` or a good id. Changes go through
 `apply(delta, cause)`, where a delta is a flat object `{ coins: -40, wood: -4 }`; it refuses (returns false, changes nothing)
 when a balance would go below zero, and emits `economy.changed`. `canAfford(cost)` and `canApply(delta)` say what is missing.
-P2 produces goods with `apply(delta, "production")`; P3 sells with `apply(..., "trade")`. Undo gives back exactly what an
+The simulation uses the causes `dispatch` (a carrier takes goods out of the stock), `delivery` (it puts goods in), `wages`, `upkeep`
+and `sales`; goods being made are not in the stock until a carrier delivers them (they wait in the building's outbox). Undo gives back exactly what an
 action cost or refunded, and is refused when the money is no longer there.
 
 **Game events (`state.events`, a synchronous bus; `on(name, fn)` returns the unsubscribe function, `"*"` hears everything).**
 `building.placed` and `building.removed` `{ building, cause }` (cause: `place`, `demolish`, `undo`, `redo`); `roads.changed`
 `{ cells }`; `economy.changed` `{ coins, stock, delta, cause }`; `history.changed` `{ canUndo, canRedo, undoLabel, redoLabel }`;
-`action.rejected` `{ action, code, reasons }` (refused placement, undo or redo); `clock.speed`, `clock.tick`, `clock.day`,
-`clock.season`. A listener that throws is logged and the others still run. A package reacts to the game through these events
+`action.rejected` `{ action, code, reasons }` (refused placement, undo or redo); `clock.speed` `{ speed }`, `clock.tick`,
+`clock.day`, `clock.season` (above); from the simulation: `villager.arrived` `{ villager, house }`, `villager.left`
+`{ villager, reason }` (`starved`, `home_lost`), `production.done` `{ building, recipe, outputs }`, `delivery`
+`{ goods }` (a carrier unloaded at a warehouse), `payday` `{ wages, upkeep, owed, broke }` (once per day, after `clock.day`),
+`market.sale` `{ market, villager, items, coins }`. A listener that throws is logged and the others still run. A package reacts to the game through these events
 and never reaches into the view.
 
-**The clock (`state.clock`).** A stub in P1: speed 0 (paused), so the date in the top bar stays at Spring 1, year 1.
-`setSpeed(i)` picks an index of `SPEEDS = [0, 1, 2, 4]`; `advance(dt)` is called by the controller every frame with real
-seconds and moves game time by `dt * SPEEDS[speed]`; `date()` gives `{ day, year, season, seasonIndex, dayOfSeason }` from
-the calendar in `data/economy.json` (4 seasons of 10 days, 6 game seconds per day). `clock.tick` `{ seconds }` fires on each
-advance with a speed above 0 and is what P2 drives production from; `clock.day` fires once per `advance` call that crosses a day
-boundary, even if the call crossed several days (keep `dt` small, as the frame loop does). `setDay(n)` is for tests and loading.
+**The clock (`state.clock`, P2).** The API of P1 is kept. A new clock is paused; the game screen starts it at x1.
+`setSpeed(i)` picks an index of `SPEEDS = [0, 1, 2, 4]` and emits `clock.speed`; `advance(dt, maxSteps)` is called by the
+controller every frame with real seconds, multiplies them by the speed, cuts the result into FIXED steps of
+`calendar.tickSeconds` (0.2 game seconds) and runs one `tick(step)` for each, so x1, x2 and x4 and every frame rate give the same
+town (a speed decides how many steps run per frame, never how long a step is). A frame that took too long runs at most
+`maxSteps` steps (the controller passes 12) and drops the rest. `date()` gives `{ day, year, season, seasonIndex, dayOfSeason }`
+(`day` = whole days since the start, `dayOfSeason` counts from 1) from the calendar in `data/economy.json`: 4 seasons of 10
+days, 30 game seconds per day, 150 steps per day, 40 days a year. `dayFraction()` is the time of day 0..1 (an integer count of
+steps, no drift). Events, always in this order within a step: `clock.day` `{ day, date }` when the day changes, `clock.season`
+`{ date }` right after it when the season (or year) changes, then `clock.tick` `{ seconds }`, once per fixed step, which is
+what the whole simulation runs from. Nothing in the simulation reads the frame time or a wall clock. `setDay(n)` is for tests
+and loading (it moves the date without events; the simulation reads the season from the clock, not from the event).
+
+**Seasons (`data/seasons.json`).** One entry per season id of the calendar: `production` (speed multiplier per recipe id, a
+missing one is 1, 0 = the building waits: "out of season"), `demand` (multiplier on a good's base price at the market),
+`tint` (colour multiplied onto the grass, sand and trees; `map_view` applies it on `clock.season`), `music` and `musicVolume`
+(the loop `music_director` crossfades to; the loops are in `assets/music/`, made by `assets/src/make_music.py`). P3 prices read
+`sim.priceOf(good)`, which already multiplies by the season's demand.
+
+## Economy and simulation (P2)
+
+`state.sim` (`scripts/game/sim.js`) is the town. It listens to `building.placed` / `building.removed` and runs one step on
+every `clock.tick`, in this order: villagers (`people`), carriers (`logistics`), walkers, production. It has no random number
+and no clock of its own, so one seed and one sequence of player actions give one town (`state.hash()` includes it).
+
+**The day** (fractions of the 30-second day, `sim` in `data/economy.json`): from `workStartDay` 0.05 (plus up to
+`departSpreadDay` 0.1 by villager id, so they do not leave together) the employed walk to their workplace and stay until
+`workEndDay` 0.7 (the market's staff until `marketCloseDay` 0.92). After work a hungry villager walks to an open market that
+has food, then everybody walks home. A villager is either inside a building (`at`) or one walker on the road (`walkers.list`).
+
+**Villagers (`sim.people`).** `{ id, home, job, at, state, purpose, food, hunger, lastShop, trip }`. A house (4 beds) takes in
+a villager `firstArrivalSeconds` 4 after it is built and then one every `growthSeconds` 12, as long as it has a road to it and:
+below `founders` 6 villagers always; from then on nobody is hungry, fewer than `unemployedLimit` 3 villagers lack a job, and
+`sim.people.townFood()` (stock and market shelves, not the packs) is at least `(population + 1) * foodPerDay * growthFoodDays`.
+A villager eats `foodPerDay` 0.6 a day from a pack of `foodBuffer` 3; once a day, after work starts, it walks to the nearest
+open market that has food when its pack is below `shopBelow` 1.2 and fills the pack there (cheapest nutrition per coin first);
+with the pack empty for `hungerLimitDays` 6 days it leaves (`villager.left`, reason `starved`); demolishing its house
+sends it away too (`home_lost`). `people.moveIn(houseId)` puts one in at once (tests, the stress town).
+Jobs (`people.assign`): workplaces by `jobPriority` of `data/buildings.json` (market 0, warehouse 1, farm, dock, camp,
+sawmill, mill, bakery, smokehouse 3, quarry 4, workshop 5) take the nearest unemployed villager by road, in two rounds (one
+worker for every workplace first, then the rest), and a more important workplace may take a worker from a less important one.
+Villagers hold no money: the wage is a cost of the town, paid at the start of each day (below).
+
+**Walkers (`sim.walkers`, `sim.net`).** `walkers.start(id, kind, fromBuilding, goalBuilding, speed)` makes a walker follow a
+list of road cells (cells per game second: `walkSpeed.villager` 2.4, `walkSpeed.carrier` 2.0); `x, y, px, py` are fractional
+cells (`walker_view` draws at `px + (x - px) * clock.alpha`). Roads are `RoadNet` (`roadnet.js`): one breadth-first distance
+field per goal building, cached until `net.version` (any road change) moves. A walker re-checks its way every step: a road
+cut under it sends it round by another way from where it stands, with no way it waits `patienceSeconds` 15 and gives up
+(`walkers.gaveUp` counts them; the villager is put back inside its home, and a carrier's errand is dropped). Plug-in: `net.setFinder(fn)` replaces the fields with a
+single-pair path finder `fn(road, width, height, fromCell, toCell) -> cells | null` (`nav_backend.js` wraps the engine's
+`nav.findTilePath`; slower for crowds, see "Stress scene").
+
+**Production.** A building with `recipes` and `workers` runs the first recipe whose inputs are in its inbox and whose outputs
+fit its outbox. Progress per step is `dt * (present / workers) * seasonRate * productionRate` (3.5, halved by
+`unpaidEfficiency` 0.5 while the town is broke), so one worker runs half speed and an empty building stops. Why a building is
+not running is `rt.stall`: `no_staff`, `closed` (nobody inside right now), `no_input`, `output_full`, `season` (strings in
+`locales/en.json` `sim.stall.*`), `""` while it runs. Chains (data only: `data/recipes.json`): fish -> smokehouse -> smoked
+fish; grain -> mill -> flour -> bakery -> bread (a bakery also bakes bread straight from grain, less); wood -> sawmill -> planks.
+The goods with a `nutrition` in `data/goods.json` (fish, bread, smoked fish) are what the market shelves and villagers eat.
+Winter stops the farms (`harvest_grain` 0), autumn almost doubles them.
+`production.done` fires per finished cycle.
+
+**Carriers and stock (`sim.logistics`).** The workers of a warehouse are the carriers; every `dispatchSeconds` 1 the planner
+lists what has to move and gives each job to an idle carrier of the warehouse nearest by road: `supply` (stock -> a producer
+whose inbox needs the goods, or a market whose shelf is below `marketTarget` 16), `collect` (an outbox with goods -> stock).
+A carrier takes at most `carrierCapacity` 12 and reserves the room and the goods, so two carriers never fetch the same goods.
+All warehouses share ONE stock, `state.economy.stock`, at most `sim.capacity()` of each good (`baseStorage` 80 plus 400 per
+warehouse); a delivery that does not fit is lost (`ledger.lost`) and a producer with a full outbox waits (`output_full`).
+Without a warehouse nothing moves: producers fill their outbox and stop and the market stays empty. A producer keeps at most
+`outboxCycles` 2 cycles of output and `inboxCycles` 2 cycles of input.
+
+**Money.** At the start of each day (`payday`, after `clock.day`): `wagePerDay` 1 coin per employed villager and the `upkeep`
+of every building (`data/buildings.json`), as far as the coins go; what could not be paid sets `sim.broke` until the next
+payday that can. Income is the market: a villager that buys food pays `sim.priceOf(good)` per unit into the town's coins
+(`market.sale`). `sim.ledger` counts, since the start: `produced`, `consumed`, `eaten`, `lost` per good, and `sales`, `wages`,
+`upkeep`, `wagesShort` in coins; `sim.inventory(good)` counts a good wherever it is (stock, inbox, outbox, shelf, in a carrier's
+hands), which is how tests check that nothing appears or disappears.
+**Plug-ins for later packages:** P3 replaces `sim.priceOf(good)` (called at every sale and by the bot) and may add its own coin
+flows through `economy.apply(delta, cause)` with a new `cause`; P4 changes the growth rule in `people.grow` and the hunger
+constants in `sim`; P5 reads `sim.summary()` (`{ population, housing, employed, jobs, unemployed, hungry, walkers, broke,
+ledger }`) and the events above; P6 has to save `clock.day`/`dayTick`, `economy`, the buildings, `people.villagers` with their
+`food`, `hunger`, `job`, `sim.rt` per building (`inbox`, `outbox`, `shelf`, `progress`, `cur`) and `sim.ledger`; walkers and
+carriers' trips are not saved by anything yet, so a saved game should put a villager that is outside back inside its home; P7
+replaces pictures only.
+Every number named above is in `data/economy.json` `sim`; `tools/validate_data.js` checks them.
+
+## The bot and the planner (P2)
+
+`scripts/game/bot.js` is a rule-based player that uses only the public actions, so it tests the economy the way a player
+would: `growTown({ seed, testMap, days, state, maxBuildsPerDay })` runs it for `days` game days (40 = a year) and returns
+`{ state, bot, history, summary }` (`history`: one `snapshot` per day with `population`, `housing`, `employed`, `jobs`, `hungry`,
+`coins`, `buildings`, `hash`). Its rules: build a house when 3 or fewer beds are free (6 when food is short); when 3 villagers have no
+job build the next workplace (warehouse, market, smokehouse, bakery, mill, lumber camp, sawmill, farm and fisher dock in
+balance, in that order of need); a farm, dock or bakery when food is short and fewer than 2 jobs are open; a warehouse when
+a stock fills up. Every day it builds what it wants in that order while the coins stay above a reserve, and it waits (builds
+nothing cheaper) when it is saving for the next one.
+`planner.js` answers where: roads follow a street lattice every 5 cells through the harbour (`harbour.js`, the shore cell the
+camera starts on), round rock and trees, and every building goes at the free site nearest the harbour that touches a road
+joined to it (`Planner.build(type)`, `buildMany(type, n)`, `sites(type)`, `layRoads(n)`). The tool
+`factoria call --project . project.grow_town '{"seed": 20261026, "days": 40}'` prints the same report.
+Pinned in `tests/bot.test.js` (seed 20261026, the default map): after a year the town has 30 villagers in 40 beds, 30 of 35 jobs
+filled, 350 coins and hash `6dee2f92`; the test also keeps the numbers inside a sane range (population 24..45, coins 0..5000,
+no more than 3 broke days, hungry at most 8) so a tuning change that breaks the economy fails with a reason, not only a hash.
+Change the economy on purpose: run the test, read the report, update the pinned hash and say why in the commit.
+
+## Stress scene (P2)
+
+`scenes/stress.scene.json` is the game scene with `stress: 640` in the controller's props: a flat 60 x 60 map, 160 houses with
+640 villagers, 23 farms and bakeries, 4 markets and 3 warehouses, laid out one step per frame in the first frames
+(`stress_town.js`, `stressTownSteps`; a script callback may not run over 2 s), then the clock runs at x4 (`startSpeed` 3).
+About 600 villagers are on the roads at once in the morning (`tests/stress.test.js` pins at least 500 and no one giving up).
+`factoria call --project . perf.measure '{"scene": "scenes/stress.scene.json", "frames": 450}'` measured, in a DEBUG build on
+an Apple M5 (Metal): `cpuMsAvg` 29.8, `cpuMsP95` 30.0, `cpuMsMax` 1325 (the frames that build the town), `drawCalls` 27,
+`entities` 4682, `peakMemoryMB` 91.4. These are not budgets: P7 sets them on a release build and the CI runners.
+Walker routes: the distance fields cost 442 ms for 75 steps of 600 walkers against 5978 ms through `nav.findTilePath` on the
+same 60 x 60 map (see FB-0006 in `ENGINE_FEEDBACK.json`), which is why the game uses the fields.
 
 ## Plug-in points
 

@@ -13,6 +13,11 @@ import { Behaviour, ui, input, i18n, game } from "factoria";
 import { getData } from "./data.js";
 import { createGame } from "./state.js";
 import { MapView, COLORS } from "./map_view.js";
+import { WalkerView } from "./walker_view.js";
+import { MusicDirector } from "./music_director.js";
+import { harbourCell } from "./harbour.js";
+import { stressRows, stressTownSteps } from "./stress_town.js";
+import { SPEEDS } from "./clock.js";
 import { footprintCells, roadPath } from "./rules.js";
 import { cellToWorld, mapBounds } from "./iso.js";
 import { amountText, buildingName, dateText, reasonText, stepText } from "./format.js";
@@ -20,6 +25,11 @@ import { amountText, buildingName, dateText, reasonText, stepText } from "./form
 const COLOR_BUTTON = [0.17, 0.21, 0.28, 1];
 const COLOR_BUTTON_ACTIVE = [0.33, 0.52, 0.72, 1];
 const BAR_COLOR = [0.05, 0.07, 0.1, 0.88];
+/** Most clock steps one frame may run (a slow frame drops the rest of its time instead of spiralling). */
+const MAX_STEPS_PER_FRAME = 12;
+const SPEED_LABELS = ["hud.speedPause", "hud.speed1", "hud.speed2", "hud.speed4"];
+/** A frame longer than this many real seconds counts as this long (a window drag must not fast-forward the town). */
+const MAX_FRAME = 0.1;
 /** Presses closer together than this many pixels are a click, not a drag (right-click cancels the tool). */
 const CLICK_SLOP = 6;
 
@@ -30,21 +40,34 @@ export default class GameController extends Behaviour {
   testMap = false;
   /** Seconds a toast stays on screen. */
   toastSeconds = 3;
+  /** The clock speed the game starts at: 0 paused, 1 normal, 2 fast, 3 fastest (a scene prop `speed` overrides it). */
+  startSpeed = 1;
+  /** Play the music of the season. A scene prop `music` overrides it; the test map plays none unless the prop says so. */
+  music = true;
+  /** Stress mode (scenes/stress.scene.json): a flat map with a dense town of this many villagers, see stress_town.js. 0 = a normal game. */
+  stress = 0;
 
   onStart() {
     const props = game.sceneProps();
     const seed = props.seed !== undefined ? props.seed : this.seed;
     const testMap = props.testMap !== undefined ? props.testMap : this.testMap;
     this.data = getData();
-    this.state = createGame({ data: this.data, seed: seed || undefined, testMap });
+    const stress = props.stress !== undefined ? props.stress : this.stress;
+    this.state = createGame({ data: this.data, seed: seed || undefined, testMap, rows: stress ? stressRows() : undefined });
+    /** The stress town is laid out one step per frame (a callback may not run over 2 s), the clock waits for it. */
+    this.stressSteps = stress ? stressTownSteps(this.state, { villagers: stress }).steps : [];
     this.view = new MapView(this.state);
     this.cameraEntity = this.world.find("camera");
     /** @type {import("./camera_rig.js").default} */
     this.rig = this.cameraEntity.behaviour;
     const map = this.state.map;
     this.rig.setBounds(mapBounds(map.width, map.height));
-    const [cx, cy] = cellToWorld(Math.floor(map.width / 2), Math.floor(map.height / 2));
+    // the camera starts on the harbour, so the shore and the water are in view
+    const [hc, hr] = harbourCell(map);
+    const [cx, cy] = cellToWorld(hc, hr);
     this.rig.setView(cx, cy, this.rig.startZoom);
+    this.walkerView = new WalkerView(this.state);
+    this.state.clock.setSpeed(props.speed !== undefined ? props.speed : this.startSpeed);
 
     /** The current tool: kind "none" | "build" | "demolish"; type = the building to build; rot = its rotation. */
     this.tool = { kind: "none", type: null, rot: 0 };
@@ -56,7 +79,7 @@ export default class GameController extends Behaviour {
     this.rightPress = null;
     this.rightConsumed = false;
     this.pressOnMap = false;
-    this.shown = { coins: "", date: "", goods: {}, status: "" };
+    this.shown = { coins: "", date: "", goods: {}, status: "", pop: "", speed: -1 };
 
     this.hudBar = this.world.find("hud_bar");
     this.palette = this.world.find("palette");
@@ -65,24 +88,35 @@ export default class GameController extends Behaviour {
     this.toastText = this.world.find("toast");
     this.coinsText = this.world.find("coins_text");
     this.dateTextEntity = this.world.find("hud_date");
-    this.uiPanels = [this.hudBar, this.palette, this.statusBar, this.dateTextEntity];
+    this.speedBar = this.world.find("speed_bar");
+    this.uiPanels = [this.hudBar, this.palette, this.statusBar, this.dateTextEntity, this.speedBar];
+    this.world.find("coin_icon").get("Sprite").region = this.data.atlas.frames["icon.coin"].rect;
     this.buildHud();
     this.buildPalette();
+    this.buildSpeedBar();
 
     const ev = this.state.events;
     this.off = [
       ev.on("action.rejected", (e) => this.onRejected(e)),
       ev.on("history.changed", () => this.refreshButtons()),
-      i18n.on("change", () => this.buildPaletteLabels()),
+      ev.on("clock.season", (e) => this.toast(i18n.t("toast.season", { season: i18n.t(`season.${e.date.season}`) }))),
+      ev.on("villager.left", (e) => this.toast(i18n.t("toast.left", { reason: i18n.t(`sim.leftReason.${e.reason}`) }))),
+      ev.on("payday", (e) => e.broke && this.toast(i18n.t("toast.broke"))),
+      i18n.on("change", () => {
+        this.buildPaletteLabels();
+        this.buildSpeedLabels();
+      }),
       ui.on("click", (e) => this.onClick(e.id)),
     ];
     this.refreshButtons();
     this.refreshHud(true);
+    if (props.music !== undefined ? props.music : this.music && !testMap) this.musicDirector = new MusicDirector(this.state);
   }
 
   onDestroy() {
     for (const off of this.off || []) off();
     this.off = [];
+    if (this.musicDirector) this.musicDirector.destroy();
     if (this.view) this.view.destroy();
   }
 
@@ -96,6 +130,23 @@ export default class GameController extends Behaviour {
       if (!good.hud) continue;
       this.goodTexts[id] = this.addHudItem(`good_${id}`, good.icon, "");
     }
+    this.popText = this.addHudItem("pop", "icon.pop", "");
+  }
+
+  /** The speed buttons (right of the date): pause, x1, x2, x4. Keys 1-4 and Space do the same. */
+  buildSpeedBar() {
+    this.speedButtons = [];
+    SPEED_LABELS.forEach((label, i) => {
+      const e = this.world.spawn(
+        { id: `speed_${i}`, components: { Button: { text: i18n.t(label), size: [50, 30], fontSize: 18, layer: 210, color: COLOR_BUTTON } } },
+        { parent: this.speedBar },
+      );
+      this.speedButtons.push(e);
+    });
+  }
+
+  buildSpeedLabels() {
+    this.speedButtons.forEach((e, i) => (e.get("Button").text = i18n.t(SPEED_LABELS[i])));
   }
 
   /**
@@ -128,7 +179,7 @@ export default class GameController extends Behaviour {
         {
           id,
           components: {
-            Button: { text: id, size: [236, 34], fontSize: 20, layer: 210, color: COLOR_BUTTON, interactable },
+            Button: { text: id, size: [236, 29], fontSize: 18, layer: 210, color: COLOR_BUTTON, interactable },
           },
         },
         { parent: this.palette },
@@ -184,6 +235,34 @@ export default class GameController extends Behaviour {
     if (force || date !== this.shown.date) {
       this.shown.date = date;
       this.dateTextEntity.get("Text").text = date;
+    }
+    const sum = this.state.sim.summary();
+    let pop = i18n.t("hud.popItem", { count: sum.population, housing: sum.housing });
+    if (sum.hungry > 0) pop += `  ${i18n.t("hud.hungry", { count: sum.hungry })}`;
+    if (force || pop !== this.shown.pop) {
+      this.shown.pop = pop;
+      this.popText.get("Text").text = pop;
+    }
+    const speed = this.state.clock.speed;
+    if (force || speed !== this.shown.speed) {
+      this.shown.speed = speed;
+      this.speedButtons.forEach((e, i) => (e.get("Button").color = i === speed ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON));
+    }
+  }
+
+  /** Select a clock speed (0 pause, 1, 2, 3 = x1, x2, x4). */
+  setSpeed(speed) {
+    this.state.clock.setSpeed(speed);
+    this.refreshHud();
+  }
+
+  /** Space: pause, or go on at the speed from before the pause (normal speed when there was none). */
+  togglePause() {
+    const clock = this.state.clock;
+    if (clock.speed === 0) this.setSpeed(this.speedBeforePause || 1);
+    else {
+      this.speedBeforePause = clock.speed;
+      this.setSpeed(0);
     }
   }
 
@@ -245,6 +324,7 @@ export default class GameController extends Behaviour {
     else if (id === "btn_rotate") this.rotate();
     else if (id === "btn_undo") this.undo();
     else if (id === "btn_redo") this.redo();
+    else if (id.startsWith("speed_")) this.setSpeed(Number(id.slice(6)));
   }
 
   // ---- the frame ---------------------------------------------------------------------------------------------------
@@ -260,8 +340,13 @@ export default class GameController extends Behaviour {
   }
 
   onUpdate(dt) {
+    if (this.stressSteps.length) {
+      this.stressSteps.shift()();
+      return;
+    }
     const m = input.mouse.position;
-    this.state.clock.advance(dt); // P1: the clock is paused (speed 0), so this does nothing yet; P2 sets the speed
+    this.state.clock.advance(Math.min(dt, MAX_FRAME), MAX_STEPS_PER_FRAME);
+    this.walkerView.update();
 
     this.keys();
     const onUi = this.overUi(m);
@@ -286,8 +371,19 @@ export default class GameController extends Behaviour {
     if (input.pressed("rotate")) this.rotate();
     if (input.pressed("tool_demolish")) this.selectDemolish();
     if (input.pressed("tool_cancel")) this.clearTool();
+    if (input.pressed("tool_next")) this.cycleTool(1);
+    if (input.pressed("tool_prev")) this.cycleTool(-1);
+    ["speed_pause", "speed_1", "speed_2", "speed_3"].forEach((action, i) => input.pressed(action) && this.setSpeed(i));
+    if (input.pressed("pause_toggle")) this.togglePause();
+  }
+
+  /** E / C: the next or the previous building in the palette (from none, the first or the last). */
+  cycleTool(step) {
     const ids = this.data.buildingIds;
-    for (let i = 0; i < Math.min(9, ids.length); i++) if (input.pressed(`tool_${i + 1}`)) this.selectBuilding(ids[i]);
+    const at = this.tool.kind === "build" ? ids.indexOf(this.tool.type) : step > 0 ? -1 : 0;
+    this.tool = { kind: "build", type: ids[(at + step + ids.length) % ids.length], rot: this.tool.rot };
+    this.drag = null;
+    this.refreshButtons();
   }
 
   mouse(m, onUi) {
@@ -449,9 +545,22 @@ export default class GameController extends Behaviour {
     if (this.hover && !onUi) {
       const [c, r] = this.hover;
       const b = this.state.buildingAt(c, r);
-      if (b) return i18n.t("status.building", { name: buildingName(b.type), c, r });
+      if (b) return this.buildingStatus(b, c, r);
       return i18n.t("status.terrain", { terrain: i18n.t(`terrain.${this.state.map.terrainAt(c, r)}`), c, r });
     }
-    return i18n.t("status.idle");
+    return this.state.clock.speed === 0 ? i18n.t("status.paused") : i18n.t("status.idle");
+  }
+
+  /** What the player sees when the mouse rests on a building: the villagers of a house, the workers and the state of a workplace. */
+  buildingStatus(b, c, r) {
+    const def = this.data.buildings[b.type];
+    const rt = this.state.sim.rt.get(b.id);
+    const name = buildingName(b.type);
+    if (rt && def.housing) return i18n.t("status.house", { name, c, r, count: rt.residents.length, cap: def.housing });
+    if (rt && def.workers) {
+      const state = rt.stall && def.recipes && def.recipes.length ? i18n.t(`sim.stall.${rt.stall}`) : i18n.t("sim.running");
+      return i18n.t("status.work", { name, c, r, present: rt.present, workers: def.workers, state });
+    }
+    return i18n.t("status.building", { name, c, r });
   }
 }

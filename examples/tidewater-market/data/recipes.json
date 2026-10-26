@@ -1,13 +1,16 @@
 {
-  "$comment": "What a building makes. P1 only defines and validates them; P2 runs them. inputs/outputs = goods per cycle, seconds = game seconds per cycle at full staff. A building lists its recipes in buildings.json (`recipes`).",
-  "format": "tidewater.recipes/1",
+  "$comment": "What a building makes (scripts/game/sim.js runs them). inputs/outputs = goods per cycle, seconds = game seconds per cycle at full staff and normal season (seasons.json `production` multiplies the speed per recipe). A building lists its recipes in buildings.json (`recipes`); when it has several it runs the FIRST one whose inputs it holds, so list the better one first there. Carriers bring the inputs of every recipe the warehouse stock can cover.",
+  "format": "tidewater.recipes/2",
   "recipes": {
-    "harvest_grain": { "building": "farm",        "inputs": {},                          "outputs": { "grain": 4 },  "seconds": 24 },
-    "catch_fish":    { "building": "fisher_dock", "inputs": {},                          "outputs": { "fish": 3 },   "seconds": 18 },
-    "cut_wood":      { "building": "lumber_camp", "inputs": {},                          "outputs": { "wood": 4 },   "seconds": 20 },
-    "cut_stone":     { "building": "quarry",      "inputs": {},                          "outputs": { "stone": 3 },  "seconds": 26 },
-    "saw_planks":    { "building": "sawmill",     "inputs": { "wood": 2 },               "outputs": { "planks": 1 }, "seconds": 14 },
-    "bake_bread":    { "building": "bakery",      "inputs": { "grain": 2 },              "outputs": { "bread": 3 },  "seconds": 16 },
-    "make_tools":    { "building": "workshop",    "inputs": { "planks": 1, "stone": 1 }, "outputs": { "tools": 1 },  "seconds": 30 }
+    "harvest_grain":    { "building": "farm",        "inputs": {},                          "outputs": { "grain": 8 },        "seconds": 24 },
+    "catch_fish":       { "building": "fisher_dock", "inputs": {},                          "outputs": { "fish": 6 },         "seconds": 18 },
+    "cut_wood":         { "building": "lumber_camp", "inputs": {},                          "outputs": { "wood": 4 },         "seconds": 20 },
+    "cut_stone":        { "building": "quarry",      "inputs": {},                          "outputs": { "stone": 3 },        "seconds": 26 },
+    "saw_planks":       { "building": "sawmill",     "inputs": { "wood": 2 },               "outputs": { "planks": 2 },       "seconds": 14 },
+    "mill_flour":       { "building": "mill",        "inputs": { "grain": 3 },              "outputs": { "flour": 3 },        "seconds": 12 },
+    "bake_bread_flour": { "building": "bakery",      "inputs": { "flour": 2 },              "outputs": { "bread": 4 },        "seconds": 14 },
+    "bake_bread":       { "building": "bakery",      "inputs": { "grain": 2 },              "outputs": { "bread": 3 },        "seconds": 16 },
+    "smoke_fish":       { "building": "smokehouse",  "inputs": { "fish": 2 },               "outputs": { "smoked_fish": 2 },  "seconds": 20 },
+    "make_tools":       { "building": "workshop",    "inputs": { "planks": 1, "stone": 1 }, "outputs": { "tools": 1 },        "seconds": 30 }
   }
 }
