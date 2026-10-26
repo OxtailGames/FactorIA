@@ -1,0 +1,57 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Order board",
+    "components": {
+      "Transform": {
+        "position": [280, 110, 0]
+      },
+      "Panel": {
+        "size": [720, 500],
+        "anchor": [0, 0],
+        "pivot": [0, 1],
+        "layer": 300,
+        "color": [0.06, 0.09, 0.13, 0.96],
+        "layout": "none"
+      }
+    },
+    "children": [
+      {
+        "id": "board_title",
+        "components": {
+          "Transform": {
+            "position": [24, 16, 0]
+          },
+          "Text": {
+            "text": "Harbour orders",
+            "key": "trade.board.title",
+            "fontSize": 30,
+            "color": [1, 0.82, 0.29, 1],
+            "space": "screen",
+            "anchor": [0, 0],
+            "pivot": [0, 1],
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "board_close",
+        "components": {
+          "Transform": {
+            "position": [586, 10, 0]
+          },
+          "Button": {
+            "text": "Close",
+            "key": "trade.board.close",
+            "size": [110, 34],
+            "fontSize": 20,
+            "anchor": [0, 0],
+            "pivot": [0, 1],
+            "layer": 302,
+            "autoFocus": true
+          }
+        }
+      }
+    ]
+  }
+}
