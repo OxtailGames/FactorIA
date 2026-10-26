@@ -4,12 +4,13 @@
 import { ToolError } from "factoria";
 import { growTown } from "../scripts/game/bot.js";
 import { serializeGame, VERSION } from "../scripts/game/savegame.js";
+import { makeMeta } from "../scripts/game/save_store.js";
 
 export default {
   name: "save_fixture",
   summary: "Grow a small town with the bot and return its save in the current save format (the source of tests/fixtures files).",
   description:
-    "Runs the bot on the 12 x 10 test map for `days` game days, then returns { version, hash, save }. `hash` is the state hash of the " +
+    "Runs the bot on the 12 x 10 test map for `days` game days, then returns { version, hash, meta, save } (meta: the slot record of that save, as slot 2). `hash` is the state hash of the " +
     "town, which a test compares with the hash of the loaded save. Deterministic: the same arguments give the same save.",
   input: {
     type: "object",
@@ -23,6 +24,7 @@ export default {
     const days = args.days ?? 14;
     if (!Number.isInteger(days) || days < 1 || days > 40) throw new ToolError("`days` must be a whole number from 1 to 40", "pass days: 14");
     const { state } = growTown({ seed: args.seed, testMap: args.seed === undefined, days });
-    return { ok: true, version: VERSION, hash: state.hash(), save: serializeGame(state) };
+    const meta = makeMeta(state, { slot: 2, kind: "manual", name: "Old harbour", scenario: "sandbox", playSeconds: 754, revision: 7 });
+    return { ok: true, version: VERSION, hash: state.hash(), meta, save: serializeGame(state) };
   },
 };
