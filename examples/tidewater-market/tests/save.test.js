@@ -6,7 +6,7 @@ import { makeThumbnail, thumbRuns } from "../scripts/game/thumbnail.js";
 import { createGame } from "../scripts/game/state.js";
 import fixtureV1 from "./fixtures/save_v1.json";
 import fixtureV2 from "./fixtures/save_v2.json";
-import { smallTown, fillHouses, runDays } from "./town_helper.js";
+import { smallTown, fillHouses, runDays, put } from "./town_helper.js";
 
 /** Stringify with sorted keys: two equal states give equal text whatever order the fields were made in. */
 function canonical(v) {
@@ -140,6 +140,56 @@ test("the version 2 fixture loads as it is, with its scenario progress, and play
   runDays(res.state, 5);
   runDays(other.state, 5);
   expect(other.state.hash()).toBe(res.state.hash());
+});
+
+/** A small working town with a pier, the trade on and money for orders. */
+function tradeTown(scenario = "first_harbour") {
+  const { game } = smallTown();
+  fillHouses(game);
+  put(game, "pier", 4, 1);
+  game.economy.apply({ planks: 50, wood: 100, fish: 100, grain: 100, stone: 100, bread: 100, tools: 20, coins: 2000 }, "test");
+  game.trade.start(scenario);
+  return game;
+}
+
+test("ships and events (P5): the trade is saved and a loaded game continues with the same ships, cards and random streams", () => {
+  const game = tradeTown();
+  runDays(game, 14);
+  expect(game.trade.ships.length + game.trade.history.length + (game.trade.card ? 1 : 0)).toBeGreaterThan(0);
+  const save = serializeGame(game);
+  expect(save.trade.v).toBe(1);
+  const loaded = roundTrip(game);
+  expect(loaded.trade.enabled).toBe(true);
+  expect(loaded.trade.scenario).toBe("first_harbour");
+  expect(loaded.hash()).toBe(game.hash());
+  expect(loaded.trade.hash()).toBe(game.trade.hash());
+  for (let i = 0; i < 3; i++) {
+    runDays(game, 12);
+    runDays(loaded, 12);
+    expect(loaded.hash()).toBe(game.hash());
+    expect(loaded.trade.hash()).toBe(game.trade.hash());
+    expect(canonical(serializeGame(loaded))).toBe(canonical(serializeGame(game)));
+  }
+});
+
+test("a save made with the trade off has no trade field, and a damaged or newer one is refused at /trade", () => {
+  const { game } = smallTown();
+  expect(serializeGame(game).trade).toBe(undefined);
+  expect(roundTrip(game).trade.enabled).toBe(false);
+  const save = serializeGame(tradeTown());
+  const newer = JSON.parse(JSON.stringify(save));
+  newer.trade.v = 2;
+  const res = readSave(newer);
+  expect(res.ok).toBe(true); // the shape is fine: the trade itself says no while restoring
+  const loaded = loadGame(newer, game.data);
+  expect(loaded.ok).toBe(false);
+  expect(loaded.error.pointer).toBe("/trade");
+  expect(loaded.error.code).toBe("invalid");
+  const bad = JSON.parse(JSON.stringify(save));
+  bad.trade = "ships";
+  const refused = readSave(bad);
+  expect(refused.ok).toBe(false);
+  expect(refused.error.pointer).toBe("/trade");
 });
 
 test("a thumbnail is a small run-length map: terrain, roads, houses and other buildings", () => {

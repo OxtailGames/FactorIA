@@ -17,6 +17,10 @@
 //              the same state hash after any number of days (tests/save.test.js).
 // VERSION 1 (the first commit of the format, fixtures tests/fixtures/*_v1.json) had no progress, one digit per terrain cell and
 // every road as an object; MIGRATIONS[1] turns it into version 2.
+//   trade      (optional, P5) state.trade.snapshot(): ships, orders, reputation, the open event card, the story, achievements and the
+//              state of its random streams. Present only when the game had the trade on; it has its own `v` (trade.js SNAPSHOT_VERSION).
+//              Restored last, after the buildings and the clock. An older version 2 save without it loads with the trade off here and
+//              the game screen starts it fresh from the day of the load.
 // Fields a package adds (serializeGame's `extra`) are top-level and kept as they are; readSave does not look at fields it does not know.
 // What is not saved: the undo and redo history (a loaded game starts with an empty one), the camera, the current tool.
 import { createGame } from "./state.js";
@@ -70,6 +74,8 @@ export function serializeGame(state, extra = {}) {
     buildings: packBuildings([...state.buildings.values()]),
     sim: serializeSim(state),
   };
+  // ships, orders, reputation, event cards, story, achievements and their random streams (P5): only while the trade is on
+  if (state.trade && state.trade.enabled) save.trade = state.trade.snapshot();
   return save;
 }
 
@@ -229,6 +235,7 @@ function checkShape(s) {
     if (Array.isArray(b)) need(b.length === 5 && b.every(isInt) && b[0] >= 1 && (b[3] === 0 || b[3] === 1) && b[4] >= 1, `/buildings/${i}`, "a run of roads is [firstId, x, y, dir, length] (dir 0 or 1, length 1 or more)");
     else need(isObject(b) && isInt(b.id) && b.id >= 1 && typeof b.type === "string" && isInt(b.x) && isInt(b.y) && isInt(b.rot) && isInt(b.w) && isInt(b.h), `/buildings/${i}`, "a building needs id, type, x, y, rot, w, h");
   });
+  need(s.trade === undefined || (isObject(s.trade) && isInt(s.trade.v) && typeof s.trade.scenario === "string"), "/trade", "trade (ships and events) must be an object with a version v and a scenario");
   need(isObject(s.sim) && isObject(s.sim.ledger) && Array.isArray(s.sim.rt) && Array.isArray(s.sim.villagers) && Array.isArray(s.sim.walkers) && isObject(s.sim.people) && isObject(s.sim.logistics), "/sim", "sim needs ledger, rt, villagers, walkers, people and logistics");
 }
 
@@ -316,6 +323,15 @@ function restore(s, data) {
 
   // 4. the town's life
   restoreSim(state, s.sim);
+
+  // 5. ships and events (P5): after the buildings and the clock. A save made while the trade was off has no `trade` field.
+  if (s.trade !== undefined) {
+    try {
+      state.trade.restore(s.trade);
+    } catch (e) {
+      fail("invalid", "/trade", `the ships and events part cannot be read (${e && e.message})`, "the file is damaged or made by a newer version; load another slot or the autosave");
+    }
+  }
   return state;
 }
 

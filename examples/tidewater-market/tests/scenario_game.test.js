@@ -139,6 +139,34 @@ test("pause menu: Save game opens the slots, saves into one (asking before it re
   expect(game.paused).toBe(false);
 });
 
+test("ships and events: a scenario game starts the trade of its scenario, a save brings it back and the screen keeps it", () => {
+  const ctl = start({ slot: 1, scenario: "river_mills", name: "River Mills" });
+  const trade = ctl.state.trade;
+  expect(trade.enabled).toBe(true);
+  expect(trade.scenario).toBe("river_mills"); // the slot screen's pick, not the scene's default
+  // days pass with a pier on the shore: a ship comes, then save
+  ctl.state.economy.apply({ coins: 3000 }, "test");
+  const cell = [...Array(ctl.state.map.height).keys()]
+    .flatMap((r) => [...Array(ctl.state.map.width).keys()].map((c) => [c, r]))
+    .find(([c, r]) => ctl.state.checkAt("pier", c, r, 0).ok);
+  expect(cell).toBeDefined();
+  expect(ctl.state.placeAt("pier", cell[0], cell[1], 0).ok).toBe(true);
+  const clock = ctl.state.clock;
+  for (let i = 0; i < clock.ticksPerDay * 12; i++) clock.tick(clock.step);
+  game.step(2);
+  ctl.autosaver.saveManual(2, "Trade");
+  const hash = trade.hash();
+  const stateHash = ctl.state.hash();
+  session.boot = { slot: 2, kind: "manual" };
+  game.load(GAME);
+  game.step(3);
+  const back = game.find("controller").behaviour;
+  expect(back.state.hash()).toBe(stateHash);
+  expect(back.state.trade.hash()).toBe(hash); // the screen did not start a fresh trade over the restored one
+  expect(back.state.trade.scenario).toBe("river_mills");
+  expect(game.find("btn_orders")).not.toBe(null);
+});
+
 test("autosave in the running game: a season, losing the focus and a failing write", () => {
   const ctl = start({ slot: 1, scenario: "first_harbour", name: "First Harbour" });
   expect(hasData(1, "auto")).toBe(false);
