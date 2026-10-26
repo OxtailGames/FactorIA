@@ -74,6 +74,11 @@ int tilemap_tile_at(const Tilemap& tm, const TilemapSize& size, int col, int row
 // map's size (tilemap_size) or `value` is not -1 or in 0..kTileFlagMask|kTileIndexMask.
 bool set_tilemap_tile(Tilemap& tm, int col, int row, int value);
 
+// The change counter of the map (Tilemap::version) brought up to date: it also counts writes that replaced `tiles`,
+// `width` or `height` as a whole, which it finds by hashing them (O(tiles)). The number only goes up; compare it with an
+// earlier result to learn that the map changed. The first call only takes the baseline.
+std::uint32_t tilemap_version(Tilemap& tm);
+
 // The size plus the flat tile list.
 struct TilemapGrid {
     int width = 0;               // tiles per row

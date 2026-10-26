@@ -1085,7 +1085,7 @@ declare module "factoria" {
      */
     findTilePath(map: Entity | string | NavTileGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
     /**
-     * How many tiles were written to the Tilemap with setTile or tilemap.set_tile so far (a counter, cheap). Compare it with the value from when you searched to know a cached path is stale. Writes that replace `tiles` as a whole are not counted; starts at 0 on every scene load.
+     * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
      */
     tileVersion(tilemap: Entity | string): number;
     /**
@@ -2791,11 +2791,11 @@ declare module "factoria" {
   export type BtStatus = "success" | "failure" | "running";
 
   /**
-   * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.condition, bt.action, bt.wait, bt.cooldown, bt.inverter and bt.succeeder.
+   * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter and bt.succeeder.
    */
   export interface BtNode {
     /**
-     * sequence, selector, condition, action, wait, cooldown, inverter or succeeder.
+     * sequence, selector, parallel, condition, action, wait, cooldown, repeat, inverter or succeeder.
      */
     readonly type: string;
   }
@@ -2873,6 +2873,14 @@ declare module "factoria" {
      */
     selector(...children: BtNode[]): BtNode;
     /**
+     * Ticks the children in order every tick (the options object is optional: bt.parallel(a, b) is succeed "all"). FAILURE as soon as one child fails; with succeed "all" (default) SUCCESS once every child has succeeded (a child that succeeded is not ticked again meanwhile), with "any" SUCCESS at the first success; otherwise RUNNING. When it finishes, children still running are stopped (an action gets onExit(bb, "aborted")). No children: SUCCESS for "all", FAILURE for "any".
+     */
+    parallel(options: { succeed?: "all" | "any" }, ...children: BtNode[]): BtNode;
+    /**
+     * Same as parallel({ succeed: "all" }, ...children): all children at once, FAILURE at the first failure, SUCCESS when all succeeded.
+     */
+    parallel(...children: BtNode[]): BtNode;
+    /**
      * Truthy = SUCCESS, falsy = FAILURE. Never RUNNING.
      */
     condition(fn: (blackboard: any) => unknown): BtNode;
@@ -2888,6 +2896,10 @@ declare module "factoria" {
      * Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once.
      */
     cooldown(seconds: number, child: BtNode): BtNode;
+    /**
+     * Runs the child again each time it succeeds. Returns RUNNING while it repeats, FAILURE as soon as the child fails, and with `times` (a whole number >= 1) SUCCESS after that many successes; without `times` it repeats forever. One run of the child per tick: the next run starts on the NEXT tick, so a child that succeeds at once cannot loop forever inside one tick.
+     */
+    repeat(child: BtNode, times?: number): BtNode;
     /**
      * Swaps SUCCESS and FAILURE; RUNNING stays.
      */

@@ -2262,13 +2262,13 @@ NATIVE(navFindTilePath) {  // ({ tilemap | grid, from, to, costs?, diagonals?, m
     if (!r.ok()) return throw_err(ctx, r.error().to_string());
     return I->from_json(r.value());
 }
-NATIVE(tileVersion) {  // (entity) -> how many tiles set_tilemap_tile wrote on this Tilemap so far
+NATIVE(tileVersion) {  // (entity) -> change counter of this Tilemap's tiles (setTile and whole replacements)
     SETUP;
     ENTITY(e, 0);
     JSValue exc = JS_UNDEFINED;
     Tilemap* tm = script_tilemap(I, ctx, e, &exc);
     if (!tm) return exc;
-    return JS_NewUint32(ctx, tm->version);
+    return JS_NewUint32(ctx, tilemap_version(*tm));
 }
 NATIVE(navBake) {  // (mesh)
     SETUP;
