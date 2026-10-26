@@ -5,6 +5,8 @@ import { ToolError } from "factoria";
 import { growTown } from "../scripts/game/bot.js";
 import { serializeGame, VERSION } from "../scripts/game/savegame.js";
 import { makeMeta } from "../scripts/game/save_store.js";
+import { getData } from "../scripts/game/data.js";
+import { GoalTracker, newScenarioGame, scenarioIds } from "../scripts/game/scenarios.js";
 
 export default {
   name: "save_fixture",
@@ -17,14 +19,25 @@ export default {
     properties: {
       days: { type: "integer", description: "Game days to run, 1..40 (default 14)." },
       seed: { type: "integer", description: "Map seed for a generated map; leave out for the test map." },
+      scenario: { type: "string", description: "Scenario id (first_harbour, river_mills, winter_trade, sandbox): grow that scenario's town instead, with its goal progress in the save." },
     },
   },
   readOnly: true,
   run(args) {
     const days = args.days ?? 14;
     if (!Number.isInteger(days) || days < 1 || days > 40) throw new ToolError("`days` must be a whole number from 1 to 40", "pass days: 14");
-    const { state } = growTown({ seed: args.seed, testMap: args.seed === undefined, days });
-    const meta = makeMeta(state, { slot: 2, kind: "manual", name: "Old harbour", scenario: "sandbox", playSeconds: 754, revision: 7 });
-    return { ok: true, version: VERSION, hash: state.hash(), meta, save: serializeGame(state) };
+    if (args.scenario !== undefined && !scenarioIds().includes(args.scenario)) throw new ToolError(`unknown scenario '${args.scenario}'`, `the scenarios are: ${scenarioIds().join(", ")}`);
+    let state;
+    let tracker = null;
+    if (args.scenario) {
+      const made = newScenarioGame(args.scenario, getData());
+      tracker = new GoalTracker(made.state, args.scenario, made.def).attach();
+      state = growTown({ state: made.state, days }).state;
+    } else {
+      state = growTown({ seed: args.seed, testMap: args.seed === undefined, days }).state;
+    }
+    const scenario = args.scenario || "sandbox";
+    const meta = makeMeta(state, { slot: 2, kind: "manual", name: "Old harbour", scenario, playSeconds: 754, revision: 7, progress: tracker ? tracker.metaFields() : undefined });
+    return { ok: true, version: VERSION, hash: state.hash(), meta, save: serializeGame(state, tracker ? tracker.saveFields() : { scenario }) };
   },
 };
