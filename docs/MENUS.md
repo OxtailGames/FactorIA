@@ -336,6 +336,18 @@ What the command does, file by file; do it by hand when you want to see each fil
   `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
   uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
 
+## A gamepad cursor over the menus (and the game)
+
+A game played mostly with the mouse that also supports a pad moves a cursor with a stick. The UI needs no scan of the
+scene for it. Each frame: add the stick to the cursor position, then `ui.setPointer(x, y, { down: input.down("primary") })`
+(the UI takes the pointer and left button from there from the next frame on: `ui.hovered`, the press, the click on
+release, a Slider drag and the wheel's target all follow it); `ui.widgetAt(x, y)` answers what is under a point
+(the topmost visible widget or Panel, nothing for a row a ScrollList clips) and `ui.pointerOverUi` whether the cursor is
+over any. When the mouse moves again call `ui.setPointer(null)`. If the same button is also bound to `ui_submit`
+(`GamepadA` is, by default), a focused widget is clicked by that action as well, so either clear the focus while the
+cursor rests (`ui.focus(null)` stays empty until the next D-pad press, an open panel's `autoFocus` does not take it back)
+or move only the hover (`down: false`) and let `ui_submit` press the widget you focused under the cursor.
+
 ## A studio intro: a video that any button skips
 
 A game that opens with a logo film uses a `Video` component and a few lines of script. It is not part of the kit (the

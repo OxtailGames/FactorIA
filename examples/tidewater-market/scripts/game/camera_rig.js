@@ -102,9 +102,10 @@ export default class CameraRig extends Behaviour {
 
     // zoom towards the cursor with the wheel
     const wheel = mouse.wheel;
-    // (not while the pointer is over a panel of the Hud: the wheel scrolls its lists, see ui_hud.js)
-    if (wheel !== 0 && !this.wheelBlocked) this.ease = null;
-    if (wheel !== 0 && !this.wheelBlocked) this.view = zoomAt(v, zoomStep(v.zoom, wheel), m.x, m.y);
+    // (a ScrollList under the pointer keeps the wheel: it reads 0 here then; ui.pointerOverUi keeps every other panel off the map)
+    const overUi = ui.pointerOverUi || this.wheelBlocked; // wheelBlocked: only an open event card (modal), set by the Hud
+    if (wheel !== 0 && !overUi) this.ease = null;
+    if (wheel !== 0 && !overUi) this.view = zoomAt(v, zoomStep(v.zoom, wheel), m.x, m.y);
     // zoom around the centre with the keys
     const keyZoom = input.axis("zoom_out", "zoom_in");
     if (keyZoom !== 0) this.view = zoomAt(this.view, this.view.zoom * Math.pow(this.keyZoomRate, keyZoom * dt), DESIGN.width / 2, DESIGN.height / 2);
