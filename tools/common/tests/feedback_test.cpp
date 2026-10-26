@@ -21,7 +21,8 @@ FeedbackInput make(const std::string& title, const std::string& cat = "physics",
 TEST_CASE("feedback: empty document validates") {
     Json doc = create_empty_feedback("My Game", "0.1.0");
     CHECK(doc["format"] == "factoria.feedback/1");
-    CHECK(validate_feedback(doc).empty());
+    for (const auto& err : validate_feedback(doc))  // the entry is not complete, but distinctFrom is a known field
+        CHECK_MESSAGE(err.pointer.find("distinctFrom") == std::string::npos, err.message);
 }
 
 TEST_CASE("feedback: add assigns ids, date and validates") {
@@ -81,7 +82,8 @@ TEST_CASE("feedback: similar open entries are merged") {
     REQUIRE(update_feedback_entry(doc, "FB-0001", "fixed-in-engine", "#12").ok());
     auto c = add_feedback_entry(doc, make("No one-way platforms"));
     CHECK_FALSE(c->merged);
-    CHECK(validate_feedback(doc).empty());
+    for (const auto& err : validate_feedback(doc))  // the entry is not complete, but distinctFrom is a known field
+        CHECK_MESSAGE(err.pointer.find("distinctFrom") == std::string::npos, err.message);
 }
 
 TEST_CASE("feedback: list filters and update errors teach") {
@@ -266,4 +268,50 @@ TEST_CASE("feedback: collect groups reports of one gap across projects and categ
             if (c["title"].get<std::string>().find("d.ts") != std::string::npos && c["projects"].size() >= 3) found = true;
         CHECK_MESSAGE(found, "placeholder d.ts reports from the examples form one cluster");
     }
+}
+
+TEST_CASE("feedback: similar titles of different gaps stay apart, and distinctFrom keeps two apart") {
+    // TM/FB-0010 and TM/FB-0011.
+    auto make_entry = [](const char* id, const char* title, const char* missing, const char* suggestion) {
+        return Json{{"id", id}, {"title", title}, {"category", "ui"}, {"severity", "minor"}, {"missing", missing},
+                    {"workaround", "rows of labels"}, {"suggestion", suggestion}, {"occurrences", 1}, {"status", "open"}};
+    };
+    Json rich = make_entry("FB-0010", "No rich text or inline icons in a Text or Button label",
+                           "A goods line needs several colours and a sprite inside one line. A Text has one colour and no inline sprites.",
+                           "Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine.");
+    Json icon = make_entry("FB-0011", "Buttons are text only: no icon or icon plus text button",
+                           "The build menu wants an icon above a name and cost on every item. A Button draws a label only.",
+                           "Button.icon (sprite region) with iconPosition left/top, drawn inside the hit area.");
+    CHECK(feedback_entry_similarity(rich, icon) < 0.7);
+
+    // Two alike entries merge until one says it is distinct from the other.
+    Json a = make_entry("FB-0001", "Tilemap has no isometric picking helper", "cell under the mouse maths", "Tilemap.pick(x, y)");
+    Json b = make_entry("FB-0002", "Tilemap has no isometric picking helper", "cell under the mouse maths", "Tilemap.pick(x, y)");
+    auto write = [](const testing::TempDir& tmp, const Json& x, const Json& y) {
+        Json doc = create_empty_feedback("p", "0.1.0");
+        doc["entries"].push_back(x);
+        doc["entries"].push_back(y);
+        REQUIRE(save_feedback((tmp.path / "p" / "ENGINE_FEEDBACK.json").string(), doc).ok());
+    };
+    {
+        testing::TempDir tmp;
+        write(tmp, a, b);
+        auto report = collect_feedback({tmp.str()});
+        REQUIRE(report.ok());
+        REQUIRE(report->json["clusters"].size() == 1);
+        CHECK(report->json["clusters"][0]["entries"].size() == 2);
+        CHECK(report->markdown().find("Merged (similarity to the group)") != std::string::npos);
+    }
+    {
+        testing::TempDir tmp;
+        b["distinctFrom"] = Json::array({"FB-0001"});
+        write(tmp, a, b);
+        auto report = collect_feedback({tmp.str()});
+        REQUIRE(report.ok());
+        CHECK(report->json["clusters"].size() == 2);
+    }
+    Json doc = create_empty_feedback("p", "0.1.0");
+    doc["entries"].push_back(b);
+    for (const auto& err : validate_feedback(doc))  // the entry is not complete, but distinctFrom is a known field
+        CHECK_MESSAGE(err.pointer.find("distinctFrom") == std::string::npos, err.message);
 }

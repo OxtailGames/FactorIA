@@ -1,4 +1,6 @@
 // run, screenshot, test
+#include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 
@@ -69,7 +71,7 @@ Command make_run_command() {
                {"screenshot-pattern", "PATTERN", "PNG path with {frame}, relative to the current directory (default <project>/.factoria/screenshots/frame_{frame}.png)."},
                {"state-out", "FILE", "Headless: write the final world state JSON here (relative to the current directory)."},
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
-               {"record-video", "FILE", "Headless: write every frame (drawn at --render-scale, at the project's fixedHz fps) and the audio to a video. .avi (Motion-JPEG + PCM) needs nothing; .mp4 (H.264 + AAC) needs ffmpeg (FACTORIA_FFMPEG, publish.ffmpeg in ~/.factoria/export.json, or PATH). Relative to the current directory."},
+               {"record-video", "FILE", "Headless: write every frame (drawn at --render-scale, at the project's fixedHz fps) and the audio to a video. .avi (Motion-JPEG + PCM) needs nothing; .mp4 (H.264 + AAC) needs ffmpeg (FACTORIA_FFMPEG, publish.ffmpeg in ~/.factoria/export.json, or PATH). Relative to the current directory. Prints its progress (frames written of the total) on stderr about every tenth of the run."},
                {"seed", "N", "World RNG seed (default 1)."},
                kDateFlag,
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
@@ -138,6 +140,15 @@ Command make_run_command() {
                     throw UsageError(ffmpeg.error().message, ffmpeg.error().hint + " Or record an .avi, which needs nothing: --record-video out.avi.");
                 ho.ffmpegPath = ffmpeg->path;
             }
+        }
+        if (!ho.videoOutPath.empty()) {
+            // Progress on stderr (stdout is the report): about every tenth of the run, and the last frame.
+            ho.videoProgress = [](int written, int total) {
+                const int step = std::max(1, total / 10);
+                if (written % step != 0 && written != total) return;
+                std::fprintf(stderr, "recording: %d of %d frames (%d%%)\n", written, total, total > 0 ? written * 100 / total : 100);
+                std::fflush(stderr);
+            };
         }
         ho.failOnScriptError = !a.has("allow-script-errors");
 

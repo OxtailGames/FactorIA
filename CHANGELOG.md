@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Tooling: feedback merges, perf files of several scenes, and recording progress
+
+- `factoria feedback collect` no longer merges two gaps whose titles only share a few words: a title that contains
+  another needs four shared words, the `missing` text weighs in, an entry may list `distinctFrom` ids it never merges
+  with, and the report prints each merged entry's similarity to its group.
+- ctest runs every `<example>.perf.json` and `<example>-*.perf.json` file of an example, so a game with a title, a game
+  and a stress scene keeps a budget for each (docs/PERFORMANCE.md).
+- `factoria run --record-video` prints its progress (frames written of the total) on stderr while it records.
+- PLATFORM.md says that `game.platform.calls()` shows a `stats.add` as a `stats.get` and a `stats.set`.
+
 Audio: buses of your own, the voices that play, `onEnded`, and a listener zoom
 
 - `factoria.json` `audio.buses` declares buses with a parent (`"ambience": { "parent": "sfx" }`). A bus scales the sounds

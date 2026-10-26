@@ -539,6 +539,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                 if (!videoFailed)
                     if (auto a = avi.add_frame(encode_jpeg(frameImg, 85)); !a.ok())
                         video_fail(a.error().to_string() + " The video stops here (" + std::to_string(avi.frame_count()) + " frames); the run goes on.");
+                if (!videoFailed && options.videoProgress) options.videoProgress(avi.frame_count(), options.frames);
             }
         }
         if (std::binary_search(shots.begin(), shots.end(), f)) {

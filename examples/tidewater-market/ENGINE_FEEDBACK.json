@@ -651,7 +651,8 @@
       "suggestion": "Log the call the script made (stats.add) and the nested ones apart, or document the mapping in the platform test section.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.9"
     },
     {
       "id": "FB-0040",
@@ -928,7 +929,11 @@
       "suggestion": "A Timeline or Cutscene component (camera keys, text cards, fades) and a progress line for --record-video.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "engineIssue": "M31.9 (progress line of --record-video only)",
+      "notes": [
+        "2026-10-26: --record-video now prints its progress on stderr (M31.9). Still open: a Timeline or Cutscene component (camera keys, text cards, fades) for a trailer."
+      ]
     },
     {
       "id": "FB-0056",
@@ -947,7 +952,8 @@
       "suggestion": "Let a perf file list several scenes (scenes: [{scene, budgets}]) or let the CMake loop pick up every <example>*.perf.json.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.9"
     },
     {
       "id": "FB-0060",
@@ -1138,7 +1144,8 @@
       "suggestion": "Weigh the `missing` text and the category more than shared short words of the title, or let an entry list ids it must never merge with (\"distinctFrom\": [\"FB-0011\"]), and print the merged groups with their scores so a triage can check them.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.9"
     }
   ]
 }

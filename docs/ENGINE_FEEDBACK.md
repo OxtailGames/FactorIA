@@ -38,7 +38,7 @@ Duplicates are harmless: a report similar to an open entry is merged into it.
 - `severity`: `blocker` (could not build it), `major` (big or fragile workaround), `minor` (small
   workaround), `nice-to-have`.
 - `title`: short noun phrase; reuse the same wording for the same gap.
-- `missing`, `workaround`: required. `workaroundFiles`, `suggestion`, `effort` (small/medium/large),
+- `missing`, `workaround`: required. `workaroundFiles`, `suggestion`, `effort` (small/medium/large), `distinctFrom` (ids never merged with),
   `reporter` ({kind, agent, model}): optional.
 - Maintained automatically: `id` (FB-0001...), `date` (UTC), `occurrences`, `notes` (one line per merged
   report: `date: workaround`), `status` (open, fixed-in-engine, wont-fix, duplicate), `engineIssue`.
@@ -57,3 +57,9 @@ is raised if the new report is more severe, and the longer `suggestion` wins. Th
 projects and ranks them by `sum(occurrences) x severity weight` (blocker 8, major 4, minor 2,
 nice-to-have 1). Each group lists title, category, projects affected, total occurrences, the best
 suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.
+
+Two entries merge when their title, category, `suggestion` and `missing` text are alike enough (a title that merely
+contains another needs four shared significant words). The report prints, under each group with several entries, the
+similarity of each entry to the group (`Merged`), so a triage can check the merges. When two entries are different gaps
+that read alike, list the id in `distinctFrom` on either one (`"distinctFrom": ["FB-0011"]`; `"<project>/FB-0011"` for an
+entry of another project's file): `collect` never puts them in one group.

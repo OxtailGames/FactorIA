@@ -107,12 +107,20 @@ if(FA_BUILD_TESTS)
             # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
             # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
             # developer machine it passes.
-            file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
-                "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json\",\"requireBaseline\":${fa_perf_require}}")
-            add_test(NAME example_${ex_name}_perf
-                COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
-                WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(example_${ex_name}_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+            # One example may measure several scenes: <example>.perf.json and <example>-*.perf.json (not <example>*, which
+            # would catch another example with the same prefix). Each file names its scene.
+            file(GLOB ex_perf_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}-*.perf.json)
+            foreach(perf_file ${ex_perf_files})
+                get_filename_component(perf_name ${perf_file} NAME)
+                string(REGEX REPLACE "\\.perf\\.json$" "" perf_name "${perf_name}")
+                file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${perf_name}.args.json
+                    "{\"file\":\"${perf_file}\",\"requireBaseline\":${fa_perf_require}}")
+                add_test(NAME example_${perf_name}_perf
+                    COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${perf_name}.args.json
+                    WORKING_DIRECTORY ${FA_ROOT})
+                set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+            endforeach()
         endif()
     endforeach()
     # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
