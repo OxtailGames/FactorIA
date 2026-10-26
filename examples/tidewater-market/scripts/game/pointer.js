@@ -168,6 +168,8 @@ export const pointer = {
     // would not do: the engine gives it back to the first autoFocus widget of an open panel, which would pull the cursor there.
     if (state.moved && !under && !state.under && state.sink && state.sink.alive && ui.focused !== state.sink) {
       state.own = { id: state.sink.id, frame: world.frame };
+      // pad_cursor.js turns the sink on while a pad is in use, but the camera may move the cursor first in that frame
+      if (!state.sink.active) state.sink.active = true;
       ui.focus(state.sink);
     }
   },
