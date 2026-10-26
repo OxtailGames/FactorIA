@@ -65,6 +65,8 @@
       "pause": "إيقاف مؤقت"
     },
     "binding": "{action}: {button}",
+    "player": "اللاعب {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: اضغط مفتاحًا أو زرًا (Esc للإلغاء)",
     "resetControls": "استعادة الإعدادات الافتراضية",
     "language": "اللغة: {language}",

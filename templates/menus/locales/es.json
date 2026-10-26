@@ -65,6 +65,8 @@
       "pause": "Pausa"
     },
     "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",

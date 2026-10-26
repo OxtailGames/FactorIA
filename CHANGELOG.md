@@ -4,6 +4,24 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Local multiplayer: actions per player
+
+- `input.player(i)` (0..3) gives each person sharing the machine their own view of the project's actions: `down`,
+  `pressed`, `released`, `value`, `axis` and `vector`, driven only by the devices assigned with `player(i).use({ pad,
+  padId, keys })`. `keys` names a key scheme (`"all"`, `"left"`, `"right"` or one from the new `factoria.json`
+  `input.schemes`, which can `extend` another, add `keys` and give per-action `actions`); `padId` follows a physical
+  gamepad across slot changes. A player with no device reads nothing; the global `input.*` still hears every device.
+  Each player has bindings of their own: `bindings`, `rebind`, `reset`, `lastPressed`, and `export` / `import` to save
+  them in `storage`. A bad slot, scheme, key or action throws with "did you mean" and changes nothing. Mouse and touch
+  are not read by players. `input.keySchemes()`, `input.keySchemeKeys(name)` and `input.maxPlayers` list what exists.
+  Tests start with no devices; a game assigns them when its scene starts. SCRIPTING.md and the AI guide (9.27) have the
+  recipe.
+- The menu kit's options script has a `players` property: with more than one, the Controls tab gets a Player button and
+  rebinds, resets and saves the controls of the chosen player (`settings.playerBindings`); a single-player game is
+  unchanged. MENUS.md and the `en`/`es`/`ar` texts have the two new keys (`options.player`, `options.playerBinding`).
+- Burrow Brigade drives its four diggers with `input.player(i)` and four key schemes in `factoria.json`; its saved
+  controls move to the engine's action names the first time they are read.
+
 Recording input and starting a scene with props
 
 - The input recorder moved from the editor into the engine and now hears the keys, mouse, touches, Back and gamepads

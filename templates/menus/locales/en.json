@@ -65,6 +65,8 @@
       "pause": "Pause"
     },
     "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",

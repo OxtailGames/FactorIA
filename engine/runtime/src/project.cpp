@@ -691,7 +691,7 @@ constexpr const char* kSchemaText =
         },
         "schemes": {
           "type": "object",
-          "description": "Key schemes for local multiplayer: named sets of keys a player can be given with input.player(i).use({keys: name}). The built-in ones are \"all\", \"left\" (WASD side of the keyboard) and \"right\" (arrows side). Each scheme is {\"extends\": a built-in scheme, \"keys\": [key names], \"actions\": {action: [key names]}} or just an array of key names; its keys are the extended scheme's plus \"keys\" plus the keys of \"actions\", and \"actions\" gives the keys of those actions for players of the scheme (the others use the key bindings of input.actions that belong to the scheme).\",
+          "description": "Key schemes for local multiplayer: named sets of keys a player can be given with input.player(i).use({keys: name}). The built-in ones are \"all\", \"left\" (WASD side of the keyboard) and \"right\" (arrows side). Each scheme is {\"extends\": a built-in scheme, \"keys\": [key names], \"actions\": {action: [key names]}} or just an array of key names; its keys are the extended scheme's plus \"keys\" plus the keys of \"actions\", and \"actions\" gives the keys of those actions for players of the scheme (the others use the key bindings of input.actions that belong to the scheme).",
           "additionalProperties": {
             "oneOf": [
               {"type": "array", "items": {"type": "string"}},

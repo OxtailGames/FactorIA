@@ -1,165 +1,120 @@
 // @ts-check
-// Each player's own controls. A player (a seat, P1 to P4) has a binding list per action (left, right, up, down, dig, torch) for
-// its keyboard and another for its gamepad; the device the player joined with decides which list counts. What the player
-// rebound is saved (settings.playerBindings, by seat); what it did not rebind comes from the defaults below.
+// Each player's own controls. A player (a seat, P1 to P4) has the engine's per-player actions (`input.player(seat)`): the project's
+// actions (factoria.json input.actions) read from the player's own device, with bindings of its own for its keyboard and another
+// list for its gamepad. This module is the game's side of it: the six actions of a miner (left, right, up, down, dig, torch) as
+// the Options page lists them, "one key does one thing" when a player rebinds, and saving what a seat rebound
+// (settings.playerBindings, by seat) so it comes back at the next start.
 //
-// Why this exists: the engine's actions (factoria.json) answer to ANY pad and the rebinding of `input.rebind` is global, while
-// `input.gamepad(i)` only knows raw button names (docs: scripting, input; ENGINE_FEEDBACK FB-0006). So the game keeps the
-// per-player action sets itself: a binding is a key name ("Space") or a gamepad name ("GamepadA", "GamepadLeftStickLeft",
-// the same names `input.lastPressed()` returns, so the Options page can rebind with it) and is read from the right device here.
+// What the engine does: the defaults of every player (the key scheme's own keys from factoria.json input.schemes, or the pad's
+// bindings of input.actions), which device is read (players.js hands it over when a player joins), and the rebinding. A binding
+// is a key name ("Space") or a gamepad name ("GamepadA", "GamepadLeftStickLeft"), the same names `input.lastPressed()` returns.
 import { input } from "factoria";
 import * as settings from "../settings.js";
-import { KEY_SCHEMES } from "./players.js";
+import { MAX_PLAYERS } from "./players.js";
 
 /** The actions of a miner, in the order the Options page lists them. */
 export const ACTIONS = Object.freeze(["left", "right", "up", "down", "dig", "torch"]);
 
-/** Second (third...) key of an action for a key scheme, besides the one in KEY_SCHEMES. */
-const EXTRA_KEYS = { keyboard: { left: ["Left"], right: ["Right"], up: ["Up"], down: ["Down"], dig: ["J"], torch: ["E"] } };
-
-/** Gamepad defaults: left stick or d-pad to walk, A or X to dig, B or Y for a torch. */
-export const PAD_DEFAULTS = Object.freeze({
-  left: ["GamepadLeftStickLeft", "GamepadDpadLeft"],
-  right: ["GamepadLeftStickRight", "GamepadDpadRight"],
-  up: ["GamepadLeftStickUp", "GamepadDpadUp"],
-  down: ["GamepadLeftStickDown", "GamepadDpadDown"],
-  dig: ["GamepadA", "GamepadX"],
-  torch: ["GamepadB", "GamepadY"],
-});
+/** The project action (factoria.json input.actions) behind each action of a miner. */
+const PROJECT_ACTION = Object.freeze({ left: "move_left", right: "move_right", up: "move_up", down: "move_down", dig: "dig", torch: "torch" });
 
 /** @typedef {"keys"|"pad"} Family */
 /** @typedef {Record<string, string[]>} BindingSet */
 
-/** The family of a device: a pad player uses gamepad names, every other one key names. */
-export function familyOf(device) {
-  return device.kind === "pad" ? "pad" : "keys";
+/** The bindings of a seat for one family, by action of a miner: the player's own where it rebound, the defaults elsewhere. */
+export function bindingsFor(seat, family) {
+  const player = input.player(seat);
+  return Object.fromEntries(ACTIONS.map((a) => [a, player.bindings(PROJECT_ACTION[a], family)]));
 }
 
-/** The default bindings of a device (a fresh object). */
-export function defaults(device) {
-  if (device.kind === "pad") return Object.fromEntries(ACTIONS.map((a) => [a, [...PAD_DEFAULTS[a]]]));
-  const scheme = device.kind === "keys" ? device.scheme : "keyboard";
-  const base = KEY_SCHEMES[scheme] ?? KEY_SCHEMES.keyboard;
-  const extra = EXTRA_KEYS[scheme] ?? {};
-  return Object.fromEntries(ACTIONS.map((a) => [a, [base[a], ...(extra[a] ?? [])]]));
-}
-
-/** @type {Record<string, {keys?: BindingSet, pad?: BindingSet}> | null} */
-let saved = null;
-
-function load() {
-  if (!saved) saved = JSON.parse(JSON.stringify(settings.load().playerBindings ?? {}));
-  return saved;
-}
-
-/** Forgets what was read from storage (a test that wipes the storage, or a settings change from outside). */
-export function reload() {
-  saved = null;
-  memo.clear();
-}
-
-function persist() {
-  memo.clear();
+/** Saves what the engine says seat `seat` rebound (nothing saved for a seat on its defaults). */
+function persist(seat) {
   const s = settings.load();
-  s.playerBindings = JSON.parse(JSON.stringify(load()));
+  const rebound = input.player(seat).export();
+  if (Object.keys(rebound.keys ?? {}).length + Object.keys(rebound.pad ?? {}).length === 0) delete s.playerBindings[String(seat)];
+  else s.playerBindings[String(seat)] = rebound;
   settings.save(s);
-}
-
-/** What the seat rebound for one family (an empty object when nothing). */
-export function overrides(seat, family) {
-  return load()[String(seat)]?.[family] ?? {};
-}
-
-/** The bindings in force for a seat and a family: its own where it rebound an action, the defaults of `device` elsewhere. */
-export function bindingsFor(seat, family, device) {
-  const base = defaults(family === "pad" ? { kind: "pad", index: 0 } : device.kind === "pad" ? { kind: "keys", scheme: "keyboard" } : device);
-  return { ...base, ...JSON.parse(JSON.stringify(overrides(seat, family))) };
-}
-
-/** @type {Map<string, BindingSet>} */
-const memo = new Map();
-
-/** The bindings of a player (by its device). Read every frame, so the answer is kept until something is rebound. */
-export function bindingsOf(player) {
-  const d = player.device;
-  const key = `${player.id}|${d.kind}|${d.kind === "keys" ? d.scheme : ""}`;
-  let b = memo.get(key);
-  if (!b) {
-    b = bindingsFor(player.id, familyOf(d), d);
-    memo.set(key, b);
-  }
-  return b;
 }
 
 /**
  * Makes `names` the bindings of an action for a seat and a family, and saves them. The same names are taken away from the
- * seat's other actions of that family, so one key never does two things. Names that do not belong to the family (a key name for
- * the pad list, a "Gamepad..." one for the keyboard list) are an error.
+ * seat's other actions of that family, so one key never does two things. A name the engine does not accept (a key name for
+ * the pad list, a "Gamepad..." one for the keyboard list, a misspelt key) throws its error with the suggestion, and nothing changes.
  * @param {number} seat
  * @param {Family} family
- * @param {string} action
+ * @param {string} action  One of ACTIONS.
  * @param {string[]} names
  */
 export function rebind(seat, family, action, names) {
   if (!ACTIONS.includes(action)) throw new Error(`controls.rebind: unknown action '${action}'. The actions are ${ACTIONS.join(", ")}.`);
-  for (const n of names) {
-    const pad = n.startsWith("Gamepad");
-    if (pad !== (family === "pad")) throw new Error(`controls.rebind: '${n}' is not a ${family === "pad" ? "gamepad" : "keyboard"} binding (the ${family} list takes ${family === "pad" ? "Gamepad* names like GamepadA" : "key names like Space"}).`);
-    if (!pad) input.keyDown(n); // an unknown key name throws here, with the engine's "did you mean"
+  const player = input.player(seat);
+  player.rebind(PROJECT_ACTION[action], names, family); // all or nothing: throws before anything changes
+  for (const other of ACTIONS) {
+    if (other === action) continue;
+    const had = player.bindings(PROJECT_ACTION[other], family);
+    const kept = had.filter((n) => !names.some((m) => m.toLowerCase() === n.toLowerCase()));
+    if (kept.length !== had.length) player.rebind(PROJECT_ACTION[other], kept, family);
   }
-  const all = load();
-  const entry = (all[String(seat)] ??= {});
-  const current = bindingsFor(seat, family, family === "pad" ? { kind: "pad", index: 0 } : { kind: "keys", scheme: "keyboard" });
-  const set = (entry[family] ??= {});
-  for (const a of ACTIONS) {
-    if (a === action) continue;
-    const kept = (set[a] ?? current[a]).filter((n) => !names.includes(n));
-    if (kept.length !== (set[a] ?? current[a]).length) set[a] = kept;
-  }
-  set[action] = [...names];
-  persist();
+  persist(seat);
 }
 
 /** Back to the defaults for one seat (both families). */
 export function reset(seat) {
-  delete load()[String(seat)];
-  persist();
+  input.player(seat).reset();
+  persist(seat);
 }
 
 /** Back to the defaults for everybody. */
 export function resetAll() {
-  saved = {};
-  persist();
+  for (let seat = 0; seat < MAX_PLAYERS; seat++) input.player(seat).reset();
+  const s = settings.load();
+  s.playerBindings = {};
+  settings.save(s);
 }
 
-/** 0..1 for one gamepad binding name on one pad ("GamepadA", "GamepadLeftStickLeft", "GamepadDpadUp", "GamepadRightTrigger"). */
-export function padValue(pad, name) {
-  const n = name.slice("Gamepad".length);
-  const stick = /^(Left|Right)Stick(Left|Right|Up|Down)$/.exec(n);
-  if (stick) {
-    const v = pad.axis(stick[1] + (stick[2] === "Left" || stick[2] === "Right" ? "X" : "Y"));
-    return Math.max(0, stick[2] === "Left" || stick[2] === "Down" ? -v : v);
-  }
-  if (n === "LeftTrigger" || n === "RightTrigger") return pad.axis(n);
-  return pad.down(n) ? 1 : 0;
-}
+/** The names of the actions of a miner before the engine kept the bindings: the saved controls of an older version use them. */
+const OLD_ACTION = Object.freeze({ left: "move_left", right: "move_right", up: "move_up", down: "move_down" });
 
-/** The strongest value of a list of binding names, read from the keyboard or from gamepad `index`. */
-export function valueOf(names, device) {
-  let v = 0;
-  if (device.kind === "pad") {
-    const pad = input.gamepad(device.index);
-    for (const n of names) v = Math.max(v, padValue(pad, n));
-  } else {
-    for (const n of names) if (input.keyDown(n)) v = 1;
+/**
+ * Puts the saved controls of every seat into the engine (settings.apply calls it once per run). A seat saved by an older version
+ * used the names left/right/up/down for its actions; they are the project's move_left... now, so those are renamed (and the
+ * result saved again, with a note in the log). An entry the engine refuses (an action or key that does not exist any more) is
+ * skipped with a warning; the rest applies.
+ * @param {ReturnType<typeof settings.load>} [s]
+ */
+export function applySaved(s = settings.load()) {
+  let renamed = false;
+  /** @type {Record<string, any>} */
+  const migrated = {};
+  for (const [seat, saved] of Object.entries(s.playerBindings)) {
+    const n = Number(seat);
+    if (!Number.isInteger(n) || n < 0 || n >= MAX_PLAYERS || !saved || typeof saved !== "object") continue;
+    /** @type {Record<string, BindingSet>} */
+    const data = {};
+    for (const family of /** @type {Family[]} */ (["keys", "pad"])) {
+      const list = saved[family];
+      if (!list || typeof list !== "object") continue;
+      data[family] = {};
+      for (const [action, names] of Object.entries(list)) {
+        const name = OLD_ACTION[action] ?? action;
+        if (name !== action) renamed = true;
+        data[family][name] = names;
+      }
+    }
+    migrated[seat] = data;
+    for (const problem of input.player(n).import(data)) console.warn(`controls: the saved controls of player ${n + 1}: ${problem}`);
   }
-  return v;
+  if (renamed) {
+    console.log("controls: the saved controls of an older version were moved to the engine's per-player actions (move_left, move_right...).");
+    const now = settings.load();
+    now.playerBindings = migrated;
+    settings.save(now);
+  }
 }
 
 /** What a player sees for an action: the binding names for its family, as buttons ("Space / J", "A / X"). */
 export function label(seat, family, action, padIndex = 0) {
-  const names = bindingsFor(seat, family, family === "pad" ? { kind: "pad", index: padIndex } : { kind: "keys", scheme: "keyboard" })[action];
+  const names = input.player(seat).bindings(PROJECT_ACTION[action], family);
   if (!names || names.length === 0) return "-";
   return names.map((n) => input.buttonName(n, padIndex)).join(" / ");
 }
-

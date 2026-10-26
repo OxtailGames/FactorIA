@@ -33,6 +33,8 @@
     "volume": { "master": "العام", "music": "الموسيقى", "effects": "المؤثرات", "interface": "الواجهة" },
     "action": { "move_left": "تحرك يسارًا", "move_right": "تحرك يمينًا", "jump": "اقفز", "pause": "إيقاف مؤقت" },
     "binding": "{action}: {button}",
+    "player": "اللاعب {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: اضغط مفتاحًا أو زرًا (Esc للإلغاء)",
     "resetControls": "استعادة الإعدادات الافتراضية",
     "language": "اللغة: {language}",

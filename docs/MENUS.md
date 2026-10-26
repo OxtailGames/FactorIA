@@ -70,7 +70,9 @@ What the command does, file by file; do it by hand when you want to see each fil
    `input.actions` except the `ui_*` ones, labelled with the string `options.action.<action>` (the action's own name when the
    game has no such string). To pick and order them, set the `actions` property of the prefab's Script:
    `"Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig", "place"] } }`; an action the game does
-   not have gets no row.
+   not have gets no row. A game with local multiplayer (several people on one machine, each on their own pad or key
+   block with `input.player(i)`) sets `"players": 2` (up to 4) in the same `props`: the Controls tab gets a "Player N" button
+   on top, and each player rebinds their own keys and pad buttons, saved by player.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
@@ -203,6 +205,15 @@ What the command does, file by file; do it by hand when you want to see each fil
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
   `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
+  With the `players` property above 1 (local multiplayer) the tab starts with a "Player N" button that cycles through the
+  players and every row shows the player's keys and its pad buttons (`input.player(i).bindings(action, "keys")` and
+  `"pad"`, which also work for a player with no device yet, as in a menu). A key replaces the keyboard list of the
+  action, a pad button the pad list: `input.player(i).rebind(action, [pressed], family)` for that player only, and the
+  other players keep theirs. The mouse and touch are not bindings there (they belong to every player), and a key outside
+  the player's key scheme is refused by the engine and logged. `player(i).export()` is saved in `settings.playerBindings`
+  (by player), "Reset to defaults" is `input.player(i).reset()` for the shown player, and `settings.apply` imports
+  them again at the next start, logging what `import()` skipped. Assigning the devices (`input.player(i).use(...)`)
+  stays with the game: the menu only edits bindings. With `players` at 1 (the default) nothing changes.
 - **Language.** The Language tab's button names the current language (`i18n.name`) and cycles through `i18n.languages`
   with `i18n.setLanguage`: every Text and widget with a `key` is rewritten at once. The choice is saved in `settings`
   (`language`); `settings.apply` restores it at the next start, and ignores, with a warning, a language the game no
@@ -447,6 +458,7 @@ function defaults() {
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
+    playerBindings: {}, // player ("0"."3") -> input.player(i).export(), only for a game with several local players (options.js `players`)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
@@ -460,7 +472,7 @@ export function load() {
   const saved = storage.get("settings", {});
   if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
 }
 
 export function save(s) {
@@ -514,6 +526,11 @@ export function apply(s = load()) {
     } catch (e) {
       console.warn(`settings: the saved controls of "${action}" were ignored: ${e.message}`);
     }
+  }
+  for (const [player, rebound] of Object.entries(s.playerBindings)) {
+    const index = Number(player);
+    if (!Number.isInteger(index) || index < 0 || index > 3) continue;
+    for (const problem of input.player(index).import(rebound)) console.warn(`settings: the saved controls of player ${index + 1}: ${problem}`);
   }
   if (!window.available) return; // headless runs and tests have no window
   const tryApply = (what, fn) => {
@@ -985,8 +1002,8 @@ export default class StoreEvents extends Behaviour {
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
 // monitor, size, vsync, frame cap and the colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding every action of the game) and Language (cycles through the game's languages). Every change is
-// applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
+// (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
 import * as settings from "../settings.js";
@@ -1006,10 +1023,18 @@ export default class Options extends Behaviour {
    * The labels are the strings "options.action.<action>"; an action without one is labelled with its name.
    */
   actions = null;
+  /**
+   * Local players that rebind their own controls (docs: scripting, input.player). 1 (the default) is a game with one set of
+   * bindings: the Controls tab changes the global input. Above 1 the tab gets a "Player N" button on top that cycles through the
+   * players, and each rebinds the keys and the gamepad buttons of input.player(i) only; what a player rebound is saved by player
+   * (settings.playerBindings) and put back by settings.apply(). Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "players": 2 } }.
+   */
+  players = 1;
 
   onStart() {
     this.s = settings.load();
     this.waiting = null; // the action waiting for "press a key or button"
+    this.seat = 0; // the player the Controls tab shows (only when players > 1)
     this.release = false;
     for (const tab of TABS) ui.on("click", `tab_${tab}`, () => this.showTab(tab));
     this.showTab("video");
@@ -1136,6 +1161,15 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
+    this.players = Math.max(1, Math.min(4, Math.round(Number(this.players)) || 1));
+    if (this.players > 1) {
+      world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      ui.on("click", "controls_player", () => {
+        if (this.waiting) return;
+        this.seat = (this.seat + 1) % this.players;
+        this.refreshControls();
+      });
+    }
     const have = input.actions();
     // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
     this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
@@ -1149,8 +1183,13 @@ export default class Options extends Behaviour {
       });
     }
     ui.on("click", "reset_controls", () => {
-      input.resetBindings();
-      this.s.bindings = {};
+      if (this.players > 1) {
+        input.player(this.seat).reset(); // this player only
+        delete this.s.playerBindings[String(this.seat)];
+      } else {
+        input.resetBindings();
+        this.s.bindings = {};
+      }
       settings.save(this.s);
       this.refreshControls();
     });
@@ -1163,13 +1202,22 @@ export default class Options extends Behaviour {
     return i18n.has(key) ? i18n.t(key) : action;
   }
 
+  /** The buttons bound to an action for one list of a player ("keys" or "pad") as the player reads them: "Space / J", or "-" for none. */
+  playerButtons(action, family) {
+    const player = input.player(this.seat);
+    const names = player.bindings(action, family);
+    return names.length ? names.map((name) => input.buttonName(name, Math.max(0, player.pad))).join(" / ") : "-";
+  }
+
   refreshControls() {
+    if (this.players > 1) world.find("controls_player").get("Button").text = i18n.t("options.player", { n: this.seat + 1 });
     for (const action of this.actions) {
       const label = this.actionLabel(action);
-      world.find(`bind_${action}`).get("Button").text =
-        this.waiting?.action === action
-          ? i18n.t("options.pressKey", { action: label })
+      const text =
+        this.players > 1
+          ? i18n.t("options.playerBinding", { action: label, keys: this.playerButtons(action, "keys"), pad: this.playerButtons(action, "pad") })
           : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+      world.find(`bind_${action}`).get("Button").text = this.waiting?.action === action ? i18n.t("options.pressKey", { action: label }) : text;
     }
   }
 
@@ -1218,7 +1266,20 @@ export default class Options extends Behaviour {
     const { action, button } = this.waiting;
     this.waiting = null;
     this.release = true;
-    if (pressed !== "Escape") {
+    if (pressed !== "Escape" && this.players > 1) {
+      // A key replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
+      // mouse and touch belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
+      const player = input.player(this.seat);
+      if (!/^(Mouse|Touch)/.test(pressed)) {
+        try {
+          player.rebind(action, [pressed], pressed.startsWith("Gamepad") ? "pad" : "keys");
+          this.s.playerBindings[String(this.seat)] = player.export();
+          settings.save(this.s);
+        } catch (e) {
+          console.warn(`options: ${pressed} was not taken as a binding: ${e.message}`);
+        }
+      }
+    } else if (pressed !== "Escape") {
       // Replace the bindings of the device that was pressed and keep the other device's: rebinding the keyboard
       // does not take the gamepad's buttons away.
       const pad = (b) => b.startsWith("Gamepad");
@@ -2078,6 +2139,8 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
     "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",
@@ -2162,6 +2225,8 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
     "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
     "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",
