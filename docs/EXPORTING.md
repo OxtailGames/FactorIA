@@ -531,10 +531,14 @@ or pass `--player path/to/factoria_player[.exe]` for one built there.
 
 **The player must come from the same build as `factoria`.** Both carry a build fingerprint (the commit they were built from,
 with `-dirty` when tracked files had uncommitted changes; `factoria version` prints it). The export reads the player's
-bytes, so it checks the player of another OS too (the Android and iOS libraries are not checked). A player from another
+bytes, so it checks the player of another OS too, and the web player (`factoria_player.wasm`) and the prebuilt Android
+(`libfactoria_player.so`) and iOS (`libfactoria_player_main.a`) libraries; an Android or iOS export that compiles the engine
+from a checkout has no prebuilt player to check. A player from another
 build stops the export with an error that names both builds: it may lack the components or the script API the game uses, or
 fail to start. Fix it by building both from one checkout, or with `factoria setup players` when this `factoria` is the
-release those players belong to. To bundle that player anyway, pass `--allow-player-mismatch` (the `export` command's
+release those players belong to (for the web: `cmake --build --preset web-release`, or `factoria setup players --platforms web`;
+for Android and iOS: `factoria setup players`, `--mobile-dir`, or `--engine-root` to compile the engine from a checkout).
+To bundle that player anyway, pass `--allow-player-mismatch` (the `export` command's
 `allowPlayerMismatch` argument): the export goes on and `warnings` says which builds differ. A `factoria` or a player built
 outside a git checkout carries `unknown` and is not compared. The same commit with `-dirty` on one side only is a warning,
 not an error; the fingerprint does not see which edits a `-dirty` build had, so rebuild both after editing the engine.
@@ -973,6 +977,14 @@ limits the export checks and warns about: at most 1000 files, 500 MB unpacked, 2
    download of this machine's own OS; a factoria that has `web/` next to it never needs it).
 4. A web build of the engine source: `build/web-release/player/` (or `build/web/player/`) in the checkout factoria was
    built from ([BUILDING.md](BUILDING.md)). A build directory elsewhere: pass its `player/` folder with `--player`.
+
+Without `--player` the export looks at 2, then the checkout's build (4), then 3, and takes the first whose build
+fingerprint is this factoria's: a fresh `build/web-release` wins over an installed player of an older release. When none
+matches it takes the first one it found and stops on the mismatch, as for every player (see "The player must come from the
+same build as `factoria`" under Desktop; `--player` is checked too). The error names both builds and says to build the web
+player in the checkout (`cmake --build --preset web-release`), to run `factoria setup players --platforms web`, or to pass
+`--allow-player-mismatch`. If a player that lacks something still reaches the browser, the script error names the module and
+the missing export and says the player may be older than the game's engine.
 
 With none of them the export stops before writing anything and says which folders it looked in and the command that fixes
 it. `--json` and the plan (`dryRun`) report where the player came from as `mode` (`explicit`, `package`, `installed` or

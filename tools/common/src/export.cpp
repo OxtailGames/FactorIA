@@ -574,10 +574,20 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         auto setup = resolve_mobile(options, plan.platform);
         if (!setup.ok()) return setup.error();
         plan.mobile = std::move(setup.value());
+        if (plan.mobile.prebuilt) {  // the engine compiled from source is this checkout's; prebuilt libraries have a fingerprint
+            std::vector<stdfs::path> libs;
+            if (plan.platform == "android")
+                for (const char* abi : kAndroidAbis) libs.push_back(plan.mobile.libs / "jniLibs" / abi / "libfactoria_player.so");
+            else
+                for (const char* slice : kIosSlices) libs.push_back(plan.mobile.libs / slice / kIosMarkerLib);
+            for (const stdfs::path& lib : libs)
+                if (auto r = check_player_build(options, lib, plan.platform, plan.warnings); !r.ok()) return r.error();
+        }
     } else if (plan.platform == "web") {
         auto web = find_web_player(options, options.buildSourceRoot.empty() ? std::string(FA_SOURCE_ROOT) : options.buildSourceRoot);
         if (!web.ok()) return web.error();
         plan.web = std::move(web.value());
+        if (auto r = check_player_build(options, plan.web.wasm, plan.platform, plan.warnings); !r.ok()) return r.error();
         plan.webZip = plan.outParent / (slug + "-web.zip");
     } else {
         auto player = find_player(options, plan.platform);
@@ -861,7 +871,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
         "allowMissingPlugins":{"type":"boolean","description":"Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is \"optional\" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins.","default":false},
-        "allowPlayerMismatch":{"type":"boolean","description":"Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
+        "allowPlayerMismatch":{"type":"boolean","description":"Bundle the player (the desktop factoria_player, the web factoria_player.wasm, the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {

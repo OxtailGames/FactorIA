@@ -1,6 +1,7 @@
 // ScriptSystem: public API + runtime/module/error plumbing. Behaviours live in script_behaviours.cpp, natives in
 // script_natives.cpp, tools/tests/eval in script_tools.cpp, API description in script_api.cpp.
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <format>
 #include <sstream>
@@ -293,6 +294,10 @@ std::string hint_for(const std::string& msg) {
     auto has = [&](const char* s) { return msg.find(s) != std::string::npos; };
     if (has("was destroyed")) return "Check entity.alive before using an entity that may have been destroyed.";
     if (has("took too long")) return "Avoid long or infinite loops inside callbacks; spread the work over several frames.";
+    if (has("older than the game's engine"))
+        return "The game was made with a newer FactorIA than the player running it. Run `factoria setup players` and export again, "
+               "or build the player from the same checkout as factoria (docs/EXPORTING.md, \"The player must come from the same build\"); "
+               "for the web, `cmake --build --preset web-release` and export: it prefers build/web-release.";
     if (has("not a function"))
         return "Check the method name against `factoria api` / types/factoria.d.ts, and that the object is not null "
                "(entity.get(name) returns null when the component is missing).";
@@ -304,6 +309,59 @@ std::string hint_for(const std::string& msg) {
 }
 
 }  // namespace
+
+// A script that needs something the player lacks (the player is older than the engine the game was made with) fails with
+// QuickJS's generic message. Names the module and the missing export, or the object and method of the call, and says why.
+void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
+    std::string& message = e.message;
+    const std::string tail = "; this player may be older than the game's engine";
+    // SyntaxError: Could not find export 'x' in module 'factoria'
+    static const std::string find = "ould not find export '";
+    if (const size_t at = message.find(find); at != std::string::npos) {
+        const size_t end = message.find('\'', at + find.size());
+        const size_t mod = message.find(" in module '", end == std::string::npos ? at : end);
+        if (end != std::string::npos && mod != std::string::npos) {
+            const size_t modEnd = message.find('\'', mod + 12);
+            if (modEnd != std::string::npos) {
+                const std::string name = message.substr(at + find.size(), end - at - find.size());
+                const std::string module = message.substr(mod + 12, modEnd - mod - 12);
+                if (module == "factoria" || module.rfind("factoria:", 0) == 0)
+                    message += " (module '" + module + "' has no export '" + name + "'" + tail + ")";
+            }
+        }
+        return;
+    }
+    // TypeError: not a function, at `scene.preload(...)` where `scene` is one of the engine's objects without that member.
+    // QuickJS does not name the callee: it is read from the source line, at the column of the property access.
+    if (message.find("not a function") == std::string::npos || e.line <= 0 || e.column <= 0 || e.file.empty() || e.file[0] == '<' ||
+        !JS_IsObject(factoria.get()))
+        return;
+    auto text = fs::read_text(e.file);
+    if (!text) return;
+    std::istringstream in(*text);
+    std::string src;
+    for (int i = 0; i < e.line; ++i)
+        if (!std::getline(in, src)) return;
+    const auto ident = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; };
+    size_t dot = static_cast<size_t>(e.column - 1);  // the column is the method's name, or the dot before it
+    if (dot < src.size() && src[dot] != '.' && dot > 0) --dot;
+    if (dot == 0 || dot >= src.size() || src[dot] != '.') return;
+    size_t objStart = dot, methodEnd = dot + 1;
+    while (objStart > 0 && ident(src[objStart - 1])) --objStart;
+    while (methodEnd < src.size() && ident(src[methodEnd])) ++methodEnd;
+    const std::string object = src.substr(objStart, dot - objStart), method = src.substr(dot + 1, methodEnd - dot - 1);
+    if (object.empty() || method.empty()) return;
+    JSValue api = JS_GetPropertyStr(ctx, factoria.get(), object.c_str());
+    if (JS_IsObject(api)) {
+        JSAtom atom = JS_NewAtom(ctx, method.c_str());
+        const int has = JS_HasProperty(ctx, api, atom);
+        JS_FreeAtom(ctx, atom);
+        if (has == 0)
+            message += " (the engine's '" + object + "' from \"factoria\" has no '" + method + "'" + tail + ", if " + object +
+                       " is that object)";
+    }
+    JS_FreeValue(ctx, api);
+}
 
 ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std::string& entityId,
                                                      const std::string& where) {
@@ -340,6 +398,7 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
     }
     if (e.file.empty()) e.file = where;
     e.message = strip_versions(e.message);
+    explain_missing_api(e);
     return e;
 }
 

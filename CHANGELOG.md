@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Web, Android and iOS players are checked against the engine build
+
+- `factoria export` compared only a desktop player with its own build. It now compares the web player
+  (`factoria_player.wasm`) and the prebuilt Android and iOS libraries too: a player of another build stops the export with
+  the two builds and what to do (`factoria setup players`, the checkout's `build/web-release`, or `--allow-player-mismatch`).
+  A web export with no `--player` takes the player whose build matches, the checkout's `build/web-release` before the
+  installed one. A script that imports an export the player lacks, or calls a method of the engine's objects it lacks,
+  now gets an error naming the module and the missing export and saying the player may be older than the game's engine.
+
 Web exports download the game's code once
 
 - The page of a web export handed the downloaded wasm to the player through `Module.wasmBinary`, which Emscripten 6 no
