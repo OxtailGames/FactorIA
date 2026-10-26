@@ -12,8 +12,12 @@ page before you submit.
 
 Checked against the code of this repository:
 
-- **An exported game sends nothing by itself.** The engine has no analytics, advertising id, accounts or crash upload,
-  and no request leaves a game unless its own scripts call `http.fetch` ([NETWORKING.md](NETWORKING.md)). That call
+- **An exported game sends nothing by itself.** The engine has no advertising id, accounts or crash upload, and no
+  request leaves a game unless its own scripts call `http.fetch` ([NETWORKING.md](NETWORKING.md)) or `analytics` and
+  `remoteConfig` ([ANALYTICS.md](ANALYTICS.md)), which are `http.fetch` calls to the address of your `factoria.json`
+  `"analytics"` and `"remoteConfig"` sections. There is no engine analytics server: nothing is queued or sent before the
+  player says yes, and the engine adds no device, user or session id (what a batch holds is written out in
+  [ANALYTICS.md](ANALYTICS.md#4-when-a-batch-goes-out)). That call
   uses the HTTP stack the operating system already has (WinHTTP, `NSURLSession`, libcurl on Linux, `HttpURLConnection` on
   Android, the browser's `fetch`): the player links no network library, and only to the hosts the game declares in
   `factoria.json` `"network"`. A game without that section cannot make a request. The AI client `fa_ai`
@@ -95,7 +99,13 @@ period.
 - **Analytics.** "We use [PROVIDER] to count how many people play and which features they use. It receives [DATA, e.g.
   an anonymous install id, device model, country, session length]. We keep it for [PERIOD]. The legal basis is [consent
   / legitimate interest]. You can turn it off in [WHERE IN THE GAME]." In the EU/UK ask for consent before the first
-  event is sent. Store forms: declare the data (Analytics purpose).
+  event is sent. Store forms: declare the data (Analytics purpose). With the engine's own `analytics` service
+  ([ANALYTICS.md](ANALYTICS.md)) the provider is **you** (the server at your `"analytics"` endpoint), the data is the list of
+  your event names and props plus the game id and version (the server also sees the IP address), the legal basis is consent
+  (the game sends nothing before the player says yes; the menu kit's Options switch is "where to turn it off") and the
+  `network.purpose` sentence should say it. Apple: the iOS export declares Product Interaction for Analytics (not linked, no
+  tracking) in `PrivacyInfo.xcprivacy`; answer the same in App Store Connect. Google Play Data safety: "App activity", collected,
+  optional, not shared unless your server's operator is another company.
 - **Ads.** "The game shows ads from [AD NETWORK]. The network may use your device's advertising id to show ads and
   measure them, under [AD NETWORK]'s privacy policy [LINK]. You can reset or limit the advertising id in your device
   settings." Needs the advertising declarations in the stores and, on iOS, the tracking prompt if it tracks.

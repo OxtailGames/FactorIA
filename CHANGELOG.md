@@ -16,7 +16,7 @@ Split screen: camera viewports
   `camera.screenToWorld(v, depth?, camera?)` take an optional camera (without one, a screen point uses the camera under it, so a click
   picks what the player under the pointer sees). `input.mouse.world` and a touch's `world` use that camera. The audio listener
   without an `AudioListener` is the first camera drawn. `game.renderStats()` counts per frame, over all cameras. Recipe: AI guide
-  section 9.28. Known limit: screen-space `lit` visuals get only ambient light in a frame with several cameras.
+  section 9.29. Known limit: screen-space `lit` visuals get only ambient light in a frame with several cameras.
 - Burrow Brigade: Options > Video > "Split screen when players part" (off by default). On, miners can part and the screen splits into
   two to four views; off keeps the shared camera and the leash.
 
@@ -79,6 +79,45 @@ Light2D on a light buffer: shadows from solid tiles and no 16-light cap
   the web; docs/AI_GUIDE.md a recipe for lights with tile shadows. The doc strings and docs no longer say "16 lights".
 - `FA_LIGHT_FORMAT=rgba16f|rgba8|none` picks the light buffer format at start-up (testing the fallbacks; `none` uses the
   per-pixel loop over 16 lights, the same as a GPU that cannot render to either format).
+
+Analytics with consent and remote config
+
+- New `analytics` and `remoteConfig` in `factoria`, on top of `http.fetch` (docs/ANALYTICS.md). `analytics.event(name,
+  props)` queues small events and sends them in batches to the `endpoint` of the new `"analytics"` section of
+  `factoria.json`, but only after `analytics.setConsent(true)`: before that nothing is kept or sent, and a refusal forgets
+  the queue. A batch goes out at `batch` events, after `flushSeconds`, on suspend and on quit (the quit waits up to 3
+  seconds for the request). A failed send (no connection, 408, 429, 5xx) is retried with a doubling wait, at most 3
+  attempts per event; another 4xx drops the batch. `consentFromAds: true` lets the ad consent answer the question until
+  the player does. `remoteConfig.get(key, fallback)` reads the JSON of the new `"remoteConfig"` section, caches the last
+  good answer in `storage` for offline runs and checks each value against the type of its fallback.
+- `factoria validate` checks both sections (hosts declared in `"network"`, `https://`, ranges, misspelled keys) and warns
+  about an `analytics.event(` call in a game without the section. The iOS export adds a Product Interaction (Analytics, not
+  linked, no tracking) entry to the privacy manifest when the section exists.
+- Menu kit: new part `analyticsConsent` (the question on the first run, from the main menu) and an Options switch,
+  with `analyticsConsent.*` and `options.analytics` in the locale tables. The kit's own `recipe.test.js` answers the
+  question before it opens the main menu.
+- Tests: `game.analytics` (`sent`, `requests`, `queued`, `restart`) and `game.remoteConfig.restart`; the answers come from
+  the fake `http.fetch`. `storage.keys()` hides the engine's `factoria.*` keys and `storage.clear()` removes them.
+- No new command and no `api_since` row: both services are script modules, listed in `factoria api`.
+- Burrow Brigade's statistics, balance and online news now use the engine API.
+
+Local multiplayer: actions per player
+
+- `input.player(i)` (0..3) gives each person sharing the machine their own view of the project's actions: `down`,
+  `pressed`, `released`, `value`, `axis` and `vector`, driven only by the devices assigned with `player(i).use({ pad,
+  padId, keys })`. `keys` names a key scheme (`"all"`, `"left"`, `"right"` or one from the new `factoria.json`
+  `input.schemes`, which can `extend` another, add `keys` and give per-action `actions`); `padId` follows a physical
+  gamepad across slot changes. A player with no device reads nothing; the global `input.*` still hears every device.
+  Each player has bindings of their own: `bindings`, `rebind`, `reset`, `lastPressed`, and `export` / `import` to save
+  them in `storage`. A bad slot, scheme, key or action throws with "did you mean" and changes nothing. Mouse and touch
+  are not read by players. `input.keySchemes()`, `input.keySchemeKeys(name)` and `input.maxPlayers` list what exists.
+  Tests start with no devices; a game assigns them when its scene starts. SCRIPTING.md and the AI guide (9.28) have the
+  recipe.
+- The menu kit's options script has a `players` property: with more than one, the Controls tab gets a Player button and
+  rebinds, resets and saves the controls of the chosen player (`settings.playerBindings`); a single-player game is
+  unchanged. MENUS.md and the `en`/`es`/`ar` texts have the two new keys (`options.player`, `options.playerBinding`).
+- Burrow Brigade drives its four diggers with `input.player(i)` and four key schemes in `factoria.json`; its saved
+  controls move to the engine's action names the first time they are read.
 
 Recording input and starting a scene with props
 

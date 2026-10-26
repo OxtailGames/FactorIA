@@ -3,6 +3,11 @@
 // P1 registers one player on the project's input actions (keyboard or any gamepad). The code that moves a miner reads only
 // its player record, so the local co-op package (P3) adds players here, with `{ kind: "keys" }` and `{ kind: "pad" }`
 // devices, and nothing in the miner changes.
+//
+// The registry also hands each player's device to the engine: a player on `{ kind: "keys" }` or `{ kind: "pad" }` is
+// `input.player(id)` with that key scheme (factoria.json input.schemes) or gamepad slot, so the engine reads its actions and keeps
+// its own bindings (scripts/game/controls.js). `{ kind: "any" }` stays on the global input.
+import { input } from "factoria";
 import * as events from "./events.js";
 
 export const MAX_PLAYERS = 4;
@@ -20,22 +25,20 @@ export const PLAYER_COLORS = Object.freeze([
   [1.0, 0.55, 0.8, 1],
 ]);
 
-/** The key schemes a keyboard player can use. P1 uses the project's actions instead (`{ kind: "any" }`). */
-export const KEY_SCHEMES = Object.freeze({
-  wasd: { left: "A", right: "D", up: "W", down: "S", dig: "Space", torch: "E" },
-  arrows: { left: "Left", right: "Right", up: "Up", down: "Down", dig: "Enter", torch: "RightShift" },
-  ijkl: { left: "J", right: "L", up: "I", down: "K", dig: "U", torch: "O" },
-  // The whole keyboard for one player (the join screen's Enter): WASD or the arrows, Space or J to dig, T or E for a torch.
-  // controls.js adds the second key of each action; the names here are the first ones.
-  keyboard: { left: "A", right: "D", up: "W", down: "S", dig: "Space", torch: "T" },
-});
+/**
+ * The key schemes a keyboard player can use, as factoria.json input.schemes defines them (the keys of each action live there).
+ * P1 can use the project's actions instead (`{ kind: "any" }`).
+ *  wasd: WASD, Space to dig, E for a torch. arrows: the arrows, Enter, RightShift. ijkl: IJKL, U, O.
+ *  keyboard: the whole keyboard for one player (the join screen's Enter): WASD or the arrows, Space or J to dig, T or E for a torch.
+ */
+export const KEY_SCHEMES = Object.freeze(["wasd", "arrows", "ijkl", "keyboard"]);
 
 /**
  * Which input drives a player:
  *  - `{ kind: "any" }`: the project's actions (move_left ... dig in factoria.json): the keyboard and every gamepad. One player only.
  *  - `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" | "keyboard" }`: that block of keys ("keyboard": the whole keyboard, what the join screen gives).
  *  - `{ kind: "pad", index: 0..3 }`: that gamepad (left stick or d-pad to move, A or X to dig, B or Y to place a torch).
- * @typedef {{kind: "any"} | {kind: "keys", scheme: keyof typeof KEY_SCHEMES} | {kind: "pad", index: number}} Device
+ * @typedef {{kind: "any"} | {kind: "keys", scheme: "wasd" | "arrows" | "ijkl" | "keyboard"} | {kind: "pad", index: number}} Device
  */
 
 /**
@@ -52,6 +55,18 @@ export const KEY_SCHEMES = Object.freeze({
 /** @type {Player[]} */
 let list = [];
 
+/** What the engine's `input.player(id).use()` is given for a device (`{ kind: "any" }`: nothing, that player reads the global input). */
+function engineDevice(device) {
+  if (device.kind === "keys") return { keys: device.scheme };
+  if (device.kind === "pad") return { pad: device.index };
+  return null;
+}
+
+/** Hands the engine the device of a player, or takes it away (`null`). Said again at every registry change: a test's input reset forgets devices. */
+function assign(id, device) {
+  input.player(id).use(device ? engineDevice(device) : null);
+}
+
 /**
  * Adds a player in the lowest free slot.
  * @param {{device?: Device, name?: string, color?: number[]}} [opts]  Default device: `{ kind: "any" }`.
@@ -61,13 +76,14 @@ export function add(opts = {}) {
   if (list.length >= MAX_PLAYERS) throw new Error(`the mine has room for ${MAX_PLAYERS} miners and all are taken. Remove one first (players.remove(id)).`);
   const device = opts.device ?? { kind: "any" };
   if (device.kind === "any" && list.some((p) => p.device.kind === "any")) throw new Error("only one player can use { kind: \"any\" } (the project's input actions); give the others { kind: \"keys\", scheme } or { kind: \"pad\", index }.");
-  if (device.kind === "keys" && !(device.scheme in KEY_SCHEMES)) throw new Error(`unknown key scheme '${device.scheme}': use ${Object.keys(KEY_SCHEMES).join(", ")}.`);
+  if (device.kind === "keys" && !KEY_SCHEMES.includes(device.scheme)) throw new Error(`unknown key scheme '${device.scheme}': use ${KEY_SCHEMES.join(", ")}.`);
   if (device.kind === "pad" && !(Number.isInteger(device.index) && device.index >= 0 && device.index < MAX_PLAYERS)) throw new Error(`gamepad index must be 0..${MAX_PLAYERS - 1}, got ${device.index}.`);
   let id = 0;
   while (list.some((p) => p.id === id)) id++;
   const player = { id, name: opts.name ?? `P${id + 1}`, device, color: opts.color ?? [...PLAYER_COLORS[id]], state: /** @type {"active"} */ ("active"), hp: MAX_HP, invulnerable: 0 };
   list.push(player);
   list.sort((a, b) => a.id - b.id);
+  assign(id, device);
   events.emit("playerAdded", { player });
   return player;
 }
@@ -81,10 +97,11 @@ export function setDevice(id, device) {
   const player = get(id);
   if (!player) throw new Error(`no player ${id}: the players are ${list.map((p) => p.id).join(", ") || "(none)"}.`);
   if (device.kind === "any") throw new Error("setDevice: give { kind: \"keys\", scheme } or { kind: \"pad\", index }; { kind: \"any\" } is only for the first player of a one-player game.");
-  if (device.kind === "keys" && !(device.scheme in KEY_SCHEMES)) throw new Error(`unknown key scheme '${device.scheme}': use ${Object.keys(KEY_SCHEMES).join(", ")}.`);
+  if (device.kind === "keys" && !KEY_SCHEMES.includes(device.scheme)) throw new Error(`unknown key scheme '${device.scheme}': use ${KEY_SCHEMES.join(", ")}.`);
   if (device.kind === "pad" && !(Number.isInteger(device.index) && device.index >= 0 && device.index < MAX_PLAYERS)) throw new Error(`gamepad index must be 0..${MAX_PLAYERS - 1}, got ${device.index}.`);
   const from = player.device;
   player.device = device;
+  assign(id, device);
   events.emit("playerDevice", { player, from, to: device });
 }
 
@@ -93,6 +110,7 @@ export function remove(id) {
   const player = get(id);
   if (!player) return;
   list = list.filter((p) => p.id !== id);
+  assign(id, null);
   events.emit("playerRemoved", { player });
 }
 
@@ -178,5 +196,6 @@ export function ensureOne() {
 
 /** Empties the registry (tests, and the title screen when the players are chosen again). */
 export function clear() {
+  for (let id = 0; id < MAX_PLAYERS; id++) assign(id, null);
   list = [];
 }

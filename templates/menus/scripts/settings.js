@@ -24,6 +24,7 @@ function defaults() {
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
+    playerBindings: {}, // player ("0"."3") -> input.player(i).export(), only for a game with several local players (options.js `players`)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
@@ -37,7 +38,7 @@ export function load() {
   const saved = storage.get("settings", {});
   if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
 }
 
 export function save(s) {
@@ -91,6 +92,11 @@ export function apply(s = load()) {
     } catch (e) {
       console.warn(`settings: the saved controls of "${action}" were ignored: ${e.message}`);
     }
+  }
+  for (const [player, rebound] of Object.entries(s.playerBindings)) {
+    const index = Number(player);
+    if (!Number.isInteger(index) || index < 0 || index > 3) continue;
+    for (const problem of input.player(index).import(rebound)) console.warn(`settings: the saved controls of player ${index + 1}: ${problem}`);
   }
   if (!window.available) return; // headless runs and tests have no window
   const tryApply = (what, fn) => {

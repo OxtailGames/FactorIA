@@ -1,9 +1,9 @@
 // @ts-check
 // The news panel of the title screen: a few short items from the game's server ("Daily dig is live", "Patch 0.2"). The server is
-// reached through online.js (offline in the shipped game today, a fake in tests). The answer is untrusted: it is checked, cut to
+// the "news" section of the remote config file (online.js). The answer is untrusted: it is checked, cut to
 // fit the panel and kept in storage, so the last good news still shows when the game starts offline.
 //
-//   file    { "version": 1, "items": [ { "id": "patch-2", "date": "2026-10-20", "title": "Patch 0.2", "body": "..." } ] }
+//   file    "news": { "version": 1, "items": [ { "id": "patch-2", "date": "2026-10-20", "title": "Patch 0.2", "body": "..." } ] }
 //           title and body are text, or an object by language ({ "en": "...", "ru": "..." }; the game's language, else "en").
 //   refresh()   asks the server; resolves { source: "server"|"cache"|"none", items }. A bad file keeps the cache.
 //   cached()    the items kept from the last good answer ([] when none).
@@ -60,8 +60,8 @@ export function cached() {
 
 /** @returns {Promise<{source: "server"|"cache"|"none", items: Array<{id: string, date: string, title: string, body: string}>}>} */
 export async function refresh() {
-  const r = await online.request("GET", online.PATHS.news);
-  const items = r.ok ? parse(r.data) : null;
+  const from = await online.ready();
+  const items = from === "remote" ? parse(online.section("news", {})) : null;
   if (items) {
     storage.set(KEY, { items });
     return { source: "server", items };

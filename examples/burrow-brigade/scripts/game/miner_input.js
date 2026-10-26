@@ -1,10 +1,10 @@
 // @ts-check
-// Reads the input of one player for this frame (the player's own bindings: controls.js): where to walk and whether the dig button is down. The device of the player
-// (players.js) decides which input counts, so up to four miners can share one keyboard and several pads without reading each
-// other's keys. P1 has one player on `{ kind: "any" }`: the project's actions, which the keyboard (WASD or arrows, Space or J)
-// and every gamepad (left stick or d-pad, A or X) feed.
+// Reads the input of one player for this frame: where to walk, whether the dig button is down and whether a torch was asked for.
+// The device of the player (players.js) decides which input counts: a keys or pad player is `input.player(id)` of the engine,
+// the project's actions read from its own key scheme or gamepad with its own bindings (controls.js), so up to four miners can
+// share one keyboard and several pads without reading each other's keys. A player on `{ kind: "any" }` reads the global
+// input: the project's actions, which the keyboard (WASD or arrows, Space or J) and every gamepad (left stick or d-pad, A or X) feed.
 import { input, world } from "factoria";
-import { bindingsOf, valueOf } from "./controls.js";
 import { holdModeOf } from "../settings.js";
 
 /**
@@ -20,9 +20,6 @@ function clamp(x, y) {
   const len = Math.hypot(x, y);
   return len > 1 ? { x: x / len, y: y / len } : { x, y };
 }
-
-/** The torch button as a press, from a value that may come from a stick: last frame's state by player, so a press counts once. */
-const torchHeld = new Map();
 
 /** Toggle mode, by player id: the dig button as last read (to find the press) and whether the toggle is on. */
 const digToggle = new Map();
@@ -68,15 +65,9 @@ export function readInput(player) {
     const v = clamp(input.axis("move_left", "move_right"), input.axis("move_down", "move_up"));
     return { ...v, dig: digOf(player, input.down("dig")), torch: input.pressed("torch") };
   }
-  // keys and pads: the player's own bindings (controls.js: the defaults, or what the player rebound in Options > Controls)
-  const b = bindingsOf(player);
-  const v = clamp(valueOf(b.right, d) - valueOf(b.left, d), valueOf(b.up, d) - valueOf(b.down, d));
-  const torch = valueOf(b.torch, d) >= 0.5;
-  const was = torchHeld.get(player.id);
-  const stamp = world.frame;
-  let pressed;
-  if (was && was.frame === stamp) pressed = was.pressed; // read twice in one frame: the same answer
-  else pressed = torch && !(was && was.held);
-  torchHeld.set(player.id, { frame: stamp, held: torch, pressed });
-  return { ...v, dig: digOf(player, valueOf(b.dig, d) >= 0.5), torch: pressed };
+  // keys and pads: the engine's actions of this player, read from its own device with its own bindings (the defaults of the
+  // key scheme in factoria.json, or what the player rebound in Options > Controls; controls.js)
+  const me = input.player(player.id);
+  const v = me.vector("move_left", "move_right", "move_down", "move_up");
+  return { x: v.x, y: v.y, dig: digOf(player, me.down("dig")), torch: me.pressed("torch") };
 }

@@ -24,6 +24,7 @@
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
+#include "fa/services/network.h"
 #include "fa/services/platform.h"
 #include "fa/tooling/ads_release.h"
 #include "fa/tooling/audio_analysis.h"
@@ -55,6 +56,7 @@ struct Ctx {
     std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
+    bool analyticsDeclared = false;                           // factoria.json "analytics" has an endpoint
     bool networkDeclared = false;                             // factoria.json "network" lists at least one host
     std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
     bool projectFileRead = false;                             // factoria.json parsed as an object
@@ -460,6 +462,19 @@ void check_network(Ctx& c, const NetworkParse& parsed) {
     c.networkDeclared = parsed.ok() && !parsed.policy.hosts.empty();
 }
 
+// The "analytics" and "remoteConfig" sections (docs/ANALYTICS.md): their URLs must be https and their hosts declared in "network".
+void check_services(Ctx& c, const AnalyticsParse& analytics, const RemoteConfigParse& remote) {
+    for (const NetworkIssue& i : analytics.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    for (const NetworkIssue& i : remote.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    c.analyticsDeclared = analytics.settings.configured;
+}
+
 // The "localization" section (languages, default language, fonts): every problem of parse_localization with its pointer and fix.
 // What the string tables (locales/<language>.json) and the texts of scenes hold is checked once the scenes are read
 // (check_localization_content, validate_localization.cpp).
@@ -493,6 +508,9 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
     const NetworkParse network = parse_network(pj.is_object() && pj.contains(kNetworkKey) ? pj[kNetworkKey] : Json());
+    const AnalyticsParse analytics = parse_analytics(pj.is_object() && pj.contains(kAnalyticsKey) ? pj[kAnalyticsKey] : Json(), network.policy);
+    const RemoteConfigParse remoteConfig =
+        parse_remote_config(pj.is_object() && pj.contains(kRemoteConfigKey) ? pj[kRemoteConfigKey] : Json(), network.policy);
     const LocalizationParse localization = parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
     const AudioSettingsParse audio = parse_audio_settings(pj.is_object() && pj.contains("audio") ? pj["audio"] : Json());
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
@@ -500,6 +518,8 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         for (const auto& e : validate_json(schema, pj)) {
             if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
             if (!network.ok() && (e.pointer == "/network" || e.pointer.rfind("/network/", 0) == 0)) continue;  // check_network says it better
+            if (!analytics.ok() && (e.pointer == "/analytics" || e.pointer.rfind("/analytics/", 0) == 0)) continue;  // check_services says it better
+            if (!remoteConfig.ok() && (e.pointer == "/remoteConfig" || e.pointer.rfind("/remoteConfig/", 0) == 0)) continue;
             if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0)) continue;  // check_localization too
             if (!audio.ok() && (e.pointer == "/audio" || e.pointer.rfind("/audio/", 0) == 0)) continue;  // check_audio too
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
@@ -517,6 +537,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         for (const AdsIssue& i : check_ads(c.dir)) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
     c.catalogKeys = platform.catalog.textKeyRefs;
     check_network(c, network);
+    check_services(c, analytics, remoteConfig);
     check_localization(c, localization);
     check_audio(c, audio);
     c.projectFileRead = true;
@@ -750,6 +771,16 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             c.warn(s, "", "this script calls http.fetch, but factoria.json declares no \"network\" hosts: every call throws",
                    "Add \"network\": {\"hosts\": [\"api.example.com\"], \"purpose\": \"...\"} to factoria.json (docs/NETWORKING.md).");
             break;  // once per project is enough
+        }
+    }
+    if (!c.analyticsDeclared) {
+        // A script that queues analytics events in a game without the section: every call throws.
+        for (const auto& s : scripts) {
+            auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
+            if (!text || text->find("analytics.event(") == std::string::npos) continue;
+            c.warn(s, "", "this script calls analytics.event, but factoria.json has no \"analytics\" section with an endpoint: every call throws",
+                   "Add \"analytics\": {\"endpoint\": \"https://stats.example.com/events\"} and the host to \"network\".\"hosts\" (docs/ANALYTICS.md).");
+            break;
         }
     }
     if (options.propsCheck) {

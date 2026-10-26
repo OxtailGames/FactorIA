@@ -494,6 +494,7 @@ GamepadType Input::gamepad_type(int index) const {
 
 void Input::reset_options() {
     reset_bindings();
+    for (PlayerState& player : players_) player = PlayerState{};  // no devices, no rebinds (the schemes are the project's)
     mouseVisible_ = true;
     mouseLocked_ = keyboardShown_ = platformKeyboard_ = false;
     backEdge_ = false;
@@ -591,22 +592,82 @@ std::vector<std::string> all_binding_names() {
 
 }  // namespace
 
-float Input::binding_value(const Binding& b, bool previous) const {
+float Input::binding_value_in(const Binding& b, bool previous, const View& view) const {
+    auto pads = [&](auto&& each) {  // the pads this view reads (a disconnected pad has nothing down and its axes at 0)
+        if (view.anyPad) {
+            for (const Pad& pad : pads_) each(pad);
+        } else if (view.pad >= 0 && view.pad < kMaxGamepads) {
+            each(pads_[size_t(view.pad)]);
+        }
+    };
     switch (b.kind) {
-        case Binding::Kind::Key: return (previous ? prevKeys_ : keys_)[size_t(b.key)] ? 1.0f : 0.0f;
-        case Binding::Kind::Mouse: return (previous ? prevMouse_ : mouse_buttons_)[size_t(b.mouse)] ? 1.0f : 0.0f;
-        case Binding::Kind::Touch: return (previous ? prevTouchDown_ : touchDown_) ? 1.0f : 0.0f;
-        case Binding::Kind::PadButton:
-            for (const Pad& pad : pads_)  // a disconnected pad has nothing down
-                if ((previous ? pad.prevButtons : pad.buttons)[size_t(b.button)]) return 1.0f;
-            return 0.0f;
+        case Binding::Kind::Key:
+            if (!view.keyboard || (view.keySet && !(*view.keySet)[size_t(b.key)])) return 0.0f;
+            return (previous ? prevKeys_ : keys_)[size_t(b.key)] ? 1.0f : 0.0f;
+        case Binding::Kind::Mouse:
+            if (!view.pointer) return 0.0f;
+            return (previous ? prevMouse_ : mouse_buttons_)[size_t(b.mouse)] ? 1.0f : 0.0f;
+        case Binding::Kind::Touch: return view.pointer && (previous ? prevTouchDown_ : touchDown_) ? 1.0f : 0.0f;
+        case Binding::Kind::PadButton: {
+            float v = 0.0f;
+            pads([&](const Pad& pad) {
+                if ((previous ? pad.prevButtons : pad.buttons)[size_t(b.button)]) v = 1.0f;
+            });
+            return v;
+        }
         case Binding::Kind::PadAxis: {
             float v = 0.0f;
-            for (const Pad& pad : pads_) v = std::max(v, float(b.sign) * pad_axis(pad, b.axis, previous));
+            pads([&](const Pad& pad) { v = std::max(v, float(b.sign) * pad_axis(pad, b.axis, previous)); });
             return v;
         }
     }
     return 0.0f;
+}
+
+float Input::binding_value(const Binding& b, bool previous) const {
+    View all;
+    all.anyPad = all.pointer = all.keyboard = true;
+    return binding_value_in(b, previous, all);
+}
+
+bool Input::was_down_in(const std::vector<Binding>& list, const View& view) const {
+    for (const Binding& b : list)
+        if (binding_value_in(b, true, view) >= kActionDownThreshold) return true;
+    return false;
+}
+
+bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool released) const {
+    auto pads = [&](auto&& each) {
+        if (view.anyPad) {
+            for (const Pad& pad : pads_) each(pad);
+        } else if (view.pad >= 0 && view.pad < kMaxGamepads) {
+            each(pads_[size_t(view.pad)]);
+        }
+    };
+    bool edge = false;
+    for (const Binding& b : list) {
+        switch (b.kind) {
+            case Binding::Kind::Key:
+                if (view.keyboard && (!view.keySet || (*view.keySet)[size_t(b.key)]))
+                    edge = edge || (released ? key_released(b.key) : key_pressed(b.key));
+                break;
+            case Binding::Kind::Mouse:
+                if (view.pointer) edge = edge || (released ? mouse_released(b.mouse) : mouse_pressed(b.mouse));
+                break;
+            case Binding::Kind::Touch:
+                if (view.pointer) edge = edge || (released ? touchReleasedEdge_ : touchPressedEdge_);
+                break;
+            case Binding::Kind::PadButton:  // the touch pad too, for the global view
+                pads([&](const Pad& pad) { edge = edge || (released ? pad.releasedEdge : pad.pressedEdge)[size_t(b.button)]; });
+                break;
+            // An analog value has no event, only a level: it is a press when it is up now and was not at frame start (the
+            // caller checks the second half); a release is "was down and is not now", which was_down_in covers.
+            case Binding::Kind::PadAxis:
+                if (!released) edge = edge || binding_value_in(b, false, view) >= kActionDownThreshold;
+                break;
+        }
+    }
+    return edge;
 }
 
 // Parses one binding name; returns false if unknown.
@@ -681,16 +742,21 @@ std::vector<std::string> Input::set_actions(const Json& actions) {
     std::vector<std::string> problems;
     actions_.clear();
     projectActions_ = actions;
-    if (actions.is_null()) return problems;
+    if (actions.is_null()) {
+        rebuild_player_defaults();
+        return problems;
+    }
     if (!actions.is_object()) {
         problems.push_back(std::format(
             "input.actions must be an object mapping action names to binding lists, e.g. "
             "{{\"jump\": [\"Space\", \"W\"]}}; got {}", describe_json_value(actions)));
+        rebuild_player_defaults();
         return problems;
     }
     const auto candidates = all_binding_names();
     for (auto it = actions.begin(); it != actions.end(); ++it)  // even an empty list declares the action
         actions_[it.key()] = parse_binding_list(it.key(), it.value(), candidates, problems);
+    rebuild_player_defaults();
     return problems;
 }
 
@@ -863,19 +929,10 @@ bool Input::action_pressed(std::string_view action) const {
     bool edge = overridePressedEdge_.count(name) != 0;
     auto it = actions_.find(name);
     if (it != actions_.end()) {
-        for (const auto& b : it->second) {
-            if (binding_value(b, true) >= kActionDownThreshold) wasDown = true;
-            switch (b.kind) {
-                case Binding::Kind::Key: edge = edge || key_pressed(b.key); break;
-                case Binding::Kind::Mouse: edge = edge || mouse_pressed(b.mouse); break;
-                case Binding::Kind::Touch: edge = edge || touchPressedEdge_; break;
-                case Binding::Kind::PadButton:
-                    for (const Pad& pad : pads_) edge = edge || pad.pressedEdge[size_t(b.button)];  // the touch pad too
-                    break;
-                // An analog value has no event, only a level: it is a press when it is up now and was not at frame start.
-                case Binding::Kind::PadAxis: edge = edge || binding_value(b, false) >= kActionDownThreshold; break;
-            }
-        }
+        View all;
+        all.anyPad = all.pointer = all.keyboard = true;
+        wasDown = wasDown || was_down_in(it->second, all);
+        edge = edge || edge_in(it->second, all, false);
     }
     return edge && !wasDown;
 }
@@ -887,18 +944,10 @@ bool Input::action_released(std::string_view action) const {
     bool edge = overrideReleasedEdge_.count(name) != 0;
     auto it = actions_.find(name);
     if (it != actions_.end()) {
-        for (const auto& b : it->second) {
-            if (binding_value(b, true) >= kActionDownThreshold) wasDown = true;
-            switch (b.kind) {
-                case Binding::Kind::Key: edge = edge || key_released(b.key); break;
-                case Binding::Kind::Mouse: edge = edge || mouse_released(b.mouse); break;
-                case Binding::Kind::Touch: edge = edge || touchReleasedEdge_; break;
-                case Binding::Kind::PadButton:
-                    for (const Pad& pad : pads_) edge = edge || pad.releasedEdge[size_t(b.button)];
-                    break;
-                case Binding::Kind::PadAxis: break;  // was down and is not now: wasDown covers it
-            }
-        }
+        View all;
+        all.anyPad = all.pointer = all.keyboard = true;
+        wasDown = wasDown || was_down_in(it->second, all);
+        edge = edge || edge_in(it->second, all, true);
     }
     return wasDown || edge;
 }
@@ -964,7 +1013,532 @@ Json Input::snapshot() const {
     }
     if (!pads.empty()) j["gamepads"] = pads;
     if (!text_.empty()) j["text"] = text_utf8();
+    Json players = Json::array();  // only players with a device, so a game without players dumps what it always did
+    for (int p = 0; p < kMaxPlayers; ++p) {
+        const PlayerDevice& d = players_[size_t(p)].device;
+        if (d.pad < 0 && d.padId.empty() && d.keys.empty()) continue;
+        Json down = Json::array();
+        for (const auto& name : action_names())
+            if (player_action_down(p, name)) down.push_back(name);
+        Json entry = {{"player", p}, {"pad", player_pad(p)}, {"keys", d.keys}, {"actionsDown", down}};
+        if (!d.padId.empty()) entry["padId"] = d.padId;
+        players.push_back(entry);
+    }
+    if (!players.empty()) j["players"] = players;
     return j;
+}
+
+// ---------------------------------------------------------------------------
+// Players: one device each, the project's actions read through it
+// ---------------------------------------------------------------------------
+namespace {
+
+bool valid_player(int player) { return player >= 0 && player < kMaxPlayers; }
+
+// The two halves of the keyboard: what a "left" player (WASD, Space) and a "right" player (arrows, Enter) own. Space is on
+// the left and Enter on the right, so two players on one keyboard share neither.
+const std::vector<Key>& left_half_keys() {
+    static const std::vector<Key> keys = {Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Q, Key::W, Key::E,
+        Key::R, Key::T, Key::A, Key::S, Key::D, Key::F, Key::G, Key::Z, Key::X, Key::C, Key::V, Key::B, Key::Tab,
+        Key::LeftShift, Key::LeftControl, Key::LeftAlt, Key::GraveAccent, Key::Space};
+    return keys;
+}
+const std::vector<Key>& right_half_keys() {
+    static const std::vector<Key> keys = {Key::Num6, Key::Num7, Key::Num8, Key::Num9, Key::Num0, Key::Y, Key::U, Key::I,
+        Key::O, Key::P, Key::H, Key::J, Key::K, Key::L, Key::N, Key::M, Key::Minus, Key::Equal, Key::LeftBracket,
+        Key::RightBracket, Key::Backslash, Key::Semicolon, Key::Apostrophe, Key::Comma, Key::Period, Key::Slash,
+        Key::Enter, Key::Backspace, Key::RightShift, Key::RightControl, Key::RightAlt, Key::Left, Key::Right, Key::Up,
+        Key::Down, Key::Insert, Key::Delete, Key::Home, Key::End, Key::PageUp, Key::PageDown};
+    return keys;
+}
+
+const char* const kBuiltinSchemes[] = {"all", "left", "right"};
+
+}  // namespace
+
+Input::Input() {
+    KeyScheme all, left, right;
+    for (size_t i = 1; i < size_t(Key::Count); ++i) all.keys[i] = true;
+    for (Key k : left_half_keys()) left.keys[size_t(k)] = true;
+    for (Key k : right_half_keys()) right.keys[size_t(k)] = true;
+    all.builtin = left.builtin = right.builtin = true;
+    schemes_["all"] = std::move(all);
+    schemes_["left"] = std::move(left);
+    schemes_["right"] = std::move(right);
+}
+
+bool Input::parse_family(std::string_view name, Family& out) {
+    if (iequals(name, "keys")) { out = Family::Keys; return true; }
+    if (iequals(name, "pad")) { out = Family::Pad; return true; }
+    return false;
+}
+
+std::vector<std::string> Input::key_scheme_names() const {
+    std::vector<std::string> names(std::begin(kBuiltinSchemes), std::end(kBuiltinSchemes));
+    for (const auto& [name, scheme] : schemes_)
+        if (!scheme.builtin) names.push_back(name);  // std::map: sorted
+    return names;
+}
+
+std::vector<std::string> Input::key_scheme_keys(std::string_view name) const {
+    std::vector<std::string> out;
+    auto it = schemes_.find(std::string(name));
+    if (it == schemes_.end()) return out;
+    for (size_t i = 1; i < size_t(Key::Count); ++i)
+        if (it->second.keys[i]) out.push_back(key_name(Key(i)));
+    return out;
+}
+
+std::vector<std::string> Input::set_key_schemes(const Json& schemes) {
+    std::vector<std::string> problems;
+    for (auto it = schemes_.begin(); it != schemes_.end();) it = it->second.builtin ? std::next(it) : schemes_.erase(it);
+    if (!schemes.is_null()) {
+        if (!schemes.is_object()) {
+            problems.push_back(std::format(
+                "input.schemes must be an object mapping scheme names to key sets, e.g. {{\"arrows\": {{\"extends\": \"right\"}}}}; got {}",
+                describe_json_value(schemes)));
+        } else {
+            const std::vector<std::string> keyCandidates = key_names().all;
+            const std::vector<std::string> builtin(std::begin(kBuiltinSchemes), std::end(kBuiltinSchemes));
+            for (auto it = schemes.begin(); it != schemes.end(); ++it) {
+                const std::string& name = it.key();
+                const std::string at = "input.schemes." + name;
+                if (name.empty()) { problems.push_back("input.schemes: a scheme needs a name"); continue; }
+                if (std::find(builtin.begin(), builtin.end(), name) != builtin.end()) {
+                    problems.push_back(std::format("{}: '{}' is a built-in scheme ({}); pick another name, or use \"extends\": \"{}\" to start from it",
+                                                   at, name, join(builtin, ", "), name));
+                    continue;
+                }
+                Json spec = it.value();
+                if (spec.is_array()) spec = Json::object({{"keys", spec}});
+                if (!spec.is_object()) {
+                    problems.push_back(std::format("{}: expected an object like {{\"extends\": \"left\", \"actions\": {{...}}}} or an array of key names, got {}",
+                                                   at, describe_json_value(spec)));
+                    continue;
+                }
+                const std::vector<std::string> fields = {"extends", "keys", "actions"};
+                const size_t before = problems.size();
+                for (auto f = spec.begin(); f != spec.end(); ++f)
+                    if (std::find(fields.begin(), fields.end(), f.key()) == fields.end())
+                        problems.push_back(std::format("{}: unknown field '{}'. {}", at, f.key(), did_you_mean(f.key(), fields)));
+                KeyScheme scheme;
+                auto add_key = [&](const Json& item, const std::string& where) {
+                    const std::string text = item.is_string() ? item.get<std::string>() : std::string();
+                    Key k = item.is_string() ? key_from_name(text) : Key::Unknown;
+                    if (k == Key::Unknown)
+                        problems.push_back(std::format("{}: {} is not a key name. {}", where,
+                                                       item.is_string() ? "'" + text + "'" : describe_json_value(item),
+                                                       did_you_mean(text, keyCandidates)));
+                    else
+                        scheme.keys[size_t(k)] = true;
+                    return k;
+                };
+                if (spec.contains("extends")) {
+                    const Json& e = spec["extends"];
+                    auto base = e.is_string() ? schemes_.find(e.get<std::string>()) : schemes_.end();
+                    if (base == schemes_.end() || !base->second.builtin)
+                        problems.push_back(std::format("{}/extends: expected one of {}, got {}. {}", at, join(builtin, ", "),
+                                                       describe_json_value(e),
+                                                       e.is_string() ? did_you_mean(e.get<std::string>(), builtin) : std::string()));
+                    else
+                        for (size_t i = 0; i < scheme.keys.size(); ++i) scheme.keys[i] = scheme.keys[i] || base->second.keys[i];
+                }
+                if (spec.contains("keys")) {
+                    if (!spec["keys"].is_array())
+                        problems.push_back(std::format("{}/keys: expected an array of key names, got {}", at, describe_json_value(spec["keys"])));
+                    else
+                        for (const Json& k : spec["keys"]) add_key(k, at + "/keys");
+                }
+                if (spec.contains("actions")) {
+                    const Json& acts = spec["actions"];
+                    if (!acts.is_object()) {
+                        problems.push_back(std::format("{}/actions: expected an object mapping action names to key lists, got {}", at, describe_json_value(acts)));
+                    } else {
+                        const std::vector<std::string> names = action_names();
+                        for (auto a = acts.begin(); a != acts.end(); ++a) {
+                            const std::string where = at + "/actions/" + a.key();
+                            if (!projectActions_.is_object() || !projectActions_.contains(a.key())) {
+                                problems.push_back(std::format("{}: unknown input action '{}'. {}", where, a.key(), did_you_mean(a.key(), names)));
+                                continue;
+                            }
+                            if (!a.value().is_array()) {
+                                problems.push_back(std::format("{}: expected an array of key names, got {}", where, describe_json_value(a.value())));
+                                continue;
+                            }
+                            std::vector<Binding> list;
+                            for (const Json& item : a.value()) {
+                                Key k = add_key(item, where);
+                                if (k == Key::Unknown) continue;
+                                Binding b;
+                                b.kind = Binding::Kind::Key;
+                                b.key = k;
+                                list.push_back(b);
+                            }
+                            scheme.actions[a.key()] = std::move(list);
+                        }
+                    }
+                }
+                bool any = false;
+                for (bool k : scheme.keys) any = any || k;
+                if (!any && problems.size() == before)
+                    problems.push_back(std::format("{}: the scheme has no keys. Give \"extends\" (a built-in scheme) or \"keys\", e.g. {{\"keys\": [\"W\", \"A\", \"S\", \"D\"]}}", at));
+                if (problems.size() == before) schemes_[name] = std::move(scheme);
+            }
+        }
+    }
+    rebuild_player_defaults();
+    return problems;
+}
+
+void Input::rebuild_player_defaults() {
+    padDefaults_.clear();
+    keyDefaults_.clear();
+    for (const auto& [name, scheme] : schemes_) keyDefaults_[name];  // a scheme with no actions still exists
+    for (const auto& [action, all] : actions_) {
+        if (!projectActions_.is_object() || !projectActions_.contains(action)) continue;  // made by bind(), not the project's
+        std::vector<Binding> pad;
+        for (const Binding& b : all)
+            if (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis) pad.push_back(b);
+        padDefaults_[action] = std::move(pad);
+        for (const auto& [name, scheme] : schemes_) {
+            auto own = scheme.actions.find(action);
+            if (own != scheme.actions.end()) {
+                keyDefaults_[name][action] = own->second;
+                continue;
+            }
+            std::vector<Binding> keys;
+            for (const Binding& b : all)
+                if (b.kind == Binding::Kind::Key && scheme.keys[size_t(b.key)]) keys.push_back(b);
+            keyDefaults_[name][action] = std::move(keys);
+        }
+    }
+    for (PlayerState& player : players_) {  // a rebind of an action the project no longer has goes with it
+        for (auto it = player.keysOverride.begin(); it != player.keysOverride.end();)
+            it = padDefaults_.count(it->first) ? std::next(it) : player.keysOverride.erase(it);
+        for (auto it = player.padOverride.begin(); it != player.padOverride.end();)
+            it = padDefaults_.count(it->first) ? std::next(it) : player.padOverride.erase(it);
+    }
+}
+
+std::vector<std::string> Input::use_player_device(int player, const PlayerDevice& device) {
+    std::vector<std::string> problems;
+    if (!valid_player(player)) {
+        problems.push_back(std::format("input.player({}): players are numbered 0 to {}", player, kMaxPlayers - 1));
+        return problems;
+    }
+    if (device.pad < -1 || device.pad >= kMaxGamepads)
+        problems.push_back(std::format("input.player({}).use: pad must be a gamepad slot from 0 to {}, got {}", player,
+                                       kMaxGamepads - 1, device.pad));
+    if (device.pad >= 0 && !device.padId.empty())
+        problems.push_back(std::format("input.player({}).use: give pad (a slot) or padId (a pad's stable id), not both", player));
+    if (!device.keys.empty() && !schemes_.count(device.keys))
+        problems.push_back(std::format("input.player({}).use: unknown key scheme '{}'. {}", player, device.keys,
+                                       did_you_mean(device.keys, key_scheme_names())));
+    if (problems.empty()) players_[size_t(player)].device = device;
+    return problems;
+}
+
+const PlayerDevice& Input::player_device(int player) const {
+    static const PlayerDevice none;
+    return valid_player(player) ? players_[size_t(player)].device : none;
+}
+
+int Input::player_pad(int player) const {
+    if (!valid_player(player)) return -1;
+    const PlayerDevice& d = players_[size_t(player)].device;
+    if (d.padId.empty()) return d.pad;
+    for (int i = 0; i < kMaxGamepads; ++i)
+        if (pads_[size_t(i)].connected && pads_[size_t(i)].info.id == d.padId) return i;
+    return -1;
+}
+
+Input::View Input::player_view(int player) const {
+    View view;
+    if (!valid_player(player)) return view;
+    const PlayerDevice& d = players_[size_t(player)].device;
+    if (!d.keys.empty()) {
+        auto it = schemes_.find(d.keys);
+        if (it != schemes_.end()) {
+            view.keyboard = true;
+            view.keySet = &it->second.keys;
+        }
+    }
+    view.pad = player_pad(player);
+    return view;
+}
+
+bool Input::has_player_action(std::string_view action) const { return padDefaults_.count(std::string(action)) != 0; }
+
+const std::vector<Input::Binding>* Input::player_list(int player, Family family, const std::string& action) const {
+    if (!valid_player(player)) return nullptr;
+    const PlayerState& state = players_[size_t(player)];
+    if (family == Family::Pad) {
+        if (auto o = state.padOverride.find(action); o != state.padOverride.end()) return &o->second;
+        auto d = padDefaults_.find(action);
+        return d == padDefaults_.end() ? nullptr : &d->second;
+    }
+    if (auto o = state.keysOverride.find(action); o != state.keysOverride.end()) return &o->second;
+    auto table = keyDefaults_.find(state.device.keys.empty() ? std::string("all") : state.device.keys);
+    if (table == keyDefaults_.end()) return nullptr;
+    auto d = table->second.find(action);
+    return d == table->second.end() ? nullptr : &d->second;
+}
+
+float Input::player_action_value(int player, std::string_view action) const {
+    const std::string name(action);
+    const View view = player_view(player);
+    float v = 0.0f;
+    for (Family f : {Family::Keys, Family::Pad})
+        if (const auto* list = player_list(player, f, name))
+            for (const Binding& b : *list) v = std::max(v, binding_value_in(b, false, view));
+    return v;
+}
+
+bool Input::player_action_down(int player, std::string_view action) const {
+    return player_action_value(player, action) >= kActionDownThreshold;
+}
+
+bool Input::player_action_pressed(int player, std::string_view action) const {
+    const std::string name(action);
+    const View view = player_view(player);
+    bool wasDown = false, edge = false;
+    for (Family f : {Family::Keys, Family::Pad})
+        if (const auto* list = player_list(player, f, name)) {
+            wasDown = wasDown || was_down_in(*list, view);
+            edge = edge || edge_in(*list, view, false);
+        }
+    return edge && !wasDown;
+}
+
+bool Input::player_action_released(int player, std::string_view action) const {
+    if (player_action_down(player, action)) return false;
+    const std::string name(action);
+    const View view = player_view(player);
+    bool wasDown = false, edge = false;
+    for (Family f : {Family::Keys, Family::Pad})
+        if (const auto* list = player_list(player, f, name)) {
+            wasDown = wasDown || was_down_in(*list, view);
+            edge = edge || edge_in(*list, view, true);
+        }
+    return wasDown || edge;
+}
+
+float Input::player_axis(int player, std::string_view negative, std::string_view positive) const {
+    return player_action_value(player, positive) - player_action_value(player, negative);
+}
+
+Vec2 Input::player_vector(int player, std::string_view left, std::string_view right, std::string_view down,
+                          std::string_view up) const {
+    Vec2 v{player_axis(player, left, right), player_axis(player, down, up)};
+    float len = length(v);
+    if (len > 1.0f) v = v / len;
+    return v;
+}
+
+std::vector<std::string> Input::player_bindings(int player, std::string_view action, std::string_view family) const {
+    std::vector<std::string> out;
+    if (!valid_player(player)) return out;
+    const std::string name(action);
+    const PlayerDevice& d = players_[size_t(player)].device;
+    std::vector<Family> families;
+    if (Family f; !family.empty() && parse_family(family, f)) {
+        families.push_back(f);
+    } else if (family.empty()) {
+        if (!d.keys.empty()) families.push_back(Family::Keys);
+        if (d.pad >= 0 || !d.padId.empty()) families.push_back(Family::Pad);
+    }
+    const KeySet* set = nullptr;
+    if (!d.keys.empty())
+        if (auto it = schemes_.find(d.keys); it != schemes_.end()) set = &it->second.keys;
+    for (Family f : families)
+        if (const auto* list = player_list(player, f, name))
+            for (const Binding& b : *list) {
+                if (b.kind == Binding::Kind::Key && set && !(*set)[size_t(b.key)]) continue;
+                out.push_back(binding_name(b));
+            }
+    return out;
+}
+
+std::vector<std::string> Input::player_rebind(int player, std::string_view action, const std::vector<std::string>& bindings,
+                                              std::string_view family) {
+    std::vector<std::string> problems;
+    const std::string who = std::format("input.player({}).rebind('{}')", player, action);
+    if (!valid_player(player)) {
+        problems.push_back(std::format("input.player({}): players are numbered 0 to {}", player, kMaxPlayers - 1));
+        return problems;
+    }
+    const std::string name(action);
+    if (!has_player_action(action)) {
+        problems.push_back(unknown_action_message("input.player().rebind", action, action_names()));
+        return problems;
+    }
+    Family only = Family::Keys;
+    const bool haveFamily = !family.empty();
+    if (haveFamily && !parse_family(family, only)) {
+        problems.push_back(std::format("{}: the family must be \"keys\" or \"pad\", got '{}'", who, family));
+        return problems;
+    }
+    const PlayerState& state = players_[size_t(player)];
+    const std::string schemeName = state.device.keys.empty() ? std::string("all") : state.device.keys;
+    auto scheme = schemes_.find(schemeName);
+    const auto candidates = all_binding_names();
+    std::vector<Binding> keys, pad;
+    for (const std::string& text : bindings) {
+        Binding b;
+        if (!parse_binding(text, b)) {
+            problems.push_back(std::format("{}: unknown binding '{}'. {}", who, text, did_you_mean(text, candidates)));
+            continue;
+        }
+        const std::string canonical = binding_name(b);
+        if (b.kind == Binding::Kind::Mouse || b.kind == Binding::Kind::Touch) {
+            problems.push_back(std::format("{}: '{}' is the shared pointer, which players do not read; use the global input.* actions for the mouse and touch, "
+                                           "or a key or a gamepad binding here", who, canonical));
+            continue;
+        }
+        const bool isPad = b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis;
+        if (haveFamily && isPad != (only == Family::Pad)) {
+            problems.push_back(std::format("{}: '{}' is a {} binding but the family is \"{}\"", who, canonical,
+                                           isPad ? "gamepad" : "keyboard", family));
+            continue;
+        }
+        if (!isPad && scheme != schemes_.end() && !scheme->second.keys[size_t(b.key)]) {
+            problems.push_back(std::format(
+                "{}: '{}' is not a key of this player's scheme '{}'. Pick one of its keys (input.keySchemeKeys('{}')), or give the "
+                "player another scheme with input.player({}).use({{keys: ...}}) first",
+                who, canonical, schemeName, schemeName, player));
+            continue;
+        }
+        (isPad ? pad : keys).push_back(b);
+    }
+    if (!problems.empty()) return problems;
+    if (!haveFamily && !bindings.empty() && !keys.empty() && !pad.empty()) {
+        problems.push_back(std::format("{}: the names mix keyboard and gamepad bindings; rebind one family at a time "
+                                       "(pass \"keys\" or \"pad\" as the family)", who));
+        return problems;
+    }
+    PlayerState& st = players_[size_t(player)];
+    const bool replaceKeys = haveFamily ? only == Family::Keys : (bindings.empty() || !keys.empty());
+    const bool replacePad = haveFamily ? only == Family::Pad : (bindings.empty() || !pad.empty());
+    if (replaceKeys) st.keysOverride[name] = std::move(keys);
+    if (replacePad) st.padOverride[name] = std::move(pad);
+    return problems;
+}
+
+std::vector<std::string> Input::player_reset(int player, std::string_view action) {
+    std::vector<std::string> problems;
+    if (!valid_player(player)) {
+        problems.push_back(std::format("input.player({}): players are numbered 0 to {}", player, kMaxPlayers - 1));
+        return problems;
+    }
+    PlayerState& st = players_[size_t(player)];
+    if (action.empty()) {
+        st.keysOverride.clear();
+        st.padOverride.clear();
+        return problems;
+    }
+    if (!has_player_action(action)) {
+        problems.push_back(unknown_action_message("input.player().reset", action, action_names()));
+        return problems;
+    }
+    st.keysOverride.erase(std::string(action));
+    st.padOverride.erase(std::string(action));
+    return problems;
+}
+
+std::string Input::player_last_pressed(int player) const {
+    const View view = player_view(player);
+    if (view.keyboard)
+        for (size_t i = 1; i < size_t(Key::Count); ++i)
+            if (keyPressedEdge_[i] && (!view.keySet || (*view.keySet)[i])) return key_name(Key(i));
+    if (view.pad >= 0 && view.pad < kMaxGamepads) {
+        const Pad& pad = pads_[size_t(view.pad)];
+        for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
+            if (pad.pressedEdge[i]) return std::string("Gamepad") + kPadButtonNames[i];
+        for (const auto& p : pad_binding_names()) {
+            if (!p.isAxis) continue;
+            if (float(p.sign) * pad_axis(pad, p.axis, false) >= kActionDownThreshold &&
+                float(p.sign) * pad_axis(pad, p.axis, true) < kActionDownThreshold)
+                return p.name;
+        }
+    }
+    return "";
+}
+
+Json Input::player_export(int player) const {
+    Json out = Json::object();
+    if (!valid_player(player)) return out;
+    const PlayerState& st = players_[size_t(player)];
+    for (Family f : {Family::Keys, Family::Pad}) {
+        const ActionTable& table = f == Family::Keys ? st.keysOverride : st.padOverride;
+        Json family = Json::object();
+        for (const auto& [action, list] : table) {
+            Json names = Json::array();
+            for (const Binding& b : list) names.push_back(binding_name(b));
+            family[action] = names;
+        }
+        if (!family.empty()) out[f == Family::Keys ? "keys" : "pad"] = family;
+    }
+    return out;
+}
+
+std::vector<std::string> Input::player_import(int player, const Json& data) {
+    std::vector<std::string> problems;
+    if (!valid_player(player)) {
+        problems.push_back(std::format("input.player({}): players are numbered 0 to {}", player, kMaxPlayers - 1));
+        return problems;
+    }
+    ActionTable keys, pad;
+    if (!data.is_null()) {
+        const std::string who = std::format("input.player({}).import", player);
+        if (!data.is_object()) {
+            problems.push_back(std::format("{}: expected {{\"keys\": {{...}}, \"pad\": {{...}}}} as input.player(i).export() gives, got {}",
+                                           who, describe_json_value(data)));
+            return problems;
+        }
+        const std::vector<std::string> fields = {"keys", "pad"};
+        for (auto it = data.begin(); it != data.end(); ++it)
+            if (std::find(fields.begin(), fields.end(), it.key()) == fields.end())
+                problems.push_back(std::format("{}: unknown field '{}' skipped. {}", who, it.key(), did_you_mean(it.key(), fields)));
+        for (Family f : {Family::Keys, Family::Pad}) {
+            const char* fname = f == Family::Keys ? "keys" : "pad";
+            if (!data.contains(fname)) continue;
+            const Json& table = data[fname];
+            if (!table.is_object()) {
+                problems.push_back(std::format("{}: \"{}\" must map action names to binding lists, got {}", who, fname, describe_json_value(table)));
+                continue;
+            }
+            for (auto it = table.begin(); it != table.end(); ++it) {
+                const std::string where = std::format("{}: {}.{}", who, fname, it.key());
+                if (!has_player_action(it.key())) {
+                    problems.push_back(std::format("{}: the project has no such action, skipped. {}", where, did_you_mean(it.key(), action_names())));
+                    continue;
+                }
+                if (!it.value().is_array()) {
+                    problems.push_back(std::format("{}: expected an array of binding names, got {}, skipped", where, describe_json_value(it.value())));
+                    continue;
+                }
+                std::vector<Binding> list;
+                bool ok = true;
+                for (const Json& item : it.value()) {
+                    Binding b;
+                    const bool parsed = item.is_string() && parse_binding(item.get<std::string>(), b);
+                    const bool isPad = parsed && (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis);
+                    const bool isKey = parsed && b.kind == Binding::Kind::Key;
+                    if (!(f == Family::Pad ? isPad : isKey)) {
+                        problems.push_back(std::format("{}: {} is not a {} binding, the action was skipped", where,
+                                                       describe_json_value(item), f == Family::Pad ? "gamepad" : "key"));
+                        ok = false;
+                        break;
+                    }
+                    list.push_back(b);
+                }
+                if (ok) (f == Family::Keys ? keys : pad)[it.key()] = std::move(list);
+            }
+        }
+    }
+    players_[size_t(player)].keysOverride = std::move(keys);
+    players_[size_t(player)].padOverride = std::move(pad);
+    return problems;
 }
 
 }  // namespace fa

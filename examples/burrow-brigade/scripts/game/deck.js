@@ -10,10 +10,9 @@
 //   DECK_SCREEN               { width: 1280, height: 800 } (the Deck's 16:10 panel). The design fits it at scale 1 with 40 px bars.
 //   watchLife(hooks)          listens to suspend and resume for the current scene (the Deck's sleep; a phone's home button). On
 //                             suspend: hooks.pause() (open the pause menu, so the player is not dropped into a live shift on
-//                             waking), the analytics queue is sent. On resume: presence is sent again and hooks.resumed() runs.
+//                             waking); the engine sends the analytics queue by itself. On resume: presence is sent again and hooks.resumed() runs.
 //                             Returns the function that stops listening.
 import { input, game } from "factoria";
-import * as analytics from "./analytics.js";
 import * as presence from "./presence.js";
 
 export const DESIGN = Object.freeze({ width: 1280, height: 720 });
@@ -52,11 +51,7 @@ export function fit(width, height) {
  */
 export function watchLife(hooks = {}) {
   const offSuspend = game.on("suspend", () => {
-    try {
-      hooks.pause?.();
-    } finally {
-      void analytics.flush();
-    }
+    hooks.pause?.(); // the engine sends the analytics queue by itself when the app is suspended
   });
   const offResume = game.on("resume", () => {
     presence.forget();

@@ -77,6 +77,10 @@ void Engine::Impl::apply_project_settings() {
         FA_WARN("input", "{}", problem);
         startupProblems.push_back(problem);
     }
+    for (const std::string& problem : input.set_key_schemes(project.inputSchemes)) {  // after the actions: a scheme names some
+        FA_WARN("input", "{}", problem);
+        startupProblems.push_back(problem);
+    }
     // The platform catalog. A section with errors counts as empty (every platform call then says the id is not declared):
     // the first error is logged here, `factoria validate` lists them all.
     platform.set_translator([this](const std::string& key) { return i18n.translate(key); });

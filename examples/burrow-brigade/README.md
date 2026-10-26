@@ -55,7 +55,9 @@ fills back in if you let go. Dig times with the starting pick: dirt 0.5 s, rock 
 silver 1.5 s, gold 2.4 s, gems 2.6 s. Hard rock, gold and gems need the tier 1 pick (the camp sells it, P4): without it the
 miner makes a "blocked" sound. Bedrock never breaks. Each player rebinds their own keys and buttons in
 Options > Controls (a button cycles Player 1 to 4; click an action, then press the key or button; a key replaces the keyboard list, a
-button replaces the pad list of that action). The bindings are saved by seat in `settings.playerBindings`.
+button replaces the pad list of that action). The engine keeps each player's bindings (`input.player(seat)`) and the game saves
+them by seat in `settings.playerBindings` (what an older version saved as left/right/up/down is moved to the project's
+`move_left`... names the first time it loads, with a note in the log).
 
 Holding dig with an enemy in front of you swings the pick at it instead (every 0.5 s; 1 damage plus the pick tier). With
 several players on one keyboard the key blocks are: WASD + Space + E, arrows + Enter + RightShift, IJKL + U + O (dig and torch
@@ -192,7 +194,7 @@ scripts/                   menu kit (main_menu, pause_menu, loading, settings, u
 scripts/join.js            the join screen
 scripts/ui/title_flow.js   the title's Continue, slots, delete confirmation, cloud sync, daily and code panel
 tools/mine_preview.js      project.mine_preview: a mine as text
-tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: a fake game server) and
+tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: scripts the fake server) and
                            fixtures/ (save_v1, save_v2, news, balance)
 assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py, then src/make_markers.py), music/*.wav
                            (+ src/make_music.py, src/make_music_layers.py), audio/*.wav,
@@ -246,11 +248,13 @@ test file starts fresh). Import them with relative paths.
 ### Players registry: `scripts/game/players.js`
 
 `add({ device, name, color })`, `remove(id)`, `get(id)`, `all()`, `count()`, `alive()`, `hurt(id, amount, cause)`, `setState(id, "active" |
-"lift" | "down", cause)`, `ensureOne()`, `clear()`, `MAX_PLAYERS` (4), `PLAYER_COLORS`, `KEY_SCHEMES`. A player is `{ id, name, device, color,
+"lift" | "down", cause)`, `ensureOne()`, `clear()`, `MAX_PLAYERS` (4), `PLAYER_COLORS`, `KEY_SCHEMES` (the names of the key schemes). A player is `{ id, name, device, color,
 state, hp, invulnerable }` (`MAX_HP` is 3). The shift spawns one miner per registered player (`prefabs/miner.prefab.json`, prop `playerId`) and the HUD shows one
 oil bar each. `device` decides which input moves the miner (`scripts/game/miner_input.js`): `{ kind: "any" }` (the project's
 actions: keyboard and every pad; one player only, the title's Play uses it), `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" }`
-or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). `tests/input.test.js` drives two keyboard players and a second pad at
+or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). The registry gives a keys or pad player to
+the engine as `input.player(id).use({ keys: scheme })` or `use({ pad: index })` (factoria.json `input.schemes` defines the four key schemes) and
+`miner_input.js` reads `input.player(id)`; a player on `any` reads the global input. `tests/input.test.js` drives two keyboard players and a second pad at
 once. `setState` emits `playerState` and, for `"down"`, `playerDown`; a miner that is `down` does not move, dig or burn oil and
 the shift's end check ignores it. `hurt` takes hearts and sets `down` at 0 (`playerHurt` is emitted); the hazards set `down`
 directly with the cause "drowned", "burned" or "caveIn". `revive(id, by)` (REVIVE_HP 1, REVIVE_GRACE 2) gets a downed player up and emits
@@ -259,10 +263,11 @@ can also be `"keyboard"` (the whole keyboard, what the join screen gives). `scri
 
 ### Per-player input: `scripts/game/controls.js`
 
-`bindingsOf(player)` (what `miner_input.js` reads each frame), `bindingsFor(seat, family, device)`, `rebind(seat, "keys" | "pad", action,
-names)` (saved; the same names are taken from the seat's other actions; the wrong family throws), `reset(seat)`, `resetAll()`, `label(...)`,
-`ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns. It exists because the engine's actions match
-any pad (FB-0006).
+The engine does the per-player actions (`input.player(seat)`: its own device, its own bindings; docs: scripting, input); this module is
+the game's side: `bindingsFor(seat, family)` (the six actions of a miner with their bindings), `rebind(seat, "keys" | "pad", action,
+names)` (saved with `export()`; the same names are taken from the seat's other actions; a name the player's device cannot use throws the
+engine's error), `reset(seat)`, `resetAll()`, `applySaved()` (called by `settings.apply`: imports what was saved, renaming the old
+format), `label(...)`, `ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns.
 
 ### Revive, camera and pads: `revive.js`, `camera_views.js`, `pad_watch.js`
 
@@ -449,8 +454,8 @@ the services use it.
 - **Steam Deck** (`deck.js`): `isDeck()` is true while a connected pad is of type `steamdeck` (the engine has no other way to
   tell), `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
   is where the 1280x720 design lands in a window (1280x800: scale 1 and bars of 40 above and below; the UI is anchored, so
-  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause, flush analytics) and resume (send the presence
-  again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
+  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause; the engine sends the waiting analytics events
+  by itself) and resume (send the presence again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
 - **Text entry for P4's seed-code field** (`text_entry.js`): `bind(fieldId, { maxLength, alphabet, onChange, onSubmit })` cleans
   what is typed in a `TextField` to `CODE_ALPHABET` (capitals and digits without 0, O, 1, I) and returns the unsubscribe function;
   `focus(fieldId)`; `normalize(text, opts)`; `hint(action)` is the localized line that tells how to type on this device
@@ -459,22 +464,32 @@ the services use it.
 
 ### Online: `online.js`, `news.js`, `balance.js`, `analytics.js`
 
-The engine has no HTTP API, so everything that talks to a server goes through one seam: `online.request(method, path, body)`
-(never throws; resolves `{ ok: true, data }` or `{ ok: false, code, message }`). The default transport is **offline** (always
-fails), `setTransport(t)` (returns the old one) plugs in a real one: `{ name, request(method, path, body) -> Promise }`;
-tests use `fakeServer` of `tests/helpers/online.js`. Paths (`PATHS`): `/v1/news.json`, `/v1/balance.json`, `/v1/events`. No test
-and no default build touches a network.
+Everything that talks to a server uses the engine's `analytics` and `remoteConfig` (docs: `factoria docs read analytics`), which
+are `http.fetch` calls to the hosts declared in `factoria.json` (`network`, `analytics`, `remoteConfig`). `online.js` is the thin
+seam over `remoteConfig`: ONE JSON file holds the news and the balance values,
+`{ "balance": { "beetle.hp": 4 }, "news": { "version": 1, "items": [...] } }`, and the engine keeps the last good copy for a
+player who starts offline. No test and no default build touches a network: tests script the server with
+`game.platform.respond("http.fetch", ...)` (`serveConfig` and `serveEvents` of `tests/helpers/online.js`).
 
-- **News** (`news.js`): `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
+#### Server addresses (placeholders)
+
+Burrow Brigade has no server yet. `https://burrow-brigade.example` in `factoria.json` (`network.hosts`, `analytics.endpoint`
+`/v1/events`, `remoteConfig.url` `/v1/config.json`) is a placeholder: `.example` never resolves, so a shipped build today plays
+offline (no news, the shipped balance, nothing sent). Before shipping with online features, point the three entries at a
+real host, serve the config file above, and accept the batches of `docs/ANALYTICS.md` section 4 (`POST`, any 2xx answer), then
+update the privacy sentence in `network.purpose` and the store texts (`docs/LEGAL.md`).
+
+- **News** (`news.js`): the `"news"` section, `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
   are a string or `{ "en": "...", "ru": "..." }` (the language of the game, else `en`). `parse` drops items with no id or title, strips control characters, cuts the
   title at 48 characters and the body at 160, sorts newest first and keeps three. `refresh()` resolves
-  `{ source: "server" | "cache" | "none", items }` and remembers the last good answer in storage (`burrow.news`); the title shows
+  `{ source: "server" | "cache" | "none", items }` (it waits for the config file, at most 3 seconds) and remembers the last good answer in storage (`burrow.news`); the title shows
   the newest item at once from that memory and again when the server answers (if the title is still there).
-- **Remote balance** (`balance.js`): `{ "version": 1, "values": { "beetle.hp": 4 } }`. Each value is checked against `RANGES`
+- **Remote balance** (`balance.js`): the `"balance"` section, `{ "beetle.hp": 4 }`. Each value is checked against `RANGES`
   (range, whole number or not); a bad value is rejected with a reason and a hint (unknown keys get a "did you mean") and the
   rest still apply; `king.chargeMinDist` above `king.chargeMaxDist` rejects both. Values change `STATS` of `enemy_brains.js` and `TUNING`
-  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). Nothing is cached: offline
-  or with a bad file the shipped numbers stay (`refresh()` says `source: "offline"` or `"invalid"`). `apply(values)`, `reset()`,
+  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). The engine's cache gives a player
+  who starts offline the values of the last run (`refresh()` says `source: "server"`, `"cache"` or, with no answer ever,
+  `"offline"` and the shipped numbers stay). `apply(values)`, `reset()`,
   `defaults()`, `current()`, `flush()`. The keys:
 
 | Key | Default | Range | What |
@@ -522,13 +537,14 @@ and no default build touches a network.
 | `hazards.waterSlow` | 0.5 | 0.1 to 1 | speed factor in water (0.5 = half) |
 | `hazards.caveWarning` | 1.4 | 0.5 to 10 | seconds between stepping on cracked floor and the roof falling |
 
-- **Analytics** (`analytics.js`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
+- **Analytics** (`analytics.js`, on the engine's `analytics`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
   statistics": Yes, send / No, thanks) at every launch until one is pressed; it does not take the focus or hide the menu, and
   ignoring it is a no (a modal prompt hid the menu from the pad-only tests). Options has the same switch (`analytics` toggle).
   Only after a yes: `floor_reached { stratum, floor, players }` at each shift start, `shift_ended { outcome, stratum, floor,
   players, banked, seconds }` at each end (then the queue is sent), and `quit { shifts }` from the Quit button of the title (the
-  engine has no window-close event). No id, name, device or seed is sent. A failed send keeps up to 50 events for the next one; saying no
-  throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `record` (private), `queued()`, `flush()`, `quit()`.
+  engine sends what waits when the window closes, waiting at most 3 seconds, and when the app is suspended). No id, name, device
+  or seed is sent. A failed send keeps the events and the engine retries later (at most 3 attempts per event, up to 500 kept);
+  saying no throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `flush()`, `recordQuit()`.
 
 ## Tests
 
@@ -560,7 +576,7 @@ and no default build touches a network.
 | `glyphs.test.js` | `setType` for each family, the Deck's L1/R1, the keyboard fallback, every picture exists |
 | `news.test.js` | the fixture parsed, the cap and the order, dropped items, the language object, the cache offline |
 | `balance.test.js` | values applied, out-of-range, wrong type and unknown keys rejected with hints, held during a shift, the offline fallback, `reset` |
-| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, quit, a failed send, revoking |
+| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, the quit flush, a failed send, revoking, the queue cap |
 | `deck.test.js` | Deck detection, the 1280x800 fit, suspend and resume, the text-entry helper |
 | `languages.test.js` | the three string tables (same keys, placeholders, plural forms), Russian plurals on real counts, the Thai break rule, the language row by mouse, keyboard and gamepad, saved, a saved choice over the start language |
 | `layout.test.js` | every screen, panel and Options tab in en, ru, th at 100 % and 200 %: nothing overflows, leaves the screen or overlaps; `ui.check_layout` over the scenes |
@@ -591,7 +607,7 @@ and no default build touches a network.
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
 | P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split screen is an option, off by default; the engine draws a camera per `Camera.viewport`) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
-| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
+| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics use the engine's `remoteConfig` and `analytics`; the server address is a placeholder, see "Server addresses") |
 | P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
 | P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`, FB-0028 to FB-0035) |
 | P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai cannot be wrapped by words: FB-0036; sara am glyph: FB-0037; check_layout and ScrollLists: FB-0038) |

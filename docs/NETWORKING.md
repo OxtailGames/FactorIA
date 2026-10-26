@@ -14,6 +14,10 @@ The game says **which servers it talks to** in `factoria.json`, once. The engine
 anything is sent, tells the privacy documents what the game does, and asks Android for the `INTERNET` permission only
 for games that declare hosts. A game that declares nothing cannot use the network.
 
+Two things built on this call have their own page, [ANALYTICS.md](ANALYTICS.md): usage events sent in batches after the
+player consented, and values a server serves as JSON with a cache for offline play. Their addresses are `http.fetch`
+calls, so their hosts are declared here too.
+
 This page: [declare the hosts](#1-declare-the-hosts) | [the call](#2-the-call) | [what it never does](#3-limits-and-rules)
 | [testing without a network](#4-testing-with-the-fake) | [replays](#5-replays) | [per platform](#6-per-platform)
 | [privacy](#7-privacy-and-the-stores).
