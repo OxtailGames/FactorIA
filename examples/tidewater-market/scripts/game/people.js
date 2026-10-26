@@ -10,7 +10,7 @@
 // With the buffer empty for `hungerLimitDays` days it leaves the town.
 //
 // Villager = { id, home, job, at, state: "inside" | "walking", purpose, food, hunger, lastShop, trip }
-//   job   workplace building id (0 = none); trip = the carrier's current errand (logistics.js) or null.
+//   job   workplace building id (0 = none); pin = true when the player put it there (reassign); trip = the carrier's current errand (logistics.js) or null.
 //
 // Events: "villager.arrived" {villager, house}, "villager.left" {villager, reason} (reason: starved | home_lost).
 
@@ -233,7 +233,10 @@ export class People {
       if (!v.job) continue;
       const wp = b.get(v.job);
       const home = b.get(v.home);
-      if (!wp || !home || net.distance(home, wp) < 0) v.job = 0;
+      if (!wp || !home || net.distance(home, wp) < 0) {
+        v.job = 0;
+        v.pin = false;
+      }
     }
     /** @type {Map<number, number[]>} */
     const staff = new Map();
@@ -289,7 +292,7 @@ export class People {
     const mine = defs[wp.type].jobPriority;
     const take = (o) => {
       const list = /** @type {number[]} */ (staff.get(o.id));
-      const pick = this.nearest(list.map((id) => this.villagers.get(id)), wb);
+      const pick = this.nearest(list.map((id) => this.villagers.get(id)).filter((v) => !v.pin), wb); // a pinned job is the player's
       if (!pick) return null;
       list.splice(list.indexOf(pick.id), 1);
       pick.job = 0;
@@ -310,6 +313,51 @@ export class People {
       if (pick) return pick;
     }
     return null;
+  }
+
+  /**
+   * Player action (the inspector's drag and drop, scripts/game/ui_hud.js): put a villager to work at a workplace and PIN the job, so
+   * `assign` does not hand it to somebody else or take the villager for a more important workplace. The workplace must have
+   * a free place and a road from the villager's home. The job it left is filled again from the unemployed.
+   * @returns {{ ok: boolean, code?: string }} code: gone, no_jobs, same, no_road, full
+   */
+  reassign(villagerId, workplaceId) {
+    const check = this.canReassign(villagerId, workplaceId);
+    if (!check.ok) return check;
+    const v = this.villagers.get(villagerId);
+    v.job = workplaceId;
+    v.pin = true;
+    this.dirty = true;
+    this.state.events.emit("villager.reassigned", { villager: v.id, workplace: workplaceId });
+    return { ok: true };
+  }
+
+  /** Could `reassign` do it? Same answer, nothing changes (the drag asks while the mouse moves, to colour the target). */
+  canReassign(villagerId, workplaceId) {
+    const v = this.villagers.get(villagerId);
+    const rt = this.sim.rt.get(workplaceId);
+    if (!v || !rt) return { ok: false, code: "gone" };
+    const def = this.state.data.buildings[rt.type];
+    if (!def.workers) return { ok: false, code: "no_jobs" };
+    if (v.job === workplaceId) return { ok: false, code: "same" };
+    const home = this.state.buildings.get(v.home);
+    const wp = this.state.buildings.get(workplaceId);
+    if (!home || !wp || this.sim.net.distance(home, wp) < 0) return { ok: false, code: "no_road" };
+    let staffed = 0;
+    for (const o of this.villagers.values()) if (o.job === workplaceId) staffed++;
+    if (staffed >= def.workers) return { ok: false, code: "full" };
+    return { ok: true };
+  }
+
+  /** Player action: take a villager off its job and let `assign` decide again (a villager dropped on "free"). */
+  release(villagerId) {
+    const v = this.villagers.get(villagerId);
+    if (!v) return { ok: false, code: "gone" };
+    v.pin = false;
+    v.job = 0;
+    this.dirty = true;
+    this.state.events.emit("villager.reassigned", { villager: v.id, workplace: 0 });
+    return { ok: true };
   }
 
   // ---- growth --------------------------------------------------------------------------------------------------------------

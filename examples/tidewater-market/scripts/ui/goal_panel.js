@@ -1,5 +1,5 @@
 // @ts-check
-// The goals of a scenario on the game screen: a small panel under the top bar (left side: the palette is on the right) that lists
+// The goals of a scenario on the game screen: a small panel on the right under the menu column (the left side holds the Orders button and the notices) that lists
 // each goal with its progress, a toast when one is reached, and the win screen when the last one is. The game controller creates it
 // when the game has a goal tracker (a game started from a scenario or loaded from a save of one; the sandbox has no goals, so no
 // panel). Pure display: it reads the tracker (scripts/game/scenarios.js) and never changes the simulation.
@@ -60,8 +60,8 @@ export class GoalPanel {
     this.panel = world.spawn({
       id: "goal_panel",
       components: {
-        Transform: { position: [10, 64, 0] },
-        Panel: { anchor: [0, 0], pivot: [0, 1], layout: "column", align: "start", spacing: 6, fit: true, padding: [12, 10, 12, 12], color: [0.05, 0.07, 0.1, 0.78], layer: 150 },
+        Transform: { position: [-8, 414, 0] },
+        Panel: { anchor: [1, 0], pivot: [1, 1], layout: "column", align: "start", spacing: 6, fit: true, padding: [12, 10, 12, 12], color: [0.05, 0.07, 0.1, 0.78], layer: 150 },
       },
       children: [{ id: "goal_title", components: { Text: { text: "", fontSize: 20, space: "screen", layer: 152 } } }, ...rows],
     });

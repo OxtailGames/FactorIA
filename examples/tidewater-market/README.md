@@ -20,6 +20,7 @@ factoria call --project . project.validate_data               # check data/*.jso
 |---|---|---|
 | P1 | Map, camera, building, undo, data tables, title screen, HUD | done |
 | P2 | Villagers and walkers, carriers, production chains, the running clock and its speed control, seasons and their music, wages and sales, the bot, the stress scene | done |
+| P3 (interface) | The interface: build menu, inspector, tooltips, goods table, charts, notifications, overlays, worker drag and drop, shortcuts and help | done |
 | P3 | Prices, markets, trade | planned |
 | P4 | Population, housing, happiness | planned |
 | P5 | The pier and its ships, orders, the order board, event cards, a story per scenario, achievements and stats on the store | done |
@@ -272,8 +273,56 @@ the device. The copy that lost is kept in `tm.conflict.<slot>`. No cloud (no sto
 **Scenarios** (`data/scenarios.json`, `scripts/game/scenarios.js`). Ids are the contract for later packages: `first_harbour`,
 `river_mills`, `winter_trade`, `sandbox` (no goals). A goal is `population`, `coins` or `produced_in_season` (a good made in one
 season), is sticky once reached, and emits `goal.done`; the last one emits `scenario.won`, which shows the win screen (keep playing
-or back to the title) and writes the autosave. The goal panel sits under the top bar, left. The tracker only reads the game, so
+or back to the title) and writes the autosave. The goal panel sits under the right-hand menu column. The tracker only reads the game, so
 goals never change the state hash. The bot reaches every scenario (`tests/scenarios.test.js`).
+
+## Interface (P3)
+
+All of it lives in `scripts/game/ui_hud.js` (`Hud`, owned by the controller as `controller.hud`, updated once a frame),
+with pure helpers in `ui_model.js` (no engine calls; unit tests in `tests/ui_model.test.js`) and spawn helpers in
+`ui_kit.js` (`panel`, `label`, `button`, `icon`, `rule`, `Tooltips`). The controller still owns the tool, the hover, the map
+drag and the top bar; everything else is the Hud's.
+
+| Piece | What it does |
+|---|---|
+| Build menu (key B, Build button) | A bar at the bottom: category tabs, then one item per building with its picture, name and cost; an item you cannot pay is red. Picking an item sets the tool and the bar follows the tool's category |
+| Inspector | A click on a building or villager (with no tool) opens it, at the bottom right: status, workers (up to four villager chips), what it makes, upkeep and refund; Rotate, Demolish, Home, Work, Release, Close. A click on bare ground or a road closes it |
+| Tooltips | After the pointer rests 0.4 s: every button (with its key), the numbers in the top bar, build menu items (cost, needs, gives) and, with no tool, the building under the pointer. Flipped near the screen edges |
+| Goods table (G) | Every good: stock, made and used per game day, price. Click a header to sort, again to reverse; the wheel scrolls it and does not zoom the map |
+| Charts (T) | Bars over the last days: coins, the stock of one good (click the good name to cycle) or what was made |
+| Notifications | Up to five at the top left; the same message for the same building stacks as (xN); a click (or N for the newest) moves the camera there and selects the building |
+| Overlays (M, Map button) | Desirability, market coverage, warehouse reach, traffic; each tints the cells in view; the legend says what it shows |
+| Worker drag and drop | Press a villager chip in the inspector, drag onto a workplace on the map: the chip turns green or red (and says why); a drop moves the worker and pins the job (`people.reassign`) |
+| Help (F1) | Lists every shortcut (`SHORTCUTS` in `ui_model.js`) |
+
+Keys: B build menu, X or Delete demolish tool (Delete removes the selected building when there is one), R rotate (the selected
+building, free, one undo step; otherwise the next building to place), Z / Y undo and redo, G, T, M (overlays), N, F1 as above.
+**Escape** puts away the newest thing the player opened: a worker drag, then open panels (help, charts, goods), the drag in
+progress, the tool, the selection, the build bar, the overlay; only when none is left does it open the pause menu
+(`pause_menu.js` asks `controller.escape()` first). Right-click without moving does the same.
+
+**How a later package adds something** (the contract comment at the top of `ui_hud.js` has the same text):
+
+- *A panel:* build a Panel with `ui_kit.js` (it starts hidden), then `hud.addPanel("name", { root, refresh, every })` and
+  `hud.open("name")`, `hud.close`, `hud.toggle`. `refresh()` runs when it opens and every `every` seconds. Esc closes it, newest first, and the wheel is kept away from the map under any open panel.
+- *A tooltip:* `hud.tooltips.add(entity, () => ({ title, lines: [{ text, color? }] }))`; return null for none right now.
+- *A notification:* `hud.notices.push("key", args, cell, buildingId, "warn" | "bad")` with the text in `locales/en.json` at `ui.notice.<key>`; pushing the same key for the same building again raises its count instead of adding a line.
+- *An overlay:* `hud.addOverlay("id", { color: [r, g, b], field(state, hud) -> { values, cells } })`; the name and hint are `ui.overlay.<id>` and `ui.overlay.hint.<id>`. The Map button cycles through every registered overlay.
+- *A shortcut:* add the action to `factoria.json`, then `hud.onKey("action", fn)`.
+
+Next to the trade UI of P5: the overlays are on **M** (O is the order board); the notification stack starts below the Orders button;
+while an event card is open (it is modal) the interface keys, tooltips and the wheel wait; the top bar fitting also counts the
+reputation item.
+
+Other changes the interface made: `camera_rig.js` ignores the wheel while `rig.wheelBlocked` is true (the Hud sets it from the
+panel rectangles); the date and speed buttons moved a little so the bar has room; goods that do not fit left of the date are
+hidden from the end of the top bar (`fitTopBar` in `game_controller.js`; the goods table has them all). The simulation is only
+changed through the same actions as before: `place`, `demolish`, `rotateBuilding` (new, refuses roads and housing),
+`people.reassign` and `people.release`. At a text size of 150 % the inspector grows tall enough to overlap the right-hand
+buttons (known; the tests check 1280 x 720 at 100 %, and the top bar at 150 %).
+
+Tests: `ui_mouse.test.js` (mouse only), `ui_keys.test.js` (keyboard only), `ui_dragdrop.test.js`, `ui_layout.test.js`. Engine gaps
+found while building it are FB-0007 to FB-0018 in `ENGINE_FEEDBACK.json`.
 
 ## Ships and events (P5)
 
