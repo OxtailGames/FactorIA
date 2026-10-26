@@ -3,14 +3,14 @@
 // the state by listening to its events (scripts/game/events.js). It never changes the state.
 //
 // Draw order (Sprite.layer, then lower y on top inside a layer, which is exactly isometric depth sorting):
-//   0 terrain   1 roads   3 highlights   10 trees and buildings   12 ghost   (the HUD is UI, always above)
+//   0 terrain   1 roads   3 highlights   10 trees and buildings   11 map overlays (over a dense town)   12 ghost   14-15 the pips of the overlays   (the HUD is UI, always above)
 import { world } from "factoria";
 import { cellToWorld, footprintFront } from "./iso.js";
 import { hash01 } from "./mapgen.js";
 import { footprintCells, sizeAt } from "./rules.js";
 import { live } from "../settings.js";
 
-export const LAYER = { terrain: 0, road: 1, highlight: 3, object: 10, ghost: 12 };
+export const LAYER = { terrain: 0, road: 1, highlight: 3, object: 10, field: 11, ghost: 12, fieldPlate: 14, fieldMark: 15 };
 
 /** Tint of the ghost and the highlight diamonds. */
 export const COLORS = {
@@ -177,10 +177,10 @@ export class MapView {
   /**
    * A diamond over a cell: filled with a colour, or an outline; `scale` shrinks it (a pip in the middle of the cell). With the
    * colour-blind safe option the "cannot build here" and "will be demolished" colours get a mark of their own as well: a dot for
-   * invalid, a ring for demolish, so red and green are never the only difference.
+   * invalid, a ring for demolish, so red and green are never the only difference. `layer` is LAYER.highlight (on the ground,
+   * under the buildings) or LAYER.field (over the buildings, for the map overlays); `thickness` is the outline's width.
    */
-  diamond(c, r, color, outline = false, scale = 1) {
-
+  diamond(c, r, color, outline = false, scale = 1, layer = LAYER.highlight, thickness = 3) {
     let e = this.pool[this.poolUsed];
     if (!e) {
       e = world.spawn({
@@ -199,6 +199,8 @@ export class MapView {
     s.color = color;
     s.filled = !outline;
     s.size = [100 * scale, 50 * scale];
+    s.layer = layer;
+    s.thickness = thickness;
     if (scale === 1 && (color === COLORS.invalid || color === COLORS.demolish) && live().safeColors) {
       this.diamond(c, r, [1, 1, 1, 0.95], color === COLORS.demolish, color === COLORS.demolish ? 0.62 : 0.2);
     }

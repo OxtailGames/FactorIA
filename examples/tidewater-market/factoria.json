@@ -3,6 +3,7 @@
   "name": "Tidewater Market",
   "id": "com.oxtailgames.tidewatermarket",
   "version": "0.1.0",
+  "icon": "assets/icon.png",
   "engine": "0.2.0",
   "mainScene": "scenes/menu.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
@@ -166,6 +167,15 @@
     ]
   },
   "platforms": ["web", "windows", "macos", "linux"],
+  "export": {
+    "exclude": ["store/**", "assets/src/**"],
+    "android": {
+      "adaptiveIcon": {
+        "foreground": "assets/icon_fg.png",
+        "background": "#7fc6dc"
+      }
+    }
+  },
   "feedbackFile": "ENGINE_FEEDBACK.json",
   "localization": {
     "defaultLanguage": "en",

@@ -53,6 +53,24 @@
         "source": "assets/src/make_atlas.py (packs assets/src/kenney/*.png and draws the buildings, the pier, the rock tile, the goods, star and ship icons, the villager and carrier walkers and the three ship classes in four headings)"
       }
     },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-26",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-26",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
     "assets/music/autumn.wav": {
       "provenance": {
         "origin": "imported",

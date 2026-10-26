@@ -798,6 +798,148 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0050",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "Web export does not check the web player against the engine build",
+      "missing": "factoria export refuses a Windows or Linux player with no build fingerprint, but the web export used the installed web player (older than the engine) without a word. The exported game then failed in the browser: scripts/ui/options.js could not import `analytics`, scene.preload was missing, and after patching those, game.sceneProps and the audio bus API were missing too, so the game never left a dark loading screen.",
+      "workaround": "None that works: a scratch copy of the game with the missing APIs guarded got as far as the slot screen. The save/continue flow in the browser was not verified; the same flow is covered by headless tests.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Apply the same fingerprint check to the web (and mobile) players, and print the missing API when a script fails to import or call something the player lacks.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0051",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "No way to get players for a development build",
+      "missing": "`factoria setup players --force` fails for a development build ('this factoria 0.2.0 has no release v0.2.0 on GitHub'), and the web player needs emcc, which a Mac does not have by default. So a developer on a development checkout cannot export Windows, Linux or a current web build from a Mac.",
+      "workaround": "Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Let setup players fetch the latest release or CI artifact for a development build, and document the emcc setup next to the web export.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0052",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Export packs the whole project folder unless export.exclude is set",
+      "missing": "The first web export of Tidewater Market packed 21.7 MB because the generated store images (store/, 17 MB) and assets/src were in the pak; the web zip would have been four times larger. Nothing warned about it.",
+      "workaround": "export.exclude: [\"store/**\", \"assets/src/**\"] in factoria.json; the pak is 3.5 MB.",
+      "workaroundFiles": [
+        "factoria.json"
+      ],
+      "suggestion": "Print the largest folders that went into the pak, and warn when a folder named store/, screenshots/ or src/ is packed.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0053",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Export gives no compressed size or load-time estimate for the web",
+      "missing": "For itch.io the number that matters is what the player downloads. The export prints file counts only; I measured gzip with a script (sizes.py) and brotli was not available at all.",
+      "workaround": "A small script gzipped each file: total 10.9 MB raw, 5.7 MB gzip. Load time was read from the browser pane.",
+      "workaroundFiles": [],
+      "suggestion": "Print raw and gzip sizes per file at the end of a web export, and the time budget of a download at a few connection speeds.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0054",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Web player audio uses the deprecated ScriptProcessorNode",
+      "missing": "The browser logs 'The ScriptProcessorNode is deprecated. Use AudioWorkletNode instead' on every start of the web player; it will stop working when browsers remove it and it runs audio on the main thread.",
+      "workaround": "None; it still plays.",
+      "workaroundFiles": [],
+      "suggestion": "Move the sokol_audio web backend to an AudioWorklet.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0055",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A trailer needs a custom director script and a long recording",
+      "missing": "There is no camera path, caption or fade component for a recorded trailer. store/trailer/trailer.js moves the camera, fades captions and a black cover by frame count; the 18 s video took 2 min 13 s to record, with no progress output, and the result is only seen after the run.",
+      "workaround": "store/trailer/trailer.js and make_trailer.py.",
+      "workaroundFiles": [
+        "store/trailer/trailer.js",
+        "store/trailer/make_trailer.py"
+      ],
+      "suggestion": "A Timeline or Cutscene component (camera keys, text cards, fades) and a progress line for --record-video.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0056",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A perf file holds one scene, and the example test checks one file",
+      "missing": "A game with a title, a game scene and a stress scene needs three budgets, but tools/cli/CMakeLists.txt runs perf.check on tests/perf/<example>.perf.json only. The extra files (title, game) are not run by ctest.",
+      "workaround": "tests/perf/tidewater-market.perf.json checks the stress scene (the heaviest); -title and -game files are checked by hand.",
+      "workaroundFiles": [],
+      "suggestion": "Let a perf file list several scenes (scenes: [{scene, budgets}]) or let the CMake loop pick up every <example>*.perf.json.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
