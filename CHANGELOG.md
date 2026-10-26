@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Versions for the script API
+
+- `tools/common/api_since.json` has a `"script"` section: each function, type and member of the scripting API says which
+  release added it, taken from the `api.json` of every release tag. The typings (`types/factoria.d.ts`) and the
+  scripting API part of docs/COMPONENTS.md carry it as `@since` for what came after 0.1.0, so `nav.findTilePath`,
+  `bt`, `http.fetch` or `game.today` tell when they appeared.
+
 A smaller player
 
 - The linker drops the engine code no game reaches: `-dead_strip` on macOS and iOS (the macOS player goes from 10.2 to

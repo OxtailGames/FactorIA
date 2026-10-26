@@ -86,9 +86,13 @@ pending-destroy entity as gone at once: no body, no collisions, no query hits).
 documented fields. From it we derive: JSON load/save, `scene.set_component`, script
 property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
-Versions: `tools/common/api_since.json` says which release added each component, field (`Component.field`) and
-command, and the generated reference prints it. A new component, field or command needs an `"unreleased"` entry there
-(not in the registration call); the test `api_since` in `tools/common/tests` lists the exact lines to add. A release
+Versions: `tools/common/api_since.json` says which release added each component, field (`Component.field`), command
+and script export, and the generated reference prints it. A new component, field, command or script export needs an
+`"unreleased"` entry there (not in the registration call); the `"script"` section is keyed by the name of each export of
+`engine/script/src/js/api.json` (`tween`, `NavAPI`; the object `nav` is of type `NavAPI`, so the version of
+`nav.findTilePath` is the one of `NavAPI.findTilePath`), `Type.member` for each member or static of a class or interface
+(`NavAPI.findTilePath`), and the same with a `test:` prefix for the `factoria:test` module (`test:TestGame.setDate`);
+the generated `types/factoria.d.ts` gets an `@since` tag from it. The test `api_since` in `tools/common/tests` lists the exact lines to add. A release
 renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
 `"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
 docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus

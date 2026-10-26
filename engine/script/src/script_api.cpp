@@ -2,6 +2,7 @@
 // signatures + docs) plus the component types reflected in TypeRegistry (so new components appear automatically).
 #include <algorithm>
 #include <format>
+#include <set>
 
 #include "fa/core/reflect.h"
 #include "script_internal.h"
@@ -153,9 +154,24 @@ std::string init_type(const FieldInfo& f) {
     }
 }
 
-std::string emit_member(const Json& mem, const std::string& indent, bool isStatic, bool inClass) {
+// The "script" key of an export or member in tools/common/api_since.json (ScriptSystem::script_api_keys).
+std::string item_key(const std::string& prefix, const Json& it) {
+    std::string name = it.value("name", "");
+    if (name.empty()) name = parse_sig(it.value("sig", "")).name;
+    return prefix + name;
+}
+std::string member_key(const std::string& prefix, const std::string& owner, const Json& mem) {
+    return prefix + owner + "." + parse_sig(mem.value("sig", "")).name;
+}
+std::string since_doc(const std::string& doc, const ScriptSystem::SinceFn& since, const std::string& key) {
+    std::string v = since ? since("script", key) : std::string();
+    return v.empty() ? doc : (doc.empty() ? "" : doc + "\n") + "@since " + v;
+}
+
+std::string emit_member(const Json& mem, const std::string& indent, bool isStatic, bool inClass, const std::string& key,
+                        const ScriptSystem::SinceFn& since) {
     Sig s = parse_sig(mem.value("sig", ""));
-    std::string doc = mem.value("doc", "");
+    std::string doc = since_doc(mem.value("doc", ""), since, key);
     std::string out = jsdoc(doc, indent);
     out += indent;
     if (isStatic) out += "static ";
@@ -175,10 +191,11 @@ std::string emit_member(const Json& mem, const std::string& indent, bool isStati
     return out;
 }
 
-std::string emit_item(const Json& it, const std::string& indent, bool inModule) {
+std::string emit_item(const Json& it, const std::string& indent, bool inModule, const std::string& keyPrefix,
+                      const ScriptSystem::SinceFn& since) {
     std::string kind = it.value("kind", "");
     std::string name = it.value("name", "");
-    std::string doc = it.value("doc", "");
+    std::string doc = since_doc(it.value("doc", ""), since, item_key(keyPrefix, it));
     std::string out;
     const std::string exp = inModule ? "export " : "";
     if (kind == "alias") {
@@ -200,9 +217,9 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule) 
         out += " {\n";
         if (kind == "class" && it.contains("ctor")) out += indent + "  constructor(" + it["ctor"].get<std::string>() + ");\n";
         if (it.contains("members"))
-            for (const Json& m : it["members"]) out += emit_member(m, indent + "  ", false, kind == "class");
+            for (const Json& m : it["members"]) out += emit_member(m, indent + "  ", false, kind == "class", member_key(keyPrefix, name, m), since);
         if (it.contains("statics"))
-            for (const Json& m : it["statics"]) out += emit_member(m, indent + "  ", true, true);
+            for (const Json& m : it["statics"]) out += emit_member(m, indent + "  ", true, true, member_key(keyPrefix, name, m), since);
         out += indent + "}\n";
     }
     return out;
@@ -210,7 +227,7 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule) 
 
 // Interfaces for every reflected component (+ the name maps).
 std::string emit_components(const ScriptSystem::SinceFn& since) {
-    auto since_tag = [&](const std::string& key) { std::string v = since ? since(key) : std::string(); return v.empty() ? v : "\n@since " + v; };
+    auto since_tag = [&](const std::string& key) { std::string v = since ? since("components", key) : std::string(); return v.empty() ? v : "\n@since " + v; };
     std::string out;
     out += "  // ---- Components (generated from the engine's reflection registry) ----\n";
     for (const TypeInfo* t : TypeRegistry::global().all()) {
@@ -286,11 +303,28 @@ std::string ScriptSystem::Impl::typescript_declarations(const ScriptSystem::Sinc
         if (name == "factoria:test") {
             out += "  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like, GamepadButton, GamepadAxis } from \"factoria\";\n";
         }
-        for (const Json& it : mod["items"]) out += emit_item(it, "  ", true) + "\n";
+        const std::string keyPrefix = name == "factoria:test" ? "test:" : "";
+        for (const Json& it : mod["items"]) out += emit_item(it, "  ", true, keyPrefix, since) + "\n";
         if (name == "factoria") out += emit_components(since) + emit_plugins(plugins);
         out += "}\n\n";
     }
     return out;
+}
+
+std::vector<std::string> ScriptSystem::Impl::script_api_keys() const {
+    std::set<std::string> keys;
+    const Json& data = api_data();
+    if (data.contains("modules"))
+        for (const Json& mod : data["modules"]) {
+            const std::string prefix = mod.value("name", "") == "factoria:test" ? "test:" : "";
+            for (const Json& it : mod["items"]) {
+                keys.insert(item_key(prefix, it));
+                for (const char* list : {"members", "statics"})
+                    if (it.contains(list))
+                        for (const Json& m : it[list]) keys.insert(member_key(prefix, it.value("name", ""), m));
+            }
+        }
+    return {keys.begin(), keys.end()};
 }
 
 Json ScriptSystem::Impl::plugins_json() const {
