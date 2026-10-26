@@ -10,9 +10,10 @@ Burrow Brigade drops the workarounds M29 made unnecessary
   `tilemap.setTile`, copies and pastes through the system clipboard, keys its daily dig and board by the UTC day with
   `{day}`, and detects a Steam Deck with `game.device.steamDeck`. Its feedback entries are closed with what it kept and why.
   Its perf baselines count the real lights (entities 145, lights 20, `maxLights` 24).
-- Burrow Brigade's Options > Video uses the window API: windowed, borderless window and full screen with `window.setMode`, and a
-  monitor button (`window.monitors()`, `window.setMonitor`) where the platform has several monitors; an older save's full screen
-  flag still works. A pad player keeps its pad's `padId`, and a pad that returns in another slot is followed (`gamepadConnected`).
+- Burrow Brigade's Options > Video uses the window API: windowed, borderless window and full screen with
+  `window.setMode`, and a monitor button (`window.monitors()`, `window.setMonitor`) where the platform has several
+  monitors; an older save's full screen flag still works. A pad player keeps its pad's `padId`, and a pad that returns
+  in another slot is followed (`gamepadConnected`).
 
 Split screen: camera viewports
 

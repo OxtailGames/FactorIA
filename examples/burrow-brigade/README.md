@@ -108,9 +108,9 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   draws them with one extra `Camera` entity per view ("Split Camera 2"...), each with its own `Camera.viewport`. The HUD is drawn
   once over the whole screen. The cameras are their own module: the controls and the miners' input do not know about them.
 - **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes, also when it
-  comes back in another slot (each pad player keeps the pad's id and the miner follows it). Any other free
-  pad (A) or the keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad)
-  or Backspace (keyboard): that miner leaves the mine and the shift goes on.
+  comes back in another slot (each pad player keeps the pad's id and the miner follows it). Any other free pad (A) or the
+  keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad) or
+  Backspace (keyboard): that miner leaves the mine and the shift goes on.
 - **Hazards**: sealed pockets of **water** (every stratum) and **magma** (Magma Deep) spread over the floor once a
   miner digs into them; water slows a miner by half and drowns one who stays in it for 3.5 s, magma burns one on contact
   (0.5 s). **Cracked floor** brings the roof down on the 3 x 3 tiles around it 1.4 s after a miner steps on it; a miner inside
@@ -118,7 +118,8 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 - **Light**: besides the lamp, a team has 6 **torches** per shift to put down (they stay lit and reveal the tiles around them).
   Crystal walls (Crystal Caves) and magma glow. Every torch, crystal and magma source has its own Light2D (the engine
   draws up to 256 per frame and skips the ones off screen), so none is left dark. The mine is under **fog of war**: tiles a
-  lamp or torch reaches in a straight line are clear, tiles seen once stay half dark, the rest is black, and enemies are drawn only on clear tiles.
+  lamp or torch reaches in a straight line are clear, tiles seen once stay half dark, the rest is black, and enemies are
+  drawn only on clear tiles.
 - **Enemies**: **beetles** patrol, chase what their eyes find, wind up for 0.45 s and bite (a heart and 10 oil); **goblin
   thieves** take 25 percent of the ore the team carries and run to escape after 3 s (kill one and the ore drops); both follow
   the tunnels the miners dig. Magma Deep floor 3 holds the **Mole King**: it wakes when a miner comes near, slams the ground
@@ -177,9 +178,8 @@ Options > Language cycles the three with the mouse, the keyboard or a gamepad. S
 slots, boards, camp prices) rewrite it on `i18n.on("change")`.
 
 - Russian plurals have `one`, `few`, `many`, `other` (daily tries, slot coins, miners in the presence line, volume percent).
-- Thai: the engine wraps at spaces and at U+200B (FB-0036), but Burrow has no word-marked Thai, so the Thai table has a real space
-  between phrases and never a space-free run over 16 base letters
-  (`tools/thai_spaces.py --check`, a test). The font is `assets/fonts/NotoSansThai-Regular-subset.ttf` (SIL OFL 1.1, `assets/fonts/OFL.txt`; rebuilt by
+- Thai: the engine wraps at spaces and at U+200B (FB-0036), but Burrow has no word-marked Thai, so the Thai table has a
+  real space between phrases and never a space-free run over 16 base letters (`tools/thai_spaces.py --check`, a test). The font is `assets/fonts/NotoSansThai-Regular-subset.ttf` (SIL OFL 1.1, `assets/fonts/OFL.txt`; rebuilt by
   `assets/fonts/make_subset.py`, which keeps U+0E4D because the engine draws sara am as two letters: FB-0037). Engine gaps met and since closed:
   FB-0036 (Thai word breaks), FB-0037, FB-0038 (`ui.check_layout` and ScrollLists).
 - Text size: every screen was checked at 100 % and 200 % (`ui.textScale`) in the three languages: panels that fit their content

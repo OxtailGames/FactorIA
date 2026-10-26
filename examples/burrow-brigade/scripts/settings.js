@@ -9,7 +9,8 @@ import * as controls from "./game/controls.js"; // controls.js reads and saves t
 export const BUSES = ["master", "music", "sfx", "ui"];
 
 /**
- * Window modes of the Video tab (window.setMode): a window, a borderless window covering the monitor, and exclusive full screen.
+ * Window modes of the Video tab (window.setMode): a window, a borderless window covering the monitor, and full screen (macOS's
+ * own full screen; on Windows and Linux the same frameless window as borderless, docs/SCRIPTING.md "window").
  * Where the platform has no borderless mode (`window.supports("borderless")` is false) the Options row cycles windowed and
  * fullscreen only, and a saved "borderless" is applied as "fullscreen".
  */

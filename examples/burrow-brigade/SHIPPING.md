@@ -124,8 +124,8 @@ Steam keeps a file's executable bit only from a macOS or Linux machine: upload t
   `ACH_BUG_SQUASHER`; stats `NumOreDug`, `NumMolesRescued`, `NumFloorsCleared`, `NumEnemiesDefeated`; boards `BestRunCash`
   and `DailyRunCash`), rich presence from `scripts/online/presence.js`, and `steam_appid.txt` with 480.
 - **The plugin is not committed.** `platform.add_backend steam` builds `plugins/steam` on the machine that exports, and it
-  needs Valve's Steamworks SDK (a free download from Valve, not redistributable). Without it a run logs a warning (FB-0031 made it one) and the
-  export warns that the Windows and Linux plugin builds are missing (FB-0031). So the committed project has no `plugins/steam`
+  needs Valve's Steamworks SDK (a free download from Valve, not redistributable). Without it a run logs a warning (an
+  ERROR before FB-0031) and the export warns that the Windows and Linux plugin builds are missing (FB-0031). So the committed project has no `plugins/steam`
   (it is in `.gitignore`), the game runs with platform services off ("no store backend"), and the exports above have no Steam
   library. Before the real Steam build, on each export machine:
   `factoria call platform.add_backend '{"backend":"steam","sdk":"~/Downloads/steamworks_sdk_<version>.zip","appId":<your app id>}'`.
