@@ -1,0 +1,217 @@
+{
+  "$name": "English",
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game."
+  },
+  "loading": {
+    "progress": "Loading... {percent}%"
+  },
+  "menu": {
+    "title": "Tidewater Market",
+    "tagline": "Grow a harbour town, one road and one trade at a time.",
+    "play": "Play",
+    "options": "Options",
+    "credits": "Credits",
+    "shop": "Shop",
+    "quit": "Quit",
+    "back": "Back"
+  },
+  "options": {
+    "title": "Options",
+    "tab": {
+      "video": "Video",
+      "audio": "Audio",
+      "controls": "Controls",
+      "language": "Language"
+    },
+    "windowMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {n} - {name}",
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "colorFilter": "Color filter: {filter}",
+    "filter": {
+      "none": "off",
+      "greyscale": "greyscale",
+      "highContrast": "high contrast",
+      "protanopia": "protanopia (red)",
+      "deuteranopia": "deuteranopia (green)",
+      "tritanopia": "tritanopia (blue)"
+    },
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": {
+      "master": "Master",
+      "music": "Music",
+      "effects": "Effects",
+      "interface": "Interface"
+    },
+    "action": {
+      "pan_left": "Scroll left",
+      "pan_right": "Scroll right",
+      "pan_up": "Scroll up",
+      "pan_down": "Scroll down",
+      "pan_drag": "Drag the map",
+      "zoom_in": "Zoom in",
+      "zoom_out": "Zoom out",
+      "rotate": "Rotate building",
+      "undo": "Undo",
+      "redo": "Redo",
+      "tool_demolish": "Demolish tool",
+      "tool_cancel": "Put the tool away",
+      "pause": "Pause"
+    },
+    "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language: {language}",
+    "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
+    "analytics": "Share anonymous usage data",
+    "on": "on",
+    "off": "off",
+    "percent": "{value} percent"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "mainMenu": "Main menu"
+  },
+  "terrain": {
+    "water": "water",
+    "sand": "sand",
+    "grass": "grass",
+    "forest": "forest",
+    "rock": "rock"
+  },
+  "good": {
+    "fish": "fish",
+    "grain": "grain",
+    "wood": "wood",
+    "stone": "stone",
+    "planks": "planks",
+    "bread": "bread",
+    "tools": "tools"
+  },
+  "category": {
+    "infrastructure": "Infrastructure",
+    "housing": "Housing",
+    "production": "Production",
+    "storage": "Storage",
+    "trade": "Trade"
+  },
+  "building": {
+    "road": {
+      "name": "Road",
+      "desc": "Drag to lay a road. Warehouses and markets need one in front of their door."
+    },
+    "house": {
+      "name": "House",
+      "desc": "Four people live here."
+    },
+    "farm": {
+      "name": "Farm",
+      "desc": "Grows grain. Needs grass."
+    },
+    "fisher_dock": {
+      "name": "Fisher dock",
+      "desc": "Catches fish. Must touch the water."
+    },
+    "lumber_camp": {
+      "name": "Lumber camp",
+      "desc": "Cuts wood. Stands in a forest or on grass."
+    },
+    "quarry": {
+      "name": "Quarry",
+      "desc": "Cuts stone. Stands on rock."
+    },
+    "sawmill": {
+      "name": "Sawmill",
+      "desc": "Turns wood into planks."
+    },
+    "bakery": {
+      "name": "Bakery",
+      "desc": "Turns grain into bread."
+    },
+    "workshop": {
+      "name": "Workshop",
+      "desc": "Makes tools from planks and stone."
+    },
+    "warehouse": {
+      "name": "Warehouse",
+      "desc": "Stores goods. Needs a road in front of its door."
+    },
+    "market": {
+      "name": "Market",
+      "desc": "Where the town buys and sells. Needs a road in front of its door."
+    }
+  },
+  "season": {
+    "spring": "Spring",
+    "summer": "Summer",
+    "autumn": "Autumn",
+    "winter": "Winter"
+  },
+  "amount": {
+    "coins": "{n} coins",
+    "good": "{n} {name}",
+    "none": "free"
+  },
+  "hud": {
+    "date": "{season} {day}, year {year}",
+    "coins": "Coins",
+    "undo": "Undo",
+    "redo": "Redo",
+    "demolish": "Demolish",
+    "rotate": "Rotate",
+    "palette": "Build",
+    "item": "{name} - {coins}"
+  },
+  "status": {
+    "idle": "Pick something to build on the right. Right-drag or screen edges move the map, the wheel zooms.",
+    "terrain": "{terrain}  ({c}, {r})",
+    "building": "{name}  ({c}, {r})",
+    "placing": "{name}: {cost}.  Click to build, R to turn, Q or right-click to stop.",
+    "placingRoad": "Road: drag to lay it, {cost} per piece.  Q or right-click to stop.",
+    "roadDrag": "Road: {count} new pieces for {cost}",
+    "demolish": "Demolish: click or drag over buildings. Half the cost comes back.  Q or right-click to stop.",
+    "demolishHover": "Demolish {name}: {refund} back",
+    "palette": "{name}: {desc}  Cost: {cost}."
+  },
+  "reason": {
+    "out_of_bounds": "Outside the map.",
+    "occupied": "Something is already there.",
+    "terrain": "Cannot build on {terrain}: needs {allowed}.",
+    "no_road": "Needs a road in front of its door.",
+    "not_near_water": "Must touch the water.",
+    "cannot_afford": "Not enough: you lack {missing}.",
+    "nothing_here": "Nothing to demolish here.",
+    "unknown_type": "Unknown building {type}."
+  },
+  "toast": {
+    "built": "Built {name}.",
+    "roads": "Laid {count} road pieces.",
+    "demolished": "Demolished {name}.",
+    "demolishedMany": "Demolished {count} things.",
+    "undone": "Undone: {label}.",
+    "redone": "Redone: {label}.",
+    "nothingToUndo": "Nothing to undo.",
+    "nothingToRedo": "Nothing to redo."
+  },
+  "history": {
+    "place": "build {name}",
+    "road": "roads",
+    "demolish": "demolish {name}"
+  }
+}
