@@ -374,7 +374,7 @@ void register_builtin_components(TypeRegistry& r) {
                     "diamond, polygon and star grow INWARD from the silhouette, like the rectangle's, so a thick outline never "
                     "pokes out of the size box.")
         .field("size", &Shape2D::size,
-               "rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.")
+               "rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. In screen space (space \"screen\", +Y down) a line's size.y points UP, unlike the size.y of Panels, Texts and Sprites, which grows downwards: size [100, 40] ends 100 px right and 40 px above the start, [100, -40] ends below it. A chart bar is a rectangle, not a line: give it pivot [0, 1] so size [w, h] hangs w right and h down from its position.")
         .field("color", &Shape2D::color, "Fill or outline color.")
         .field("filled", &Shape2D::filled, "true = solid shape, false = outline only (lines are always drawn as strokes).")
         .field("thickness", &Shape2D::thickness, "Outline / line thickness in world units.").range(0, 10000)

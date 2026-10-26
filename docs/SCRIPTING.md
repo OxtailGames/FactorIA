@@ -180,7 +180,8 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   area and layout applied), use `ui.rectOf(entityOrId)`: a `Rect` in design pixels with `(x, y)` at the TOP-LEFT and y
   growing downwards, or `null` for anything else. Layout runs each frame; call `ui.layout()` to run it now (autoSize
   and fit sizes, positions, `Panel.fallbackLayout`) and read a size right after changing a text, with no `game.step`.
-  `ui.state` lists the same rectangles, screen-space `Text` included.
+  `ui.state` lists the same rectangles, screen-space `Text` included. `ui.rectOf` is also `null` for an entity that is
+  hidden, by itself or by an inactive parent, and `ui.state` does not list it.
 - Children are not included. `active` and colour alpha are ignored: a hidden entity still has bounds.
 
 Component views expose exactly the reflected fields listed by `factoria api
@@ -798,6 +799,10 @@ the press is released over the same widget; a Slider follows the pointer while p
   mouse for the UI from the next frame on (hover, press, Slider drag, click on release, the wheel's target) until
   `ui.setPointer(null)`; use it for a gamepad cursor and in tests. `ui.wheelConsumed` is true on a frame whose wheel
   scrolled a ScrollList (`input.mouse.wheel` reads 0 then).
+- **`active` and `activeInHierarchy`.** `entity.active = false` hides the entity and everything under it, but it does not
+  change the `active` of the children: a child of a hidden Panel keeps `active` true. `activeInHierarchy` is true only when
+  the entity and every ancestor are active, so ask that to know whether a menu is open (`panel.activeInHierarchy`), not
+  `child.active`. `ui.rectOf` returns `null` and `ui.state` leaves out an entity whose `activeInHierarchy` is false.
 - The command `ui.state` returns what is on screen: every widget with its `id`, `kind`, `rect` `[x, y, w, h]`,
   `focused`, `hovered`, `pressed`, `interactable`, `visible` and `value` / `text`, in reading order. Use it to find what
   to click (`game.input` with `mouse.position`) or which widget has the focus.
@@ -1176,9 +1181,30 @@ test("Enter submits the name", () => {
 test("dump the menu layout", () => {
   game.load("scenes/menu.scene.json");
   game.step(5);
-  fa.call("fs.write", { path: "build/menu_layout.json", content: JSON.stringify(ui.state(), null, 2) });
+  fa.call("fs.write", { path: "build/menu_layout.json", content: JSON.stringify(fa.call("ui.state"), null, 2) });
 });
 ```
+
+**Commands from a test.** `fa.call(name, args)` runs any command and returns its result. Scripts have no `ui.state()`
+function (`ui` has `rectOf`, `widgetAt`, `focus`...): the list of widgets is the command, `fa.call("ui.state")`, and the
+localization state is `fa.call("i18n.state")`.
+
+```js
+test("every widget fits and the Spanish table is complete", () => {
+  game.load("scenes/menu.scene.json");
+  game.step(5);
+  const widgets = fa.call("ui.state").widgets;             // the current frame: ids, rect, focused, visible
+  expect(widgets.some((w) => w.id === "play_button")).toBe(true);
+  const es = fa.call("i18n.state").languages.find((l) => l.code === "es");
+  expect(es.missing).toBe(0);                              // keys the default table has and Spanish lacks
+  const report = fa.call("ui.check_layout", { textScales: [1, 2] });  // see below: it reloads the scenes
+  expect(report.issues).toEqual([]);
+});
+```
+
+`ui.check_layout` loads each scene again (in each language and text size) and then loads the running scene once more, so
+it does not see the state of the current frame and the game state is lost: call it on a fresh scene, and read
+`ui.state` before it, not after.
 
 ### Scene props
 
