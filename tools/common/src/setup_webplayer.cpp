@@ -68,7 +68,11 @@ std::string read_first_line(const stdfs::path& file) {
     return std::string(trim(line));
 }
 
-std::string sdk_version(const stdfs::path& emsdk) { return read_first_line(emsdk / "upstream" / "emscripten" / "emscripten-version.txt"); }
+std::string sdk_version(const stdfs::path& emsdk) {
+    std::string v = read_first_line(emsdk / "upstream" / "emscripten" / "emscripten-version.txt");
+    std::erase(v, '"');  // the file holds "6.0.10" with the quotes
+    return v;
+}
 
 std::uint64_t file_bytes(const stdfs::path& p) {
     std::error_code ec;
