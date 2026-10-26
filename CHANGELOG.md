@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The export's size report, and the web page's icon
+
+- Every export names the five folders that weigh most in what ships (`largestFolders` in `--json`) and warns when a `store/`,
+  `screenshots/` or `src/` folder, at any depth, is packed, pointing at `export.exclude`.
+- A web export lists the raw and about-gzip size of each file of the zip, the total, and how long the gzip total takes to
+  download at 1, 5, 20 and 100 Mbit/s (`webFiles`, `webBytes`, `webGzipBytes`, `webDownloadSeconds` in `--json`).
+- A web export links a `favicon.png` (64x64) made from the game's `icon` in `index.html`, instead of an empty icon; the
+  page template has a new `{{favicon}}` placeholder. A game without an icon keeps the empty icon.
+
 Rich text: bold, colours and icons inside a text
 
 - `Text.markup: true` reads `[b]bold[/b]`, `[c:good]coloured[/c]` and `[icon:fish]` in the text, and so does the label of a

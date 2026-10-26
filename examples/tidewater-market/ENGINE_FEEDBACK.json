@@ -873,7 +873,7 @@
       "suggestion": "Print the largest folders that went into the pak, and warn when a folder named store/, screenshots/ or src/ is packed.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0053",
@@ -892,7 +892,7 @@
       "suggestion": "Print raw and gzip sizes per file at the end of a web export, and the time budget of a download at a few connection speeds.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0054",
@@ -1129,7 +1129,7 @@
       "suggestion": "Write the game's icon as a small favicon.png in the web export and link it from index.html instead of data:,.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0072",
