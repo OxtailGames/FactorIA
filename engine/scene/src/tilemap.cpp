@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 namespace fa {
 
@@ -90,10 +91,40 @@ bool set_tilemap_tile(Tilemap& tm, int col, int row, int value) {
     }
     *slot = value;
     ++tm.version;
+    tm.versionHashValid = false;  // the edit is counted already; tilemap_version() takes a new baseline
     constexpr std::size_t kMaxEdits = 4096;  // nobody reads them (no physics): drop them, physics then compares hashes
     if (tm.edits.size() >= kMaxEdits) tm.edits.clear();
     tm.edits.push_back({row * size.width + col, tile_index(old), tile_index(value)});
     return true;
+}
+
+namespace {
+std::uint64_t hash_mix(std::uint64_t h, std::uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h * 0xff51afd7ed558ccdull;
+}
+std::uint64_t hash_tiles_json(std::uint64_t h, const Json& j) {
+    if (j.is_array()) {
+        h = hash_mix(h, 0x100000000ull | j.size());
+        for (const Json& v : j) h = hash_tiles_json(h, v);
+    } else if (j.is_number_integer()) {
+        h = hash_mix(h, std::uint64_t(j.get<std::int64_t>()));
+    } else if (j.is_number()) {
+        h = hash_mix(h, std::uint64_t(std::int64_t(j.get<double>() * 1024.0)));
+    } else {
+        h = hash_mix(h, std::hash<std::string>{}(j.dump()));
+    }
+    return h;
+}
+}  // namespace
+
+std::uint32_t tilemap_version(Tilemap& tm) {
+    std::uint64_t h = hash_mix(hash_mix(0, std::uint64_t(std::uint32_t(tm.width))), std::uint64_t(std::uint32_t(tm.height)));
+    h = hash_tiles_json(h, tm.tiles);
+    if (tm.versionHashValid && tm.versionHash != h) ++tm.version;
+    tm.versionHash = h;
+    tm.versionHashValid = true;
+    return tm.version;
 }
 
 TilemapGrid tilemap_grid(const Tilemap& tm) {

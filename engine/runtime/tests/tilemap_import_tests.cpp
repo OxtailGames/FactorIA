@@ -1428,3 +1428,27 @@ TEST_CASE("tilemap.set_tile changes one tile of the running map in place and ref
     CHECK_FALSE(none.ok);
     CHECK(contains(error_text(none), "no Tilemap"));
 }
+
+TEST_CASE("tilemap_version: scene.set_component and set_tilemap_tile both move the counter, an equal write does not") {
+    Session s("tilemap_version");
+    REQUIRE(s.import(level()).ok);
+    Entity map = s.engine.world().find_by_id("tilemap");
+    REQUIRE_FALSE(map.is_null());
+    Tilemap* tm = s.engine.world().get<Tilemap>(map);
+    REQUIRE(tm != nullptr);
+    const std::uint32_t v0 = tilemap_version(*tm);
+    CHECK(tilemap_version(*tm) == v0);
+    Json same = Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tm->tiles}})}});
+    REQUIRE(s.call("scene.set_component", same).ok);
+    tm = s.engine.world().get<Tilemap>(map);
+    CHECK(tilemap_version(*tm) == v0);
+    Json tiles = tm->tiles;
+    if (tiles[0].is_array()) tiles[0][0] = tiles[0][0].get<int>() == 0 ? 1 : 0; else tiles[0] = tiles[0].get<int>() == 0 ? 1 : 0;
+    Json changed = Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles}})}});
+    REQUIRE(s.call("scene.set_component", changed).ok);
+    tm = s.engine.world().get<Tilemap>(map);
+    const std::uint32_t v1 = tilemap_version(*tm);
+    CHECK(v1 > v0);
+    REQUIRE(set_tilemap_tile(*tm, 1, 1, 2));
+    CHECK(tilemap_version(*tm) > v1);
+}

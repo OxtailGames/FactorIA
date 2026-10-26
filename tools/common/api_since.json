@@ -776,6 +776,8 @@
     "BtAPI.condition": "unreleased",
     "BtAPI.cooldown": "unreleased",
     "BtAPI.inverter": "unreleased",
+    "BtAPI.parallel": "unreleased",
+    "BtAPI.repeat": "unreleased",
     "BtAPI.selector": "unreleased",
     "BtAPI.sequence": "unreleased",
     "BtAPI.succeeder": "unreleased",
