@@ -34,6 +34,8 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
+#include "fa/scene/rich_text.h"
+#include "fa/scene/text_fit.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -171,8 +173,9 @@ public:
     // rendering (shaping, fallback fonts, right-to-left text, wrapping at maxWidth > 0, line height). font "" =
     // built-in font. `space` is where the text would be drawn: screen-space Text and UI labels (RenderSpace::Screen)
     // are scaled by the text scale, world-space Text is not.
+    // `style`: Text.markup (tags are not characters, an icon is a picture as tall as the line) and Text.bold.
     Vec2 measure_text(std::string_view text, float fontSize, std::string_view font = {}, float maxWidth = 0,
-                      RenderSpace space = RenderSpace::World) const;
+                      RenderSpace space = RenderSpace::World, TextStyle style = {}) const;
     // Size of a Text component as it is drawn: like measure_text above, with the Text's maxTextScale cap and autoShrink
     // (maxWidth x maxHeight box) applied at the current text scale (text_fit.h). What layout, bounds and ui.rectOf use.
     Vec2 measure_text(const Text& text) const;
@@ -187,6 +190,10 @@ public:
     // nothing, with one warning per Text font naming them. May be called before init() (it is kept).
     void set_fallback_fonts(std::vector<std::string> fonts);
     const std::vector<std::string>& fallback_fonts() const { return fallbackFonts_; }
+    // The project's "text" section (rich_text.h): the colours, icons and bold faces of Text.markup and Text.bold. Takes
+    // effect on the next layout. May be called before init() (it is kept).
+    void set_rich_text_style(RichTextStyle style);
+    const RichTextStyle& rich_text_style() const { return richStyle_; }
     // The player's "text size" option: multiplies the font size of screen-space Text (space = Screen) and of the labels
     // of UI widgets (Button, Toggle, Slider, TextField), and the measurements of those (measure_text with
     // RenderSpace::Screen, entity.bounds()). World-space Text is part of the world and is not scaled; neither is debug
@@ -253,6 +260,7 @@ private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
+    RichTextStyle richStyle_;
     float textScale_ = 1.0f;
     ShaderCompiler shaderCompiler_;
 };

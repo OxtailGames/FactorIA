@@ -13,13 +13,83 @@
 import { Behaviour, world, ui, i18n, input, game, scene } from "factoria";
 import { ShipView } from "./ship_view.js";
 import { StoreBridge } from "./achievements.js";
-import { RichView, RICH_CAP } from "./rich_view.js";
 import { amountText, coinsText, numberText } from "./format.js";
 import { effectsMarkup, orderGoodsMarkup, shipName, amountMarkup } from "./trade_text.js";
 
 const t = (key, args) => i18n.t(key, args);
 const COLOR_BUTTON = [0.18, 0.26, 0.38, 1];
 const COLOR_DISABLED = [0.14, 0.16, 0.2, 1];
+/** The colour of rich text outside a [c:...] tag (the "normal" colour of the `text` section of factoria.json). */
+const COLOR_TEXT = [0.92, 0.93, 0.95, 1];
+
+/**
+ * How far the text size option (ui.textScale) grows the text of a card or the order board: they are fixed sheets of paper, so
+ * their text stops at 125 %, like Text.maxTextScale on any other heading.
+ */
+const RICH_CAP = 1.25;
+
+/**
+ * One block of rich text: a Text entity with `markup` ([b], [c:colour], [icon:name] of the `text` section of factoria.json),
+ * wrapped at a width, with its top-left corner at a screen position. `set` rewrites it only when the markup or the box changed,
+ * and returns the height the block takes (measured by the engine, so a longer translation or a bigger text size makes it taller).
+ */
+class RichBlock {
+  /** @param {{ layer: number, parent?: any }} opts */
+  constructor(opts) {
+    this.layer = opts.layer;
+    this.parent = opts.parent || null;
+    /** @type {any} */ this.entity = null;
+    /** The last markup + box, so an unchanged block costs nothing. */
+    this.key = "";
+    this.last = { height: 0 };
+  }
+
+  /** @param {string} markup @param {{ x: number, y: number, maxWidth: number, fontSize?: number }} box */
+  set(markup, box) {
+    const fontSize = box.fontSize || 20;
+    const key = `${markup}|${box.x}|${box.y}|${box.maxWidth}|${fontSize}|${ui.textScale}`;
+    if (key === this.key) return this.last;
+    this.key = key;
+    if (markup === "") {
+      if (this.entity) this.entity.active = false;
+      this.last = { height: 0 };
+      return this.last;
+    }
+    if (!this.entity) {
+      this.entity = world.spawn(
+        {
+          components: {
+            Transform: { position: [0, 0, 0] },
+            Text: { text: "", space: "screen", anchor: [0, 0], pivot: [0, 1], layer: this.layer + 1, markup: true, color: COLOR_TEXT, maxTextScale: RICH_CAP },
+          },
+        },
+        this.parent ? { parent: this.parent } : undefined,
+      );
+    }
+    const text = this.entity.get("Text");
+    if (text.text !== markup) text.text = markup;
+    text.fontSize = fontSize;
+    text.maxWidth = box.maxWidth;
+    this.entity.position = [box.x, box.y, 0];
+    this.entity.active = true;
+    const size = ui.measureText(markup, { fontSize, maxWidth: box.maxWidth, space: "screen", maxTextScale: RICH_CAP, markup: true });
+    this.last = { height: Math.ceil(size.height) };
+    return this.last;
+  }
+
+  /** Hide the block. */
+  clear() {
+    this.key = "";
+    if (this.entity) this.entity.active = false;
+    this.last = { height: 0 };
+  }
+
+  destroy() {
+    if (this.entity) this.entity.destroy();
+    this.entity = null;
+    this.key = "";
+  }
+}
 
 export default class TradeUi extends Behaviour {
   /** Turn the trade on. A scene prop `trade` overrides it; the test map and the stress scene leave it off unless the prop says so. */
@@ -50,8 +120,7 @@ export default class TradeUi extends Behaviour {
     this.tradeOn = true;
     this.state = this.controller.state;
     this.trade = this.state.trade;
-    this.atlas = this.state.data.atlas;
-    this.sceneId = scene.current;
+        this.sceneId = scene.current;
     // the scenario of the game: the scene prop, else the one the slot screen picked (controller.run), else this script's own
     const run = this.controller.run;
     if (!brought) this.trade.start(props.scenario || (run && run.tracker ? run.scenario : this.scenario));
@@ -190,7 +259,7 @@ export default class TradeUi extends Behaviour {
     if (this.boardUi || this.trade.card) return;
     const root = world.spawnPrefab("prefabs/ui/order_board.prefab.json");
     this.controller.uiPanels.push(root);
-    this.boardUi = { root, views: [], buttons: [], footer: new RichView({ atlas: this.atlas, layer: 300, parent: root }), key: "" };
+    this.boardUi = { root, views: [], buttons: [], footer: new RichBlock({ layer: 300, parent: root }), key: "" };
     this.drawBoard();
     this.refreshHud();
   }
@@ -208,7 +277,7 @@ export default class TradeUi extends Behaviour {
     this.refreshHud();
   }
 
-  /** Draw the rows (a row is up to three RichView lines and a button); only what changed is touched. */
+  /** Draw the rows (a row is up to three rich text lines and a button); only what changed is touched. */
   drawBoard() {
     const b = this.boardUi;
     const trade = this.trade;
@@ -218,7 +287,7 @@ export default class TradeUi extends Behaviour {
     const docks = trade.state.list("pier").length;
     // one row per ship, in the order they were sent
     const ships = trade.ships;
-    while (b.views.length < ships.length * 3) b.views.push(new RichView({ atlas: this.atlas, layer: 300, parent: b.root }));
+    while (b.views.length < ships.length * 3) b.views.push(new RichBlock({ layer: 300, parent: b.root }));
     let v = 0;
     const wanted = new Set();
     for (const ship of ships) {
@@ -316,7 +385,7 @@ export default class TradeUi extends Behaviour {
     c.views = [];
     c.buttons = [];
     const rich = () => {
-      const v = new RichView({ atlas: this.atlas, layer: 300, parent: c.root });
+      const v = new RichBlock({ layer: 300, parent: c.root });
       c.views.push(v);
       return v;
     };

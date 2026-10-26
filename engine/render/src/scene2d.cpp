@@ -511,7 +511,7 @@ void gather_2d(World& world, Frame& f) {
         const float px = t.autoShrink ? fit_text(text_fit_spec(t), t.text, t.font, f.textScale, extent).px
                                       : t.fontSize * (screen ? effective_text_scale(f.textScale, t.maxTextScale) : 1.0f);
         TextLayout lay = f.fonts->layout(*drawn, px, eff);
-        if (lay.quads.empty()) return;
+        if (lay.quads.empty() && lay.icons.empty()) return;
         if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
@@ -520,11 +520,7 @@ void gather_2d(World& world, Frame& f) {
             m.at(3, 0) = std::round((m.at(3, 0) - ox) * k) / k + ox;
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
-        QuadList& list = pick(t.space);
-        list.begin_item(t.layer, secondary_key(f, m, false), f.fonts->atlas(), SamplerKind::Linear, BlendMode::Alpha, clip);
-        QuadEmitter em{list, m, screen, pack_color(t.color), kModeGlyph, 0};
-        for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
-        list.end_item();
+        emit_text(pick(t.space), m, screen, lay, t.color, *f.fonts, assets, t.layer, secondary_key(f, m, false), clip);
         f.stats->textGlyphs += int(lay.quads.size());
     });
 }

@@ -21,11 +21,13 @@ bool screen_clip(const World& world, Entity e, const Frame& f, Rect& clip) {
 }
 
 TextExtent frame_text_extent(Frame& f) {
-    return [&f](const std::string& s, const std::string& font, float px, float wrap) {
+    return [&f](const std::string& s, const std::string& font, float px, float wrap, TextStyle style) {
         Text probe;
         probe.text = s;
         probe.font = font;
         probe.maxWidth = wrap;
+        probe.markup = style.markup;
+        probe.bold = style.bold;
         return f.fonts->layout(probe, px, 1.0f).size;
     };
 }
@@ -98,9 +100,11 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
 // A single line of text laid out with the widget's font; `top-left` is placed by text(). `size` is the design font size:
 // it is drawn at the player's text size capped by the widget's maxTextScale, or at `px` (> 0) when autoShrink decided one.
 TextLayout line(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth = 0.0f,
-                Align align = Align::Left, float px = 0.0f) {
+                Align align = Align::Left, float px = 0.0f, TextStyle style = {}) {
     Text t;
     t.text = s;
+    t.markup = style.markup;
+    t.bold = style.bold;
     t.font = font;
     t.fontSize = size;
     t.pivot = {0, 1};
@@ -118,20 +122,18 @@ float label_px(const Ctx& c, const World& world, Entity e, const Rect& r) {
 }
 
 void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int layer, const Rect& clip) {
-    if (lay.quads.empty()) return;
-    c.list().begin_item(layer, 0, c.f.fonts->atlas(), SamplerKind::Linear, BlendMode::Alpha, clip);
-    QuadEmitter em{c.list(), Mat4::translate({std::round(x), std::round(y), 0}), true, pack(col, c.fade), kModeGlyph, 0};
-    for (const TextQuad& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
-    c.list().end_item();
+    if (lay.quads.empty() && lay.icons.empty()) return;
+    col.a *= c.fade;
+    emit_text(c.list(), Mat4::translate({std::round(x), std::round(y), 0}), true, lay, col, *c.f.fonts, *c.f.assets, layer, 0, clip);
     c.f.stats->textGlyphs += int(lay.quads.size());
 }
 
 // A label (wrapped at `maxWidth` > 0, left aligned) vertically centred in `zoneY .. zoneY + zoneH`, its left edge at `x`.
 // `px` > 0 is the size autoShrink decided.
 void text_left(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth, float px, Color col, int layer,
-               float x, float zoneY, float zoneH, const Rect& clip) {
+               float x, float zoneY, float zoneH, const Rect& clip, TextStyle style = {}) {
     if (s.empty()) return;
-    const TextLayout lay = line(c, s, font, size, maxWidth, Align::Left, px);
+    const TextLayout lay = line(c, s, font, size, maxWidth, Align::Left, px, style);
     text(c, lay, x, zoneY + (zoneH - lay.size.y) * 0.5f, col, layer, clip);
 }
 
@@ -161,7 +163,7 @@ void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox&
         disc(c, b.layer + 1, Rect::from_center(at, {knob * 2, knob * 2}), stick->knobColor);
     } else if (!button->text.empty()) {
         const TextLayout lay = line(c, button->text, button->font, button->fontSize, 0.0f, Align::Left,
-                                    button->autoShrink ? label_px(c, world, e, r) : 0.0f);
+                                    button->autoShrink ? label_px(c, world, e, r) : 0.0f, {button->markup, button->bold});
         text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, button->textColor, b.layer + 1, c.clip);
     }
 }
@@ -277,7 +279,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         const Button& btn = *world.get<Button>(e);
         // Every line centred (also inside a wrap box); a label that does not fit is cut at the button's edge.
         const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center,
-                                    btn.autoShrink ? label_px(c, world, e, r) : 0.0f);
+                                    btn.autoShrink ? label_px(c, world, e, r) : 0.0f, {btn.markup, btn.bold});
         const Rect clip = c.clip.empty() ? r : ui_intersect(r, c.clip);
         if (!clip.empty())
             text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, clip);
@@ -289,7 +291,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         outline(c, layer, box, 2, t.textColor);
         if (t.value) fill(c, layer, Rect{box.x + 5, box.y + 5, std::max(0.0f, side - 10), std::max(0.0f, side - 10)}, t.accentColor, c.clip);
         text_left(c, t.label, t.font, t.fontSize, t.maxWidth, t.autoShrink ? label_px(c, world, e, r) : 0.0f, t.textColor, layer,
-                  box.x + side + 10, r.y, r.h, c.clip);
+                  box.x + side + 10, r.y, r.h, c.clip, {t.markup, t.bold});
     } else if (kind == UiKind::Slider) {
         const Slider& s = *world.get<Slider>(e);
         const float innerLeft = r.x + 8, innerW = std::max(0.0f, r.w - 16);
@@ -302,8 +304,9 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         fill(c, layer, Rect{knobX - 5, midY - std::min(12.0f, (r.h - 8) * 0.5f), 10, std::min(24.0f, r.h - 8)}, s.accentColor, c.clip);
         const float labelPx = s.autoShrink ? label_px(c, world, e, r) : 0.0f;
         if (above) text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, r.y + 2,
-                             std::max(1.0f, r.h - kUiSliderRowHeight - 2), c.clip);
-        else text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, r.y, r.h, c.clip);
+                             std::max(1.0f, r.h - kUiSliderRowHeight - 2), c.clip, {s.markup, s.bold});
+        else text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, r.y, r.h, c.clip,
+                       {s.markup, s.bold});
         if (s.showValue) {
             const TextLayout lay = line(c, ui_slider_value_text(s, s.value),s.font, s.fontSize);
             const float zone = innerLeft + innerW * 0.85f;

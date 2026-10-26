@@ -36,6 +36,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
 #include "fa/scene/captions.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -113,6 +114,8 @@ public:
     virtual PlatformServices* platform_services() { return nullptr; }
     // The string tables and the current language behind `i18n.*` in scripts (fa/core/i18n.h); nullptr when the host has none.
     virtual const I18n* i18n() { return nullptr; }
+    // The project's "text" section (markup colours, icons, bold faces): ui.markupProblems checks tags against it. May be null.
+    virtual const RichTextStyle* rich_text_style() { return nullptr; }
     // Switches the language of the game now: every Text and widget with a `key` is rewritten at once and an "i18n.change" game
     // event is sent. Returns "" when done (also when it already was that language), else a sentence saying why not.
     virtual std::string set_language(std::string_view language) {
