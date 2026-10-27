@@ -2508,6 +2508,125 @@ artifacts (they need a GitHub token; TM/FB-0051), grammatical case beyond gender
 report, an undo history helper (TM/FB-0003 asks for it as optional) and `ui.check_layout` on the current frame without
 reloading (TM/FB-0063).
 
+## M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck — DONE (the `m32/reference-game` branch)
+
+Planned 2026-10-27 against `0dac04e4` (`m31/integrated`, the top of the unpushed M29-M31 stack: GitHub is still
+suspended, so the branch starts there). Three Tidewater Market entries are open (TM/FB-0003, 0051, 0055), no other game
+has one. Lantern Keep is a 2D platformer, Clockwork Courier a 3D phone game, Burrow Brigade a 2D couch co-op game for
+pads and Tidewater Market a 2D management game for the mouse: none is 3D on a desktop or a tablet, none tells a story
+through branching dialogue and cut-scenes, none uses the engine's own save slots (M19: every game wrote its own), none
+ships to the Mac App Store or the Microsoft Store that M23 built, none is played on an iPad or a Steam Deck first, and
+none is translated into Hebrew (right to left in a text-heavy game), Korean or German (long lines). **Larkspur Lodge**
+(`examples/larkspur-lodge`, ids `LL/FB-n`) is that game: a short mystery in third person. The player is the new night
+porter of a mountain lodge cut off by snow; a guest has vanished, and over one night in five chapters the porter walks
+the lodge's rooms, talks to the six other guests and staff, picks up and combines items, inspects them in 3D, fills a
+notebook of clues and links them into deductions. Choices in dialogue change what the others say and which of three
+endings the night reaches. A playthrough lasts 60 to 90 minutes; the player saves anywhere in five slots, and the game
+autosaves at each chapter. Played with a mouse and keyboard (click to walk or WASD), a gamepad (direct control) or touch
+(tap to walk), and switches its prompts and glyphs to the device used last. Targets: the Mac App Store (macOS, sandboxed),
+the Microsoft Store (MSIX), the iPad (touch, and a trackpad or keyboard when attached) and the Steam Deck (Linux, a
+gamepad, 1280x800).
+
+Built like the other four: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public
+commands, no engine change. The game asks on purpose for what the engine may not have; each gap gets its workaround and
+an `ENGINE_FEEDBACK.json` entry, and those entries rank what comes next:
+- a third-person camera on a `CharacterController3D`: following, orbit on the right stick or mouse, collision with walls,
+  walls and furniture that fade when they hide the porter, click and tap to walk on the navmesh;
+- interaction: highlighting what can be used, prompts that show the key, button or touch of the device used last,
+  doors between rooms loaded with `scene.preload`;
+- branching dialogue: a data format for lines, choices, conditions on story flags and their effects, line ids that
+  localize, speaker names, text speed and skip, a backlog of past lines, validated (dangling ids, unreachable nodes,
+  missing translations) with teaching errors;
+- cut-scenes: camera keys, characters walking and playing `Animator` states, captions, fades and text cards, skippable,
+  driven by data rather than by a script per scene (the rest of TM/FB-0055);
+- an inventory whose items combine, and a 3D view of an item the player turns in the UI;
+- a notebook of clues in rich text and a board where the player links clues into deductions;
+- voice: English voice lines for the cut-scenes from `assets.generate_voice`, captions in time with them, ducking under
+  speech, reverb per room (M29's bus effects);
+- the engine's save slots (M19): five slots with a name, play time, chapter and a picture (M31.24), autosave, a versioned
+  format with a migration (the game changes it during the milestone), the sandbox container on the Mac App Store, cloud
+  saves, and undo of a deduction (the optional half of TM/FB-0003);
+- night interiors: many small lights, shadows, and the render and CPU budgets of the iPad and the Steam Deck;
+- the iPad: the screen sizes of Split View and Stage Manager, the safe areas, the pointer of a trackpad, the keyboard;
+- the Steam Deck: text readable at 1280x800 (Valve's minimum size), gamepad glyphs, the on-screen keyboard to name a
+  save slot, suspend and resume;
+- the closed stores: the Mac App Store's sandboxed `.pkg`, the MSIX, the age-rating questionnaires (IARC) and what each
+  store's page asks;
+- English, Spanish, German, Korean and Hebrew: a Noto Sans KR subset, right-to-left dialogue and notebook with names and
+  numbers inside, long German lines, every screen at 100 % and 200 % text; voice stays English with captions in every
+  language.
+
+Assets are CC0 only, imported with `assets.import` and recorded in `assets.json` (furniture and interiors, rigged and
+animated characters, UI and sounds from Kenney's and Quaternius's packs; P1 chooses them); voice lines are generated and
+recorded with their provenance.
+
+Packages, in this order: P1, P2, then P3-P5 at once, then P6, then P7 and P8 at once.
+- **P1 the lodge, the porter and the camera (L)**: the lodge's rooms (hall, dining room, kitchen, library, corridors and
+  four guest rooms, the cellar) from the CC0 kits, lit for the night; the porter on a `CharacterController3D` with its
+  `Animator`; the third-person camera; the three ways to move (WASD, click or tap to walk on the navmesh, the gamepad);
+  interaction and its prompts per device; doors between rooms; the title screen and the flow (title, game, pause); a
+  test room; and the contracts the other packages build on (story flags and their events, the interaction API, the item
+  catalogue, the dialogue runner's API, the cut-scene player's API, the save data).
+- **P2 dialogue and the story (L)**: the dialogue format in JSON tables and its validation as a project tool, the
+  dialogue UI (speaker, text speed, skip, choices, backlog), the six characters and their schedules through the night,
+  the five chapters and three endings, and a bot that plays the whole story through a fixed path of choices with the
+  same state hash every run (one per ending).
+- **P3 items, clues and puzzles (M)**: the inventory and combining, the 3D item view, the notebook in rich text, the
+  deduction board with undo, and four puzzles (a lock, a timetable, a torn letter, the cellar's fuse box).
+- **P4 cut-scenes and voice (M)**: the cut-scene data (camera keys, actors' moves and animations, captions, fades, text
+  cards) and its player, skipping, the cut-scenes of the five chapters and the three endings, the voice lines with
+  captions in time, ducking, reverb per room.
+- **P5 saves and progress (M)**: five save slots with name, play time, chapter and picture, autosave at each chapter,
+  save anywhere outside cut-scenes, a versioned format (v1 first, then v2 with the migration of v1 saves, fixtures of both
+  in the tests), cloud saves, chapter select after the first ending, achievements and stats on the fake store.
+- **P6 sound, options and accessibility (M)**: ambience per room (wind, fire, clocks), footsteps per floor, the music of
+  each chapter; options: text size, caption background and speaker names, text speed and auto-advance, camera
+  sensitivity and inversion, reduced motion (no head bob, cuts instead of camera moves), colour filter, key and button
+  rebinding, glyphs per device, the menus read aloud (`ui.speak`).
+- **P7 shipping (M)**: the icon, key art and store capsules, store texts and age-rating answers, store screenshots and a
+  trailer built from the game's own cut-scenes, the Mac App Store `.pkg` (sandboxed, signed ad hoc and run on this Mac),
+  the MSIX, the iPad build (run on the iOS Simulator at the iPad sizes), the Linux build for the Steam Deck and Valve's
+  Deck checklist, render and perf budgets on the busiest room at the iPad and Deck resolutions, `SHIPPING.md`.
+- **P8 languages (M)**: Spanish, German, Korean (a Noto Sans KR subset) and Hebrew (right to left, the menus mirrored
+  where the layout asks for it), the dialogue, notebook, captions and store texts, every screen at 100 % and 200 % text.
+
+Acceptance criteria:
+- ctest (`example_larkspur-lodge_*`) runs the story bot to each of the three endings and pins each state's hash; the
+  dialogue validation runs on every table and fails on a broken one in a test fixture.
+- Mouse-only, gamepad-only and touch-only tests walk the porter, talk, use an item and save; a test skips a cut-scene.
+- A v1 save fixture loads in the v2 game; a save in each slot round-trips, its picture included.
+- The macOS app starts sandboxed on this Mac and saves into its container; the iPad build runs on the iOS Simulator; the
+  MSIX and the Linux build are made (not run here).
+- The busiest room stays under its draw-call and frame budgets in a headless run at 1280x800 and at the iPad's size.
+- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
+  next milestone.
+
+How it went (merged into `m32/reference-game`, P1-P8, the last at `8fe80b55`): P1 built the lodge from Kenney's and
+Quaternius's CC0 kits, the porter, the camera, the three ways to move and the contracts; P2 the dialogue tables, their
+validation as a project tool, the dialogue view and the story bot (one pinned hash per ending); P3 the inventory, the 3D
+item view (a second camera over a stage, seen through a hole in the page), the notebook, the deduction board with undo and
+the four puzzles; P4 the cut-scenes as JSON data and their player, with captions on the step's seconds (no voice provider
+here, so no clips: LL/FB-0601); P5 five slots on top of `storage` with pictures, autosave, v1 and v2 formats with the
+migration and their fixtures, cloud copies, chapter select, achievements and stats; P6 synthesised ambience and music,
+footsteps per floor, the tabbed options (text size and speed, captions, camera, reduced motion, colour filter,
+rebinding) and glyphs per device; P7 the store art, texts and age-rating answers, the 25 s trailer from the intro
+cut-scene, the sandboxed `.pkg` (run on this Mac), the MSIX and the Linux build (made, not run), the iPad build on the
+iOS Simulator, the budgets at the Deck's and the iPad's sizes (`store/check_budgets.py`) and `SHIPPING.md`; P8 Spanish,
+German, Korean (a Noto Sans KR subset) and Hebrew (right to left, mirrored by the game's own `kit.mx`), the dialogue
+check for missing translations, a layout test per language at 100 % and 200 % text, and the store texts in each
+language. `factoria test` runs 340 tests; ctest runs the game as `example_larkspur-lodge_*` (validate, test, perf).
+
+It reported 36 entries (2 major, 25 minor, 9 nice-to-have, no blocker): a crash for a widget under a plain entity, a
+glyph atlas that clears and leaves texts blank, and gaps in text (typewriter reveal, Korean line breaking, right to
+left), the UI (a 3D view widget, input routing between the UI and the game), physics queries, the test harness, the
+menu kit (slots, text speed), audio assets and the shipping checks. Their triage is M33 (ROADMAP.md).
+
+Acceptance (checked 2026-10-27): met for the story bot and the dialogue validation, the save fixtures and slots, and the
+feedback; partly met for the device tests (per feature, no end-to-end test per device), the stores (the sandboxed app
+started and made its container, but no save was made in it; the iPad build ran the title screen only; the MSIX and the
+Linux build were made) and the budgets (the 1280x800 and iPad draw calls are checked by a script outside ctest). The
+details are in ROADMAP.md, M32, "Left open".
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

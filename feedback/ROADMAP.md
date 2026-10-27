@@ -33,16 +33,41 @@ triaged 2026-10-26: five need docs only or are already supported, and the open o
 open (TM/FB-0003, the optional undo helper; TM/FB-0051, the Windows and Linux players of a development build; TM/FB-0055,
 a Timeline component for trailers), ranked below; the game dropped the workarounds that no longer had a reason (M31,
 "Left open", lists what it keeps and what each package left).
-M32, a fifth reference game (a 3D narrative adventure for the Mac App Store, the Microsoft Store, the iPad and the Steam
-Deck), is in progress: it is how dialogue, cut-scenes, the engine's save slots and the closed stores get ranked.
+M32, the fifth reference game (Larkspur Lodge: a 3D narrative adventure for the Mac App Store, the Microsoft Store, the
+iPad and the Steam Deck, 2026-10-27), reported 36 entries (2 major, 25 minor, 9 nice-to-have, no blocker), triaged
+2026-10-27: one is already documented (LL/FB-0010), one is a duplicate of TM/FB-0051 (LL/FB-0804), two are half
+supported already, and the 34 open ones became the 15 packages of M33 (planned). Three of its acceptance criteria are
+only partly met (M32, "Left open").
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade examples/tidewater-market examples/larkspur-lodge --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-3 entries from 8 project(s), 3 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+37 entries from 9 project(s), 37 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-## 1. No way to get players for a development build
+## 1. Crash when a widget has a parent without a UI component
+
+- **Category:** ui
+- **Severity:** major (score 8)
+- **Total occurrences:** 2
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0001
+- **Suggestion:** In update_drag skip an ancestor for which ui_box is null (or stop the walk at the first non-widget), and add a test with a widget under a plain entity. Also worth a validate warning for a widget under a non-widget parent if that layout is not meant to be supported.
+- **Workarounds seen:**
+  - The HUD prefab root (prefabs/ui/hud.prefab.json) carries a fully transparent 1x1 Panel with layout none, which is a widget and is never hit, so every widget below it has only widget ancestors.
+
+## 2. A Button's key field is a locale key, not a hotkey
+
+- **Category:** docs
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0006
+- **Suggestion:** Say it in the ui doc next to the Button fields (and in the field's doc string), or rename the field in a future format version.
+- **Workarounds seen:**
+  - Choices answer to the input actions choice_1..choice_4 declared in factoria.json, read in scripts/dialogue_view.js with input.pressed.
+
+## 3. No way to get players for a development build
 
 - **Category:** platform
 - **Severity:** major (score 4)
@@ -53,7 +78,282 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused. Later the orchestrator built the web player with the emsdk in ~/emsdk (Emscripten 6.0.10, the CI version); Windows and Linux are still refused.
 
-## 2. A trailer needs a custom director script and a long recording
+## 4. The glyph atlas clears when it is full and unchanged texts stay blank
+
+- **Category:** ui
+- **Severity:** major (score 4)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0901
+- **Suggestion:** After clearing the atlas, mark every Text dirty so it is laid out again; or grow the atlas to 4096 when a second page is needed.
+- **Workarounds seen:**
+  - tests/lang_<tag>.test.js, one file per language (each test file has its own engine and atlas), so a walk never fills it.
+
+## 5. --record-video holds every frame in memory (4.4 GB for 25 s at 1080p)
+
+- **Category:** performance
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0802
+- **Suggestion:** Stream the frames to the encoder as they are drawn instead of keeping them, or give the memory per second of video in docs/CLI.md.
+- **Workarounds seen:**
+  - The trailer is only the 25 s intro cut-scene (assets/src/make_store.py trailer); a longer cut would have to be recorded in pieces and joined with ffmpeg.
+
+## 6. A 16:9 design on a 4:3 iPad is letterboxed, and simctl cannot rotate or tap
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0803
+- **Suggestion:** A scale mode that shows more world on 4:3 screens (the HUD anchored to the screen edges), and a way to send touches to the simulator or to play a replay on iOS.
+- **Workarounds seen:**
+  - The iPad run is the title screen only (looked at; the PNG is a build output, not committed); the iPad App Store capsules come from the 16:9 key art with assets.draw_capsules. Playing it on an iPad is in the by-hand list.
+
+## 7. A TextField and the pause action share Escape and P: the game must route them by hand
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0503
+- **Suggestion:** input.pressed('pause') could be false while a TextField has the focus (text input mode), and MenuStack.busy should reset on scene.load.
+- **Workarounds seen:**
+  - pause_menu.js ignores the pause key while MenuStack.busy, routes ui_cancel to SlotScreen.cancel() first (it closes the dialog, and the on-screen keyboard's own close is told apart by the state at the start of the frame), and SlotScreen resets busy when it is built.
+
+## 8. A destroyed entity is still found until the end of the frame
+
+- **Category:** docs
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0015
+- **Suggestion:** Document it on Entity.destroy and let world.find skip entities that are being destroyed.
+- **Workarounds seen:**
+  - Every build of the screen uses a serial id prefix (scr<N>_); click handlers are keyed by the name without the prefix.
+
+## 9. A greyed-out Button cannot take ui.focus
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0017
+- **Suggestion:** Make ui.focus return false on a disabled widget instead of throwing, or document it.
+- **Workarounds seen:**
+  - build() checks interactable and falls back to the first enabled button.
+
+## 10. A test cannot run project or engine commands such as ui.check_layout
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0702
+- **Suggestion:** Expose game.call(command, args) in factoria:test, and let ui.check_layout take a script to open panels before measuring.
+- **Workarounds seen:**
+  - tests/options.test.js opens each options tab and walks its widgets with ui.overflowed(entity) at ui.textScale 1 and 2; menu and ground were checked with the CLI command by hand.
+
+## 11. Collider3D has no enabled field
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0003
+- **Suggestion:** Collider3D.enabled (and Collider2D.enabled), writable at run time, kept out of the NavMesh bake when false; or a documented way to move a collider to a layer that nothing hits.
+- **Workarounds seen:**
+  - scripts/interactable.js removes the component with entity.remove('Collider3D') when the door opens, and a scene that loads with the flag already set does the same. The collider is gone for good, so closing it again would have to add it back.
+
+## 12. Escape is both ui_cancel and pause
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0008
+- **Suggestion:** input.consume(action) or an event that tells the other readers that ui_cancel handled the press, or document in the menus doc that a cancel handler must set MenuStack.busy.
+- **Workarounds seen:**
+  - The dialogue view sets MenuStack.busy while its log is open and for two frames after it closes, which makes the kit's pause menu wait. This works only because the kit exposes MenuStack.busy.
+
+## 13. Korean text wraps between any two syllables (no word-keeping line breaking)
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0902
+- **Suggestion:** A Text.wordBreak option (normal | keepAll) or break Hangul only at spaces by default.
+- **Workarounds seen:**
+  - The dialogue box wraps by hand at spaces (scripts/dialogue_view.js), so Korean keeps its words there; other texts fit on one line or accept the engine break.
+
+## 14. No UI widget that shows a 3D view
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0013
+- **Suggestion:** A viewport widget (or Panel.camera) that draws a named camera or a render texture inside its rectangle, clipped and layered like any widget.
+- **Workarounds seen:**
+  - A second perspective Camera (viewport = the window) looks at a stage 300 m above the lodge, and the page is four opaque bands and a frame around a clear rectangle (the hole).
+
+## 15. No glob import or file listing for data files
+
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0005
+- **Suggestion:** import.meta.glob-like support for JSON data (import tables from "../data/dialogue/*.json"), or a project.list_files command a tool can call.
+- **Workarounds seen:**
+  - scripts/dialogue_data.js imports the five files and builds TABLES from them; tools/validate_dialogue.js uses that module, so the list lives in one place. tests/dialogue_data.test.js checks the tables, the story registry and the cast together.
+
+## 16. No raycast that returns every hit
+
+- **Category:** physics
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0002
+- **Suggestion:** physics.raycast3dAll(origin, dir, maxDistance, opts) returning the hits sorted by distance (with a max count), or an option on raycast3d.
+- **Workarounds seen:**
+  - scripts/lodge_camera.js and scripts/porter.js cast again from just past each hit, up to 8 times per ray, with the hit entity in the ignore list. Up to 8 queries per ray, several rays per frame, plus overlapSphere around the lens.
+
+## 17. No typewriter reveal for a Text
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0004
+- **Suggestion:** A Text.visibleCharacters field (or a 'reveal' fraction 0..1) that clips the laid-out text without re-laying it out.
+- **Workarounds seen:**
+  - scripts/dialogue_view.js sets the Text to the first n characters followed by one blank line per line break still to come, so the box height does not change while it reveals. The line is wrapped first by wrap() with ui.measureText so it never re-wraps while it grows, and in a headless run ui.measureText only approximates the real width, so the break positions are checked in screenshots.
+
+## 18. No way to get or make ambience and music clips from inside the project
+
+- **Category:** assets
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0701
+- **Suggestion:** A command that generates simple loops (noise beds, drones) or searches CC0 sound packs, and one that converts WAV to OGG.
+- **Workarounds seen:**
+  - assets/src/make_sound.py synthesises seamless loops in pure Python (seeded) and writes WAVs recorded as origin 'original' in assets.json. Footsteps are the Kenney CC0 imports.
+
+## 19. No way to type Hangul on the on-screen keyboard
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0905
+- **Suggestion:** An IME hook for the on-screen keyboard (a composition callback per language), or a platform text-input request that opens the system keyboard on pad platforms.
+- **Workarounds seen:**
+  - scripts/ui/keyboard.js gives Hebrew its own letters and leaves Korean on the Latin keys; a Korean player with a pad names a save in Latin letters, and a keyboard player uses the system input method.
+
+## 20. Right-to-left mirrors text and Panel rows only: anchors, pivots, Toggle boxes and Sliders stay left-to-right
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0903
+- **Suggestion:** A Panel.mirrorRtl (or a global ui.mirrorRtl) that flips anchor.x, pivot.x and the Toggle / Slider direction when the language is right-to-left.
+- **Workarounds seen:**
+  - scripts/ui/kit.js mirrors the x of every widget it places (kit.mx) when i18n.direction is rtl, and the 3D item view hole is mirrored in screens.js.
+
+## 21. Screen anchor goes down but a widget pivot goes up
+
+- **Category:** docs
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0007
+- **Suggestion:** One sentence and a small picture in the ui doc, and a validate warning when a screen widget lies completely outside the design size.
+- **Workarounds seen:**
+  - The dialogue and ending prefabs use pivot values found by looking at screenshots (prefabs/ui/dialogue.prefab.json).
+
+## 22. Store answers arrive on the next frames, not at once: nothing says so for a request made inside a frame
+
+- **Category:** docs
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0504
+- **Suggestion:** State in docs/PLATFORM.md when a request is answered (same call vs. next frame) and that fake.achievements only has the ids that were touched.
+- **Workarounds seen:**
+  - tests/saves.test.js settle() awaits microtasks, steps two frames and awaits again.
+
+## 23. Text takes its base direction from the first strong character, so a line that starts with a Latin key is laid out left-to-right
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0904
+- **Suggestion:** Text.direction (auto | ltr | rtl), defaulting to the language's direction for a Text that has a localization key.
+- **Workarounds seen:**
+  - The Hebrew strings that start with a key or a placeholder begin with U+200F (right-to-left mark): locales/he.json hintItems, hintJournal, hintPuzzle, prompt.format and cutscene.hint.
+
+## 24. The exported player cannot be driven or made to save in a sandbox check
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0801
+- **Suggestion:** Accept --persist-storage (as factoria run does) on the exported player, so an --input replay that presses Play and saves leaves a real file in the container.
+- **Workarounds seen:**
+  - The sandboxed player was started and run (the container was created, log.txt, the replay, a state dump and a screenshot were written into it) but no save file could be produced; the click is in the by-hand list of SHIPPING.md.
+
+## 25. The fake store's stats.add is not atomic: two calls in one frame count once
+
+- **Category:** platform
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0502
+- **Suggestion:** Make the fake apply add() on the stored value when the request is served, or document that stats.add calls must be awaited one after another.
+- **Workarounds seen:**
+  - tests/saves.test.js lets the first answer through (settle()) before the second save. The game itself makes at most one add per player action, so nothing else changed.
+
+## 26. The mouse wheel never reaches a script while a modal Panel is up
+
+- **Category:** ui
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0012
+- **Suggestion:** A Panel option (for example wheelPassThrough) or a rectangle in which a modal leaves the wheel to the game.
+- **Workarounds seen:**
+  - Zoom is on + and - buttons in the corner of the view, R / V, the gamepad triggers and a pinch; the wheel code was removed.
+
+## 27. assets.generate_voice has no provider in this setup
+
+- **Category:** audio
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0601
+- **Suggestion:** Say in the assets.generate_voice error which provider keys are needed, and document how to test voice-dependent code without a provider.
+- **Workarounds seen:**
+  - The 24 lines are listed in data/cutscenes/voice_script.json (text, speaker, step); data/cutscenes/voice.json has an empty clips map and the captions run on the step's seconds. When a clip is added to voice.json the caption lasts as long as the clip, the voiceover bus ducks the music and the validator checks the file and its length. Tests use tests/fixtures/test_voice.wav.
+
+## 28. game.tap(action) does not press a focused Button
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0009
+- **Suggestion:** Say in the testing doc which one drives the UI focus (the physical key or pad button), or let game.tap(action) go through the same path.
+- **Workarounds seen:**
+  - The tests use game.tapKey('Space') or a pad button (tests/dialogue_ui.test.js, complete()).
+
+## 29. A trailer needs a custom director script and a long recording
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -64,7 +364,51 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - store/trailer/trailer.js and make_trailer.py.
 
-## 3. No undo/redo or data-table validation helpers for game state
+## 30. Camera viewport fractions are not documented as fractions of the window
+
+- **Category:** docs
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0014
+- **Suggestion:** Say in the Camera.viewport doc which rectangle the fractions count, and offer a mode that follows the UI design area.
+- **Workarounds seen:**
+  - The game is designed and tested at 16:9 only.
+
+## 31. Lights of a scene overexpose objects on a stage far from it
+
+- **Category:** rendering-3d
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0016
+- **Suggestion:** An option on Camera or MeshRenderer to ignore the scene ambient (a studio lighting preset for product views).
+- **Workarounds seen:**
+  - The two lights are weak, the camera sits further back and the part colours are multiplied by 0.45.
+
+## 32. Music started with persist: true survives game.resetState between tests
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0704
+- **Suggestion:** game.resetState() should stop the music and the voices, or the docs say it does not.
+- **Workarounds seen:**
+  - tests/sound.test.js calls audio.stopMusic() and clears session.musicTrack before each new game.
+
+## 33. No save-slot helper: slots are written by hand on top of storage
+
+- **Category:** other
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0501
+- **Suggestion:** A slots module in the menu kit (project.add_menu_kit part 'slots') with the record, the cloud merge by counter and a slot screen prefab, like the keyboard part.
+- **Workarounds seen:**
+  - scripts/saves.js writes each slot as one JSON text under slotN / slot_auto with a counter, name, chapter, play time and base64 picture, and scripts/ui/slot_screen.js draws them.
+
+## 34. No undo/redo or data-table validation helpers for game state
 
 - **Category:** scripting
 - **Severity:** nice-to-have (score 1)
@@ -74,6 +418,40 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Suggestion:** Document a recipe for validating data tables in a project tool (file, pointer, hint, did-you-mean), and offer a did-you-mean helper to scripts so each game does not write its own; optionally a small history helper.
 - **Workarounds seen:**
   - scripts/game/state.js (transactions with exact deltas, undo and redo refuse and emit action.rejected), scripts/game/data.js (validateTables with file, JSON pointer, hint and didYouMean) and the project tool project.validate_data.
+
+## 35. The menu kit options have no row for dialogue text speed
+
+- **Category:** ui
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0011
+- **Suggestion:** A project.add_menu_kit option (for example 'textSpeed': true) that adds the row, or a documented way to add a game row to the options menu.
+- **Workarounds seen:**
+  - Added a text_speed Button to the audio section of prefabs/ui/options.prefab.json, a TEXT_SPEEDS list in scripts/settings.js and the cycling code in scripts/ui/options.js. The audio panel is taller for it.
+
+## 36. Warning 'Panel is larger than the screen' for a fit Panel inside a ScrollList
+
+- **Category:** ui
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0703
+- **Suggestion:** Do not warn for a Panel whose ancestor is a ScrollList.
+- **Workarounds seen:**
+  - None: the warning is harmless here, the list scrolls; tests print it.
+
+## 37. scene.current cannot tell a reload of the same scene from the scene itself
+
+- **Category:** scripting
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Larkspur Lodge
+- **Entries:** Larkspur Lodge/FB-0602
+- **Suggestion:** Expose a scene load counter (scene.generation) that changes on every load, or make handles of a previous load compare unequal.
+- **Workarounds seen:**
+  - scripts/cutscene.js also checks that the porter entity it holds is still alive (run.porter.alive) and drops its run otherwise.
+
 
 # Next engine milestones
 
@@ -1034,98 +1412,198 @@ need real stores, devices and operating systems (M8, M9, M12, the lists above) n
 The three Tidewater Market entries still open (TM/FB-0003, 0051, 0055) are in the ranked list above. M32 below is a
 fifth reference game that asks for some of them.
 
-## M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck (L, high) — in progress (the `m32/reference-game` branch)
+## M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck (L, high) — DONE (the `m32/reference-game` branch)
 
-Planned 2026-10-27 against `0dac04e4` (`m31/integrated`, the top of the unpushed M29-M31 stack: GitHub is still
-suspended, so the branch starts there). Three Tidewater Market entries are open (TM/FB-0003, 0051, 0055), no other game
-has one. Lantern Keep is a 2D platformer, Clockwork Courier a 3D phone game, Burrow Brigade a 2D couch co-op game for
-pads and Tidewater Market a 2D management game for the mouse: none is 3D on a desktop or a tablet, none tells a story
-through branching dialogue and cut-scenes, none uses the engine's own save slots (M19: every game wrote its own), none
-ships to the Mac App Store or the Microsoft Store that M23 built, none is played on an iPad or a Steam Deck first, and
-none is translated into Hebrew (right to left in a text-heavy game), Korean or German (long lines). **Larkspur Lodge**
-(`examples/larkspur-lodge`, ids `LL/FB-n`) is that game: a short mystery in third person. The player is the new night
-porter of a mountain lodge cut off by snow; a guest has vanished, and over one night in five chapters the porter walks
-the lodge's rooms, talks to the six other guests and staff, picks up and combines items, inspects them in 3D, fills a
-notebook of clues and links them into deductions. Choices in dialogue change what the others say and which of three
-endings the night reaches. A playthrough lasts 60 to 90 minutes; the player saves anywhere in five slots, and the game
-autosaves at each chapter. Played with a mouse and keyboard (click to walk or WASD), a gamepad (direct control) or touch
-(tap to walk), and switches its prompts and glyphs to the device used last. Targets: the Mac App Store (macOS, sandboxed),
-the Microsoft Store (MSIX), the iPad (touch, and a trackpad or keyboard when attached) and the Steam Deck (Linux, a
-gamepad, 1280x800).
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M32. Larkspur Lodge (`examples/larkspur-lodge`) is a 3D mystery in third
+person on one snowed-in night in a mountain lodge: branching dialogue, data-driven cut-scenes, an inventory with a 3D item
+view, a notebook and a deduction board, four puzzles, three endings, five save slots with a v1-to-v2 migration, five
+languages (English, Spanish, German, Korean, Hebrew), for the Mac App Store, the Microsoft Store, the iPad and the Steam
+Deck. It was built in eight packages by game-maker AIs with no engine change; `factoria test` runs 340 tests.
 
-Built like the other four: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public
-commands, no engine change. The game asks on purpose for what the engine may not have; each gap gets its workaround and
-an `ENGINE_FEEDBACK.json` entry, and those entries rank what comes next:
-- a third-person camera on a `CharacterController3D`: following, orbit on the right stick or mouse, collision with walls,
-  walls and furniture that fade when they hide the porter, click and tap to walk on the navmesh;
-- interaction: highlighting what can be used, prompts that show the key, button or touch of the device used last,
-  doors between rooms loaded with `scene.preload`;
-- branching dialogue: a data format for lines, choices, conditions on story flags and their effects, line ids that
-  localize, speaker names, text speed and skip, a backlog of past lines, validated (dangling ids, unreachable nodes,
-  missing translations) with teaching errors;
-- cut-scenes: camera keys, characters walking and playing `Animator` states, captions, fades and text cards, skippable,
-  driven by data rather than by a script per scene (the rest of TM/FB-0055);
-- an inventory whose items combine, and a 3D view of an item the player turns in the UI;
-- a notebook of clues in rich text and a board where the player links clues into deductions;
-- voice: English voice lines for the cut-scenes from `assets.generate_voice`, captions in time with them, ducking under
-  speech, reverb per room (M29's bus effects);
-- the engine's save slots (M19): five slots with a name, play time, chapter and a picture (M31.24), autosave, a versioned
-  format with a migration (the game changes it during the milestone), the sandbox container on the Mac App Store, cloud
-  saves, and undo of a deduction (the optional half of TM/FB-0003);
-- night interiors: many small lights, shadows, and the render and CPU budgets of the iPad and the Steam Deck;
-- the iPad: the screen sizes of Split View and Stage Manager, the safe areas, the pointer of a trackpad, the keyboard;
-- the Steam Deck: text readable at 1280x800 (Valve's minimum size), gamepad glyphs, the on-screen keyboard to name a
-  save slot, suspend and resume;
-- the closed stores: the Mac App Store's sandboxed `.pkg`, the MSIX, the age-rating questionnaires (IARC) and what each
-  store's page asks;
-- English, Spanish, German, Korean and Hebrew: a Noto Sans KR subset, right-to-left dialogue and notebook with names and
-  numbers inside, long German lines, every screen at 100 % and 200 % text; voice stays English with captions in every
-  language.
+Acceptance, checked 2026-10-27 against `8fe80b55`:
+- Met: the story bot reaches each of the three endings and pins each state's hash (`tests/story_bot.test.js`); the
+  dialogue validation runs on every table and fails on the broken fixture (`tests/dialogue_data.test.js`).
+- Met: a v1 save fixture loads in the v2 game and a save in each slot round-trips with its picture (`tests/saves.test.js`).
+- Met: every gap met is an `ENGINE_FEEDBACK.json` entry (36), and `feedback collect` includes the game.
+- Partly: each device has its own tests per feature (walking by mouse, pad and tap in `movement.test.js`, talking with a
+  pad in `dialogue_ui.test.js`, saving with a pad and with touch in `saves.test.js`, the screens with a pad), and
+  `cutscene.test.js` skips a cut-scene; but no single mouse-only, gamepad-only or touch-only test walks, talks, uses an
+  item and saves in one run.
+- Partly: the sandboxed `.pkg` started on this Mac and created its container
+  (`~/Library/Containers/com.oxtailgames.larkspurlodge/`), but no save could be made in it (the exported player cannot
+  be driven to save, LL/FB-0801; a manual step in the game's `SHIPPING.md`); the iPad build ran on the iOS Simulator, the
+  title screen only (LL/FB-0803); the MSIX (18 MB) and the Linux build (23 MB) were made with `--allow-player-mismatch`
+  and not run.
+- Partly: the busiest room stays under its budgets headless: draw calls at 1280x800 (223) and at the iPad's sizes (214 at
+  1180x820, 213 at 2732x2048) are checked by the game's `store/check_budgets.py`, which ctest does not run; the frame
+  time is measured by the perf ctest at the design size only.
 
-Assets are CC0 only, imported with `assets.import` and recorded in `assets.json` (furniture and interiors, rigged and
-animated characters, UI and sounds from Kenney's and Quaternius's packs; P1 chooses them); voice lines are generated and
-recorded with their provenance.
+Left open:
+- Its 36 entries (2 major, 25 minor, 9 nice-to-have, no blocker) were triaged 2026-10-27 and became M33 below.
+- The acceptance gaps above: one end-to-end test per device, a save made inside the sandbox container (LL/FB-0801), the
+  iPad played beyond the title screen (LL/FB-0803), the 1280x800 and iPad budgets in ctest.
+- In the game: no voice clips (no voice provider here, LL/FB-0601: the captions run on the step's seconds); loading a
+  save made mid-chapter replays that chapter's opening cut-scene; one NPC stands in a wrong pose in the hall screenshot;
+  about 21 MB of PNG and WAV sit in the example (store art and the synthesised loops); the Spanish, German, Korean and
+  Hebrew texts are machine-made and need a native review before a release.
+- TM/FB-0055: the game built its cut-scenes as JSON data played by a script (`scripts/cutscene.js`), so a Timeline
+  component is still not asked for by a game; TM/FB-0003: the deduction board built its own undo, which a helper would
+  not have shortened much.
 
-Packages, in this order: P1, P2, then P3-P5 at once, then P6, then P7 and P8 at once.
-- **P1 the lodge, the porter and the camera (L)**: the lodge's rooms (hall, dining room, kitchen, library, corridors and
-  four guest rooms, the cellar) from the CC0 kits, lit for the night; the porter on a `CharacterController3D` with its
-  `Animator`; the third-person camera; the three ways to move (WASD, click or tap to walk on the navmesh, the gamepad);
-  interaction and its prompts per device; doors between rooms; the title screen and the flow (title, game, pause); a
-  test room; and the contracts the other packages build on (story flags and their events, the interaction API, the item
-  catalogue, the dialogue runner's API, the cut-scene player's API, the save data).
-- **P2 dialogue and the story (L)**: the dialogue format in JSON tables and its validation as a project tool, the
-  dialogue UI (speaker, text speed, skip, choices, backlog), the six characters and their schedules through the night,
-  the five chapters and three endings, and a bot that plays the whole story through a fixed path of choices with the
-  same state hash every run (one per ending).
-- **P3 items, clues and puzzles (M)**: the inventory and combining, the 3D item view, the notebook in rich text, the
-  deduction board with undo, and four puzzles (a lock, a timetable, a torn letter, the cellar's fuse box).
-- **P4 cut-scenes and voice (M)**: the cut-scene data (camera keys, actors' moves and animations, captions, fades, text
-  cards) and its player, skipping, the cut-scenes of the five chapters and the three endings, the voice lines with
-  captions in time, ducking, reverb per room.
-- **P5 saves and progress (M)**: five save slots with name, play time, chapter and picture, autosave at each chapter,
-  save anywhere outside cut-scenes, a versioned format (v1 first, then v2 with the migration of v1 saves, fixtures of both
-  in the tests), cloud saves, chapter select after the first ending, achievements and stats on the fake store.
-- **P6 sound, options and accessibility (M)**: ambience per room (wind, fire, clocks), footsteps per floor, the music of
-  each chapter; options: text size, caption background and speaker names, text speed and auto-advance, camera
-  sensitivity and inversion, reduced motion (no head bob, cuts instead of camera moves), colour filter, key and button
-  rebinding, glyphs per device, the menus read aloud (`ui.speak`).
-- **P7 shipping (M)**: the icon, key art and store capsules, store texts and age-rating answers, store screenshots and a
-  trailer built from the game's own cut-scenes, the Mac App Store `.pkg` (sandboxed, signed ad hoc and run on this Mac),
-  the MSIX, the iPad build (run on the iOS Simulator at the iPad sizes), the Linux build for the Steam Deck and Valve's
-  Deck checklist, render and perf budgets on the busiest room at the iPad and Deck resolutions, `SHIPPING.md`.
-- **P8 languages (M)**: Spanish, German, Korean (a Noto Sans KR subset) and Hebrew (right to left, the menus mirrored
-  where the layout asks for it), the dialogue, notebook, captions and store texts, every screen at 100 % and 200 % text.
+Next: M33.
 
-Acceptance criteria:
-- ctest (`example_larkspur-lodge_*`) runs the story bot to each of the three endings and pins each state's hash; the
-  dialogue validation runs on every table and fails on a broken one in a test fixture.
-- Mouse-only, gamepad-only and touch-only tests walk the porter, talk, use an item and save; a test skips a cut-scene.
-- A v1 save fixture loads in the v2 game; a save in each slot round-trips, its picture included.
-- The macOS app starts sandboxed on this Mac and saves into its container; the iPad build runs on the iOS Simulator; the
-  MSIX and the Linux build are made (not run here).
-- The busiest room stays under its draw-call and frame budgets in a headless run at 1280x800 and at the iPad's size.
-- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
-  next milestone.
+## M33. Found by the fifth reference game (S-L each, high; 36 Larkspur Lodge entries) — planned
+
+Planned 2026-10-27 against `8fe80b55` (the top of `m32/reference-game`, itself on the unpushed M29-M31 stack), from the
+triage of Larkspur Lodge's 36 entries (`LL/FB-n`): 2 major, 25 minor, 9 nice-to-have, no blocker.
+- Already supported, docs only: LL/FB-0010 (`world.emit` reaches its listeners at the next `game.step`: SCRIPTING.md,
+  "Timing in a test", says so; the entry is closed with that note); LL/FB-0702's first half (a test calls any command with
+  `fa.call`, SCRIPTING.md; its second half, `ui.check_layout` with panels open, is the rest of TM/FB-0063, M33.8);
+  LL/FB-0803's first half (`display.scaleMode: "expand"` shows more world on a 4:3 screen; the game used `fit`, so the
+  iPad and MOBILE.md docs say to pick `expand` for a tablet, M33.15).
+- Duplicate: LL/FB-0804 is TM/FB-0051 (the players carry their fingerprint since BB/FB-0032; what is missing are Windows
+  and Linux players of a development build), ranked with it.
+- The other 34 are open (two of them half supported already) and become the 15 packages below, ranked by points (occurrences x severity weight) and size.
+
+Each package ships with its doctest or JS test, its docs and the `"unreleased"` rows in `tools/common/api_since.json` for
+the API it adds. When one merges, its entries get a `Fixed in <commit>` note in the bookkeeping branch at the end, and
+Larkspur Lodge drops the workaround it no longer needs (its transparent HUD root Panel, the re-cast loops of its camera
+and porter, the collider it removes for good, its typewriter padding, its hand-written Korean wrapping and `kit.mx`
+mirroring, the U+200F marks in `he.json`, its four-band "hole" for the item view, its `MenuStack.busy` routing, its
+serial id prefixes, its own text-speed row and slot code).
+Order of work: three builds at once at most, a rolling pool. First M33.1, M33.2 and M33.7; then M33.3, M33.4 (after
+M33.3: both change Text layout), M33.6; then the rest in order. M33.5 waits for M33.1 (both touch the UI tree walk).
+
+### M33.1 Widgets under a plain entity, and focus on a disabled widget (S) — LL/FB-0001 (major), 0017, 0703
+
+- `update_drag` (`engine/ui/src/drag.cpp`) walks the parents with `ui_box(w, a)->draggable` and crashes on an ancestor
+  that is not a widget: skip such ancestors, and check every other walk up the UI tree (hit test, scroll, modal, focus,
+  tooltip) for the same assumption.
+- `ui.focus(entity)` on a disabled (`interactable: false`) widget returns false instead of throwing; documented.
+- The "Panel is larger than the screen" warning skips a Panel inside a `ScrollList`.
+- Acceptance: ui doctests with a Button under a plain entity (click, drag, focus, hit test do not crash); a JS test that
+  focuses a disabled Button; no warning for a fit Panel in a ScrollList. Larkspur's transparent HUD root Panel goes.
+
+### M33.2 A glyph atlas that refills its texts (M) — LL/FB-0901 (major)
+
+- When the glyph atlas is full and clears, every `Text` is marked dirty and laid out again, so no text stays blank; or
+  the atlas grows to a 4096 page before it clears. A log line says when it clears or grows.
+- Acceptance: a doctest fills the atlas with several scripts' glyphs (Latin, Hangul, Hebrew) and checks that a text set
+  before the clear still draws its glyphs; Larkspur's walk of every screen in every language runs in one test file.
+
+### M33.3 A typewriter reveal and keep-all line breaking (M) — LL/FB-0004, 0902
+
+- `Text.visibleCharacters` (-1 for all) clips the laid-out text without laying it out again, so a box keeps its size
+  while a line reveals; counted in grapheme clusters, right to left for a right-to-left line.
+- `Text.wordBreak`: `normal` or `keepAll` (Hangul, and CJK when asked, break at spaces only); `keepAll` is the default
+  for Korean.
+- Acceptance: text doctests for the reveal (size unchanged, glyph count) and for Korean breaking at spaces; Larkspur's
+  dialogue box drops its padding and its hand-written wrapping.
+
+### M33.4 Right to left: mirrored layouts and a Text's direction (M, after M33.3) — LL/FB-0903, 0904
+
+- `ui.mirrorRtl` (project and run time, on by default when `i18n.direction` is `rtl`): anchor.x, pivot.x and position.x
+  flip, and Toggle boxes and Sliders run right to left; a widget opts out with `mirror: false` (a map, a 3D view).
+- `Text.direction`: `auto` (first strong character, today's behaviour), `ltr` or `rtl`; a Text with a localization key
+  takes the language's direction by default.
+- Acceptance: ui doctests of a mirrored screen (positions, Slider value from a click, Toggle box side); a Hebrew line
+  that starts with a key lays out right to left without U+200F. Larkspur drops `kit.mx` and the marks in `he.json`.
+
+### M33.5 A 3D view inside the UI, with studio lighting (L, after M33.1) — LL/FB-0013, 0016, 0014
+
+- A viewport widget (or `Panel.camera`) that draws a named camera, or a render texture, inside its rectangle, clipped,
+  layered and mirrored like any widget, with pointer events for turning what it shows.
+- Studio lighting for such a view: a Camera option to ignore the scene's ambient and lights and use its own (a preset
+  key, fill and rim), so an item on a stage is lit the same wherever the stage is.
+- Camera.viewport: the docs say which rectangle the fractions count (the window), and a mode that follows the UI design
+  area (LL/FB-0014).
+- Acceptance: render tests of a widget showing a turning mesh (clipped by a ScrollList, under a modal Panel), of the
+  studio preset next to a bright scene; Larkspur's item view drops its four bands and its 0.45 colour factor.
+
+### M33.6 Input routing: a consumed action, text input mode and the wheel under a modal (M) — LL/FB-0008, 0503, 0012
+
+- `input.consume(action)`: later readers in the same frame see the action as not pressed; the UI consumes `ui_cancel`
+  and `ui_submit` when a widget handles them, so a pause handler does not also fire.
+- Text input mode: while a TextField (or the on-screen keyboard) has the focus, game actions bound to printable keys
+  read as not pressed; `MenuStack.busy` resets on `scene.load`.
+- `Panel.wheelPassThrough` (or a rectangle) leaves the wheel to scripts under a modal Panel.
+- Acceptance: JS tests: Escape closes a dialog without opening pause; P typed in a TextField does not pause; the wheel
+  reaches a script under a pass-through modal. Larkspur's `MenuStack.busy` routing goes.
+
+### M33.7 Physics: every hit of a ray and colliders turned off (M) — LL/FB-0002, 0003
+
+- `physics.raycast3dAll(origin, dir, maxDistance, opts)` (and `raycast2dAll`) returns every hit sorted by distance, up
+  to `maxHits`.
+- `Collider3D.enabled` and `Collider2D.enabled`, writable at run time; a disabled collider is skipped by queries and
+  contacts and kept out of the NavMesh bake.
+- Acceptance: physics doctests (hits in order, `maxHits`, a disabled collider let through and back); Larkspur's re-cast
+  loops and `entity.remove('Collider3D')` go.
+
+### M33.8 Tests that drive the UI like a player (S-M) — LL/FB-0009, 0702 (second half), 0704, 0502
+
+- `game.tap(action)` goes through the UI like the key or button bound to it: `game.tap("ui_submit")` presses the
+  focused Button (today only `tapKey` and the pad do).
+- `ui.check_layout` measures the current frame, with the panels a test has opened, without reloading the scene (the
+  rest of TM/FB-0063).
+- `game.resetState()` stops the music and the voices.
+- The fake store applies `stats.add` on the stored value when it serves the request, so two adds in a frame count twice.
+- Acceptance: JS tests for each. Larkspur's `tapKey('Space')` calls, its manual layout walk and its music reset go.
+
+### M33.9 Entity and scene lifetime (S) — LL/FB-0015, 0602
+
+- `world.find` and `world.findAll` skip entities destroyed this frame; Entity.destroy says when it is removed.
+- `scene.generation`, a counter that changes on every load (a reload of the same scene too).
+- Acceptance: JS tests; Larkspur's serial id prefixes and its `porter.alive` check go.
+
+### M33.10 Listing data files (S) — LL/FB-0005
+
+- `import tables from "../data/dialogue/*.json"` (a glob import of JSON data, sorted, as an object keyed by file name)
+  or a `project.list_files` command a project tool can call; the export packs what a glob import names.
+- Acceptance: a script test that imports a glob; an export test that the files are packed.
+
+### M33.11 The menu kit: a text-speed row and save slots (M) — LL/FB-0011, 0501
+
+- The options part takes `textSpeed: true` and a documented way to add a game row to a section.
+- A `slots` part of `project.add_menu_kit`: the slot record (name, chapter, play time, picture, counter), the cloud merge
+  by counter, and a slot screen prefab with the on-screen keyboard to name a slot (M19's save slots, made from what
+  Larkspur Lodge and Tidewater Market both wrote by hand).
+- Acceptance: tooling tests of the kit parts; Larkspur moves to the kit's slots and drops `saves.js`'s record code.
+
+### M33.12 Shipping checks: a sandboxed save, long recordings and the iPad (M) — LL/FB-0801, 0802, 0803 (second half)
+
+- The exported player accepts `--persist-storage` (and `--input` replays) like `factoria run`, so a replay that presses
+  Play and saves leaves a real file in the Mac App Store container.
+- `--record-video` streams its frames to the encoder instead of keeping them in memory.
+- The iOS Simulator: `factoria run --ios-sim` (or a command) plays an `--input` replay on the simulator's player, and
+  sets its orientation.
+- Acceptance: a CLI test of `--persist-storage` on the player; a recording whose memory stays flat; the replay on the
+  simulator where Xcode is installed. Then Larkspur's sandbox save and iPad checks go into ctest.
+
+### M33.13 Audio: voice without a provider, loops and OGG (M) — LL/FB-0601, 0701
+
+- `assets.generate_voice` says which provider keys it needs, and the docs say how to test voice-dependent code without
+  a provider (a silent clip of the line's length).
+- `assets.generate_loop` (a seeded noise bed or drone, seamless) and `assets.convert_audio` (WAV to OGG); a search of
+  CC0 sound packs if a source offers an API.
+- Acceptance: tooling tests; Larkspur's `make_sound.py` goes.
+
+### M33.14 Hangul on the on-screen keyboard (M) — LL/FB-0905
+
+- An IME hook for the menu kit's on-screen keyboard (a composition callback per language), with Hangul composition
+  built in; or a platform request that opens the system keyboard on pad platforms (the Steam Deck's, M27).
+- Acceptance: a JS test that types a Korean slot name with the pad.
+
+### M33.15 Docs for what is already there (S) — LL/FB-0006, 0007, 0504, 0803 (first half)
+
+- A Button's `key` is a localization key, not a hotkey (COMPONENTS.md and the field's doc string).
+- Screen anchors count Y down and widget pivots Y up: one sentence and a picture in the ui doc, and a `validate` warning
+  for a screen widget wholly outside the design size.
+- When `platform.*` answers arrive (SCRIPTING.md says at once; Larkspur saw the next frames: find which is true and fix
+  the docs or the fake), and that `fake.achievements` lists only the ids touched.
+- `display.scaleMode: "expand"` for tablets (MOBILE.md, the iPad).
+
+Left out of M33: TM/FB-0051 with LL/FB-0804 (Windows and Linux players of a development build need CI artifacts, so a
+GitHub token), TM/FB-0055 (a Timeline component), TM/FB-0003 (an undo helper), all ranked above.
 
 ## Out of scope: Roblox
 
