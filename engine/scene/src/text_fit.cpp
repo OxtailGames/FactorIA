@@ -97,14 +97,46 @@ float ui_toggle_box_side(const Toggle& t, float height, float textScale) {
     return std::max(0.0f, std::min(height - 12.0f, std::ceil(px * 1.2f + 4.0f)));
 }
 
+UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize) {
+    UiButtonContent out;
+    out.labelPos = {r.x + (r.w - labelSize.x) * 0.5f, r.y + (r.h - labelSize.y) * 0.5f};
+    if (b.icon.empty()) return out;
+    const Vec2 is{std::max(0.0f, b.iconSize.x), std::max(0.0f, b.iconSize.y)};
+    if (b.iconPosition == ButtonIconPosition::Alone) {
+        out.icon = {r.x + (r.w - is.x) * 0.5f, r.y + (r.h - is.y) * 0.5f, is.x, is.y};
+    } else if (b.iconPosition == ButtonIconPosition::Top) {
+        const float gap = labelSize.y > 0 ? kUiButtonIconGap : 0.0f, y0 = r.y + (r.h - is.y - gap - labelSize.y) * 0.5f;
+        out.icon = {r.x + (r.w - is.x) * 0.5f, y0, is.x, is.y};
+        out.labelPos.y = y0 + is.y + gap;
+    } else {
+        const float gap = labelSize.x > 0 ? kUiButtonIconGap : 0.0f, x0 = r.x + (r.w - is.x - gap - labelSize.x) * 0.5f;
+        out.icon = {x0, r.y + (r.h - is.y) * 0.5f, is.x, is.y};
+        out.labelPos.x = x0 + is.x + gap;
+    }
+    return out;
+}
+
 std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float textScale) {
     UiLabel l;
     if (const Button* b = w.get<Button>(e)) {
+        if (!b->icon.empty() && b->iconPosition == ButtonIconPosition::Alone) return std::nullopt;  // no label is drawn
         l.text = &b->text;
         l.font = &b->font;
         l.spec = {b->fontSize, b->minFontSize, b->autoShrink, b->maxTextScale, true, b->maxWidth, 0, 0};
         l.spec.style = {b->markup, b->bold};
         l.zone = {r.x + 8, r.y + 4, std::max(1.0f, r.w - 16), std::max(1.0f, r.h - 8)};
+        if (!b->icon.empty()) {  // the icon takes its side of the zone
+            if (b->iconPosition == ButtonIconPosition::Top) {
+                const float d = std::max(0.0f, b->iconSize.y) + kUiButtonIconGap;
+                l.zone.y += d;
+                l.zone.h = std::max(1.0f, l.zone.h - d);
+            } else {
+                const float d = std::max(0.0f, b->iconSize.x) + kUiButtonIconGap;
+                l.zone.x += d;
+                l.zone.w = std::max(1.0f, l.zone.w - d);
+            }
+        }
+        l.spec.boxW = l.zone.w;
     } else if (const Toggle* t = w.get<Toggle>(e)) {
         l.text = &t->label;
         l.font = &t->font;
