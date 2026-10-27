@@ -275,6 +275,7 @@ struct UiBox {
     Color color{0.16f, 0.18f, 0.24f, 0.92f};  // background tint, multiplied with `texture`
     std::string texture;                      // optional background image, drawn 9-slice with `slice`
     Vec4 slice{0, 0, 0, 0};                   // 9-slice borders in texture pixels [left, top, right, bottom]
+    Json tooltip;                             // null = none; a locale key / text, or {title, lines, args}: shown after the pointer rests on it
 };
 
 // What Button, Toggle, Slider and TextField add to UiBox.

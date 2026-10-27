@@ -154,7 +154,7 @@
       "severity": "major",
       "title": "No tooltip: a widget cannot show a hint after the pointer rests on it",
       "missing": "A management game explains every button, number and menu item. The UI has hover state (ui.hovered) but no tooltip widget, no hover delay and no placement that keeps a popup on screen; ui.hovered is also not set for things that are not widgets (a building under the pointer on the map).",
-      "workaround": "Tooltips class in ui_kit.js: a pool of Text lines in a fitted column Panel, a rest timer, a slop in pixels, placement flipped near the screen edges, and a fallback function for what is not a widget. Every widget's hint is a function that returns the text, so it is as fresh as the numbers it names.",
+      "workaround": "Fixed in the engine (M31.13): `tooltip` on any widget or Panel, ui.setTooltip(entity, fn) for text computed when it shows, ui.setWorldTooltip(fn) for what is not a widget and ui.showTooltip(content, {x, y}); delay, slop, placement and look are the engine's (ui.tooltipDelay and the `ui` section of factoria.json). The Tooltips class and placeTooltip of ui_kit.js are deleted (about 115 lines and the ten entities of its pool); ui_hud.js registers its functions with ui.setTooltip, the top bar numbers (Text, which has no tooltip) through the bar's Panel.",
       "workaroundFiles": [
         "scripts/game/ui_kit.js",
         "scripts/game/ui_hud.js",
@@ -163,7 +163,10 @@
       "suggestion": "A Tooltip field on Panel/Button (text key or `tooltip: {title, lines}`), with `ui.tooltipDelay`, placement inside the window and a setting to turn it off for touch.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.13): tooltips exist in the engine. Text has no tooltip field and is not hit by the pointer, so the top bar texts are answered by the bar's Panel."
+      ]
     },
     {
       "id": "FB-0008",

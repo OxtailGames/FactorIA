@@ -355,9 +355,9 @@ export default class GameController extends Behaviour {
     return this.hud.escape();
   }
 
-  /** The pause menu opens (scripts/pause_menu.js): this script stops updating, so put away the tooltip it would leave drawn. */
+  /** The pause menu opens (scripts/pause_menu.js): this script stops updating, so silence the tooltips (the engine would go on asking this script for them). */
   onPauseMenu() {
-    this.hud.tooltips.hide();
+    this.hud.pause();
   }
 
   undo() {

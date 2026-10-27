@@ -348,6 +348,25 @@ void visit(Frame& f, const World& world, Entity e) {
     for (Entity child : world.children(e)) visit(f, world, child);
 }
 
+// The tooltip on screen (World::ui_tooltip(), fa_ui decides what shows): a background and its lines, above the widgets.
+void draw_tooltip(Frame& f, const World& world) {
+    const UiTooltipView& v = world.ui_tooltip();
+    if (!v.shown) return;
+    const UiTooltipStyle& st = world.ui_tooltip_settings().style;
+    Ctx c{f, Rect{}};
+    c.k = ui_scale_clamped(world.ui_scale());
+    UiBox box;
+    box.color = st.color;
+    box.texture = st.texture;
+    box.slice = st.slice;
+    box.layer = st.layer;
+    background(c, box, v.rect, st.color);
+    for (const UiTooltipLine& l : v.lines) {
+        const TextLayout lay = line(c, l.text, st.font, l.fontSize, st.maxWidth);
+        text(c, lay, l.pos.x, l.pos.y, l.color, st.layer + 1, c.clip);
+    }
+}
+
 }  // namespace
 
 void gather_ui(World& world, Frame& f) {
@@ -358,6 +377,7 @@ void gather_ui(World& world, Frame& f) {
         any = any || !world.entities_with(t).empty();
     if (any)
         for (Entity root : world.roots()) visit(f, world, root);
+    draw_tooltip(f, world);
     f.assets->end_video_frame();  // the textures of videos that were not drawn this frame are freed
 }
 

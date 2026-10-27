@@ -859,6 +859,16 @@ the press is released over the same widget; a Slider follows the pointer while p
   mouse for the UI from the next frame on (hover, press, Slider drag, click on release, the wheel's target) until
   `ui.setPointer(null)`; use it for a gamepad cursor and in tests. `ui.wheelConsumed` is true on a frame whose wheel
   scrolled a ScrollList (`input.mouse.wheel` reads 0 then).
+- **Tooltips.** `tooltip` on any widget or Panel is a string (a localization key or plain text) or
+  `{ "title", "lines": [text | {text, color}], "args" }`; `ui.setTooltip(entity, fn)` registers a function that returns
+  that content when the tooltip is about to show (null: none). It shows after `ui.tooltipDelay` seconds (get / set, 0 to
+  60, default the `"ui": { "tooltipDelay" }` of `factoria.json` or 0.5) of rest within 5 pixels, beside the pointer and
+  flipped to stay on screen, and hides when the pointer moves off, a button is pressed or another widget is reached. A widget
+  without one uses the nearest ancestor's. `ui.setWorldTooltip((x, y) => content)` answers for a pointer over no widget
+  (a map), `ui.showTooltip(content, { x, y })` shows one now until `ui.hideTooltip()`, a pointer move of more than 5
+  pixels or a scene load, and `ui.tooltip` reads the one on screen (`null` or `{ title, lines, rect, source, widget }`;
+  the same as `tooltip` in `ui.state`). The rest is counted in UI time, so `game.step` tests are exact. Look, touch and
+  recipes: [MENUS.md](MENUS.md), "Tooltips".
 - **`active` and `activeInHierarchy`.** `entity.active = false` hides the entity and everything under it, but it does not
   change the `active` of the children: a child of a hidden Panel keeps `active` true. `activeInHierarchy` is true only when
   the entity and every ancestor are active, so ask that to know whether a menu is open (`panel.activeInHierarchy`), not
