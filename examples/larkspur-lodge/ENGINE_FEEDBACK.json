@@ -22,7 +22,10 @@
       "suggestion": "In update_drag skip an ancestor for which ui_box is null (or stop the walk at the first non-widget), and add a test with a widget under a plain entity. Also worth a validate warning for a widget under a non-widget parent if that layout is not meant to be supported.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0002",
@@ -44,7 +47,10 @@
       "suggestion": "physics.raycast3dAll(origin, dir, maxDistance, opts) returning the hits sorted by distance (with a max count), or an option on raycast3d.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0003",
@@ -65,7 +71,10 @@
       "suggestion": "Collider3D.enabled (and Collider2D.enabled), writable at run time, kept out of the NavMesh bake when false; or a documented way to move a collider to a layer that nothing hits.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0004",
@@ -86,7 +95,10 @@
       "suggestion": "A Text.visibleCharacters field (or a 'reveal' fraction 0..1) that clips the laid-out text without re-laying it out.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0005",
@@ -108,7 +120,10 @@
       "suggestion": "import.meta.glob-like support for JSON data (import tables from \"../data/dialogue/*.json\"), or a project.list_files command a tool can call.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.10 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0006",
@@ -130,7 +145,10 @@
       "suggestion": "Say it in the ui doc next to the Button fields (and in the field's doc string), or rename the field in a future format version.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0007",
@@ -152,7 +170,10 @@
       "suggestion": "One sentence and a small picture in the ui doc, and a validate warning when a screen widget lies completely outside the design size.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0008",
@@ -173,7 +194,10 @@
       "suggestion": "input.consume(action) or an event that tells the other readers that ui_cancel handled the press, or document in the menus doc that a cancel handler must set MenuStack.busy.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0009",
@@ -194,7 +218,10 @@
       "suggestion": "Say in the testing doc which one drives the UI focus (the physical key or pad button), or let game.tap(action) go through the same path.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0010",
@@ -215,7 +242,10 @@
       "suggestion": "Document the delivery time of world.emit in the scripting doc.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: already supported and documented (SCRIPTING.md, 'Timing in a test': world.emit is queued and its listeners run at the next game.step)."
+      ]
     },
     {
       "id": "FB-0011",
@@ -238,7 +268,10 @@
       "suggestion": "A project.add_menu_kit option (for example 'textSpeed': true) that adds the row, or a documented way to add a game row to the options menu.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0501",
@@ -260,7 +293,10 @@
       "suggestion": "A slots module in the menu kit (project.add_menu_kit part 'slots') with the record, the cloud merge by counter and a slot screen prefab, like the keyboard part.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0502",
@@ -281,7 +317,10 @@
       "suggestion": "Make the fake apply add() on the stored value when the request is served, or document that stats.add calls must be awaited one after another.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0503",
@@ -303,7 +342,10 @@
       "suggestion": "input.pressed('pause') could be false while a TextField has the focus (text input mode), and MenuStack.busy should reset on scene.load.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0504",
@@ -324,7 +366,10 @@
       "suggestion": "State in docs/PLATFORM.md when a request is answered (same call vs. next frame) and that fake.achievements only has the ids that were touched.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0012",
@@ -346,7 +391,10 @@
       "suggestion": "A Panel option (for example wheelPassThrough) or a rectangle in which a modal leaves the wheel to the game.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0013",
@@ -367,7 +415,10 @@
       "suggestion": "A viewport widget (or Panel.camera) that draws a named camera or a render texture inside its rectangle, clipped and layered like any widget.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0014",
@@ -388,7 +439,10 @@
       "suggestion": "Say in the Camera.viewport doc which rectangle the fractions count, and offer a mode that follows the UI design area.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0015",
@@ -409,7 +463,10 @@
       "suggestion": "Document it on Entity.destroy and let world.find skip entities that are being destroyed.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0016",
@@ -430,7 +487,10 @@
       "suggestion": "An option on Camera or MeshRenderer to ignore the scene ambient (a studio lighting preset for product views).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0017",
@@ -451,7 +511,10 @@
       "suggestion": "Make ui.focus return false on a disabled widget instead of throwing, or document it.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0601",
@@ -474,7 +537,10 @@
       "suggestion": "Say in the assets.generate_voice error which provider keys are needed, and document how to test voice-dependent code without a provider.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0602",
@@ -495,7 +561,10 @@
       "suggestion": "Expose a scene load counter (scene.generation) that changes on every load, or make handles of a previous load compare unequal.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0701",
@@ -517,7 +586,10 @@
       "suggestion": "A command that generates simple loops (noise beds, drones) or searches CC0 sound packs, and one that converts WAV to OGG.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0702",
@@ -538,7 +610,10 @@
       "suggestion": "Expose game.call(command, args) in factoria:test, and let ui.check_layout take a script to open panels before measuring.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md. Its first half is already supported: a test calls any command with fa.call (SCRIPTING.md); the package makes ui.check_layout measure the current frame with open panels (the rest of TM/FB-0063)."
+      ]
     },
     {
       "id": "FB-0703",
@@ -559,7 +634,10 @@
       "suggestion": "Do not warn for a Panel whose ancestor is a ScrollList.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0704",
@@ -581,7 +659,10 @@
       "suggestion": "game.resetState() should stop the music and the voices, or the docs say it does not.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0801",
@@ -602,7 +683,10 @@
       "suggestion": "Accept --persist-storage (as factoria run does) on the exported player, so an --input replay that presses Play and saves leaves a real file in the container.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0802",
@@ -623,7 +707,10 @@
       "suggestion": "Stream the frames to the encoder as they are drawn instead of keeping them, or give the memory per second of video in docs/CLI.md.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0803",
@@ -644,7 +731,10 @@
       "suggestion": "A scale mode that shows more world on 4:3 screens (the HUD anchored to the screen edges), and a way to send touches to the simulator or to play a replay on iOS.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input."
+      ]
     },
     {
       "id": "FB-0804",
@@ -665,7 +755,10 @@
       "suggestion": "Publish players with fingerprints, or let factoria setup build the player of this checkout.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "duplicate",
+      "notes": [
+        "2026-10-27 triage: duplicate of TM/FB-0051. Players carry a build fingerprint since BB/FB-0032; what is missing are Windows and Linux players of this development build (from CI artifacts). Ranked with TM/FB-0051, out of M33."
+      ]
     },
     {
       "id": "FB-0901",
@@ -687,7 +780,10 @@
       "suggestion": "After clearing the atlas, mark every Text dirty so it is laid out again; or grow the atlas to 4096 when a second page is needed.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.2 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0902",
@@ -709,7 +805,10 @@
       "suggestion": "A Text.wordBreak option (normal | keepAll) or break Hangul only at spaces by default.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0903",
@@ -731,7 +830,10 @@
       "suggestion": "A Panel.mirrorRtl (or a global ui.mirrorRtl) that flips anchor.x, pivot.x and the Toggle / Slider direction when the language is right-to-left.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0904",
@@ -752,7 +854,10 @@
       "suggestion": "Text.direction (auto | ltr | rtl), defaulting to the language's direction for a Text that has a localization key.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0905",
@@ -773,7 +878,10 @@
       "suggestion": "An IME hook for the on-screen keyboard (a composition callback per language), or a platform text-input request that opens the system keyboard on pad platforms.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 triage: work package M33.14 in feedback/ROADMAP.md."
+      ]
     }
   ]
 }
