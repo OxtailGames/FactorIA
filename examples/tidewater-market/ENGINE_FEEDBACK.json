@@ -282,7 +282,7 @@
       "suggestion": "Bindings like \"Ctrl+Z\" and input.down(\"Shift\") as modifier state in action bindings.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine"
     },
     {
       "id": "FB-0013",

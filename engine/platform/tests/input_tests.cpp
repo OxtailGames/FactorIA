@@ -1102,3 +1102,219 @@ TEST_CASE("reset_options forgets players; snapshot lists players with a device")
     CHECK(in.player_device(2) == PlayerDevice{});
     CHECK_FALSE(in.snapshot().contains("players"));
 }
+
+// ---------------------------------------------------------------------------
+// Modifier chords (M31.18)
+// ---------------------------------------------------------------------------
+TEST_CASE("chords: names parse and print back in the canonical order") {
+    Input in;
+    in.set_actions(Json::parse(R"({"undo": ["Ctrl+Z"], "multi": ["shift + mouseleft"], "all": ["Shift+Ctrl+alt+S"], "mod": ["Shift"]})"));
+    CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z"});
+    CHECK(in.bindings("multi") == std::vector<std::string>{"Shift+MouseLeft"});
+    CHECK(in.bindings("all") == std::vector<std::string>{"Ctrl+Alt+Shift+S"});
+    CHECK(in.bindings("mod") == std::vector<std::string>{"Shift"});
+    CHECK(Input::is_binding_name("Control+Z"));
+    CHECK(Input::is_binding_name("Cmd+Touch"));
+    CHECK_FALSE(Input::is_binding_name("Ctrl+"));
+    CHECK_FALSE(Input::is_binding_name("Ctrl+Ctrl+Z"));
+    CHECK_FALSE(Input::is_binding_name("Ctrl+GamepadA"));
+    CHECK_FALSE(Input::is_binding_name("LeftShift+Z"));
+    CHECK(Input::binding_label("Ctrl+Shift+MouseLeft", GamepadType::Generic) == "Ctrl+Shift+Left Click");
+    CHECK(modifier_from_name("ctrl") == modifier::Ctrl);
+    CHECK(modifier_from_name("LeftShift") == 0);
+}
+
+TEST_CASE("chords: bad ones are reported where they are, with what to write instead") {
+    Input in;
+    auto problems = in.set_actions(Json::parse(
+        R"({"a": ["Cntrl+Z"], "b": ["Ctrl+Zz"], "c": ["Ctrl+"], "d": ["Ctrl+GamepadA"], "e": ["LeftShift+Z"], "f": ["Ctrl+Ctrl+Z"]})"));
+    REQUIRE(problems.size() == 6);
+    auto all = [&] { std::string t; for (auto& p : problems) t += p + "\n"; return t; }();
+    CHECK(all.find("input.actions.a: unknown binding 'Cntrl+Z'") != std::string::npos);
+    CHECK(all.find("'Cntrl' is not a modifier. Did you mean 'Ctrl'?") != std::string::npos);
+    CHECK(all.find("Write it as \"Ctrl+Z\"") != std::string::npos);
+    CHECK(all.find("'Zz' is not an input") != std::string::npos);
+    CHECK(all.find("empty part") != std::string::npos);
+    CHECK(all.find("not with the gamepad binding 'GamepadA'") != std::string::npos);
+    CHECK(all.find("names one side's key") != std::string::npos);
+    CHECK(all.find("appears twice") != std::string::npos);
+}
+
+TEST_CASE("chords: an action fires only with its modifiers held, and Z does not fire on Ctrl+Z") {
+    Input in;
+    in.set_actions(Json::parse(R"({"z": ["Z"], "undo": ["Ctrl+Z"], "ctrl": ["Ctrl"]})"));
+    // Z alone: only the plain action
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.action_pressed("z"));
+    CHECK_FALSE(in.action_pressed("undo"));
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.begin_frame();
+    // Ctrl first, then Z: the chord only
+    in.on_key(Key::RightControl, true);
+    CHECK(in.action_down("ctrl"));
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.action_pressed("undo"));
+    CHECK(in.action_down("undo"));
+    CHECK_FALSE(in.action_down("z"));
+    CHECK_FALSE(in.action_pressed("z"));
+    CHECK(in.action_value("z") == 0.0f);
+    in.begin_frame();
+    CHECK(in.action_down("undo"));
+    CHECK_FALSE(in.action_pressed("undo"));
+    // Z up: the chord is released, Z never was down
+    in.on_key(Key::Z, false);
+    CHECK(in.action_released("undo"));
+    CHECK_FALSE(in.action_released("z"));
+    in.begin_frame();
+    in.on_key(Key::RightControl, false);
+    in.begin_frame();
+    CHECK_FALSE(in.action_down("ctrl"));
+    // the chord does not fire without Ctrl, either side counts
+    in.on_key(Key::Z, true);
+    CHECK_FALSE(in.action_pressed("undo"));
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.action_pressed("undo"));
+}
+
+TEST_CASE("chords: a longer chord shadows a shorter one, and a plain binding with no chord elsewhere is unchanged") {
+    Input in;
+    in.set_actions(Json::parse(R"({"save": ["Ctrl+S"], "saveAs": ["Ctrl+Shift+S"], "s": ["S"], "other": ["Shift+S"]})"));
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.on_key(Key::LeftShift, true);
+    in.begin_frame();
+    in.on_key(Key::S, true);
+    CHECK(in.action_pressed("saveAs"));
+    CHECK_FALSE(in.action_down("save"));
+    CHECK_FALSE(in.action_down("s"));
+    CHECK_FALSE(in.action_down("other"));  // Shift+S is shorter than the held Ctrl+Shift+S too
+    in.begin_frame();
+    in.on_key(Key::LeftShift, false);
+    CHECK(in.action_down("save"));
+    CHECK(in.action_pressed("save"));  // its modifier set became exactly the held one
+    CHECK_FALSE(in.action_down("saveAs"));
+    CHECK_FALSE(in.action_down("s"));
+}
+
+TEST_CASE("chords: Shift+click, and the click without Shift stays the plain action") {
+    Input in;
+    in.set_actions(Json::parse(R"({"primary": ["MouseLeft"], "multi": ["Shift+MouseLeft"], "touchy": ["Touch"]})"));
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    CHECK(in.action_pressed("primary"));
+    CHECK_FALSE(in.action_pressed("multi"));
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, false);
+    in.begin_frame();
+    in.on_key(Key::RightShift, true);
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    CHECK(in.action_pressed("multi"));
+    CHECK_FALSE(in.action_down("primary"));
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, false);
+    CHECK(in.action_released("multi"));
+    // a click and release within one frame keeps both edges
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    in.on_mouse_button(MouseButton::Left, false);
+    CHECK(in.action_pressed("multi"));
+    CHECK(in.action_released("multi"));
+}
+
+TEST_CASE("chords: rebind records and validates chords; input.modifiers_down sees either side") {
+    Input in;
+    in.set_actions(Json::parse(R"({"undo": ["Z"]})"));
+    CHECK(in.rebind("undo", {"ctrl+z", "Z"}).empty());
+    CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z", "Z"});
+    auto bad = in.rebind("undo", {"Ctl+Z"});
+    REQUIRE(bad.size() == 1);
+    CHECK(bad[0].find("Did you mean 'Ctrl'?") != std::string::npos);
+    CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z", "Z"});
+    in.begin_frame();
+    in.on_key(Key::RightAlt, true);
+    in.on_key(Key::LeftShift, true);
+    CHECK(in.modifiers_down() == (modifier::Alt | modifier::Shift));
+}
+
+TEST_CASE("chords: last_pressed reports the chord, a lone modifier on release") {
+    Input in;
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    CHECK(in.last_pressed().empty());  // Ctrl is on its way to a chord
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.last_pressed() == "Ctrl+Z");
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.on_key(Key::LeftControl, false);
+    CHECK(in.last_pressed().empty());  // Ctrl was used for a chord
+    in.begin_frame();
+    in.on_key(Key::LeftShift, true);
+    in.on_key(Key::LeftControl, true);
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    CHECK(in.last_pressed() == "Ctrl+Shift+MouseLeft");
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, false);
+    in.on_key(Key::LeftShift, false);
+    in.on_key(Key::LeftControl, false);
+    in.begin_frame();
+    // tapped on its own: reported when released
+    in.on_key(Key::RightShift, true);
+    CHECK(in.last_pressed().empty());
+    in.begin_frame();
+    in.on_key(Key::RightShift, false);
+    CHECK(in.last_pressed() == "RightShift");
+    // a quick Ctrl+Z inside one frame is still the chord
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.on_key(Key::Z, true);
+    in.on_key(Key::Z, false);
+    in.on_key(Key::LeftControl, false);
+    CHECK(in.last_pressed() == "Ctrl+Z");
+}
+
+TEST_CASE("chords: per-player bindings follow the player's scheme and keep the shadow rule") {
+    Input in;
+    in.set_actions(Json::parse(R"({"undo": ["Ctrl+Z"], "z": ["Z"], "jump": ["Space"]})"));
+    PlayerDevice d;
+    d.keys = "left";  // Z, LeftControl, LeftShift are on the left half
+    REQUIRE(in.use_player_device(0, d).empty());
+    CHECK(in.player_bindings(0, "undo", "keys") == std::vector<std::string>{"Ctrl+Z"});
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.player_action_pressed(0, "undo"));
+    CHECK_FALSE(in.player_action_down(0, "z"));
+    // a player on the right half has no Z: the chord is not among its bindings
+    PlayerDevice r;
+    r.keys = "right";
+    REQUIRE(in.use_player_device(1, r).empty());
+    CHECK(in.player_bindings(1, "undo", "keys").empty());
+    CHECK_FALSE(in.player_action_down(1, "undo"));
+    // rebind with a chord of the scheme; a key the scheme lacks in the chord is refused
+    CHECK(in.player_rebind(0, "jump", {"Shift+Q"}, "keys").empty());
+    CHECK(in.player_bindings(0, "jump", "keys") == std::vector<std::string>{"Shift+Q"});
+    CHECK_FALSE(in.player_rebind(1, "jump", {"Shift+Q"}, "keys").empty());
+    CHECK_FALSE(in.player_rebind(0, "jump", {"Shift+MouseLeft"}, "keys").empty());
+    auto exported = in.player_export(0);
+    CHECK(exported["keys"]["jump"][0] == "Shift+Q");
+    CHECK(in.player_import(2, exported).empty());
+    CHECK(in.player_bindings(2, "jump", "keys") == std::vector<std::string>{"Shift+Q"});
+    // last_pressed on the player's own keys
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.on_key(Key::Z, true);
+    CHECK(in.player_last_pressed(0) == "Ctrl+Z");
+    CHECK(in.player_last_pressed(1).empty());
+}

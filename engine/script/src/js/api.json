@@ -953,7 +953,7 @@
       },
       {
        "sig": "rebind(action: string, bindings: string[], family?: \"keys\" | \"pad\"): void",
-       "doc": "Replaces this player's bindings of one action, for one family: all the names must be keys (\"Space\", \"W\") or all gamepad bindings (\"GamepadA\", \"GamepadLeftStickUp\"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with \"did you mean\" and changes nothing. Other players and the global input.rebind() are unaffected."
+       "doc": "Replaces this player's bindings of one action, for one family: all the names must be keys (\"Space\", \"W\", or a chord of them such as \"Ctrl+Z\") or all gamepad bindings (\"GamepadA\", \"GamepadLeftStickUp\"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with \"did you mean\" and changes nothing. Other players and the global input.rebind() are unaffected."
       },
       {
        "sig": "reset(action?: string): void",
@@ -961,7 +961,7 @@
       },
       {
        "sig": "lastPressed(): string | null",
-       "doc": "Like input.lastPressed() but only for this player's devices: a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a \"press a key to rebind\" screen."
+       "doc": "Like input.lastPressed() but only for this player's devices (a chord included, \"Ctrl+Z\", when the player's scheme has the modifier): a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a \"press a key to rebind\" screen."
       },
       {
        "sig": "export(): { keys?: Record<string, string[]>; pad?: Record<string, string[]> }",
@@ -1060,7 +1060,7 @@
       },
       {
        "sig": "rebind(action: string, bindings: string[]): void",
-       "doc": "Replaces the bindings of an existing action, for a controls screen. Names are keys (\"Space\", \"W\", \"Left\"), \"MouseLeft\", \"MouseRight\", \"MouseMiddle\", \"Touch\" and gamepad bindings (\"GamepadA\", \"GamepadLeftStickUp\", \"GamepadRightTrigger\"...), case-insensitive. All or nothing: an unknown action or binding name throws an Error with \"did you mean\" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md)."
+       "doc": "Replaces the bindings of an existing action, for a controls screen. Names are keys (\"Space\", \"W\", \"Left\"), \"MouseLeft\", \"MouseRight\", \"MouseMiddle\", \"Touch\" and gamepad bindings (\"GamepadA\", \"GamepadLeftStickUp\", \"GamepadRightTrigger\"...), case-insensitive. A key, mouse button or Touch takes modifiers joined by \"+\": \"Ctrl+Z\", \"Shift+MouseLeft\", \"Ctrl+Shift+S\" (Ctrl, Shift, Alt, Super; each means either side's key); a chord is stored and printed back as Ctrl+Alt+Shift+Super+input, and a malformed one (\"Cntrl+Z\", \"Ctrl+\", \"Ctrl+GamepadA\") throws saying which part is wrong and what to write instead. When another action binds the plain input, the chord wins: Z does not fire while Ctrl is held if some action binds Ctrl+Z. All or nothing: an unknown action or binding name throws an Error with \"did you mean\" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md)."
       },
       {
        "sig": "resetBindings(action?: string): void",
@@ -1068,7 +1068,7 @@
       },
       {
        "sig": "lastPressed(): string | null",
-       "doc": "The binding that went down this frame (\"Space\", \"MouseLeft\", \"Touch\", \"GamepadA\", \"GamepadLeftStickUp\"...) or null: for a \"press a key to rebind\" screen. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself."
+       "doc": "The binding that went down this frame (\"Space\", \"MouseLeft\", \"Touch\", \"GamepadA\", \"GamepadLeftStickUp\"...) or null: for a \"press a key to rebind\" screen. With modifiers held it is the chord (\"Ctrl+Z\", \"Shift+MouseLeft\"), ready for rebind(). A modifier pressed alone (\"LeftShift\") is reported when it is released, so pressing Ctrl on the way to Ctrl+Z does not end the wait; a modifier that something else was pressed with is not reported by itself. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself."
       },
       {
        "sig": "readonly lastDevice: InputDevice",
@@ -1080,15 +1080,15 @@
       },
       {
        "sig": "keyDown(key: string): boolean",
-       "doc": "Raw key by name (\"Space\", \"A\", \"Escape\"...)."
+       "doc": "Raw key by name (\"Space\", \"A\", \"Escape\"...), or a modifier by name: \"Ctrl\", \"Shift\", \"Alt\" and \"Super\" are held while either side's key is (\"LeftShift\" is the left key only). A chord in an action binding (\"Ctrl+Z\") is read with input.down(action), not here."
       },
       {
        "sig": "keyPressed(key: string): boolean",
-       "doc": ""
+       "doc": "True on the frame the key went down; takes the same names as keyDown, \"Ctrl\" and the other modifiers included (either side)."
       },
       {
        "sig": "keyReleased(key: string): boolean",
-       "doc": ""
+       "doc": "True on the frame the key went up; takes the same names as keyDown, \"Ctrl\" and the other modifiers included (either side)."
       },
       {
        "sig": "readonly mouse: MouseAPI",
@@ -4448,15 +4448,15 @@
       },
       {
        "sig": "tapKey(key: string): void",
-       "doc": "Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey(\"Enter\") submits the focused field (ui.submit {id, value})."
+       "doc": "Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A chord works too: tapKey(\"Ctrl+Z\") holds Ctrl while Z is tapped. A TextField reads Enter itself, not an action, so game.tapKey(\"Enter\") submits the focused field (ui.submit {id, value})."
       },
       {
        "sig": "keyDown(key: string): void",
-       "doc": ""
+       "doc": "Presses and HOLDS a key until keyUp: a key name (\"Z\", \"LeftShift\") or a modifier (\"Ctrl\", \"Shift\", \"Alt\", \"Super\": the left key), which is how a test holds Shift for a Shift+click: keyDown(\"Shift\"); click(pos); keyUp(\"Shift\")."
       },
       {
        "sig": "keyUp(key: string): void",
-       "doc": ""
+       "doc": "Releases a key pressed with keyDown; takes the same names, modifiers included."
       },
       {
        "sig": "typeText(text: string): void",

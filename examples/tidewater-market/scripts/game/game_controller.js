@@ -524,8 +524,10 @@ export default class GameController extends Behaviour {
     }
 
     // Hold-free (option, or a gamepad in use): a road or a demolish takes two clicks, first end then second end, not a press held down.
-    const twoClicks = live().holdFree || pointer.pad;
-    if (input.pressed("primary")) {
+    // Shift + click does the same on request ("primary_shift" is the chord: "primary" stays silent while Shift is held).
+    const shiftClick = input.pressed("primary_shift");
+    const twoClicks = live().holdFree || pointer.pad || shiftClick || (this.drag && this.drag.twoClicks);
+    if (input.pressed("primary") || shiftClick) {
       this.pressOnMap = !onUi && !!this.hover && !this.hud.carrying();
       if (twoClicks && this.drag && this.drag.twoClicks) {
         if (this.hover) this.continueDrag();
@@ -539,12 +541,13 @@ export default class GameController extends Behaviour {
       }
     }
     if (this.drag && this.hover) this.continueDrag();
-    if (input.released("primary") && this.drag && !this.drag.twoClicks) {
+    const released = input.released("primary") || input.released("primary_shift");
+    if (released && this.drag && !this.drag.twoClicks) {
       this.finishDrag();
       this.pressOnMap = false;
     }
-    if (input.released("primary")) this.pressOnMap = false;
-    if (this.drag && !this.drag.twoClicks && !input.down("primary")) this.drag = null; // lost the release (focus change)
+    if (released) this.pressOnMap = false;
+    if (this.drag && !this.drag.twoClicks && !input.down("primary") && !input.down("primary_shift")) this.drag = null; // lost the release (focus change)
   }
 
   beginPress() {
