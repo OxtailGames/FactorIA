@@ -1050,6 +1050,8 @@ NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot 
 // Pixel size of a texture file as the renderer sees it: 32 x 32 (the missing-texture checker) when the file is missing or
 // unreadable. Cached per file and modification time, so a script may ask every frame.
 Vec2 texture_pixel_size(Impl* I, const std::string& path) {
+    if (auto rt = I->runtimeTextures.find(path); rt != I->runtimeTextures.end())  // a texture of render.captureTexture
+        return {static_cast<float>(rt->second.width), static_cast<float>(rt->second.height)};
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
     const std::int64_t mtime = fs::modified_time(key);
@@ -1066,6 +1068,102 @@ NATIVE(textureSize) {  // (path) -> [w, h]; assets.textureSize
     SETUP;
     Vec2 s = texture_pixel_size(I, arg_str(ctx, argc, argv, 0));
     return array_of(ctx, {s.x, s.y});
+}
+
+// ---- render.captureTexture / render.textureFromPNG ------------------------------------------------------------------------
+constexpr int kMaxRuntimeTextures = 32;
+constexpr int kMaxRuntimeTextureSide = 2048;
+
+// Registers `img` as a run-time texture: uploaded when the run has a renderer (the id is the renderer's), kept in
+// I->runtimeTextures either way. Returns the id; "" with *error set when it cannot be made.
+std::string add_runtime_texture(Impl* I, Image img, std::string* error) {
+    if (I->runtimeTextures.size() >= std::size_t(kMaxRuntimeTextures)) {
+        *error = std::format("{} textures are alive already (the limit). Call texture.destroy() on the ones you no longer show, "
+                             "for example the picture of a slot that was overwritten", kMaxRuntimeTextures);
+        return {};
+    }
+    std::string id;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        id = r->create_runtime_texture(img, error);
+        if (id.empty()) return {};
+    } else {
+        id = "runtime:" + std::to_string(I->nextPlainTexture++);
+    }
+    I->runtimeTextures[id] = std::move(img);
+    return id;
+}
+
+JSValue runtime_texture_info(JSContext* ctx, const std::string& id, const Image& img, bool placeholder) {
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewString(ctx, id.c_str()));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewInt32(ctx, img.width));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewInt32(ctx, img.height));
+    JS_SetPropertyUint32(ctx, a, 3, JS_NewBool(ctx, placeholder));
+    return a;
+}
+
+NATIVE(renderCapture) {  // (width, height, stretch) -> [id, width, height, placeholder]; render.captureTexture
+    SETUP;
+    const int w = int(arg_num(ctx, argc, argv, 0)), h = int(arg_num(ctx, argc, argv, 1));
+    if (w < 1 || h < 1 || w > kMaxRuntimeTextureSide || h > kMaxRuntimeTextureSide)
+        return throw_err(ctx, std::format("render.captureTexture({{ width, height }}): both must be whole numbers from 1 to {}, but got {} x {}", kMaxRuntimeTextureSide, w, h));
+    Image img;
+    bool placeholder = false;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        std::string err;
+        Image full;
+        if (!I->host->capture_frame(full, &err)) return throw_err(ctx, "render.captureTexture: " + err);
+        img = arg_bool(ctx, argc, argv, 2) ? resize_image(full, w, h) : cover_image(full, w, h);
+    } else {  // no graphics (headless run, test without a GPU): a flat picture of the size asked, so the game's code runs on
+        placeholder = true;
+        img.width = w;
+        img.height = h;
+        img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+        for (std::size_t i = 0; i < img.rgba.size(); i += 4) {
+            img.rgba[i] = 0x2a;
+            img.rgba[i + 1] = 0x2e;
+            img.rgba[i + 2] = 0x3a;
+            img.rgba[i + 3] = 0xff;
+        }
+    }
+    std::string err;
+    const std::string id = add_runtime_texture(I, std::move(img), &err);
+    if (id.empty()) return throw_err(ctx, "render.captureTexture: " + err);
+    return runtime_texture_info(ctx, id, I->runtimeTextures[id], placeholder);
+}
+
+NATIVE(renderFromPng) {  // (base64 text) -> [id, width, height, false]; render.textureFromPNG
+    SETUP;
+    std::string text = arg_str(ctx, argc, argv, 0);
+    if (const std::size_t comma = text.find(','); text.rfind("data:", 0) == 0 && comma != std::string::npos) text.erase(0, comma + 1);
+    const std::vector<unsigned char> bytes = base64_decode(text);
+    if (bytes.empty())
+        return throw_err(ctx, "render.textureFromPNG(png): the text is not Base64 (or is empty). Pass what texture.toPNG() returned, "
+                              "for example render.textureFromPNG(storage.get(\"slot1.png\"))");
+    auto img = decode_image(bytes.data(), bytes.size());
+    if (!img.ok()) return throw_err(ctx, "render.textureFromPNG(png): the bytes are not an image: " + img.error().message + (img.error().hint.empty() ? "" : " " + img.error().hint));
+    if (img->width > kMaxRuntimeTextureSide || img->height > kMaxRuntimeTextureSide)
+        return throw_err(ctx, std::format("render.textureFromPNG(png): the picture is {} x {}, more than the {} pixels a side a run-time texture may have", img->width, img->height, kMaxRuntimeTextureSide));
+    std::string err;
+    const std::string id = add_runtime_texture(I, std::move(*img), &err);
+    if (id.empty()) return throw_err(ctx, "render.textureFromPNG: " + err);
+    return runtime_texture_info(ctx, id, I->runtimeTextures[id], false);
+}
+
+NATIVE(renderPng) {  // (id) -> Base64 text of the PNG; texture.toPNG
+    SETUP;
+    auto it = I->runtimeTextures.find(arg_str(ctx, argc, argv, 0));
+    if (it == I->runtimeTextures.end()) return throw_err(ctx, "texture.toPNG(): the texture was destroyed");
+    const std::vector<std::uint8_t> png = encode_png(it->second);
+    return JS_NewString(ctx, base64_encode(png.data(), png.size()).c_str());
+}
+
+NATIVE(renderDestroy) {  // (id) -> bool; texture.destroy
+    SETUP;
+    const std::string id = arg_str(ctx, argc, argv, 0);
+    if (I->runtimeTextures.erase(id) == 0) return JS_FALSE;
+    if (Renderer* r = I->host->renderer()) r->destroy_runtime_texture(id);
+    return JS_TRUE;
 }
 
 NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
@@ -3488,7 +3586,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

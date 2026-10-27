@@ -1050,6 +1050,51 @@ game.on("quit", (event) => {
 - Replays: a `"clipboard": "text"` entry in a `--input` file puts that text on the clipboard before its frame; editor play
   sessions record the first thing a frame read, so a replay of a paste is exact.
 
+### Render: a picture of the running game as a texture (`render.captureTexture`, `render.textureFromPNG`)
+
+For a save slot's thumbnail, a photo mode or a minimap snapshot. A texture's `id` is accepted by `Sprite.texture`, `Panel.texture`
+and `Button.icon` (docs/COMPONENTS.md).
+
+- `render.captureTexture({ width, height, fit })` returns a `Texture`: the picture the player sees (HUD and every camera) at
+  `width` x `height` pixels, each from 1 to 2048. `fit: "cover"` (default) cuts the middle part with that aspect ratio out of the
+  frame, so nothing is distorted; `"stretch"` squeezes the whole frame in.
+- Which frame: called from a script during a frame (an `onUpdate`, an event handler) it is the last frame that was drawn. In a
+  test, before any frame was drawn and in headless runs it draws the current state first, like `game.screenshot`. A capture
+  the size of the game (`game.screenSize` times `window.renderScale`) has exactly the pixels of a screenshot of that frame.
+  The frame is read back from the GPU (Metal, OpenGL / GLES, Direct3D 11, WebGL2) and resampled on the CPU.
+- A run with `graphics` off has no renderer: the texture is a flat colour of the size asked and `texture.placeholder` is
+  `true`. Check it before you store the picture if a flat square would mislead the player.
+- `texture.id` (`"runtime:3"`) goes where an asset path goes: `entity.get("Sprite").texture = tex.id`, `Panel.texture`,
+  `Button.icon`. A Sprite with no `size` takes the texture's pixel size. A `Panel` samples it without smoothing.
+- `texture.toPNG()` returns the picture as a PNG file Base64-encoded, a string, because `storage` keeps JSON only:
+  `storage.set("slot1.pic", tex.toPNG())`. `render.textureFromPNG(text)` makes a texture of it again (a `data:image/png;base64,`
+  URL works too). Both are synchronous: there is no Promise and no scene change to wait for. A Base64 string is about a third
+  longer than the file, so keep pictures small (a 156 x 156 town picture is a few KB).
+- At most 32 textures are alive at once. `texture.destroy()` frees one (safe to call twice; `toPNG()` then throws). Stop
+  showing a texture (destroy its entity or change the texture field) before you destroy it: a frame that still names it draws
+  the missing-texture checker and logs why. Every test file starts with no textures.
+- The engine keeps each texture's pixels in memory as well (width x height x 4 bytes) so `toPNG()` works in every run.
+
+```js
+// Save: the picture goes into storage with the slot. Take it BEFORE a menu covers the game.
+const tex = render.captureTexture({ width: 156, height: 156 });
+if (!tex.placeholder) storage.set("slot1.pic", tex.toPNG());
+tex.destroy();
+
+// Show: build the texture, use its id, destroy it when the thumbnail goes away (a behaviour of the thumbnail entity).
+onStart() {
+  const png = storage.get("slot1.pic", null);
+  if (png) {
+    this.pic = render.textureFromPNG(png);          // throws a teaching Error for text that is not an image
+    this.entity.get("Panel").texture = this.pic.id;
+  }
+}
+onDestroy() { if (this.pic) this.pic.destroy(); }
+```
+
+Nothing here awaits an answer, so there is no scene to re-check; if you capture inside a `scene.preload` or `http`
+callback, compare `scene.current` with the scene you started in before you act on it.
+
 ### The date: `game.today()` (never `Date`)
 `new Date()` and `Date.now()` read the wall clock, so a run is different every time and a test cannot pin it. Read the
 calendar date with `game.today()` instead, as you use `rng` for chance:

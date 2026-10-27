@@ -155,6 +155,13 @@ struct ScriptSystem::Impl {
     };
     std::unordered_map<std::string, TexSize> texSizes;
 
+    // ---- render.captureTexture / render.textureFromPNG: the pixels of every live run-time texture by id ("runtime:N"), kept
+    // here so toPNG() needs no GPU read-back and a run without a renderer still has them. The GPU copy (when there is a renderer)
+    // is the renderer's, freed by destroy and by reset_for_test_file.
+    std::map<std::string, Image> runtimeTextures;
+    int nextPlainTexture = 1;  // ids of textures made without a renderer
+    void drop_runtime_textures();
+
     // ---- tools
     std::map<std::string, ToolEntry> tools;  // by command name
     std::function<void()> toolsChanged;

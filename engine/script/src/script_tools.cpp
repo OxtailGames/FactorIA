@@ -7,6 +7,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
+#include "fa/render/renderer.h"
 #include "fa/script/bytecode.h"
 #include <cstdio>
 #include "debugger_internal.h"
@@ -395,7 +396,14 @@ void Impl::set_scales_quietly(float uiScale, float textScale) {
     std::erase_if(events, [](const GameEvent& e) { return e.name == "ui.scale" || e.name == "ui.textScale"; });
 }
 
+void Impl::drop_runtime_textures() {
+    if (Renderer* r = host->renderer())
+        for (const auto& [id, img] : runtimeTextures) r->destroy_runtime_texture(id);
+    runtimeTextures.clear();
+}
+
 void Impl::reset_for_test_file() {
+    drop_runtime_textures();
     Json proj = host->project_settings();
     std::string scene = "scenes/main.scene.json";
     if (proj.is_object() && proj.contains("mainScene") && proj["mainScene"].is_string()) scene = proj["mainScene"].get<std::string>();

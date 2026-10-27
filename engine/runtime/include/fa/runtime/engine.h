@@ -167,6 +167,8 @@ public:
     // Same, with the colour-vision simulation `simulate` ("", "none", "greyscale", "protanopia", "deuteranopia",
     // "tritanopia") applied to the saved pixels on the CPU. What the game draws is not changed.
     bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) override;
+    // The picture now at the held render scale as pixels (ScriptHost::capture_frame: render.captureTexture).
+    bool capture_frame(Image& out, std::string* error) override;
     // The same picture as screenshot_scaled, as pixels (row 0 = top).
     bool capture_scaled(Image& out, double scale, std::string* error);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each

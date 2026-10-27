@@ -4,6 +4,18 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A picture of the running game as a texture
+
+- `render.captureTexture({ width, height, fit })` makes a `Texture` of the frame the player sees (HUD included) at the size
+  asked, up to 2048 px a side: `fit: "cover"` (default) cuts the middle part with that aspect ratio out, `"stretch"`
+  squeezes the whole frame in. A capture at the game's size has exactly the pixels of a screenshot. `texture.id` (`"runtime:3"`)
+  goes in `Sprite.texture`, `Panel.texture` or `Button.icon`. `texture.toPNG()` gives the picture as Base64 text (`storage`
+  keeps JSON), `render.textureFromPNG(text)` makes a texture of it again, `texture.destroy()` frees it; 32 textures at most.
+  A run with no renderer gets a flat placeholder of the right size (`texture.placeholder`), so the saving code still runs.
+  The pixels come from the readback each backend already had for screenshots. See SCRIPTING.md, "Render".
+- Tidewater Market's save slots (and the autosave) show a real picture of the town at the moment of the save instead of the
+  run-length map; an old save with no picture keeps the map. The pictures are not part of the cloud copy.
+
 Web audio without the deprecated node
 
 - The web player plays through an `AudioWorkletNode` fed from the main thread by messages (no threads or `SharedArrayBuffer` needed),

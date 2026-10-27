@@ -954,6 +954,7 @@ void ScriptSystem::Impl::shutdown() {
             ui->set_tooltip_hooks({});
             ui->set_drop_hooks({});
         }
+    runtimeTextures.clear();  // the handles die with the context; the renderer frees its copies with its own asset cache
     behaviours.clear();  // JsVal destructors free values
     byEntity.clear();
     namespaces.clear();

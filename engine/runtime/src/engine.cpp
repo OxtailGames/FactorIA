@@ -784,6 +784,8 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
     return true;
 }
 
+bool Engine::capture_frame(Image& out, std::string* error) { return capture_scaled(out, impl_->heldScale, error); }
+
 bool Engine::hold_render_scale(double scale, std::string* error) {
     Impl& I = *impl_;
     Image probe;
