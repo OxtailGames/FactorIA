@@ -2075,3 +2075,57 @@ TEST_CASE("tooltips: a script function can give the text, and showTooltip stays 
     t.frame(2);
     CHECK_FALSE(t.w.ui_tooltip().shown);
 }
+
+// ----------------------------------------------------------------------------------------------------- modal Panel --
+TEST_CASE("ui Panel.modal: only its widgets get the pointer, the focus and the wheel while it is active") {
+    Ui t;
+    Entity under = t.button("under", {10, 10}, {80, 20});
+    t.w.get<Button>(under)->autoFocus = true;
+    t.frame();
+    CHECK(t.ui.focused() == under);
+
+    Entity modal = t.add<Panel>("modal", {100, 40}, {200, 100});
+    t.w.get<Panel>(modal)->modal = true;
+    t.w.get<Panel>(modal)->layer = 100;
+    Entity yes = t.button("yes", {110, 50}, {80, 20}, modal);
+    Entity no = t.button("no", {110, 80}, {80, 20}, modal);
+    t.w.get<Button>(yes)->layer = 101;
+    t.w.get<Button>(no)->layer = 101;
+    CHECK(ui_modal_panel(t.w) == modal);
+    t.frame();
+    CHECK(t.ui.focused() == yes);  // the focus left the widget outside, into the modal (its first widget)
+    t.events();
+    t.in.on_mouse_move({20, 20});          // over the button under the modal
+    t.frame();
+    CHECK(t.ui.hovered() == kNullEntity);
+    CHECK(t.ui.pointer_over_ui());
+    CHECK(ui_widget_at(t.w, t.design, {20, 20}) == kNullEntity);
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    for (const std::string& e : t.events()) CHECK(e.find("under") == std::string::npos);
+
+    t.ui.set_focus(t.w, yes);
+    CHECK(t.ui.focused() == yes);
+    t.in.on_key(Key::Down, true);
+    t.frame();
+    CHECK(t.ui.focused() == no);
+    t.in.on_key(Key::Down, false);
+    t.frame();
+    t.in.on_key(Key::Up, true);
+    t.frame();
+    t.in.on_key(Key::Up, false);
+    t.frame();
+    t.in.on_key(Key::Up, true);
+    t.frame();
+    CHECK(t.ui.focused() == yes);  // never the button outside
+
+    t.w.set_active(modal, false);  // closed: everything is reachable again
+    CHECK(ui_modal_panel(t.w) == kNullEntity);
+    t.in.on_key(Key::Up, false);
+    t.frame();
+    t.in.on_mouse_move({21, 21});
+    t.frame();
+    CHECK(t.ui.hovered() == under);
+}

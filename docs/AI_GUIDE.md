@@ -1389,6 +1389,10 @@ When you write menus of your own, the same rules apply:
   UI keeps working. Unpause in the pause behaviour's next `onUpdate`, not in the "Resume" click handler, or the A /
   Space press that clicked it also jumps. `time.scale` outlives scene loads: set `game.paused = false` before
   `scene.load`.
+- **A screen that owns the input.** `Panel.modal: true` on the root Panel of a dialog: while it is active only its widgets
+  get the mouse, the wheel, the arrows and the pad, nothing under it is hovered, clicked or dropped on, and
+  `ui.pointerOverUi` is true everywhere. The kit's `card` part is a choice card built on it (title, wrapped body, choices
+  with a detail line, a choice disabled with its reason, a result stage, `holdClock`): `factoria docs read menus`, "A choice card".
 - **Settings.** Keep them in `storage` and apply them when the game starts (`session` remembers that it was done).
   `window.*` setters throw when there is no window (headless runs, tests): check `window.available`.
 - **Controls.** Rebind with `input.rebind(action, list)` from the next `input.lastPressed()`, and name buttons with

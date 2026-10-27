@@ -1119,6 +1119,16 @@ void register_builtin_components(TypeRegistry& r) {
                    "of the panels and lists inside it; active ones only) takes the size of the largest of them, width and "
                    "height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a "
                    "grid of level buttons as wide as the widest label.")
+            .field("modal", &Panel::modal,
+                   "true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / "
+                   "gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else "
+                   "under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and "
+                   "stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the "
+                   "game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. "
+                   "With several modal panels active the one with the highest `layer` (the later entity on a tie) is the "
+                   "scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's "
+                   "card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but "
+                   "still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.")
             .enum_field("fallbackLayout", &Panel::fallbackLayout, {"none", "row", "column", "grid"},
                         "Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen "
                         "(none = never switch). The panel leaves the screen when its content size + padding, or the size of "
