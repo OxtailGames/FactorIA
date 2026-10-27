@@ -24,7 +24,7 @@ The game is built in packages. Each one adds to the contracts below and replaces
 | P5 | Saves: five slots and an autosave, the save / load screen, versioned format (v1 -> v2), cloud, chapter select, achievements and stats | done |
 | P6 | Sound, options, accessibility: ambience per room, footsteps per floor, music per chapter, five options tabs, rebinding, glyphs, read aloud | done (the ambience and the score are generated, not recorded: see Sound and options) |
 | P7 | Shipping: store builds, icons, listings | done (see `SHIPPING.md`: Mac App Store pkg run sandboxed, iPad built and shown on the simulator, MSIX and Linux built not run) |
-| P8 | Languages: es, de, ko, he | pending (only `locales/en.json`) |
+| P8 | Languages: es, de, ko, he | done (see Languages; the translations need a native reader before release: `SHIPPING.md`) |
 
 ## What P1 contains
 
@@ -425,6 +425,33 @@ Controls, Language, Back) and a scrolling page for each, so it fits at 200 % tex
 Tests: `tests/sound.test.js` (beds per room, footsteps per surface, music per chapter, the ducking set-up) and
 `tests/options.test.js` (every option, each tab at 100 % and 200 % through `ui.overflowed`, mouse, gamepad and touch, rebinding,
 read aloud). The story bot hashes did not change (dawn 764bcd5e, quiet 7b2010b5, long 8388b733).
+
+## Languages
+
+`factoria.json` lists en, es, de, ko and he; each has a table `locales/<tag>.json` with the same keys as `locales/en.json`
+(a dialogue line is the key of its own node id, so every language has every line, choice, chapter, ending, note and caption).
+The voice stays English in every language; the captions follow the language. The language option (Options > Language)
+changes every open screen at once: the engine re-translates the texts it owns and the screens, the HUD and the dialogue box write
+their own again on `i18n.on("change")`. Read-aloud speaks the focused widget in the current language.
+
+- **Korean** uses a subset of Noto Sans KR as a fallback font (`assets/fonts/`, OFL, provenance in `assets.json`). The subset holds the
+  characters of the tables: after editing a Korean string run `python3 -I assets/src/build_fonts.py` (it uses the engine command
+  `assets.subset_font`), or `factoria validate` names the missing character.
+- **Hebrew** is right to left. Text and Panel rows mirror by themselves (`direction: auto`, `align: start`); the screens that place
+  widgets by hand mirror their x through `kit.mx` (`scripts/ui/kit.js`), and the 3D item view mirrors its hole. A Hebrew string that
+  starts with a key name or a placeholder begins with U+200F so the line stays right to left (FB-0904).
+- **German** is the longest language: labels shrink (`autoShrink`, `minFontSize`) inside fixed boxes and the panels have heights, so
+  nothing overflows at 200 % text (`ui.overflowed`, checked per language).
+- The dialogue validator (`project.validate_dialogue`) also reports a line, choice, chapter, ending or name that one language lacks,
+  naming the language, the key and the file.
+- The store texts are in `store/<lang>/` for the same five languages (`store/check_store.py`).
+
+Tests: `tests/lang_<tag>.test.js` (one file per language, so each has its own glyph atlas: FB-0901) walks the title, the five options tabs, the
+notebook, the board, the items page, the dialogue and the save slots at 100 % and 200 % text with no missing key, placeholder or
+overflow, switches the language live and checks what read-aloud says, and a cut-scene caption. The screenshots are in
+`.factoria/screenshots/lang/<tag>_<100|200>_<screen>.png`. `tests/keyboard_layout.test.js` covers the on-screen keyboard keys. P8 adds
+FB-0901 to FB-0905 (glyph atlas clear leaves texts blank, Korean line breaking, RTL mirroring of anchors and toggles, base direction of
+a line, no Hangul on the on-screen keyboard).
 
 ## Tests
 

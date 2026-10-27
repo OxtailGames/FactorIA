@@ -666,6 +666,114 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0901",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "The glyph atlas clears when it is full and unchanged texts stay blank",
+      "missing": "Text at many sizes in five languages (Latin, Hangul, Hebrew, at 100 % and 200 %) fills the 2048 x 2048 glyph atlas. The engine logs a warning and clears it, but the texts that did not change afterwards are not redrawn: they show nothing until their text or size changes. A player who flips the language option at 200 % text could meet it.",
+      "workaround": "tests/lang_<tag>.test.js, one file per language (each test file has its own engine and atlas), so a walk never fills it.",
+      "workaroundFiles": [
+        "tests/helpers/lang_walk.js",
+        "tests/lang_he.test.js"
+      ],
+      "suggestion": "After clearing the atlas, mark every Text dirty so it is laid out again; or grow the atlas to 4096 when a second page is needed.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0902",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Korean text wraps between any two syllables (no word-keeping line breaking)",
+      "missing": "A Korean line wrapped by Text.maxWidth breaks inside a word, between any two syllables, because the engine breaks Hangul like CJK ideographs. Korean written for screens separates words with spaces and readers expect the break there (word-break: keep-all).",
+      "workaround": "The dialogue box wraps by hand at spaces (scripts/dialogue_view.js), so Korean keeps its words there; other texts fit on one line or accept the engine break.",
+      "workaroundFiles": [
+        "scripts/dialogue_view.js",
+        "locales/ko.json"
+      ],
+      "suggestion": "A Text.wordBreak option (normal | keepAll) or break Hangul only at spaces by default.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0903",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Right-to-left mirrors text and Panel rows only: anchors, pivots, Toggle boxes and Sliders stay left-to-right",
+      "missing": "In Hebrew the Panel with direction auto and Text.align start/end mirror, but the position of an anchored widget, a Toggle's box and a Slider's fill do not, so a screen that mixes them reads half left-to-right.",
+      "workaround": "scripts/ui/kit.js mirrors the x of every widget it places (kit.mx) when i18n.direction is rtl, and the 3D item view hole is mirrored in screens.js.",
+      "workaroundFiles": [
+        "scripts/ui/kit.js",
+        "scripts/screens.js"
+      ],
+      "suggestion": "A Panel.mirrorRtl (or a global ui.mirrorRtl) that flips anchor.x, pivot.x and the Toggle / Slider direction when the language is right-to-left.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0904",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Text takes its base direction from the first strong character, so a line that starts with a Latin key is laid out left-to-right",
+      "missing": "A Hebrew string that starts with a key name such as '[F] ...' or a {placeholder} filled with Latin text is a left-to-right paragraph under Unicode bidi, and renders with the Hebrew in the wrong order. Text has no way to say 'this paragraph is right-to-left'.",
+      "workaround": "The Hebrew strings that start with a key or a placeholder begin with U+200F (right-to-left mark): locales/he.json hintItems, hintJournal, hintPuzzle, prompt.format and cutscene.hint.",
+      "workaroundFiles": [
+        "locales/he.json"
+      ],
+      "suggestion": "Text.direction (auto | ltr | rtl), defaulting to the language's direction for a Text that has a localization key.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0905",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No way to type Hangul on the on-screen keyboard",
+      "missing": "Korean syllables are composed from jamo by an input method; an on-screen keyboard that sends one character per key cannot make them, and the subset font has no stand-alone jamo.",
+      "workaround": "scripts/ui/keyboard.js gives Hebrew its own letters and leaves Korean on the Latin keys; a Korean player with a pad names a save in Latin letters, and a keyboard player uses the system input method.",
+      "workaroundFiles": [
+        "scripts/ui/keyboard.js"
+      ],
+      "suggestion": "An IME hook for the on-screen keyboard (a composition callback per language), or a platform text-input request that opens the system keyboard on pad platforms.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

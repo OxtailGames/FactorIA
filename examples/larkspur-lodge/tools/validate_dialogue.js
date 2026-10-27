@@ -4,6 +4,10 @@
 // at once with the file, the JSON pointer, the fix and a "did you mean".
 import { ToolError } from "factoria";
 import strings from "../locales/en.json";
+import es from "../locales/es.json";
+import de from "../locales/de.json";
+import ko from "../locales/ko.json";
+import he from "../locales/he.json";
 import items from "../data/items.json";
 import ground from "../scenes/ground.scene.json";
 import upstairs from "../scenes/upstairs.scene.json";
@@ -15,16 +19,16 @@ import { AREAS } from "../scripts/area.js";
 
 export default {
   name: "validate_dialogue",
-  summary: "Check the dialogue tables, the story registry and the cast: dangling ids, unreachable nodes, unknown flags, items and speakers, missing strings.",
+  summary: "Check the dialogue tables, the story registry and the cast: dangling ids, unreachable nodes, unknown flags, items and speakers, missing strings and missing translations.",
   description:
-    "Takes no arguments. Reads data/dialogue/*.json, data/story.json, data/cast.json, data/items.json, locales/en.json and the doors of the scenes. " +
+    "Takes no arguments. Reads data/dialogue/*.json, data/story.json, data/cast.json, data/items.json, locales/*.json (every line, choice, chapter, ending and name must exist in es, de, ko and he too) and the doors of the scenes. " +
     "Returns { ok: true, counts } when everything is sound; otherwise fails with every problem (file, JSON pointer, what is wrong, how to fix it, " +
     "didYouMean) in the error text and in error.data.problems. Run it after editing the story (assets/src/story/*.py, then assets/src/build_story.py).",
   input: { type: "object", properties: {} },
   readOnly: true,
   run() {
     const doors = doorIds({ ground, upstairs, cellar, testRoom });
-    const ctx = { strings, story, cast, items, doors, areas: Object.keys(AREAS) };
+    const ctx = { strings, translations: { es, de, ko, he }, story, cast, items, doors, areas: Object.keys(AREAS) };
     const problems = [...validateStory(story, ctx), ...validateCast(cast, ctx), ...validateDialogue(TABLES, ctx)];
     if (problems.length) {
       throw new ToolError(describe(problems), "fix the listed entries (edit assets/src/story/*.py and run build_story.py), then run project.validate_dialogue again", { problems });
