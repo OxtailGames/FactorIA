@@ -1,0 +1,34 @@
+{
+  "format": "larkspur.puzzles/1",
+  "drawer": {
+    "code": "0403",
+    "start": [0, 0, 0, 0],
+    "solvedFlag": "drawer_open",
+    "gives": ["fuse_wire"],
+    "sets": ["switch_card_found"]
+  },
+  "timetable": {
+    "solvedFlag": "timetable_solved",
+    "services": [
+      { "id": "mail", "nameKey": "puzzle.service.mail", "time": "05:40" },
+      { "id": "milk", "nameKey": "puzzle.service.milk", "time": "06:10" },
+      { "id": "goods", "nameKey": "puzzle.service.goods", "time": "06:50" },
+      { "id": "coach", "nameKey": "puzzle.service.coach", "time": "07:30" }
+    ],
+    "start": ["coach", "milk", "mail", "goods"],
+    "noteKeys": ["puzzle.timetable.note1", "puzzle.timetable.note2", "puzzle.timetable.note3"]
+  },
+  "letter": {
+    "item": "torn_letter",
+    "solvedFlag": "letter_pieced",
+    "strips": ["puzzle.letter.strip1", "puzzle.letter.strip2", "puzzle.letter.strip3", "puzzle.letter.strip4"],
+    "start": [2, 0, 3, 1]
+  },
+  "fuse": {
+    "requiresFlag": "power_out",
+    "item": "fuse_mended",
+    "solvedFlag": "fuse_fixed",
+    "sets": ["storm_over"],
+    "layout": ["goods", "coach", "mail", "milk"]
+  }
+}

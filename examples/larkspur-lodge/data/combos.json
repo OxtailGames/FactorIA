@@ -1,0 +1,7 @@
+{
+  "format": "larkspur.combos/1",
+  "refuseKey": "combo.refuse",
+  "combos": [
+    { "id": "mend_fuse", "a": "fuse_wire", "b": "fuse_cartridge", "result": "fuse_mended", "textKey": "combo.fuse_mended" }
+  ]
+}

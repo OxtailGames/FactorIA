@@ -118,7 +118,7 @@ FLAGS = {
     "interviews": ("number", "How many of the four chapter 2 interviews were held. Added to by ch2_tobias, ch2_haas, ch2_lucian and ch2_mara; chapter 2 ends at 3."),
     "trust": ("number", "How much the household trusts the porter. Added to by kind choices (ch1_mara, ch2_haas, ch2_mara, ch3_mara, ch4_mara, ch4_haas, ch4_lucian); the 'quiet' ending needs 3, Haas gives his room key at 1."),
     "ending": ("string", "The ending reached: dawn, quiet or long. Set by the last line of ch5_vale; read by scripts/chapters.js, which shows the ending screen."),
-    "storm_over": ("boolean", "The storm has stopped and the front door can be opened. Set by the chapter 5 entry; read by the front door and P3."),
+    "storm_over": ("boolean", "The power is back and the storm has blown out, so the front door can be opened. Set by scripts/puzzles.js when the cellar fuse box is mended; read by the front door."),
     "intro_seen": ("boolean", "The opening cut-scene has played. Set by the cut-scene player (P4)."),
     "vale_missing": ("boolean", "The porter knows Dr. Vale is missing. Set by ch1_hedda; ends chapter 1."),
     "know_oil": ("boolean", "Clue: Dr. Vale took a lantern and lamp oil to the cellar. Set by ch2_tobias and ch4_tobias; read by ch3_tobias."),
@@ -140,11 +140,19 @@ FLAGS = {
     "kitchen_box_taken": ("boolean", "The lamp oil was taken from the kitchen box. Set by the item box p_kitchen_box."),
     "letter_taken": ("boolean", "The torn letter was taken from room B. Set by the item box p_letter_box."),
     "test_box_taken": ("boolean", "The test room's key box was emptied. Set by the item box in the test room."),
+    "power_out": ("boolean", "The storm has cut the lodge's power. Set by the chapter 4 entry; the cellar fuse box can be mended from then on (scripts/puzzles.js)."),
+    "cartridge_taken": ("boolean", "The spare fuse cartridge was taken from the kitchen box. Set by the item box p_cartridge_box."),
+    "drawer_open": ("boolean", "The locked drawer of the library desk is open. Set by scripts/puzzles.js (drawer)."),
+    "switch_card_found": ("boolean", "Emil's card about the fuse box was found in the drawer. Set by scripts/puzzles.js (drawer); a clue of the notebook."),
+    "letter_pieced": ("boolean", "The torn letter was pieced together. Set by scripts/puzzles.js (letter); a clue of the notebook."),
+    "timetable_solved": ("boolean", "The order of the railway services is known. Set by scripts/puzzles.js (timetable); a clue of the notebook."),
+    "fuse_fixed": ("boolean", "The cellar fuse box is mended and the power is back. Set by scripts/puzzles.js (fuse); Captain Haas needs it before he lets the porter open the adit (ch4_haas)."),
 }
 
 PREFIXES = {
     "open.": "A door the porter opened: open.<door id>, set by scripts/interactable.js. Chapter 3 ends on open.guest_door_c.",
     "talked.": "A conversation held once in a chapter: talked.<character>.<chapter>. Set by the story data so a repeat gives the short 'again' line.",
+    "ded.": "A deduction on the board: ded.<deduction id>, set while it stands and cleared when it is undone (scripts/notebook.js).",
 }
 
 CHAPTERS = [
@@ -154,9 +162,9 @@ CHAPTERS = [
      "intro": "Dr. Vale's supper is still on the table and nobody wants to say why he left it."},
     {"id": 3, "advance": ["open.guest_door_c"], "title": "Room C",
      "intro": "A man's bag lies open behind a locked door. Whoever holds the key holds the first answer."},
-    {"id": 4, "advance": ["vale_found"], "enter": [S("know_cellar")], "title": "The old way",
+    {"id": 4, "advance": ["vale_found"], "enter": [S("know_cellar"), S("power_out")], "title": "The old way",
      "intro": "Behind the third shelf of the wine rack the cellar goes further than anyone admitted."},
-    {"id": 5, "final": True, "enter": [S("storm_over")], "start": {"area": "ground", "spawn": "spawn_default"}, "title": "Dawn",
+    {"id": 5, "final": True, "start": {"area": "ground", "spawn": "spawn_default"}, "title": "Dawn",
      "intro": "The wind has dropped. The pass will open within the hour, and then everyone has a story to tell."},
 ]
 

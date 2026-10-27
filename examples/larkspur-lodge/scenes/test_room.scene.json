@@ -229,6 +229,14 @@
       }
     },
     {
+      "id": "screens",
+      "components": {
+        "Script": {
+          "path": "scripts/screens.js"
+        }
+      }
+    },
+    {
       "id": "f_main",
       "components": {
         "Transform": {
