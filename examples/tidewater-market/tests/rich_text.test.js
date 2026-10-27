@@ -16,7 +16,7 @@ test("markup problems are reported with how to fix them, and the project's colou
 });
 
 test("the icons of factoria.json are the icon frames of the atlas", () => {
-  // data/atlas.json is made by assets/src/make_atlas.py; the `text.icons` of factoria.json point at the same pixels
+  // data/atlas.json is made by assets.pack_atlas from assets/src/frames; the `text.icons` of factoria.json point at the same pixels
   const frames = Object.entries(atlas.frames).filter(([name]) => name.startsWith("icon."));
   expect(frames.length).toBeGreaterThan(8);
   for (const [name, frame] of frames) {

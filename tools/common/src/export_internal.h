@@ -31,6 +31,11 @@
 namespace fa::export_detail {
 
 namespace stdfs = std::filesystem;
+
+constexpr int kAtlasPadding = 2;  // pixels around each packed texture, filled by repeating its edge pixels
+// Draws `m` at (x, y) of `page` with `pad` pixels of its own edge repeated around it (export_textures.cpp).
+void blit_extruded(Image& page, const Image& m, int x, int y, int pad = kAtlasPadding);
+
 // Every file system call on the output folder goes through fs::os_path: an export lands deep (a macOS .app nests four
 // folders), and Windows refuses paths over MAX_PATH without its \\?\ prefix (docs/EXPORTING.md, "Long paths on Windows").
 using fs::os_path;

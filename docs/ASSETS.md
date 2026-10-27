@@ -313,6 +313,33 @@ scenes and scripts still name `assets/ui/play.png` and the sprite keeps the size
   packed. A `Tilemap` tileset or a `MeshRenderer` texture in a group would draw the whole atlas, so `factoria validate`
   warns.
 
+**An atlas while developing.** The export's groups are enough when your Sprites can keep naming the source PNGs: you
+write `texture: "assets/ui/play.png"`, the editor and `factoria run` draw that file, and only the export packs. Pack an
+atlas yourself when the game needs to pick frames by name from one texture while you work: a map of thousands of tiles and
+buildings drawn from one texture (`factoria run` batches by texture, so one atlas is a few draw calls and many PNGs
+are thousands), frames that a script chooses by name or by a table (a road mask, a ship's heading), or pictures that
+are an atlas to begin with. `assets.pack_atlas` does it:
+
+```
+factoria call assets.pack_atlas '{"folder":"assets/src/frames","out":"assets/atlas.png","table":"data/atlas.json"}'
+```
+
+- Every image under `folder` (subfolders too) is a frame named by its path without the extension (`ship/0.png` is
+  `ship/0`). They are packed tallest first into the smallest square page up to `maxSize` (default 2048; 4096 on
+  desktop), each with `padding` pixels (default 2) of its own edge repeated around it, like the export's groups.
+- The table is JSON: `{"texture": "assets/atlas.png", "size": [w, h], "frames": {"ship/0": {"rect": [x, y, w, h],
+  "pivot": [px, py]}}}`. `rect` is in texture pixels from the top-left, exactly `Sprite.region`; `pivot` is
+  `Sprite.pivot`. A script imports the table (`import atlas from "../data/atlas.json"`) and sets
+  `Sprite: {texture: atlas.texture, region: atlas.frames[name].rect, pivot: atlas.frames[name].pivot}`.
+- Pivots come from `<folder>/pivots.json` (`{"ship/0": [0.5, 0.2]}`); a frame without one is `[0.5, 0.5]`. Keys of an
+  existing table that are not `texture`, `size` or `frames` stay, so your own data (a road mask table) can live in it.
+- Packing again keeps every frame whose size did not change where it was: a new picture adds one line to the table and
+  scenes that copied a rect keep drawing the same frame. The page grows (existing frames never move) when the new ones do
+  not fit; a frame whose picture has another size, or that no longer fits, is placed again and reported in `moved`. Nothing is
+  written when the result would be the same bytes.
+- Pack again whenever the folder changes, and commit the PNG and the table. Sprites that name the atlas ship it as it
+  is; do not also put those pictures in an `atlas` group.
+
 ### Audio
 
 Sounds are `.wav`, `.ogg`, `.mp3` and `.qoa` files. These settings go under `defaults.audio` (every sound) or under an
