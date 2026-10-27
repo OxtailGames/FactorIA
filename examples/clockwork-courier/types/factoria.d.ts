@@ -5872,20 +5872,24 @@ declare module "factoria" {
     bold: boolean;
     /**
      * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (asset path: texture)
+     * @since unreleased
      */
     icon: string;
     /**
      * Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture.
+     * @since unreleased
      */
     get iconRegion(): Rect;
     set iconRegion(value: RectLike);
     /**
      * Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32].
+     * @since unreleased
      */
     get iconSize(): Vec2;
     set iconSize(value: Vec2Like);
     /**
      * left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves.
+     * @since unreleased
      */
     iconPosition: "left" | "top" | "alone";
   }
