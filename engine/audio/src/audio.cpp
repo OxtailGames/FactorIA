@@ -31,6 +31,10 @@
 #include <TargetConditionals.h>
 #endif
 
+#if defined(__EMSCRIPTEN__)
+#include "audio_web.h"
+#endif
+
 namespace fa {
 
 namespace {
@@ -840,9 +844,6 @@ struct Audio::Impl {
 // ===================================================================== API ====
 
 Audio::Audio() : impl_(std::make_unique<Impl>()) {}
-#if defined(__EMSCRIPTEN__)
-void audio_web_unlock();  // audio_web.cpp
-#endif
 
 Audio::~Audio() { shutdown(); }
 
@@ -854,6 +855,16 @@ bool Audio::init(bool device, std::string* error) {
     impl_->autoAdvance = false;
     impl_->streamLogged = false;
     if (device) {
+#if defined(__EMSCRIPTEN__)
+        // The web has its own device (audio_web.cpp): an AudioWorkletNode, a ScriptProcessorNode as the fallback.
+        const int webRate = audio_web_open(kRate, 2, &Impl::stream_cb, impl_.get());
+        if (webRate > 0) {
+            impl_->device = true;
+            impl_->deviceRate = std::max(webRate, 8000);
+            impl_->deviceChannels = 2;
+            FA_INFO("audio", "output device open: {} Hz, {} channels", impl_->deviceRate, impl_->deviceChannels);
+            audio_web_unlock();  // the browser keeps the device silent until the player clicks, touches or presses a key
+#else
         saudio_desc desc{};
         desc.sample_rate = kRate;
         desc.num_channels = 2;
@@ -865,11 +876,11 @@ bool Audio::init(bool device, std::string* error) {
             impl_->deviceRate = std::max(saudio_sample_rate(), 8000);
             impl_->deviceChannels = std::max(saudio_channels(), 1);
             FA_INFO("audio", "output device open: {} Hz, {} channels", impl_->deviceRate, impl_->deviceChannels);
-#if defined(__EMSCRIPTEN__)
-            audio_web_unlock();  // the browser keeps the device silent until the player clicks, touches or presses a key
 #endif
         } else {
+#if !defined(__EMSCRIPTEN__)
             saudio_shutdown();
+#endif
             FA_WARN("audio", "no audio output device available; running with a silent null device "
                              "(hint: pass --headless to silence this warning)");
             impl_->autoAdvance = true;
@@ -882,7 +893,11 @@ bool Audio::init(bool device, std::string* error) {
 
 void Audio::shutdown() {
     if (!impl_->inited) return;
+#if defined(__EMSCRIPTEN__)
+    if (impl_->device) audio_web_close();
+#else
     if (impl_->device) saudio_shutdown();  // joins the audio thread before we touch state
+#endif
     std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->voices.clear();
     impl_->clips.clear();

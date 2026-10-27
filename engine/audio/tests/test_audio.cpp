@@ -479,3 +479,25 @@ TEST_CASE("audio: layers are never evicted by a full mixer and a scene load keep
     fx.audio.stop_all();
     CHECK(fx.audio.layer_names().empty());
 }
+
+// The web player mixes in chunks of whatever the AudioWorklet asks for (512 frames up to 8192) instead of one block per engine
+// frame; the mix must not depend on how it is cut.
+TEST_CASE("audio: the mix is the same however it is cut into chunks (web AudioWorklet feed)") {
+    auto record = [](double step, int steps) {
+        Fixture fx;
+        REQUIRE(fx.audio.load("sounds/sine.wav"));
+        fx.audio.start_recording();
+        fx.audio.play("sounds/sine.wav", {.pitch = 1.3f, .loop = true});
+        for (int i = 0; i < steps; ++i) fx.audio.advance_null_device(step);
+        return fx.finish();
+    };
+    Recording a = record(1.0 / 60.0, 120);     // 2 s in frames of 735
+    Recording b = record(512.0 / 44100.0, 172);  // chunks of 512 (about 2 s)
+    REQUIRE(a.frames() > 80000);
+    REQUIRE(b.frames() > 80000);
+    const std::size_t n = std::min(a.frames(), b.frames());
+    float worst = 0;
+    for (std::size_t i = 0; i < n; ++i) worst = std::max(worst, std::fabs(a.l[i] - b.l[i]));
+    CHECK(worst < 0.001f);
+    CHECK(a.peak() > 0.3f);
+}
