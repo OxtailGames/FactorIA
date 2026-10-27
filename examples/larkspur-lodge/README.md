@@ -446,7 +446,7 @@ their own again on `i18n.on("change")`. Read-aloud speaks the focused widget in 
   naming the language, the key and the file.
 - The store texts are in `store/<lang>/` for the same five languages (`store/check_store.py`).
 
-Tests: `tests/lang_<tag>.test.js` (one file per language, so each has its own glyph atlas: FB-0901) walks the title, the five options tabs, the
+Tests: `tests/languages.test.js` (every language in one file: the glyph atlas grows and refills its texts, FB-0901) walks the title, the five options tabs, the
 notebook, the board, the items page, the dialogue and the save slots at 100 % and 200 % text with no missing key, placeholder or
 overflow, switches the language live and checks what read-aloud says, and a cut-scene caption. The screenshots are in
 `.factoria/screenshots/lang/<tag>_<100|200>_<screen>.png`. `tests/keyboard_layout.test.js` covers the on-screen keyboard keys. P8 adds

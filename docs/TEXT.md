@@ -347,3 +347,10 @@ come from depends on the device, and the game does not change for any of them:
 - One font size and one font per Text. Colours, bold and icons can change inside a line (`markup`, above); the font size, the
   font and italic cannot (use an italic font file as the Text's `font`).
 - The glyph size is capped between 4 and 400 pixels.
+- All glyphs of all fonts share one atlas (an 8-bit page). It starts at 1024 x 1024 and grows to 2048 and then 4096 when a
+  glyph does not fit; at 4096 it clears. Every growth or clear is a log line ("glyph atlas is full ... growing it" / "...
+  clearing it"), and every `Text` lays out again on its next draw. A frame that meets one is gathered again, so no text
+  of that frame is drawn blank or with the glyphs of another text. What stays in the atlas is every glyph of every size
+  drawn since the last clear: a screen with many scripts at many sizes at once (more than a 4096 page holds, in the order
+  of a thousand large glyphs) clears every frame, which is slow: use fewer sizes. `RenderStats` (`glyphAtlasSize`,
+  `glyphAtlasResets`) shows the page.

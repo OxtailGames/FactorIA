@@ -41,6 +41,8 @@ std::string font_label(const std::string& key) {
 }
 }  // namespace
 
+constexpr int kMaxAtlas = 4096;
+
 struct Fonts::Impl {
     std::unordered_map<std::string, std::unique_ptr<FontFace>> faces;
     std::unordered_map<GlyphKey, GlyphInfo, GlyphKeyHash> glyphs;
@@ -57,7 +59,6 @@ struct Fonts::Impl {
     struct Shelf { int y, h, x; };
     std::vector<Shelf> shelves;
     bool dirty = true;
-    bool warnedFull = false;
     std::unordered_set<std::string> warnedMissing;  // fonts already warned about a missing glyph
     int nextId = 1;
 
@@ -168,15 +169,17 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) 
     }
     int ax, ay;
     if (!im.pack(w, h, ax, ay)) {
-        if (im.atlasSize < 2048) {
-            // Grow: old UVs become invalid, so everything is re-rasterized on demand.
-            im.reset_atlas(2048);
+        // Grow first (1024 -> 2048 -> 4096), clear only when the largest page is full. Either way the old UVs are
+        // invalid: the layout cache is dropped (the texts lay out again on their next draw) and atlasEpoch moves, so the
+        // frame being gathered is gathered again (Renderer::Impl::render).
+        if (im.atlasSize < kMaxAtlas) {
+            const int next = im.atlasSize * 2;
+            FA_INFO("render", "glyph atlas is full ({0}x{0}); growing it to {1}x{1}. Every text lays out again.", im.atlasSize, next);
+            im.reset_atlas(next);
         } else {
-            if (!im.warnedFull) {
-                FA_WARN("render", "glyph atlas is full (2048x2048); clearing it. Use fewer distinct font sizes to avoid flicker.");
-                im.warnedFull = true;
-            }
-            im.reset_atlas(2048);
+            FA_WARN("render", "glyph atlas is full ({0}x{0}); clearing it. Every text lays out again. Use fewer distinct font sizes "
+                              "and scripts on screen at once to avoid the cost.", im.atlasSize);
+            im.reset_atlas(im.atlasSize);
         }
         if (!im.pack(w, h, ax, ay)) return g;
     }
@@ -385,6 +388,9 @@ void Fonts::warn_missing_glyphs(FontFace* f, const std::string& text, const std:
     FA_WARN("render", "text \"{}\" has characters the font {} has no glyph for, so they draw as nothing: {}. {} (Reported once per font.)",
             excerpt, label, chars, hint);
 }
+
+unsigned Fonts::atlas_epoch() const { return impl_->atlasEpoch; }
+int Fonts::atlas_size() const { return impl_->atlasSize; }
 
 void Fonts::sync() {
     Impl& im = *impl_;

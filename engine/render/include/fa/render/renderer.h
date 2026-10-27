@@ -83,6 +83,8 @@ struct RenderStats {
     int sprites = 0;
     int shapes = 0;
     int textGlyphs = 0;
+    int glyphAtlasSize = 0;    // side of the glyph atlas in pixels (1024, 2048 or 4096; it grows when full, then clears)
+    int glyphAtlasResets = 0;  // times the glyph atlas was made, grew or cleared (1 at the start); a frame that met one is gathered again
     int particles = 0;
     int meshes = 0;          // MeshRenderer entities drawn in the main pass (instances)
     int meshesCulled = 0;    // MeshRenderer entities outside the camera frustum: not drawn in the main pass

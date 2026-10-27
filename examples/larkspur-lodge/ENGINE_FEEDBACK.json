@@ -772,15 +772,11 @@
       "severity": "major",
       "title": "The glyph atlas clears when it is full and unchanged texts stay blank",
       "missing": "Text at many sizes in five languages (Latin, Hangul, Hebrew, at 100 % and 200 %) fills the 2048 x 2048 glyph atlas. The engine logs a warning and clears it, but the texts that did not change afterwards are not redrawn: they show nothing until their text or size changes. A player who flips the language option at 200 % text could meet it.",
-      "workaround": "tests/lang_<tag>.test.js, one file per language (each test file has its own engine and atlas), so a walk never fills it.",
-      "workaroundFiles": [
-        "tests/helpers/lang_walk.js",
-        "tests/lang_he.test.js"
-      ],
+      "workaround": "tests/lang_<tag>.test.js, one file per language (each test file has its own engine and atlas), so a walk never fills it. Gone: tests/languages.test.js walks every language in one file.",
       "suggestion": "After clearing the atlas, mark every Text dirty so it is laid out again; or grow the atlas to 4096 when a second page is needed.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-27 triage: work package M33.2 in feedback/ROADMAP.md."
       ]
