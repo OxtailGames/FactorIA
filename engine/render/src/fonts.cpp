@@ -215,9 +215,10 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     const float unitsPerPx = fontSize / float(px);          // local units per raster pixel
     const float maxW = t.maxWidth > 0 ? t.maxWidth / unitsPerPx : 0.0f;  // in raster pixels
 
-    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align; } head{};
+    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align, wordBreak; } head{};
     head.fontSize = fontSize; head.maxWidth = t.maxWidth; head.pivotX = t.pivot.x; head.pivotY = t.pivot.y;
     head.px = px; head.align = int(t.align) + (tightBox ? 1000 : 0) + (t.markup ? 2000 : 0) + (t.bold ? 4000 : 0);
+    head.wordBreak = int(t.wordBreak);  // visibleCharacters is not part of the key: it clips a layout, it never changes one
     std::string cacheKey(reinterpret_cast<const char*>(&head), sizeof head);
     cacheKey += t.font;
     cacheKey.push_back('\0');
@@ -281,7 +282,9 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     ShapedText shaped;
     for (int attempt = 0; attempt < 2; ++attempt) {  // a second pass when the atlas was reset halfway: UVs of the first are stale
         const unsigned epoch = im.atlasEpoch;
-        shaped = shape_text(text, px, maxW, chainSize, chain, rich ? &shaping : nullptr);
+        shaped = shape_text(text, px, maxW, chainSize, chain, rich ? &shaping : nullptr, t.wordBreak);
+        const std::vector<std::uint32_t> graphemeOf = grapheme_index(text);
+        const auto grapheme_at = [&](std::uint32_t cluster) { return cluster < graphemeOf.size() ? std::int32_t(graphemeOf[cluster]) : std::int32_t(0); };
         out = TextLayout{};
         out.iconDefs = iconDefs;
         out.palette = palette;
@@ -308,7 +311,7 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
                     if (def < 0) continue;
                     const float pen = std::round(x + sg.x);
                     out.icons.push_back({(ox + pen) * unitsPerPx, (top - lineH * float(li + 1)) * unitsPerPx,
-                                         (ox + pen + sg.advance) * unitsPerPx, (top - lineH * float(li)) * unitsPerPx, def});
+                                         (ox + pen + sg.advance) * unitsPerPx, (top - lineH * float(li)) * unitsPerPx, def, grapheme_at(sg.cluster)});
                     continue;
                 }
                 if (sg.gid == 0) continue;
@@ -318,6 +321,7 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
                 const float gx0 = pen + g.x0, gx1 = pen + g.x1;
                 const float gy0 = baselineY - g.y1 + lift, gy1 = baselineY - g.y0 + lift;  // y up
                 TextQuad q{(ox + gx0) * unitsPerPx, gy0 * unitsPerPx, (ox + gx1) * unitsPerPx, gy1 * unitsPerPx, g.u0, g.v0, g.u1, g.v1};
+                q.grapheme = grapheme_at(sg.cluster);
                 if (t.markup && sg.cluster < attrs.size()) q.color = std::uint16_t(colorSlot[std::size_t(attrs[sg.cluster].color)]);
                 out.quads.push_back(q);
             }

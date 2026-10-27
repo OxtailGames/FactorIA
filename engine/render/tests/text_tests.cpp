@@ -61,8 +61,8 @@ struct Faces {
             REQUIRE_MESSAGE(faces.back()->ok, faces.back()->error);
         }
     }
-    fr::ShapedText shape(std::string_view text, int px = 20, float maxW = 0) {
-        return fr::shape_text(text, px, maxW, faces.size(), [&](std::size_t i) { return faces[i].get(); });
+    fr::ShapedText shape(std::string_view text, int px = 20, float maxW = 0, WordBreak wb = WordBreak::Auto) {
+        return fr::shape_text(text, px, maxW, faces.size(), [&](std::size_t i) { return faces[i].get(); }, wb);
     }
     // The advance of a code point drawn on its own, without shaping, in pixels.
     float nominal_advance(std::size_t font, char32_t cp, int px) const {
@@ -216,13 +216,52 @@ TEST_CASE("text: Japanese, Chinese and Korean wrap at maxWidth without any space
         }
         CHECK(all == fr::decode_text(*s));  // nothing lost, nothing added: the breaks fall between characters
     }
-    // Korean breaks between words at spaces, and inside a long word between syllables
+    // Korean breaks between words at spaces; WordBreak::Normal also breaks inside a word, between syllables
     const fr::ShapedText ko = f.shape(kKorean, 14, 90);
     CHECK(ko.missing.empty());
     CHECK(ko.lines.size() >= 3);
-    const fr::ShapedText longWord = f.shape("한국어는띄어쓰기없이도줄바꿈됩니다", 14, 60);
+    const fr::ShapedText longWord = f.shape("한국어는띄어쓰기없이도줄바꿈됩니다", 14, 60, WordBreak::Normal);
     CHECK(longWord.lines.size() >= 3);
     for (const fr::ShapedLine& l : longWord.lines) CHECK(l.width <= 60.01f);
+}
+
+TEST_CASE("text: Korean keeps its words (wordBreak auto and keepAll), normal and a language without spaces do not") {
+    with_fonts();
+    Faces f({"builtin", kJp, kKr});
+    const std::string s = kKorean;
+    const std::u32string all = fr::decode_text(s);
+    for (WordBreak wb : {WordBreak::Auto, WordBreak::KeepAll}) {
+        const fr::ShapedText t = f.shape(s, 14, 60, wb);
+        CHECK(t.missing.empty());
+        REQUIRE(t.lines.size() >= 3);
+        std::size_t at = 0;
+        for (const fr::ShapedLine& l : t.lines) {  // every line is whole words: it ends where the text has a space or ends
+            at += l.text.size();
+            CHECK((at == all.size() || all[at] == U' '));
+            CHECK(l.width <= 60.01f);
+            while (at < all.size() && all[at] == U' ') ++at;
+        }
+    }
+    bool splitsAWord = false;  // wordBreak normal is the old behaviour: some line ends inside a word
+    {
+        const fr::ShapedText t = f.shape(s, 14, 60, WordBreak::Normal);
+        std::size_t at = 0;
+        for (const fr::ShapedLine& l : t.lines) {
+            at += l.text.size();
+            if (at < all.size() && all[at] != U' ') splitsAWord = true;
+            while (at < all.size() && all[at] == U' ') ++at;
+        }
+    }
+    CHECK(splitsAWord);
+    // Japanese is not Korean: auto still breaks it between characters, keepAll does not
+    CHECK(f.shape(kJapanese, 16, 100, WordBreak::Auto).lines.size() >= 3);
+    const fr::ShapedText kept = f.shape(kJapanese, 16, 100, WordBreak::KeepAll);
+    CHECK(kept.lines.size() == 1);
+    CHECK(kept.lines[0].text == fr::decode_text(kJapanese));
+    // a word longer than the line overflows it instead of being cut
+    const fr::ShapedText longWord = f.shape("한국어는띄어쓰기없이도줄바꿈됩니다", 14, 60);
+    CHECK(longWord.lines.size() == 1);
+    CHECK(longWord.lines[0].width > 60);
 }
 
 TEST_CASE("text: kinsoku keeps closing punctuation off the start of a line and opening brackets off the end") {
@@ -636,6 +675,69 @@ TEST_CASE("text: Japanese, Chinese, Korean and Arabic draw together through the 
     const Image img = g.render(w);
     expect_golden(img, "2d_text_scripts");
     CHECK(g.renderer.stats().textGlyphs > 60);
+}
+
+TEST_CASE("text: visibleCharacters clips the laid-out text: the box and the wrapping do not change, the glyph count follows") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    g.renderer.set_fallback_fonts({kKr});
+    World w; add_black_camera(w);
+    Entity e = put_text(w, "Hello brave world of typewriters", {-150, 60, 0}, 20, "", Align::Left, 150);
+    Text& t = *w.get<Text>(e);
+    const Vec2 whole = g.renderer.measure_text(t);
+    REQUIRE(whole.y > 30);  // it wraps
+    auto glyphs = [&](int visible) {
+        t.visibleCharacters = visible;
+        const Image img = g.render(w);
+        (void)img;
+        return g.renderer.stats().textGlyphs;
+    };
+    const int all = glyphs(-1);
+    CHECK(all == 28);  // the letters; spaces draw nothing
+    CHECK(glyphs(0) == 0);
+    CHECK(glyphs(5) == 5);                      // "Hello"
+    CHECK(glyphs(7) == 6);                      // "Hello b"
+    CHECK(glyphs(1000) == all);                 // more than the text has shows all of it
+    CHECK(glyphs(-1) == all);
+    for (int n : {0, 1, 6, 12, 1000, -1}) {  // the size never depends on the reveal, nor does the layout of what is drawn
+        t.visibleCharacters = n;
+        const Vec2 s = g.renderer.measure_text(t);
+        CHECK(s.x == doctest::Approx(whole.x));
+        CHECK(s.y == doctest::Approx(whole.y));
+    }
+    // what is shown stays where it is when the rest appears
+    t.visibleCharacters = 5;
+    const Image fiveImg = g.render(w);
+    const Ink five = ink(fiveImg);
+    t.visibleCharacters = -1;
+    const Image fullImg = g.render(w);
+    const Ink full = ink(fullImg);
+    REQUIRE(five.any());
+    CHECK(five.y0 == full.y0);
+    bool same = true;
+    for (int y = five.y0; y <= five.y1; ++y)
+        for (int x = five.x0; x <= five.x1; ++x) same = same && fiveImg.pixel(x, y).r == fullImg.pixel(x, y).r;
+    CHECK(same);
+    CHECK(five.w() < full.w());
+    CHECK(five.h() < full.h());
+    // a letter with its accent is one character; a Hangul syllable is one
+    t.text = "e\xCC\x81x";
+    t.maxWidth = 0;
+    const int accented = glyphs(-1);
+    CHECK(glyphs(1) == accented - 1);  // e + combining acute, without the x
+    CHECK(glyphs(2) == accented);
+    t.text = "\xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4";  // han-gug-eo
+    CHECK(glyphs(2) == 2);
+    // a right-to-left line reveals from its right end
+    t.text = "\xD7\x90\xD7\x91\xD7\x92\xD7\x93";  // alef bet gimel dalet
+    t.visibleCharacters = -1;
+    const Ink line = ink(g.render(w));
+    t.visibleCharacters = 1;
+    const Ink first = ink(g.render(w));
+    REQUIRE(first.any());
+    CHECK(first.x1 == line.x1);
+    CHECK(first.x0 > line.x0);
 }
 
 TEST_CASE("text: Align is explicit: Left stays at the left edge for right-to-left text too") {

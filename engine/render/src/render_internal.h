@@ -201,12 +201,14 @@ struct TextQuad {
     float x0, y0, x1, y1;  // local units, y UP, relative to the entity origin after pivot
     float u0, v0, u1, v1;
     std::uint16_t color = 0;  // rich text: 0 = the Text's colour, k = palette[k - 1] of the layout
+    std::int32_t grapheme = 0;  // the grapheme cluster of the text (markup tags not counted) this glyph belongs to: Text.visibleCharacters
 };
 
 // A picture of a rich text ([icon:name]): the rectangle it fills, in the units of TextQuad.
 struct IconQuad {
     float x0, y0, x1, y1;
     int def;  // index into TextLayout::iconDefs
+    std::int32_t grapheme = 0;  // as TextQuad::grapheme
 };
 
 struct TextLayout {

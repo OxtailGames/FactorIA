@@ -112,8 +112,9 @@ right edge in a right-to-left one (`i18n.direction`), so one Text serves English
 
 With `maxWidth` > 0 a line breaks after spaces (U+0020, the en/em/thin spaces U+2000-U+2006 and U+2008-U+200A, U+1680,
 U+205F), after U+200B ZERO WIDTH SPACE (no width, never drawn), after a hyphen (`-` or U+2010, but not before a digit:
-`-5` stays whole), and between two Japanese, Chinese or Korean characters (ideographs, kana and
-Hangul syllables), so text written without spaces wraps. A simple kinsoku rule keeps closing punctuation (`。、」）！？`,
+`-5` stays whole), and between two Japanese or Chinese characters (ideographs and kana), so text written without
+spaces wraps. Hangul is not one of them: Korean is written with spaces between words and a line ends at one of them, never
+inside a word (see `wordBreak` below). A simple kinsoku rule keeps closing punctuation (`。、」）！？`,
 the prolonged sound mark `ー`, small kana, `…`) off the start of a line and opening brackets (`「（`) off the end. A space at
 a break (U+200B included) is not drawn, and a wrapped line starts with no spaces. `\n` always starts a new line, and a tab is four spaces.
 A word (or an unbreakable run) wider than `maxWidth` stays on its own line and sticks out.
@@ -123,6 +124,47 @@ numbers with units get no break rules. Thai, Khmer, Lao and Burmese are written 
 boundaries needs a dictionary, which the engine does not have: unmarked text of those scripts does not break inside a run.
 Translators mark the boundaries where a line may end with U+200B (a tool such as pythainlp can insert them): the line breaks
 there, and the mark takes no width and draws nothing.
+
+### `Text.wordBreak`: Korean keeps its words
+
+Where a line may end inside a run of letters with no space:
+
+| `wordBreak` | Hangul | Chinese, Japanese (ideographs, kana) |
+|---|---|---|
+| `auto` (default) | at spaces only | between any two characters |
+| `normal` | between syllables too | between any two characters |
+| `keepAll` | at spaces only | at spaces only |
+
+`auto` is what Korean text needs: no setting, no check of the language. Use `keepAll` for Chinese or Japanese written with
+spaces between words (a romanised or mixed line) where a break inside a word reads badly; a run longer than `maxWidth`
+then overflows the box, as any unbreakable word does. `normal` is for a column so narrow that a Korean word wider than it
+must be cut. Layout, `ui.rectOf` and autoShrink measure with the Text's `wordBreak`; `ui.measureText` has no such option and
+measures with `auto`.
+
+## Typewriter reveal: `Text.visibleCharacters`
+
+`visibleCharacters` -1 (default) draws the whole text. `n >= 0` draws only its first `n` characters and nothing else
+changes: the text is laid out as a whole (its wrapping, alignment, `autoShrink`, size, `ui.rectOf`, a Panel's fit) and then
+clipped, so a dialogue box keeps the size of the full line while the line appears, and no word jumps to the next line
+halfway. Set it from a script, a few characters per frame or second:
+
+```js
+const label = world.find("dlg_text").get("Text");
+label.visibleCharacters = 0;
+// each frame: label.visibleCharacters = Math.floor(elapsed * 45);
+```
+
+- It counts grapheme clusters, what a reader calls a character: a letter with its accents (`e` + U+0301), a Hangul syllable
+  or conjoining jamo sequence, an emoji sequence (a family, a skin tone, a flag) and CR LF are one. Spaces and `\n` count; the
+  tags of `markup` do not (they are not characters) and an `[icon:name]` picture is one.
+- The order is the order of the text. A right-to-left line therefore appears from its right end, and a line that mixes
+  directions appears in reading order.
+- A ligature or a letter shaped together with the next one (Arabic joining) appears with its first character.
+- Above the length of the text it draws everything; the glyph count of `RenderStats.textGlyphs` is that of the glyphs
+  drawn.
+- It applies to `Text` only. Widget labels (Button, Toggle, Slider) are not revealed.
+- A script that wants the total can count `[...text].length` (code points; grapheme clusters are never more, so
+  reaching it means everything shows).
 
 ## Rich text: bold, colours and icons
 
