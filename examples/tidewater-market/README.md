@@ -233,7 +233,7 @@ array form, the kept grid and the flow field.
 ## Saves and scenarios (P4)
 
 **Slots.** Play on the title opens the slot screen: three slots, each with a manual save and an autosave, showing name, scenario,
-in-game date, play time and a small map of the town (the engine cannot give a script a screenshot as a texture: FB-0020). An empty
+in-game date, play time and a picture of the town (`render.captureTexture` at the moment of the save, 156 x 156 px, kept under `<slot>.pic`; a save made before that keeps the small run-length map; FB-0020). An empty
 slot starts a new game (pick one of the scenarios); a taken one loads; Continue loads the newest entry; Rename and Delete (asks
 first) work on a slot. The pause menu's Save game saves into a slot (asks before replacing one) and the game then belongs to that
 slot. Everything works with the mouse alone and with the keyboard alone (`tests/slots_screen.test.js`).
@@ -410,7 +410,7 @@ a spacer, and the order board and the cards lay out again on `ui.on("textScale")
 draws a reticle and `scripts/game/pointer.js` moves it with the left stick (faster the further it is pushed). A clicks the widget or map
 cell under it, B is Escape and puts the tool away, the shoulders open the build menu and switch its tabs, the right stick pans and the triggers
 zoom. The widget under the cursor takes the focus, so it works on every panel, the title and the options screen; over nothing the focus
-rests on an invisible sink widget (FB-0044). The pointer has two clicks where a mouse drags (see hold-free). `gamepad_game.test.js` plays
+is cleared with `ui.focus(null)`, which holds until the next D-pad press (FB-0044). The pointer has two clicks where a mouse drags (see hold-free). `gamepad_game.test.js` plays
 build, inspect, fill an order and answer an event card with the pad only.
 
 Fix in P6: a notice that repeats (`x3`) shows the number as it is now, not the number of the day it was first pushed.
@@ -432,8 +432,8 @@ The digits, the thousands separator and the decimal mark come from the engine (`
 language writes in its own way is a string in its table, so a new language needs no code: `number.units` (`"1000=k;1000000=M"`,
 `"10000=万;100000000=亿"`), `format.list` (the separator of a list), `amount.coins` and `amount.villagers` (plural entries), `amount.good`
 (`{n} {name}`, `{n} × {name}`, `{name}×{n}`), `hud.date` with `season.date.<season>`. Plurals use the language's rules: French counts 0 and
-1 as singular, Chinese has one form. Spanish and French have grammatical gender and the engine has none (FB-0061), so the data-driven
-names are nouns or phrased so that no agreement is needed.
+1 as singular, Chinese has one form. Spanish and French have grammatical gender; the engine can carry it (`{text, gender}` and select entries, FB-0061), but the data-driven
+names are still nouns or phrased so that no agreement is needed, so the tables use none.
 
 **Chinese font.** DejaVu Sans, the engine's font, has no Chinese. `assets/fonts/NotoSansSC-Regular-subset.ttf` (Noto Sans SC, SIL Open
 Font License 1.1, `assets/fonts/OFL.txt`, recorded in `assets.json`) is a subset of 1190 characters, 340 KB, listed in `localization.fallbackFonts`
@@ -461,7 +461,7 @@ only one issue left, in the engine's pseudo-language at 200% on the stress scene
 
 Known limits: an achievement toast shows the language it was made in until it disappears; the pseudo-localisation of `ui.check_layout` makes the date
 overlap the villager count on the stress scene at 200%. Tests: `languages.test.js`, `languages_layout.test.js`. Engine gaps found: FB-0060 to FB-0065
-in `ENGINE_FEEDBACK.json`; FB-0005 (the menu kit's loading screen writes English over the localised Text) is worked around here and the loading text is a string
+in `ENGINE_FEEDBACK.json`; FB-0005 (the menu kit's loading screen wrote English over the localised Text) is fixed in the engine: `scripts/loading.js` writes `i18n.t("loading.progress")`, a string
 of every language.
 
 ## Plug-in points
