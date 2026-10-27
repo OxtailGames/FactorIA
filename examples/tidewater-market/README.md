@@ -297,7 +297,7 @@ drag and the top bar; everything else is the Hud's.
 | Inspector | A click on a building or villager (with no tool) opens it, at the bottom right: status, workers (up to four villager chips), what it makes, upkeep and refund; Rotate, Demolish, Home, Work, Release, Close. A click on bare ground or a road closes it |
 | Tooltips | After the pointer rests 0.4 s: every button (with its key), the numbers in the top bar, build menu items (cost, needs, gives) and, with no tool, the building under the pointer. Drawn by the engine (the `ui` section of `factoria.json` has the delay and the look), flipped near the screen edges |
 | Goods table (G) | Every good: stock, made and used per game day, price. Click a header to sort, again to reverse; the wheel scrolls it and does not zoom the map |
-| Charts (T) | Bars over the last days: coins, the stock of one good (click the good name to cycle) or what was made |
+| Charts (T) | Over the last days: a line of the coins and bars of the stock of one good (click the good name to cycle) or of what was made; both are engine `Chart` widgets |
 | Notifications | Up to five at the top left; the same message for the same building stacks as (xN); a click (or N for the newest) moves the camera there and selects the building |
 | Overlays (M, Map button) | Desirability, market coverage, warehouse reach, traffic; each tints the cells in view; the legend says what it shows |
 | Worker drag and drop | Press a villager chip in the inspector, drag onto a workplace on the map: the chip turns green or red (and says why); a drop moves the worker and pins the job (`people.reassign`) |

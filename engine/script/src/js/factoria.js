@@ -1786,7 +1786,7 @@
   };
 
   const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
-  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale", ...DRAG_EVENTS];
+  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale", "chartHover", ...DRAG_EVENTS];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
@@ -1827,6 +1827,8 @@
     // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
     // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
     // id) limits it to one widget. Returns the function that stops listening.
+    // "chartHover": the sample of a Chart under the pointer changed; the event has `index` (0 = the first value of the series), `series`
+    // and `value`; index and series are -1 (and there is no value) when the pointer left the chart.
     // "scale" and "textScale" are about no widget: they fire once each time ui.scale / ui.textScale changes to another value,
     // with `e.value` the new one and `e.previous` the old one (no target; like i18n.on("change")). They arrive with the
     // game events of the frame, after the script that changed the option has returned.
@@ -1857,7 +1859,8 @@
       }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
-        fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous });
+        if (type === "chartHover") fn({ type, id: data?.id ?? null, entity: source, index: data?.index ?? -1, series: data?.series ?? -1, value: data?.value });
+        else fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous });
       }, null);
     },
     // Runs the UI layout now (autoSize sizes, fit sizes, positions, fallbackLayout), exactly what each frame does.
@@ -1970,7 +1973,7 @@
       if (what !== null && typeof what !== "string" && (typeof what !== "object" || Array.isArray(what)))
         throw new Error(`ui.setTooltip(entity, tooltip): tooltip is a string, { title, lines }, a function that returns one, or null, but got ${inspect(what)}`);
       const e = entityOf(h);
-      const kind = ["Button", "Toggle", "Slider", "TextField", "Panel", "ScrollList", "TouchStick", "TouchButton", "Captions", "Video"].find((k) => e.has(k));
+      const kind = ["Button", "Toggle", "Slider", "TextField", "Panel", "ScrollList", "TouchStick", "TouchButton", "Captions", "Video", "Chart"].find((k) => e.has(k));
       if (!kind) throw new Error(`ui.setTooltip(entity, tooltip): '${e.id}' is not a widget (it has no Panel, Button, Toggle, Slider, TextField or ScrollList component), so it has no tooltip. For something else use ui.setWorldTooltip or ui.showTooltip.`);
       e.set(kind, { tooltip: what });
     },
