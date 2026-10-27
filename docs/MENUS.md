@@ -33,9 +33,10 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 | `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
+| `card` | `prefabs/ui/card.prefab.json`, `scripts/ui/card.js`, `tests/card.test.js` | `card.*` |
 | `cameraRig` | `scripts/camera_rig.js`, `tests/camera_rig.test.js` | none |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` and `analyticsConsent` add `core`, `main-menu` adds `core`, `options` and `credits`. `cameraRig` is not a menu: it is the strategy camera of AI_GUIDE.md section 9.6.1, shipped in the kit because it is added the same way (it adds its `camera_*` input actions to `factoria.json`). The result
+A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` and `analyticsConsent` add `core`, `card` needs nothing else, `main-menu` adds `core`, `options` and `credits`. `cameraRig` is not a menu: it is the strategy camera of AI_GUIDE.md section 9.6.1, shipped in the kit because it is added the same way (it adds its `camera_*` input actions to `factoria.json`). The result
 lists them in `requiredBy`. The shop, the age gate and the analytics question are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
 panel and the lines that open the age gate and the analytics question; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop`,
 `age_gate` or `analytics_consent` in the scene, no import of `age_gate.js` or `analytics_consent.js` in `scripts/main_menu.js`), and
@@ -377,6 +378,56 @@ over any. When the mouse moves again call `ui.setPointer(null)`. If the same but
 (`GamepadA` is, by default), a focused widget is clicked by that action as well, so either clear the focus while the
 cursor rests (`ui.focus(null)` stays empty until the next D-pad press, an open panel's `autoFocus` does not take it back)
 or move only the hover (`down: false`) and let `ui_submit` press the widget you focused under the cursor.
+
+## A choice card, and modal panels
+
+An event, a story beat or a decision in a management game is a card: a title, a body, two or three choices that each say
+what they cost, one choice greyed out because the player cannot pay for it, and then what happened. The `card` part is that
+card: `new Card(options)` spawns `prefabs/ui/card.prefab.json`, `card.ask(...)` shows the question and `card.answer(...)` the
+result with a Continue button, and `card.close()` removes it.
+
+```js
+import { Card } from "./ui/card.js";
+
+const card = new Card({
+  holdClock: true, // game.paused while the card is open (what was paused before stays paused)
+  onChoose: (id) => {
+    const result = resolve(id); // the game's own rules
+    card.answer({ body: result.text, effects: result.effects }); // "[c:#8fe38f]+4 wood[/c]"
+  },
+  onContinue: () => card.close(),
+});
+card.ask({
+  kind: "Event",
+  title: "A stranger at the gate",
+  body: "Asks for [b]shelter[/b].", // rich text: [b], [c:colour], [icon:name] (Text.markup)
+  choices: [
+    { id: "help", text: "Help", detail: "Costs 2 wood" },
+    { id: "buy", text: "Buy the map", disabled: "Needs 50 coins" }, // greyed out, and the line under it says why
+    { id: "leave", text: "Leave", detail: "Nothing happens" },
+  ],
+});
+```
+
+- **Modal.** The card's backdrop Panel has `modal: true` (`Panel.modal`, see `factoria docs read components`): while it is
+  active the mouse, the wheel, the arrows and the pad reach only the widgets inside it. A button under it gets no hover, no
+  press and no click, a tooltip does not show over it, nothing under it takes a drop, the focus leaves it for the card and
+  never goes back until the card closes, and `ui.pointerOverUi` is true everywhere, so a map camera or a click-to-build
+  handler stands down. It does not pause the game: that is `holdClock`, which sets `game.paused` (scripts that must keep
+  running meanwhile set `runWhilePaused`). A game with its own clock (a speed control) leaves `holdClock` off and holds
+  that clock itself, as Tidewater Market does.
+- **Mouse, keyboard, pad.** The choices are Buttons in a column: up and down (arrows, D-pad, left stick) move between the
+  ones that can be chosen, Enter, Space or gamepad A picks, a click picks. The first choice that can be chosen has the focus,
+  Continue has it on the result stage. A disabled choice is not focusable and a click on it does nothing: its `disabled`
+  text is drawn in its detail line (`reasonColor` changes the colour; `[c:...]` names the game's `text.colors`).
+  Escape and gamepad B do nothing: the card is answered with a choice.
+- **Looks.** Everything is laid out by the engine (column layouts, wrapped texts, fit panels), so a longer translation or a bigger
+  text size (`ui.textScale`, up to 125 % here) makes the card taller, not clipped. Copy the prefab to change the size, the
+  colours or the fonts; `new Card({ prefab })` takes the copy. Ids are stable (`card_title`, `card_body`, `choice_<id>`,
+  `choice_<id>_detail`, `card_effects`, `card_continue`) for tests.
+- **Test.** `tests/card.test.js` shows a click under the card doing nothing, the arrows skipping a disabled choice, the pad
+  and the result stage. `Panel.modal` alone works on any panel (a confirm dialog, the pause menu): set `"modal": true` on the
+  root Panel of a screen that must own the input.
 
 ## Tooltips
 
@@ -1931,6 +1982,460 @@ test("Back does not skip the question", () => {
 });
 ```
 
+### `prefabs/ui/card.prefab.json`
+
+```json prefabs/ui/card.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Card",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.55],
+        "layout": "column",
+        "justify": "center",
+        "modal": true
+      }
+    },
+    "children": [
+      {
+        "id": "card_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "color": [0.08, 0.1, 0.14, 0.97],
+            "layout": "column",
+            "align": "start",
+            "spacing": 12,
+            "padding": [24, 16, 24, 24],
+            "fit": true,
+            "minSize": [640, 0],
+            "maxSize": [640, 0]
+          }
+        },
+        "children": [
+          {
+            "id": "card_kind",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "color": [0.66, 0.69, 0.75, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_title",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 32,
+                "color": [1, 0.82, 0.29, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_body",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_choices",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "align": "start",
+                "spacing": 8,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            }
+          },
+          {
+            "id": "card_effects",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 22,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_continue",
+            "components": {
+              "Button": {
+                "text": "Continue",
+                "key": "card.continue",
+                "size": [160, 44],
+                "autoSize": true,
+                "autoShrink": true,
+                "minFontSize": 10,
+                "maxTextScale": 1.25,
+                "layer": 302,
+                "autoFocus": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### `scripts/ui/card.js`
+
+```js scripts/ui/card.js
+// @ts-check
+// A choice card (prefabs/ui/card.prefab.json): a modal panel with a title, a wrapped body, choice buttons that each have a
+// detail line, a choice that is greyed out with the reason shown, and a result stage with a Continue button. It is the
+// event / story / dialogue card of a management game. The panel is `modal` (Panel.modal): while it is open only its widgets
+// get the mouse, the wheel, the arrows and the pad, so the game under it neither hovers nor clicks, and the focus stays on the
+// card. Mouse, keyboard and pad all work through the widgets: the arrows move between the choices that can be chosen, Enter,
+// Space or gamepad A picks one.
+import { world, ui, game, scene } from "factoria";
+
+/** One choice of the card. `text` and `detail` are rich text (Text.markup: [b], [c:colour], [icon:name]). */
+/** @typedef {{ id: string, text: string, detail?: string, disabled?: string | boolean }} CardChoice */
+
+/** The colour of a disabled choice's reason: a built-in colour name, a colour of factoria.json text.colors or #rrggbb. */
+const REASON_COLOR = "#ff8a80";
+const COLOR_CHOICE = [0.18, 0.26, 0.38, 1];
+const COLOR_DISABLED = [0.14, 0.16, 0.2, 1];
+
+export class Card {
+  /**
+   * Opens the card (spawns the prefab). Fill it with ask(), then answer(), and end it with close().
+   * @param {object} [options]
+   * @param {(id: string) => void} [options.onChoose] the player picked the choice `id` (mouse, key or pad); disabled choices never get here
+   * @param {() => void} [options.onContinue] the player pressed Continue on the result stage
+   * @param {boolean} [options.holdClock] true: game.paused is true while the card is open (what was paused before stays paused)
+   * @param {string} [options.reasonColor] colour of a disabled choice's reason (default a light red)
+   * @param {string} [options.prefab] the card's prefab, when the game keeps its own copy
+   */
+  constructor(options = {}) {
+    this.onChoose = options.onChoose || null;
+    this.onContinue = options.onContinue || null;
+    this.reasonColor = options.reasonColor || REASON_COLOR;
+    this.sceneId = scene.current;
+    this.root = world.spawnPrefab(options.prefab || "prefabs/ui/card.prefab.json");
+    this.root.id = "card";
+    /** @type {any[]} */ this.rows = [];
+    this.stage = "none";
+    this.heldPause = false;
+    if (options.holdClock && !game.paused) {
+      game.paused = true;
+      this.heldPause = true;
+    }
+    // Listeners end with the scene; a click that arrives after the card was closed or the scene changed does nothing.
+    this.off = ui.on("click", (e) => this.#click(e.id));
+  }
+
+  /** True while the card is on screen (not closed, and its scene is still the current one). */
+  get isOpen() {
+    return !!this.root && this.root.alive && scene.current === this.sceneId;
+  }
+
+  /**
+   * The question stage: a title, a body and the choices. A choice with `disabled` (a reason, or true) cannot be picked, and
+   * its detail line shows the reason; the first choice that can be picked has the focus.
+   * @param {object} spec
+   * @param {string} [spec.kind] small line over the title ("Event", "Story")
+   * @param {string} spec.title
+   * @param {string} [spec.body] rich text
+   * @param {CardChoice[]} spec.choices
+   */
+  ask(spec) {
+    if (!this.isOpen) return;
+    this.stage = "choose";
+    this.#text("card_kind", spec.kind || "");
+    this.#text("card_title", spec.title);
+    this.#text("card_body", spec.body || "");
+    this.#text("card_effects", "");
+    this.#clearRows();
+    const parent = world.find("card_choices");
+    parent.active = true;
+    let first = true;
+    for (const choice of spec.choices) {
+      const reason = typeof choice.disabled === "string" ? choice.disabled : "";
+      const disabled = !!choice.disabled;
+      const row = world.spawn(
+        { id: `choice_row_${choice.id}`, components: { Panel: { layer: 301, color: [0, 0, 0, 0], layout: "column", align: "start", spacing: 2, padding: [0, 0, 0, 0], fit: true } } },
+        { parent },
+      );
+      world.spawn(
+        {
+          id: `choice_${choice.id}`,
+          components: {
+            Button: {
+              text: choice.text,
+              size: [592, 44],
+              autoSize: true,
+              maxWidth: 570,
+              autoShrink: true,
+              minFontSize: 10,
+              maxTextScale: 1.25,
+              markup: true,
+              layer: 302,
+              interactable: !disabled,
+              color: disabled ? COLOR_DISABLED : COLOR_CHOICE,
+              autoFocus: !disabled && first,
+            },
+          },
+        },
+        { parent: row },
+      );
+      if (!disabled) first = false;
+      const detail = reason ? `[c:${this.reasonColor}]${reason}[/c]` : choice.detail || "";
+      if (detail)
+        world.spawn(
+          {
+            id: `choice_${choice.id}_detail`,
+            components: { Text: { text: detail, fontSize: 18, space: "screen", align: "start", maxWidth: 570, maxTextScale: 1.25, markup: true, color: [0.75, 0.8, 0.9, 1], layer: 301 } },
+          },
+          { parent: row },
+        );
+      this.rows.push(row);
+    }
+    world.find("card_continue").active = false;
+    this.#focusFirst();
+  }
+
+  /**
+   * The result stage: what happened, the effects line, and a Continue button (it has the focus).
+   * @param {object} spec
+   * @param {string} spec.body rich text
+   * @param {string} [spec.effects] rich text, drawn under the body in a larger size
+   * @param {string} [spec.continueText] replaces the Continue label (otherwise the card.continue string)
+   */
+  answer(spec) {
+    if (!this.isOpen) return;
+    this.stage = "result";
+    this.#text("card_body", spec.body);
+    this.#text("card_effects", spec.effects || "");
+    this.#clearRows();
+    world.find("card_choices").active = false;
+    const button = world.find("card_continue");
+    button.active = true;
+    if (spec.continueText) {
+      button.get("Button").key = ""; // a key would replace the text
+      button.get("Button").text = spec.continueText;
+    }
+    this.#focusFirst();
+  }
+
+  /** Closes the card: its panel goes, and the game goes on if the card paused it. Safe to call twice. */
+  close() {
+    this.off();
+    if (this.root && this.root.alive) this.root.destroy();
+    this.root = null;
+    this.stage = "none";
+    if (this.heldPause) {
+      this.heldPause = false;
+      game.paused = false;
+    }
+  }
+
+  /** @param {string} id @param {string} text */
+  #text(id, text) {
+    const e = world.find(id);
+    // Rich text is switched on here, not in the prefab: `factoria validate` warns about markup in a prefab of a game that has no bold font.
+    if (id === "card_body" || id === "card_effects") e.get("Text").markup = true;
+    e.get("Text").text = text;
+    e.active = text !== "";
+  }
+
+  #clearRows() {
+    for (const row of this.rows) {
+      if (!row.alive) continue;
+      row.active = false; // destroy() happens at the end of the frame: until then the old rows must not take room in the layout
+      row.destroy();
+    }
+    this.rows = [];
+  }
+
+  #focusFirst() {
+    const target = this.stage === "result" ? world.find("card_continue") : this.rows.map((r) => r.children[0]).find((b) => b.get("Button").interactable);
+    if (target) ui.focus(target);
+  }
+
+  /** @param {string} id */
+  #click(id) {
+    if (!this.isOpen || typeof id !== "string") return;
+    if (this.stage === "choose" && id.startsWith("choice_")) {
+      const button = world.find(id);
+      if (button?.get("Button")?.interactable) this.onChoose?.(id.slice("choice_".length));
+    } else if (this.stage === "result" && id === "card_continue") {
+      this.onContinue?.();
+    }
+  }
+}
+```
+
+### `tests/card.test.js`
+
+```js tests/card.test.js
+// The choice card (scripts/ui/card.js): a modal panel over the game. A click on a button under it does nothing and the
+// focus stays on the card; the arrows move between its choices (a disabled one is skipped and shows why); the pad picks;
+// the result stage ends with Continue; holdClock pauses the game while it is open. The scene is built here, so this test
+// passes in any game that has the card part.
+import { test, expect, game } from "factoria:test";
+import { world, ui } from "factoria";
+import { Card } from "../scripts/ui/card.js";
+
+const pad = game.gamepad(0);
+
+/** A scene with a button under where the card will be, then the card with three choices (the second cannot be chosen). */
+function open(options = {}) {
+  game.loadJson({
+    format: "factoria.scene/1",
+    entities: [{ id: "under", components: { Button: { text: "Under", size: [200, 60], anchor: [0.5, 0.5], layer: 10 } } }],
+  });
+  game.step(2);
+  const clicks = [];
+  ui.on("click", (e) => clicks.push(e.id));
+  const chosen = [];
+  const card = new Card({ onChoose: (id) => chosen.push(id), onContinue: () => chosen.push("continue"), ...options });
+  card.ask({
+    kind: "Event",
+    title: "A stranger at the gate",
+    body: "A long body of text that has to wrap onto several lines inside the card, because the card is only 640 pixels wide and this sentence is longer than that.",
+    choices: [
+      { id: "help", text: "Help", detail: "Costs 2 wood" },
+      { id: "buy", text: "Buy the map", detail: "Never shown", disabled: "Needs 50 coins" },
+      { id: "leave", text: "Leave", detail: "Nothing happens" },
+    ],
+  });
+  game.step(3);
+  return { card, clicks, chosen };
+}
+
+test("a click on a button under the card does nothing, and the focus stays on the card", () => {
+  const { card, clicks } = open();
+  expect(ui.focused.id).toBe("choice_help");
+  game.click("under");
+  game.step(2);
+  expect(clicks).not.toContain("under");
+  expect(ui.hovered?.id ?? null).not.toBe("under");
+  expect(ui.focused.id.startsWith("choice_")).toBe(true);
+  expect(ui.pointerOverUi).toBe(true);
+  card.close();
+  game.step(2);
+  game.click("under");
+  game.step(2);
+  expect(clicks).toContain("under");
+});
+
+test("the arrows move between the choices and skip the disabled one", () => {
+  const { chosen } = open();
+  expect(ui.focused.id).toBe("choice_help");
+  game.tap("ui_down");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_leave"); // choice_buy cannot be chosen: no focus
+  game.tap("ui_down");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_leave"); // the last one: the focus never leaves the card
+  game.tap("ui_up");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_help");
+  game.tap("ui_up");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_help");
+  game.tap("ui_submit");
+  game.step(2);
+  expect(chosen).toEqual(["help"]);
+});
+
+test("a disabled choice does nothing and shows why", () => {
+  const { chosen } = open();
+  const buy = world.find("choice_buy");
+  expect(buy.get("Button").interactable).toBe(false);
+  game.click("choice_buy");
+  game.step(2);
+  expect(chosen).toEqual([]);
+  expect(world.find("choice_buy_detail").get("Text").text).toContain("Needs 50 coins");
+  expect(world.find("choice_buy_detail").get("Text").text).not.toContain("Never shown");
+  expect(world.find("choice_help_detail").get("Text").text).toBe("Costs 2 wood");
+});
+
+test("the pad picks a choice, the result stage has Continue, and closing gives the game back", () => {
+  const { card, clicks, chosen } = open();
+  pad.tap("DpadDown");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_leave");
+  pad.tap("A");
+  game.step(2);
+  expect(chosen).toEqual(["leave"]);
+  card.answer({ body: "You walk away.", effects: "[b]Nothing changed[/b]" });
+  game.step(3);
+  expect(world.find("choice_leave")).toBe(null);
+  expect(world.find("card_continue").activeInHierarchy).toBe(true);
+  expect(ui.focused.id).toBe("card_continue");
+  game.click("under");
+  game.step(2);
+  expect(clicks).not.toContain("under");
+  pad.tap("A");
+  game.step(2);
+  expect(chosen).toEqual(["leave", "continue"]);
+  card.close();
+  game.step(2);
+  expect(world.find("card")).toBe(null);
+});
+
+test("holdClock pauses the game while the card is open; a game that was paused stays paused", () => {
+  game.paused = false;
+  const { card } = open({ holdClock: true });
+  expect(game.paused).toBe(true);
+  card.close();
+  expect(game.paused).toBe(false);
+  game.paused = true;
+  const again = open({ holdClock: true });
+  again.card.close();
+  expect(game.paused).toBe(true);
+  game.paused = false;
+});
+
+test("the card blocks the pointer by being modal, not only by its backdrop", () => {
+  const { card, clicks } = open();
+  world.find("card").get("Panel").color = [0, 0, 0, 0]; // a backdrop that draws nothing is not hit...
+  game.step(2);
+  game.click("under"); // ...but Panel.modal still keeps the pointer from every widget outside the card
+  game.step(2);
+  expect(clicks).not.toContain("under");
+  expect(ui.focused.id.startsWith("choice_")).toBe(true);
+  card.close();
+});
+```
+
 ### `scenes/loading.scene.json`
 
 ```json scenes/loading.scene.json
@@ -2567,6 +3072,9 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "change": "You can change your mind in Options at any time. If you say no, nothing is sent.",
     "allow": "Allow",
     "deny": "No thanks"
+  },
+  "card": {
+    "continue": "Continue"
   }
 }
 ```
@@ -2662,6 +3170,9 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "change": "Puedes cambiar de opinión en Opciones cuando quieras. Si dices que no, no se envía nada.",
     "allow": "Permitir",
     "deny": "No, gracias"
+  },
+  "card": {
+    "continue": "Continuar"
   }
 }
 ```

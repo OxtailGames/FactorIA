@@ -1041,5 +1041,8 @@
     "toast": {
       "rotated": "已旋转：{name}。"
     }
+  },
+  "card": {
+    "continue": "继续"
   }
 }
