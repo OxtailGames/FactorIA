@@ -68,6 +68,26 @@
           }
         },
         {
+          "id": "load_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Load game",
+              "key": "menu.load"
+            }
+          }
+        },
+        {
+          "id": "chapters_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Chapter select",
+              "key": "menu.chapters"
+            }
+          }
+        },
+        {
           "id": "options_button",
           "components": {
             "Button": {

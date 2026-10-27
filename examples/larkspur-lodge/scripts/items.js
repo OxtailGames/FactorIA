@@ -4,13 +4,20 @@
 // The catalogue is a validated data table: validateItems() checks the shape, the locale keys and the cross references
 // (project.validate_data runs it; tests/data.test.js feeds it broken tables). Items are only ever named by id.
 //   { "format": "larkspur.items/1", "items": { "<id>": { kind: "key"|"clue"|"tool", nameKey, descriptionKey,
-//                                                         color: [r,g,b,a], opens: [door entity ids] } } }
+//                                                         color: [r,g,b,a], opens: [door entity ids],
+//                                                         readKey?: locale key of a rich text shown when the item is read,
+//                                                         view?: { distance, parts: [primitive parts of the 3D item view] } } } }
+// data/combos.json lists the pairs of items that combine: { combos: [{ id, a, b, result, textKey }], refuseKey }.
 import { session, didYouMean } from "factoria";
 import table from "../data/items.json";
+import comboTable from "../data/combos.json";
 import { EVENTS, emit } from "./events.js";
 
 /** The kinds an item can have: a key opens doors, a clue is read, a tool is used on something. */
 export const KINDS = Object.freeze(["key", "clue", "tool"]);
+
+/** The built-in shapes an item view may use. */
+export const PRIMITIVES = Object.freeze(["cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad"]);
 
 /** The catalogue: item id -> { kind, nameKey, descriptionKey, color, opens }. */
 export const catalogue = table.items;
@@ -54,6 +61,29 @@ export function add(id, from = "") {
   return true;
 }
 
+/** The item combinations: [{ id, a, b, result, textKey }]. */
+export const combos = comboTable.combos;
+
+/** The combination of two items (in either order), or null. */
+export function comboOf(a, b) {
+  return combos.find((c) => (c.a === a && c.b === b) || (c.a === b && c.b === a)) ?? null;
+}
+
+/**
+ * Combines two carried items: both are used up and the result goes into the inventory.
+ * @returns {{ ok: boolean, result: string | null, textKey: string }} textKey is what to tell the player (a locale key)
+ */
+export function combine(a, b) {
+  if (a === b || !has(a) || !has(b)) return { ok: false, result: null, textKey: comboTable.refuseKey };
+  const c = comboOf(a, b);
+  if (!c) return { ok: false, result: null, textKey: comboTable.refuseKey };
+  remove(c.a);
+  remove(c.b);
+  add(c.result, "combine");
+  emit(EVENTS.itemsCombined, { a: c.a, b: c.b, result: c.result });
+  return { ok: true, result: c.result, textKey: c.textKey };
+}
+
 /** Takes an item out of the inventory (a key used up, a gift given). Returns false when it was not carried. */
 export function remove(id) {
   const items = store();
@@ -82,8 +112,9 @@ export function reset() {
 /**
  * Checks an items table against itself and against the strings and scenes it names. Pure: pass the pieces in.
  * @param {any} items the parsed data/items.json
- * @param {{ strings?: any, scenes?: Record<string, any> }} [ctx] strings: the parsed locales/en.json (checks the name and
- *   description keys); scenes: scene file path -> parsed scene (checks `opens`, and that every key door and item box names an item)
+ * @param {{ strings?: any, scenes?: Record<string, any>, combos?: any }} [ctx] strings: the parsed locales/en.json (checks the name and
+ *   description keys); scenes: scene file path -> parsed scene (checks `opens`, and that every key door and item box names an item);
+ *   combos: the parsed data/combos.json (checks the pairs against the items)
  * @returns {{ file: string, pointer: string, message: string, hint: string }[]} every problem; [] when the table is sound
  */
 export function validateItems(items, ctx = {}) {
@@ -143,6 +174,44 @@ export function validateItems(items, ctx = {}) {
           problem(`${at}/opens/${i}`, `item '${id}' opens '${door}', which no scene has as a door that needs an item`, near ? `Did you mean '${near}'?` : `Doors that need an item: ${[...doors.keys()].join(", ")}.`);
         } else if (d.item !== id) problem(`${at}/opens/${i}`, `item '${id}' opens '${door}', but that door in ${d.path} needs '${d.item}'`, `Set the door's requiresItem to '${id}' or change this list.`);
       });
+  }
+  for (const [id, item] of Object.entries(items.items)) {
+    if (!item || typeof item !== "object") continue;
+    const at = `/items/${id}`;
+    if (item.readKey !== undefined && ctx.strings && !hasKey(ctx.strings, item.readKey)) problem(`${at}/readKey`, `item '${id}': the string '${item.readKey}' is not in locales/en.json`, "Add it to locales/en.json.");
+    if (item.view !== undefined) {
+      const v = item.view;
+      if (!v || typeof v !== "object" || !Array.isArray(v.parts) || v.parts.length === 0 || typeof v.distance !== "number") problem(`${at}/view`, `item '${id}' has a bad view`, 'A view is { "distance": 2.5, "parts": [{ "mesh": "cube", "position": [0,0,0], "scale": [1,1,1], "color": [1,1,1,1] }] } with at least one part.');
+      else
+        v.parts.forEach((part, i) => {
+          if (!part || !PRIMITIVES.includes(part.mesh)) problem(`${at}/view/parts/${i}/mesh`, `item '${id}' part ${i} has mesh '${part?.mesh}'`, `Use a built-in shape: ${PRIMITIVES.join(", ")}.`);
+        });
+    }
+  }
+  const cs = ctx.combos;
+  if (cs) {
+    const cfile = "data/combos.json";
+    const cproblem = (pointer, message, hint) => problems.push({ file: cfile, pointer, message, hint });
+    if (!Array.isArray(cs.combos)) cproblem("", "the file must have a 'combos' array", 'Start it with { "format": "larkspur.combos/1", "combos": [] }.');
+    else {
+      if (ctx.strings && !hasKey(ctx.strings, cs.refuseKey)) cproblem("/refuseKey", `the string '${cs.refuseKey}' is not in locales/en.json`, "Add it to locales/en.json.");
+      const seen = new Set();
+      cs.combos.forEach((c, i) => {
+        const at = `/combos/${i}`;
+        for (const f of ["a", "b", "result"]) {
+          if (!known.includes(c?.[f])) {
+            const near = didYouMean(String(c?.[f]), known);
+            cproblem(`${at}/${f}`, `combo '${c?.id}' names the item '${c?.[f]}', which is not in data/items.json`, near ? `Did you mean '${near}'?` : `Items: ${known.join(", ")}.`);
+          }
+        }
+        if (c?.a === c?.b) cproblem(at, `combo '${c?.id}' combines '${c?.a}' with itself`, "Use two different items.");
+        if (c && (c.result === c.a || c.result === c.b)) cproblem(`${at}/result`, `combo '${c.id}' gives back one of its own items`, "The result must be a new item.");
+        const key = [c?.a, c?.b].sort().join("+");
+        if (seen.has(key)) cproblem(at, `combo '${c?.id}' repeats the pair ${key}`, "Each pair of items combines in one way.");
+        seen.add(key);
+        if (ctx.strings && !hasKey(ctx.strings, c?.textKey)) cproblem(`${at}/textKey`, `combo '${c?.id}': the string '${c?.textKey}' is not in locales/en.json`, "Add it to locales/en.json.");
+      });
+    }
   }
   for (const [door, d] of doors) {
     if (!known.includes(d.item)) {

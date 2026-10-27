@@ -19,9 +19,9 @@ The game is built in packages. Each one adds to the contracts below and replaces
 |---|---|---|
 | P1 | The lodge, the porter and the camera: rooms, night lighting, three movement schemes, interaction, doors between areas, title / game / pause, test room, these contracts | done |
 | P2 | Dialogue and story: the runner in `scripts/dialogue.js`, dialogue files and their validator, the dialogue box, six characters, five chapters, three endings, the story bot | done |
-| P3 | Items and puzzles: the puzzle chain that ends the storm, the item uses | pending (the item catalogue and inventory exist) |
+| P3 | Items, clues and puzzles: the inventory page with a 3D item view and combining, the notebook, the deduction board with undo, four puzzles (drawer lock, timetable, torn letter, cellar fuse box) whose chain ends the storm | done |
 | P4 | Cut-scenes and voice: the player in `scripts/cutscene.js`, ten cut-scenes, captions, the voice pipeline | done (no voice clips yet: see Cut-scenes) |
-| P5 | Saves: slots, autosave, versioning, cloud | pending (the data shape exists, nothing is written to storage) |
+| P5 | Saves: five slots and an autosave, the save / load screen, versioned format (v1 -> v2), cloud, chapter select, achievements and stats | done |
 | P6 | Sound, options, accessibility | pending (the menu kit's options exist; the game plays no sound yet) |
 | P7 | Shipping: store builds, icons, listings | pending |
 | P8 | Languages: es, de, ko, he | pending (only `locales/en.json`) |
@@ -72,7 +72,10 @@ counters, `snapshot()`, `restore(data)`, `reset()`. Flags used so far:
 
 | Flag | Meaning | Set by | Read by |
 |---|---|---|---|
-| `storm_over` | the storm stopped | P3 (puzzle chain) | the `front_door` (`requiresFlag`) |
+| `storm_over` | the storm stopped | P3: the fuse box puzzle (`scripts/puzzles.js`) | the `front_door` (`requiresFlag`) |
+| `power_out` | the storm cut the power (chapter 4 begins with it) | the chapter 4 `enter` | the fuse box (`puzzles.availability`) |
+| `drawer_open`, `switch_card_found`, `timetable_solved`, `letter_pieced`, `fuse_fixed` | a puzzle solved (`switch_card_found` also by the drawer) | `scripts/puzzles.js` | the notebook clues, Haas (`fuse_fixed` opens the adit choice) |
+| `ded.<deduction id>` | a deduction stands on the board (cleared by undo) | `scripts/notebook.js` | dialogue and the notebook |
 | `intro_seen` | the opening cut-scene has played or was skipped | the end state of the `intro` cut-scene | `scripts/chapters.js` (a new game plays the intro once) |
 | `chapter`, `interviews`, `trust`, `ending`, the clue flags | the story (P2) | the dialogue data, `scripts/chapters.js` | dialogue conditions, `scripts/cast.js`, P3; every flag has a `doc` in `data/story.json` |
 | `open.<door id>` | the door was opened (stays open) | `interactable.js` | `interactable.js` |
@@ -105,6 +108,9 @@ Counters: `examined.<object id>`, the times an object was examined. `interviews`
 | `cutscene_started` | `{ id, skippable }` |
 | `cutscene_ended` | `{ id, skipped }` (the end state is in place) |
 | `device_changed` | `{ device }` (the last device that gave input changed) |
+| `puzzle_solved` | `{ id }` (`drawer`, `timetable`, `letter`, `fuse`) |
+| `board_changed` | `{ deductions, made, undone }` (a deduction made, undone or redone) |
+| `items_combined` | `{ a, b, result }` |
 
 ### Interaction API
 
@@ -113,7 +119,7 @@ An interactable is an entity tagged `interactable`, with a `Collider3D` (so a cl
 
 | Prop | Meaning |
 |---|---|
-| `kind` | `door`, `area`, `examine`, `item` or `talk` |
+| `kind` | `door`, `area`, `examine`, `item`, `talk` or `puzzle` |
 | `name`, `verb` | locale keys of the object name and of the verb in the prompt (default verb by kind) |
 | `point`, `reach` | `[x, z]` the object is used from (default its position) and the metres the porter may stand at (1.7) |
 | `text` | examine: locale key of the line shown |
@@ -121,6 +127,7 @@ An interactable is an entity tagged `interactable`, with a `Collider3D` (so a cl
 | `area`, `arrive` | area: target area (a key of `AREAS` in `scripts/area.js`) and the id of the spawn entity there |
 | `requiresItem`, `requiresFlag`, `lockedText` | door: item id or story flag that unlocks it, and the locale key of the line when locked |
 | `dialogue` | talk: dialogue id |
+| `puzzle` | puzzle: `drawer`, `timetable`, `letter` or `fuse` (opens its screen, or says why it cannot yet) |
 
 `interact()` returns `{ ok, kind, id, message }`. An opened door loses its collider and its prompt for the rest of the
 game. `Porter` offers `lock(reason)` / `unlock(reason)` (no input while a reason is held), `faceYaw(deg)`, `walkTo(path)`,
@@ -130,13 +137,64 @@ entities tagged `spawn`; every area has `spawn_default`.
 
 ### Item catalogue
 
-`data/items.json` (format `larkspur.items/1`), 8 items: `library_key`, `room_c_key`, `room_d_key`, `test_key` (kind `key`,
-`opens` lists the door entity ids), `lamp_oil`, `cellar_lantern` (kind `tool`), `guest_ledger`, `torn_letter` (kind `clue`).
-Each has `nameKey`, `descriptionKey` (locale keys), `color` and `opens`. `scripts/items.js` is the inventory (`session.inventory`, ids in
+`data/items.json` (format `larkspur.items/1`), 11 items: `library_key`, `room_c_key`, `room_d_key`, `test_key` (kind `key`,
+`opens` lists the door entity ids), `lamp_oil`, `cellar_lantern`, `fuse_wire`, `fuse_cartridge`, `fuse_mended` (kind `tool`),
+`guest_ledger`, `torn_letter` (kind `clue`). Each has `nameKey`, `descriptionKey` (locale keys), `color`, `opens` and `view` (the
+primitive parts of its 3D view), and `readKey` when it has a text to read. `scripts/items.js` is the inventory (`session.inventory`, ids in
 pick-up order): `add(id, from)` (throws for an unknown id, with a "did you mean"), `remove`, `has`, `list`, `get`, `ids`,
 `snapshot`, `restore`, `reset`. `factoria call project.validate_data` checks the table against `locales/en.json` and the
 scenes (every key door and item box names a real item and the other way round) and lists every problem with file,
 JSON pointer and fix; `tests/data.test.js` feeds it broken tables.
+
+### Items, clues and puzzles (P3)
+
+**The journal** (`scripts/screens.js`, one `screens` entity per area scene, built from code with `scripts/ui/kit.js`) has three pages:
+*Items* (what the porter carries, a 3D view of the selected item, **Combine**, **Piece together** for the letter), *Notebook* (every
+clue known and every deduction made, in rich text; picking an entry opens it on the board) and *Board* (clues as cards; pick two to
+link them; **Undo** / **Redo**). The puzzles open from their objects in the lodge (`kind: "puzzle"`), the letter also from the Items page.
+While a screen is up the porter is locked (`lock("screen")`), `scripts/lodge_camera.js` ignores drags, and Escape closes the screen
+instead of pausing (`MenuStack.busy`). A scene change with a screen open releases all of it (`onDestroy`).
+
+| | Keyboard and mouse | Touch | Gamepad |
+|---|---|---|---|
+| Open items / notebook | I / N, or the two buttons top right | the two buttons top right | X / Back |
+| Change page | click the tab, Tab, PageUp / PageDown | tap the tab | shoulder buttons |
+| Pick, combine, link | click | tap | D-pad and A |
+| Turn the item | drag inside the view, Q / E | one finger drag | right stick |
+| Zoom the item | R / V, the + / - buttons | pinch, the buttons | triggers |
+| Undo / redo (board) | Z / Y, the buttons | the buttons | left / right trigger |
+| Back / close | Escape | Close | B |
+
+**Combining** is data (`data/combos.json`: `{ id, a, b, result, textKey }`, either order): `items.combine(a, b)` uses both up and gives
+the result, or refuses with `combo.refuse` and loses nothing. Today: `fuse_wire` + `fuse_cartridge` -> `fuse_mended`.
+
+**The notebook** (`data/notebook.json`, `scripts/notebook.js`): a clue is known while its story flag is set (the clues are not stored);
+a deduction links two known nodes (clues or earlier deductions) and sets `ded.<id>`. `link(a, b)`, `undo()`, `redo()`, `made()`,
+`entries()`. Making a new deduction clears the redo list; redo refuses a deduction whose clue is no longer known.
+Locale keys: `notebook.clue.<id>.title|text`, `notebook.ded.<id>.title|text`.
+
+**The puzzles** (`data/puzzles.json`, `scripts/puzzles.js`, plain logic; the screens only draw it). The chain that ends the storm:
+the cellar crate gives `library_key`, the library gives the ledger, the torn letter is pieced together (swap strips), the board
+deduces the date from the whole letter and the ledger (`d_date`), the date is the code of the library desk drawer (`0403`; gives
+`fuse_wire`), the kitchen corner box gives `fuse_cartridge`, the two combine into `fuse_mended`, the reception timetable is put in
+order (mail, milk, goods, coach), and the cellar fuse box (needs `power_out`) takes the fuse and the four breakers thrown in that
+order (they stand in a different order in the box; a wrong one trips them all back). That sets `fuse_fixed` and `storm_over`; Haas
+opens the adit only after it.
+
+**State in `session`** (plain JSON, for P5's save; `save_data.js` snapshots it as `puzzles` and `notebook`):
+
+| Key | Shape |
+|---|---|
+| `session.inventory` | `["library_key", ...]` ids in pick-up order |
+| `session.puzzles` | `{ drawer: { dials: [0,0,0,0], tries }, timetable: { order: ["coach", ...] }, letter: { order: [2,0,3,1] }, fuse: { fitted, thrown: [...], trips } }` (created on first use) |
+| `session.board` | `{ deductions: ["d_trail"], redo: ["d_motive"] }` made in order; undone, last first |
+| `session.notebook` | `{ seen: ["oil"] }` clues already announced on the HUD |
+
+A solved puzzle is a story flag, not session state. `puzzles.restore` and `notebook.restore` drop what does not fit the data.
+
+**Tests.** `puzzles.test.js` (every puzzle, combining, the board with undo), `screens.test.js` (the screens through their real buttons,
+the keys, a gamepad-only and a touch-only run, saves), `data_puzzles.test.js` (broken tables), and `story_bot.test.js` plays the
+chain. They write `.factoria/screenshots/p3_*.png`.
 
 ### Dialogue (P2)
 
@@ -202,7 +260,7 @@ The chapter is the flag `chapter` (1 to 5; 0 in a bare scene such as the test ro
 | 2 Cold supper | `interviews>=3` | Tobias (cook), Haas (guest), Lucian (journalist) and Mara each give a clue and a way to win or lose trust. |
 | 3 Room C | `open.guest_door_c` | Keys from the cellar crate, the library and Haas; the ledger, the torn letter and the survey. |
 | 4 The old way | `vale_found` | The lantern from the cellar and the oil from the kitchen; Haas opens the adit behind the third wine shelf and Dr. Vale is brought out. |
-| 5 Dawn | the `ending` flag | `storm_over` is set. Dr. Vale on the sofa: `dawn` (the truth; needs `survey_known`), `quiet` (bury it; needs `trust>=3`) or `long` (accuse). |
+| 5 Dawn | the `ending` flag | Dr. Vale on the sofa: `dawn` (the truth; needs `survey_known`), `quiet` (bury it; needs `trust>=3`) or `long` (accuse). |
 
 Between chapters the porter is locked, the screen fades, the chapter card and its intro line show, and the cast is placed again
 (`chapter_changed`). A chapter waits for a running conversation to end. The ending screen (`prefabs/ui/ending.prefab.json`) sends
@@ -216,13 +274,13 @@ tap), blocks the porter, and turns to him while they talk.
 
 **Hooks for P3.** Every flag in `data/story.json` has a `doc` saying who sets and who reads it. P3 builds on `know_oil`, `know_cellar`,
 `know_page`, `know_argument` (clues said in chapter 2), `survey_known`, `hedda_letter`, `adit_known`, `adit_open`, `vale_found`,
-`page_recovered`, `storm_over` (set when chapter 5 begins; the front door reads it) and the `*_taken` flags of the item boxes. P3's
+`page_recovered`, `storm_over` (set by the fuse box puzzle of P3; the front door reads it) and the `*_taken` flags of the item boxes. P3's
 code may `story.set` the same flags and the chapters follow. The cut-scenes `adit_descent` and
 `adit_rescue` exist; P3 asks for them with `cutscene.play(id)` or a `{"cutscene": id}` effect.
 
 **The story bot.** `tests/story_bot.test.js` plays the whole night three times from the title screen with `tests/helpers/bot.js`
 (it stands next to a thing, presses the use key, picks answers from a list, waits for the fades) and pins an `fnv1a` hash of the
-story state after each ending: dawn `961c7a0a`, quiet `8d892f44`, long `a5fc2711`. When the story changes the test prints the
+story state after each ending: dawn `39eadb04`, quiet `6117fdc3`, long `2c786cb1` (P3 re-pinned them: chapter 4 now plays the puzzle chain, `bot.fixTheFuse()`). When the story changes the test prints the
 state: check the change is meant, then update the hash.
 
 ### Cut-scenes (P4)
@@ -255,24 +313,83 @@ the chapter begins, before the chapter card. `adit_descent` and `adit_rescue`: a
 **Captions and voice.** Every caption step names a locale key and a speaker; the caption shows `Speaker: text` through `ui.caption`
 and lasts as long as its voice clip, or its `seconds` when there is none. `data/cutscenes/voice_script.json` lists the 24 lines to
 speak; `data/cutscenes/voice.json` maps a line id to `{ path, seconds }` once a clip exists. **No clip ships yet**: no voice provider
-was available to `assets.generate_voice` (ENGINE_FEEDBACK FB-0012), so captions run on their placeholder timing; adding the clips
+was available to `assets.generate_voice` (ENGINE_FEEDBACK FB-0601), so captions run on their placeholder timing; adding the clips
 to `voice.json` is all it takes. Voice plays on the `voiceover` bus (`factoria.json` `audio.buses`), with the reverb of the
 cut-scene's room and the music ducked under it (`scripts/mix.js`).
 
-### Save data shape (stub)
+### Save data (P5)
 
-`scripts/save_data.js` builds and applies the plain object of a saved game and writes nothing to storage in P1:
+`scripts/save_data.js` builds and applies the plain object of a saved game; `scripts/saves.js` keeps it in the slots.
+The current format is **version 2**, `larkspur.save/2`:
 
 ```json
-{ "format": "larkspur.save/1", "area": "ground",
-  "spawn": { "position": [x, y, z], "yaw": 0 },
-  "story": { "flags": {}, "counters": {} },
-  "inventory": ["library_key"] }
+{ "format": "larkspur.save/2",
+  "playTime": 3725.5,
+  "place": { "area": "ground", "position": [x, y, z], "yaw": 0 },
+  "state": { "story": { "flags": {}, "counters": {} },
+             "inventory": ["library_key"],
+             "dialogue": { "history": [], "log": [] } } }
 ```
 
-`snapshot()` reads the current game; `apply(data)` restores story and inventory, stores the place to stand in
-`session.restoreSpawn` and returns `{ ok, area, message, hint }` (a save of another format is refused with a hint). The caller
-then loads the area scene with `scene.load(path, { restore: true })`. P5 adds the slots, autosave and versioning.
+Version 1 (`larkspur.save/1`, P1 and P2) kept the place as `area` + `spawn`, had `story` and `inventory` at the top and no play
+time. v2 gathers the place in one object, moves every part under `state` (one entry per registered part) and adds the play
+time and the dialogue history. `upgrade(raw)` migrates a v1 save (play time 0, empty history) and checks the result (area
+against the lodge's areas with a "did you mean", position, story): a damaged save is refused with a message and a hint, a save
+of a newer version says to update the game. Fixtures of both versions are in `tests/fixtures/` (`save_v1.json`,
+`save_v2.json`); `tests/saves.test.js` loads the v1 one in the v2 game.
+
+`snapshot()` reads the current game; `apply(data)` accepts any version, restores every part and the play time, stores the
+place to stand in `session.restoreSpawn` and returns `{ ok, area, message, hint }`. `saves.launch(data)` then goes through the
+loading screen (`session.loadRestore`) and loads the area with `{ restore: true }`.
+
+**Plugging a part in (for P3: inventory extras, the notebook, the deduction board).** The state that is not the place is a
+table of named parts. A package registers its own without editing `save_data.js`:
+
+```js
+import * as save_data from "./save_data.js";
+// a plain JSON object kept in session.board: saved as it is, restored by assigning it, reset to a copy of the fallback
+save_data.registerSession("board", { links: [] });
+// anything else: snapshot() returns a JSON value, restore(data) puts it back, reset() is a new game (or a save without the part)
+save_data.register("notebook", {
+  snapshot: () => session.notebook,
+  restore: (data) => { session.notebook = data; },
+  reset: () => { session.notebook = { entries: [] }; },
+});
+```
+
+Call it when the module loads (at the top level). A save that was applied before the module was imported keeps its entry in
+`session.savePending`; `register()` hands it over, and `snapshot()` writes it back untouched meanwhile, so no part is lost by
+a scene that does not import it. The title screen's Play, and the chapter select, call `save_data.resetAll()`.
+
+**Slots.** `scripts/saves.js`: five manual slots (`slot1`..`slot5`) and the autosave (`slot_auto`) in `storage`. A slot holds
+a record `{ counter, name, chapter, playTime, pic, data }`: `data` is the versioned save, `pic` a 192x108 PNG of the game
+(base64, or null when nothing could be drawn), `counter` goes up on every save and decides which copy wins between a cloud
+copy and a local one (the wall clock is never read). A slot that holds a bare v1 file reads as a record with no name or
+picture. **Saving is refused** (`saves.cannotSave()` gives the locale key of the reason, the Save button is greyed) when no
+game is running, during a cut-scene (`cutscene.active()`), during a conversation, and while the porter changes area or chapter.
+Anywhere else, in any area, the pause menu's Save game works.
+
+**Autosave.** `scripts/pause_menu.js` (one per level) autosaves once per chapter, as soon as the chapter has begun and the game
+may be saved; the same record is what the chapter select starts from. Loading a slot does not autosave over anything.
+
+**Screens.** Pause menu: Save game and Load game; title screen: Load game. Six rows (the autosave, which is never a save
+target, and the slots), each with its picture, name, chapter and play time and a Delete button that asks first. A click or a
+tap on a slot saves or loads; the gamepad walks the same buttons. Saving opens a dialog with a TextField for the name
+(default: the chapter's title); a gamepad player gets the on-screen keyboard of the menu kit (`scripts/ui/keyboard.js`)
+because the TextField is focused, and the first B closes the keyboard, the second the dialog. While the name is typed the pause
+action does not open or close the menus (P is a letter), Escape cancels the dialog.
+
+**Cloud.** With a signed-in store (`platform.has("cloudSave")`) every save is uploaded under the slot's key, a delete removes the
+copy, and opening the save / load screen compares each slot with its copy: the higher `counter` wins (a cloud copy replaces
+a damaged or older local one, a better local one is uploaded). A store that is down or a player who is signed out changes
+nothing locally. The screen redraws after the sync only if its scene is still the current one.
+
+**Chapter select, achievements and stats.** `scripts/progress.js` keeps in `storage "progress"` the endings reached and the save
+data taken at each chapter start. After the first ending the title screen shows Chapter select: chapter 1 is a new game, a
+later chapter is open once a game has begun it and starts a new run from the story the player had then. Achievements
+(`ending_dawn`, `ending_quiet`, `ending_long`, `all_endings`, `all_clues`: every clue flag in one game) and stats
+(`endings_seen`, `play_minutes`, `saves_made`) are declared in `factoria.json` "platform" and sent best effort to the store.
+Not tested: saving during a real cut-scene (`cutscene.active()` is always false until P4 lands; the check is in `cannotSave()`).
 
 ## Tests
 
@@ -282,7 +399,9 @@ then loads the area scene with `scene.load(path, { restore: true })`. P5 adds th
 `tests/fixtures/broken_cutscene.json`) and `cutscene` (playing, skipping by keyboard, gamepad and touch, captions in time with
 voice, `tests/fixtures/test_voice.wav` made by `assets/src/make_test_voice.py`); it writes `cutscene_caption.png`, `cutscene_card.png` and `cutscene_fade.png`. P2 adds `dialogue_data`, `dialogue_runner`, `dialogue_ui`,
 `cast_chapters` and `story_bot` tests; the dialogue UI and ending tests write `dialogue_line.png`, `dialogue_choices.png` and
-`ending_quiet.png` there. `tests/helpers/bot.js` has the `Bot` (`play`, `use`, `go`, `talk`, `state`) and `fnv1a`.
+`ending_quiet.png` there. `tests/helpers/bot.js` has the `Bot` (`play`, `use`, `go`, `talk`, `state`, and from P3 `openPuzzle`, `closePuzzle`, `fixTheFuse`) and `fnv1a`. P5 adds `saves.test.js` (the formats and their
+migration, every slot, the screens with mouse, gamepad and touch, the cloud on the fake store, chapter select, achievements and stats;
+it writes `slots_load.png` and `chapter_select.png`).
 
 ## Known limits and engine gaps
 
@@ -291,5 +410,9 @@ crashes the click handling (FB-0001), the camera and the click rays re-cast to f
 removes its collider because `Collider3D` has no `enabled` (FB-0003). P2 adds: the dialogue text reveal pads the text because
 `Text` cannot show part of a line (FB-0004), the data files are imported by hand (FB-0005), Escape is both cancel and pause
 (FB-0008), and the options menu got a text speed row by hand (FB-0011). FB-0006, FB-0007, FB-0009 and FB-0010 are
-documentation gaps met while writing the UI and its tests. P4 adds: no voice provider for `assets.generate_voice` (FB-0012) and a
-reload of the same scene that `scene.current` cannot tell apart (FB-0013); it met FB-0001 and FB-0006 again.
+documentation gaps met while writing the UI and its tests. P5 adds: slots are written by hand on top of `storage` (FB-0501), the
+fake store's `stats.add` is not atomic (FB-0502), a TextField and the pause action share Escape and P (FB-0503) and the store's
+answer time is undocumented (FB-0504).
+P3 adds LL/FB-0012 to LL/FB-0017 (no wheel through a modal panel, no viewport widget, camera viewports count the window, late `destroy`, how the lodge lights overexpose a far stage, a disabled button cannot take focus); `UiSystem::update_drag` (FB-0001) is avoided: no widget of P3 is draggable, the item turns by reading `input.mouse`, and every ancestor of a widget has a Panel.
+P4 adds: no voice provider for `assets.generate_voice` (FB-0601) and a
+reload of the same scene that `scene.current` cannot tell apart (FB-0602); it met FB-0001 and FB-0006 again.

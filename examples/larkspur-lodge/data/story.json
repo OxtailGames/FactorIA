@@ -19,7 +19,7 @@
     },
     "storm_over": {
       "type": "boolean",
-      "doc": "The storm has stopped and the front door can be opened. Set by the chapter 5 entry; read by the front door and P3."
+      "doc": "The power is back and the storm has blown out, so the front door can be opened. Set by scripts/puzzles.js when the cellar fuse box is mended; read by the front door."
     },
     "intro_seen": {
       "type": "boolean",
@@ -104,11 +104,40 @@
     "test_box_taken": {
       "type": "boolean",
       "doc": "The test room's key box was emptied. Set by the item box in the test room."
+    },
+    "power_out": {
+      "type": "boolean",
+      "doc": "The storm has cut the lodge's power. Set by the chapter 4 entry; the cellar fuse box can be mended from then on (scripts/puzzles.js)."
+    },
+    "cartridge_taken": {
+      "type": "boolean",
+      "doc": "The spare fuse cartridge was taken from the kitchen box. Set by the item box p_cartridge_box."
+    },
+    "drawer_open": {
+      "type": "boolean",
+      "doc": "The locked drawer of the library desk is open. Set by scripts/puzzles.js (drawer)."
+    },
+    "switch_card_found": {
+      "type": "boolean",
+      "doc": "Emil's card about the fuse box was found in the drawer. Set by scripts/puzzles.js (drawer); a clue of the notebook."
+    },
+    "letter_pieced": {
+      "type": "boolean",
+      "doc": "The torn letter was pieced together. Set by scripts/puzzles.js (letter); a clue of the notebook."
+    },
+    "timetable_solved": {
+      "type": "boolean",
+      "doc": "The order of the railway services is known. Set by scripts/puzzles.js (timetable); a clue of the notebook."
+    },
+    "fuse_fixed": {
+      "type": "boolean",
+      "doc": "The cellar fuse box is mended and the power is back. Set by scripts/puzzles.js (fuse); Captain Haas needs it before he lets the porter open the adit (ch4_haas)."
     }
   },
   "flagPrefixes": {
     "open.": "A door the porter opened: open.<door id>, set by scripts/interactable.js. Chapter 3 ends on open.guest_door_c.",
-    "talked.": "A conversation held once in a chapter: talked.<character>.<chapter>. Set by the story data so a repeat gives the short 'again' line."
+    "talked.": "A conversation held once in a chapter: talked.<character>.<chapter>. Set by the story data so a repeat gives the short 'again' line.",
+    "ded.": "A deduction on the board: ded.<deduction id>, set while it stands and cleared when it is undone (scripts/notebook.js)."
   },
   "chapters": [
     {
@@ -145,6 +174,9 @@
       "enter": [
         {
           "set": "know_cellar"
+        },
+        {
+          "set": "power_out"
         }
       ]
     },
@@ -153,11 +185,6 @@
       "titleKey": "chapter.5.title",
       "introKey": "chapter.5.intro",
       "final": true,
-      "enter": [
-        {
-          "set": "storm_over"
-        }
-      ],
       "start": {
         "area": "ground",
         "spawn": "spawn_default"

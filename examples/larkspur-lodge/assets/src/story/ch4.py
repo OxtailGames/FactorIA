@@ -17,10 +17,12 @@ c.line("angry", "haas", "Then open it. Quickly. Do not preach.", "plan")
 c.line("calm", "haas", "That is more than I deserve. Thank you.", "plan")
 c.line("ready", "haas", "You are back. The latch is waiting.", "plan")
 c.line("plan", "haas", "The latch falls from the dark side and cannot be lifted from there. A man needs a light and a lantern's worth of oil to go down and bring someone up.", END,
-       ch=[ch("open", "Open it.", "descend", if_=["item:cellar_lantern", "item:lamp_oil"], fx=[S("adit_open"), CS("adit_descent")]),
+       ch=[ch("open", "Open it.", "descend", if_=["item:cellar_lantern", "item:lamp_oil", "fuse_fixed"], fx=[S("adit_open"), CS("adit_descent")]),
            ch("nolantern", "I have no lantern.", "hint_lantern", if_=["!item:cellar_lantern"]),
-           ch("nooil", "I have no lamp oil.", "hint_oil", if_=["item:cellar_lantern", "!item:lamp_oil"])])
+           ch("nooil", "I have no lamp oil.", "hint_oil", if_=["item:cellar_lantern", "!item:lamp_oil"]),
+           ch("nopower", "The latch will not move.", "hint_power", if_=["item:cellar_lantern", "item:lamp_oil", "!fuse_fixed"])])
 c.line("hint_lantern", "haas", "Emil kept a lantern in a cardboard box in the nook, by the far wall. Go and get it.", END)
+c.line("hint_power", "haas", "The latch works from the cellar circuit, and the storm has killed the circuit. The fuse box is on the cellar wall. Emil kept wire in his library desk, and there is a spare cartridge in the other box in the kitchen corner. Then the order of the day's trains, if I remember how he set it.", END)
 c.line("hint_oil", "haas", "The cook keeps a can in the box by the kitchen door. Hurry.", END)
 c.line("descend", "narrator", "The third shelf swings in on a rusted hinge and a breath of cold comes out of the dark. You light the lantern. The adit runs down, wet and low.", "found")
 c.line("found", "vale", "Down here! Who is it? Bless you; I have run out of matches and of good sense.", "found2")

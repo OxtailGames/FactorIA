@@ -350,6 +350,7 @@ class Area:
             "area": self.name, "titleKey": self.title_key, "preload": self.preload}}}})
         out.append({"id": "pause_menu", "components": {"Script": {"path": "scripts/pause_menu.js"}}})
         out.append({"id": "dialogue", "components": {"Script": {"path": "scripts/dialogue_view.js"}}})  # the dialogue box (spawns its own UI)
+        out.append({"id": "screens", "components": {"Script": {"path": "scripts/screens.js"}}})  # the inventory, notebook, board and puzzle screens (spawn their own UI)
         if self.name in STORY_AREAS:  # the people of the night and the chapters live in the areas the story walks through
             out.append({"id": "cast", "components": {"Script": {"path": "scripts/cast.js", "props": {"area": self.name}}}})
             out.append({"id": "chapters", "components": {"Script": {"path": "scripts/chapters.js"}}})
@@ -464,7 +465,7 @@ def ground():
     a.place("coatRackStanding", 19.5, 23.2, 0, 2.4, fade=True)
     a.place("benchCushion", 12.4, 23.1, 0, 2.0, ident="p_bench_hall", script={"kind": "examine", "name": "object.hall_bench", "text": "examine.hallBench"})
     a.place("bear", 21.5, 23.2, 180, 3.0, script={"kind": "examine", "name": "object.hall_bear", "text": "examine.hallBear"}, ident="p_bear")
-    a.place("desk", 19.0, 18.2, 180, 2.0, ident="p_reception", script={"kind": "examine", "name": "object.reception", "text": "examine.reception"})
+    a.place("desk", 19.0, 18.2, 180, 2.0, ident="p_reception", script={"kind": "puzzle", "name": "object.reception", "puzzle": "timetable", "verb": "interact.verb.read"})
     a.place("chairDesk", 19.0, 17.0, 180, 2.0)
     a.place("lampSquareTable", 20.2, 18.2, 0, 2.0, y=0.78, collide=False)
     a.place("loungeSofa", 10.3, 19.3, 90, 2.0)
@@ -507,7 +508,7 @@ def ground():
     a.place("tableCoffee", 5.2, 7.0, 0, 2.0)
     a.place("loungeSofa", 5.2, 9.4, 0, 2.0)
     a.place("loungeChairRelax", 2.8, 7.0, 270, 2.0)
-    a.place("desk", 8.2, 3.0, 270, 2.0, ident="p_library_desk", script={"kind": "examine", "name": "object.library_desk", "text": "examine.libraryDesk"})
+    a.place("desk", 8.2, 3.0, 270, 2.0, ident="p_library_desk", script={"kind": "puzzle", "name": "object.library_desk", "puzzle": "drawer", "verb": "interact.verb.take"})
     a.place("chairDesk", 7.0, 3.0, 270, 2.0)
     a.place("books", 8.2, 3.0, 0, 2.0, y=0.78, collide=False)
     a.place("lampRoundFloor", 9.2, 1.0, 0, 2.0)
@@ -543,7 +544,7 @@ def ground():
         a.place("stoolBar", xx, 8.0, 0, 2.0)
     a.place("trashcan", 22.9, 11.0, 0, 1.6)
     a.place("cardboardBoxClosed", 30.8, 10.8, 20, 2.0, ident="p_kitchen_box", script={"kind": "item", "name": "object.kitchen_box", "item": "lamp_oil", "once": "kitchen_box_taken"})
-    a.place("cardboardBoxClosed", 31.0, 9.2, 0, 2.0)
+    a.place("cardboardBoxClosed", 31.0, 9.2, 0, 2.0, ident="p_cartridge_box", script={"kind": "item", "name": "object.cartridge_box", "item": "fuse_cartridge", "once": "cartridge_taken"})
     a.light(27, 2.3, 6, GREEN, 1.4, 10, "light_kitchen")
 
     # --- spawns
@@ -650,6 +651,7 @@ def cellar():
     a.place("cardboardBoxOpen", 10.0, 10.9, 0, 2.2)
     a.place("cardboardBoxClosed", 10.2, 9.6, 40, 2.0)
     a.place("trashcan", 5.5, 11.0, 0, 1.6)
+    a.place("kitchenMicrowave", 3.0, 11.55, 180, 1.5, y=1.15, ident="p_fuse_box", script={"kind": "puzzle", "name": "object.fuse_box", "puzzle": "fuse", "verb": "interact.verb.mend", "reach": 2.0})
     a.place("bookcaseOpen", 18.8, 3.0, 270, 2.4, ident="p_wine_rack", script={"kind": "examine", "name": "object.wine_rack", "text": "examine.wineRack"})
     a.place("books", 18.4, 6.0, 0, 2.0, y=0.0, collide=False)
     a.place("cardboardBoxClosed", 20.6, 8.6, 300, 2.0, ident="p_lantern_box", script={"kind": "item", "name": "object.cellar_lantern_box", "item": "cellar_lantern", "once": "lantern_taken"})
