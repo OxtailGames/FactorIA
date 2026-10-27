@@ -233,8 +233,8 @@ project's `scaleMode`.
 - Back and closing the game destroy the activity too; the process ends and the game is not started again.
 - When the process ends this way it ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`): the engine is not
   shut down and no script callback runs. Save progress while the game runs: `storage.set` writes the key's file in the
-  app's internal folder immediately. A `storage.setAsync` write still waiting on its worker thread when the process ends this
-  way is lost, so save with `set` in the `suspend` handler.
+  app's internal folder immediately. The `storage.setAsync` writes still waiting are made right after the `suspend`
+  handlers run, so a save in the `suspend` handler (with `set` or `setAsync`) is on disk before the process can end.
 
 ### Native plugins on Android
 

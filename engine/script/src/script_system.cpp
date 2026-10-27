@@ -1202,6 +1202,7 @@ void ScriptSystem::app_event(AppLifecycle event) {
             if (I.appSuspended) return;
             I.appSuspended = true;
             send("app.suspend");  // first, so a script can open its own pause menu: that pause is then the one that stays
+            I.storage_drain();  // a storage.setAsync still waiting is on disk before the app can be killed (or the web page hidden)
             I.service_call("serviceSuspend", {});  // sends the analytics events that wait
             const Json settings = I.host->project_settings();
             const bool pauseOnSuspend = !settings.is_object() || !settings.contains("pauseOnSuspend") ||
@@ -1233,6 +1234,7 @@ bool ScriptSystem::close_requested() {
     I.quitCancelled = false;
     I.host->world().events().game.push_back(GameEvent{"app.quit", Json::object(), kNullEntity});
     dispatch_events();
+    I.storage_drain();  // the quit handlers' storage.setAsync writes land before the web flushes the save folder
     const bool cancelled = I.quitCancelled;
     I.quitCancelled = false;
     if (cancelled) return false;
