@@ -54,6 +54,8 @@ Changing the section needs a restart; editing `locales/*.json` does not (hot rel
   en, es, pt, fr, de, it, nl, ru, uk, pl, cs, ar, he, ja, zh, ko, tr; others follow English; vi, th, id, ms have one
   form). A number with decimals counts as having them. Without a numeric `count` the `other` form is used and a
   warning says so. An ordinary group whose keys happen to be category names needs a different key name.
+- A string can have a **gender** (`{"text": "Ligera", "gender": "f"}`, `f`, `m` or `n`) and a **select entry** (an
+  object whose keys are all of `f`, `m`, `n`, `other`, with `other`) picks its form by `args.gender`: section 5c.
 - `{name}` is replaced by `args.name` (strings as they are, numbers without a trailing `.0`, `null` as empty). `{{` and
   `}}` are literal braces. A placeholder without an argument stays as written and the log says which. `{v:number:1}` and `{t:duration}` write
   numbers and times for the language (section 5b).
@@ -145,6 +147,7 @@ i18n.has("menu.play");                  // true: a real string, not the key retu
 i18n.language; i18n.languages;          // "es"; ["en", "es", "pt-BR", "zh-Hans"]
 i18n.defaultLanguage; i18n.systemLanguages;   // "en"; the player's languages (empty without a window)
 i18n.name("es");                        // "Español"
+i18n.gender("ship.light");              // "f": the gender of a string (section 5c)
 i18n.setLanguage("es");                 // everything with a key changes now
 const off = i18n.on("change", ({ language, previous }) => { /* write your own texts again */ });
 ```
@@ -209,6 +212,47 @@ a language to `style_for` in `engine/core/src/number_format.cpp` (and a test) wh
 only matter where the table lists them. Check the font of a language with its own digits (DejaVu Sans, the built-in
 font, has the Arabic-Indic and Persian ones).
 
+## 5c. Gender and agreement
+
+Spanish, French, German, Russian and many other languages change the article and the adjective with the gender of the
+noun. A sentence built from a name that comes from another table ("the {name} is ready" with a ship called Ligera or
+Esquife) needs that gender. Give the name a gender and write the sentence as a **select entry**:
+
+```json
+{
+  "ship": { "light": { "text": "Ligera", "gender": "f" }, "skiff": { "text": "Esquife", "gender": "m" } },
+  "ship_the": { "f": "la {name}", "m": "el {name}", "other": "{name}" },
+  "ship_ready": { "f": "{name} está lista", "m": "{name} está listo", "other": "{name} está listo" }
+}
+```
+
+```js
+const noun = "ship.light";
+i18n.t("ship_the", { name: i18n.t(noun), gender: i18n.gender(noun) });   // "la Ligera"
+i18n.t("ship_ready", { name: i18n.t("ship.skiff"), gender: i18n.gender("ship.skiff") });   // "Esquife está listo"
+```
+
+- A **gendered string** is an object with exactly the keys `text` and `gender` (`"f"` feminine, `"m"` masculine, `"n"`
+  neuter, as in German or Russian). `i18n.t` returns its `text` like any string; `i18n.gender(key)` returns the gender
+  of the first table of the fallback chain that has the key, `""` when it has none. Any other gender is an error with
+  the JSON pointer. A group whose only keys are `text` and `gender` needs other key names.
+- A **select entry** is an object whose keys are all of `f`, `m`, `n`, `other`; `other` is required and is what a name
+  without a known gender (or a gender without a form) shows. `i18n.t` picks the form by `args.gender`; without a string
+  `gender` argument it uses `other` and warns once. A select entry may use `{placeholders}` like any string; it is
+  not also a plural entry (phrase the count and the gender in separate strings).
+- English has no gender, so its table writes plain strings and a select entry with only `other` (`"ship_the": {"other":
+  "the {name}"}`). Such an object is read as a plural entry whose only form is `other`; it works the same, and
+  `factoria validate` accepts it next to the translations' select entries.
+- `factoria validate` warns when a language with grammatical gender (es, fr, pt, it, ca, ar, he and others: `f`, `m`;
+  de, ru, pl, cs, uk and others also `n`) has a select entry without a form it uses, and when a name that has a gender in
+  the default language has none in such a language. `i18n.export` writes one row per form (`ship_the#f`, `ship_the#m`,
+  `ship_the#other`) and a row `ship.light#gender` (cells `f`, `m` or `n`) for each string that has a gender in some
+  language; `i18n.import` reads them back (section 8).
+- **Case.** The tables do not model grammatical case (German "der/dem/den", Russian and Polish declension). Phrase
+  the sentence so the noun stays in the form the table gives it: "Edificio: {name}" instead of "al {name}", a
+  label and a colon instead of a preposition, or write a whole sentence per name when the language needs the case. The
+  gender forms cover articles and adjectives that agree with a noun in its base form, which is most of what a game says.
+
 ## 6. Fonts, right-to-left languages and text size
 
 [TEXT.md](TEXT.md) describes how text is drawn; what a localized game has to do about it:
@@ -263,7 +307,8 @@ a key that is one letter off. Errors fail the validation; warnings do not.
 | `locales/<tag>.json` missing, not JSON, or a value that is not a string (file and pointer) | error |
 | The default language has keys another language lacks: one line per language with the count and the first names | warning |
 | A key a table has and the default table lacks (a typo or a removed string), with the closest key | warning |
-| `{placeholders}` that differ from the default language's text, a key that is plain text in one table and plural in the other | warning |
+| `{placeholders}` that differ from the default language's text, a key that is plain text in one table and plural in the other, or has gender forms in the default language and none here | warning |
+| A select entry without a gender form the language uses (`m` in Spanish: the line says those names show `other`), or a name with a gender in the default language and none in a language with grammatical gender | warning |
 | A plural entry without a form the language uses (`few` and `many` in Russian: the line says which counts show `other` instead), or with a form no count picks (`zero` in Japanese) | warning |
 | A `key` of a Text or widget that the default table lacks (the game would show the scene's text and log a warning) | error |
 | A `nameKey`, `descriptionKey` or `titleKey` of the platform catalog that the default table lacks (file `factoria.json`, pointer, closest key) | error |
@@ -310,7 +355,10 @@ factoria call i18n.import '{"file": "build/translations/translations.csv"}'
 
 **Rows.** One row per string, with the default language's text next to the text to translate. A nested key is written
 dotted (`menu.play`), a plural entry is **one row per form**, the category after a `#`: `coins#one`, `coins#other`
-(Russian gets `few` and `many` too; the forms a language needs are the CLDR categories of section 2). The row `$name`
+(Russian gets `few` and `many` too; the forms a language needs are the CLDR categories of section 2). A select entry
+(section 5c) is one row per form too (`ship_the#f`, `ship_the#m`, `ship_the#other`) and a string with a gender in any
+language gets a row `ship.light#gender` whose cell is `f`, `m` or `n`; to give a string a gender in a language that has
+none yet, write that row (`i18n.import` turns the string into `{"text", "gender"}`). The row `$name`
 is the language's own name. A placeholder (`{name}`, `{count}`) must stay in the translation exactly as in the source;
 XLIFF files carry a note that says so.
 

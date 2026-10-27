@@ -151,6 +151,44 @@ TEST_CASE("i18n.export csv: one file with a byte order mark, the default languag
     CHECK(en.count("coins#zero") == 0);
 }
 
+TEST_CASE("i18n.export and import: gender rows and select forms round-trip") {
+    Game g(R"({"ship": {"light": "Skiff"}, "the": {"other": "the {name}"}, "pick": {"f": "she", "other": "it"}})",
+           R"({"ship": {"light": {"text": "Ligera", "gender": "f"}}, "pick": {"f": "ella", "other": "ello"}})", R"({})");
+    auto r = g.call("i18n.export", Json{{"format", "csv"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    auto file = read_csv(g.raw("build/translations/translations.csv"));
+    REQUIRE(file.ok());
+    const auto en = column(*file, "en"), es = column(*file, "es"), ru = column(*file, "ru");
+    CHECK(es.at("ship.light#gender") == "f");  // a gender in some language gives every language the row
+    CHECK(en.at("ship.light#gender").empty());
+    CHECK(en.at("pick#m") == "it");            // Spanish needs "m": the source is the "other" text
+    CHECK(en.count("pick#n") == 1);            // the rows are the same for every language
+    CHECK(en.count("pick#other") == 1);
+    CHECK(ru.at("pick#n").empty());            // Russian has three genders
+    CHECK(es.at("pick#f") == "ella");
+
+    const std::string filled = translate_csv(g.raw("build/translations/translations.csv"),
+                                             {{"es", {{"pick#m", "él"}}}, {"ru", {{"ship.light", "Лёгкая"}, {"ship.light#gender", "f"}, {"pick#n", "оно"}, {"pick#other", "x"}, {"pick#f", "она"}}}});
+    testing::write_all(g.dir + "/build/translations/filled.csv", filled);
+    r = g.call("i18n.import", Json{{"file", "build/translations/filled.csv"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json es2 = g.table("es"), ru2 = g.table("ru");
+    CHECK(es2["pick"]["m"] == "él");
+    CHECK(es2["pick"]["f"] == "ella");
+    CHECK(es2["ship"]["light"]["gender"] == "f");
+    CHECK(es2["ship"]["light"]["text"] == "Ligera");
+    CHECK(ru2["ship.light"]["gender"] == "f");  // a new key, then given its gender
+    CHECK(ru2["ship.light"]["text"] == "Лёгкая");
+    CHECK(ru2["pick"]["n"] == "оно");
+
+    // A bad gender and a gender for a plural entry are warnings, not imports.
+    testing::write_all(g.dir + "/build/translations/bad.csv", "key,en,es\r\nship.light#gender,,z\r\n");
+    r = g.call("i18n.import", Json{{"file", "build/translations/bad.csv"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["languages"]["es"]["warnings"].dump().find("not f, m or n") != std::string::npos);
+    CHECK(g.table("es")["ship"]["light"]["gender"] == "f");
+}
+
 TEST_CASE("i18n.export csv: delimiter, languages, out folder, and refusals that teach") {
     Game g;
     auto r = g.call("i18n.export", Json{{"format", "csv"}, {"languages", Json::array({"es"})}, {"out", "out/for-translators"}, {"delimiter", ";"}});

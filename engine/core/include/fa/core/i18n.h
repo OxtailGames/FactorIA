@@ -53,11 +53,33 @@ PluralCategory plural_category(std::string_view language, double count);
 std::vector<PluralCategory> plural_categories(std::string_view language, bool everyCount = false);
 
 // ---- String tables ------------------------------------------------------------------------------------------------------
+// ---- Grammatical gender ------------------------------------------------------------------------------------------------
+// A string can carry a gender ("f" feminine, "m" masculine, "n" neuter) and a "select" entry picks its form by one:
+//   "ship": { "light": { "text": "Ligera", "gender": "f" } }          -> i18n.gender("ship.light") is "f"
+//   "ship.the": { "f": "la {name}", "m": "el {name}", "other": "{name}" }  -> i18n.t("ship.the", {name, gender: "f"}) is "la Ligera"
+// A select entry is an object whose keys are all of f, m, n, other (and that has "other"); a gendered string is an object
+// with exactly "text" and "gender".
+bool is_gender_code(std::string_view code);  // "f", "m" or "n"
+// The select forms a language with grammatical gender needs besides "other": {"f", "m"} for es, fr, pt, it, ca, ar, he...,
+// {"f", "m", "n"} for de, ru, pl...; empty for a language without gender (en, ja, zh, tr...).
+std::vector<std::string> gender_forms(std::string_view language);
+
 struct StringEntry {
-    std::string text;                                  // a plain string
+    std::string text;                                  // a plain string (also the "text" of a gendered one)
     std::map<PluralCategory, std::string> forms;       // a plural entry (non-empty): one text per category, always has Other
-    std::string pointer;                               // where the entry is in the file: "/menu/play" ("/coins" for a plural entry)
+    std::map<std::string, std::string> selects;        // a select entry (non-empty): "f", "m", "n", "other"; always has "other"
+    std::string gender;                                // "f", "m", "n" for a gendered string, else ""
+    std::string pointer;                               // where the TEXT of the entry is in the file: "/menu/play", "/coins" (a plural
+                                                       // or select entry: the object), "/ship/light/text" (a gendered string)
     bool plural() const { return !forms.empty(); }
+    bool select() const { return !selects.empty(); }
+    bool gendered() const { return !gender.empty(); }
+    // The text a tool shows when it needs one: the "other" form of a plural or select entry, else the text.
+    const std::string& fallback_text() const {
+        if (plural()) return forms.at(PluralCategory::Other);
+        if (select()) return selects.at("other");
+        return text;
+    }
 };
 
 struct StringTable {
@@ -113,7 +135,8 @@ public:
     Result<std::string> set_language(std::string_view requested);
 
     // The text of `key` in the current language, else its base language, else the default language; with {placeholders}
-    // from `args` (an object) and, for a plural entry, the form for args.count in the language of the table it came from.
+    // from `args` (an object) and, for a plural entry, the form for args.count in the language of the table it came from; for a
+    // select entry the form for args.gender ("f", "m", "n"; a missing form or gender gives "other", warning once).
     // nullopt when no table has the key.
     std::optional<std::string> translate(std::string_view key, const Json& args = nullptr) const;
     // translate(), or the key itself (warning once per key) when no table has it.
@@ -122,6 +145,9 @@ public:
     // decimals < 0: as many as the number has. For duration, decimals < 0 means 1.
     std::string number(double value, int decimals = -1) const;
     std::string duration(double seconds, int decimals = 1) const;
+    // The gender ("f", "m", "n") of `key` in the current language, else its base language, else the default language: the first
+    // table of the chain that has the key decides. "" when the key has no gender or no table has it.
+    std::string gender(std::string_view key) const;
     bool has(std::string_view key) const;  // some table of the fallback chain has the key
     // The language's own name (`$name`), else the tag.
     std::string name(std::string_view language) const;

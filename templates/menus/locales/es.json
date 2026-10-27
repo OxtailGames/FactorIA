@@ -10,7 +10,7 @@
     "back": "Atrás"
   },
   "loading": {
-    "text": "Cargando..."
+    "progress": "Cargando... {percent}%"
   },
   "captions": {
     "welcome": "Bienvenido, viajero.",

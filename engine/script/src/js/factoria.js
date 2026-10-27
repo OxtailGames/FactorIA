@@ -2661,6 +2661,12 @@
     },
     // Is `key` in some table of the current language's fallback chain? (t never throws; has tells a real string from the key.)
     has(key) { return N.i18nHas(String(key)); },
+    // The grammatical gender of a string ("f", "m", "n"; "" when it has none): pass it as args.gender to a select entry.
+    gender(key) {
+      if (typeof key !== "string")
+        throw new Error(`i18n.gender(key): key must be a string like "ship.light", but got ${platformArg(key)}`);
+      return N.i18nGender(key);
+    },
     // The current language: one of `languages` ("" when the game has no localization).
     get language() { return N.i18nInfo().language; },
     // Switches now: every Text and widget with a `key` is rewritten, and the "change" listeners run. Accepts the tag as written in

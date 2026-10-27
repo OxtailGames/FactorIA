@@ -244,7 +244,7 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                         auto table = parse_string_table(*doc, tag, file);
                         if (!table.ok()) return out;
                         for (const auto& [key, entry] : table->entries)
-                            out[key] = entry.plural() ? entry.forms.at(PluralCategory::Other) : entry.text;
+                            out[key] = entry.fallback_text();
                         return out;
                     };
                     const auto base = read_strings(localization.defaultLanguage);

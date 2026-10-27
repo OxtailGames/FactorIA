@@ -68,17 +68,26 @@ std::string lower_path(const stdfs::path& p) {
 
 // ---- export ----------------------------------------------------------------------------------------------------------------
 
-// The text of `key` (one plural form when `category` is set) in a table; "" when the table has none.
-std::string text_in(const ld::TableFile& t, const std::string& key, const PluralCategory* category) {
+// The text of `key` (one plural or select form, or its gender, when `form` is set) in a table; "" when the table has none.
+std::string text_in(const ld::TableFile& t, const std::string& key, const std::string* form) {
     if (!t.table) return {};
     const auto it = t.table->entries.find(key);
     if (it == t.table->entries.end()) return {};
     const StringEntry& e = it->second;
-    if (!category) return e.plural() ? e.forms.at(PluralCategory::Other) : e.text;
-    if (!e.plural()) return {};
-    const auto form = e.forms.find(*category);
-    return form == e.forms.end() ? std::string() : form->second;
+    if (!form) return e.fallback_text();
+    if (*form == "gender") return e.gender;
+    if (e.select()) {
+        const auto f = e.selects.find(*form);
+        return f == e.selects.end() ? std::string() : f->second;
+    }
+    PluralCategory category{};
+    if (!e.plural() || !parse_plural_category(*form, category)) return {};
+    const auto f = e.forms.find(category);
+    return f == e.forms.end() ? std::string() : f->second;
 }
+
+// The form names of a select entry in the order a translator expects them.
+const char* const kSelectOrder[] = {"f", "m", "n", "other"};
 
 Json export_translations(const std::string& projectDir, const Json& args) {
     const std::string format = tooling_detail::arg_string(args, "format", false, "csv");
@@ -124,15 +133,43 @@ Json export_translations(const std::string& projectDir, const Json& args) {
         sheet.rows.push_back(std::move(name));
     }
     for (const auto& [key, entry] : def.table->entries) {
-        const auto add = [&](const std::string& rowKey, const std::string& source, const PluralCategory* category) {
+        const auto add = [&](const std::string& rowKey, const std::string& source, const std::string* form) {
             TranslationSheet::Row row{rowKey, source, {}, {}};
-            for (const ld::TableFile& t : tables) row.texts.push_back(text_in(t, key, category));
-            const std::set<std::string> names = ld::placeholders_of(source);
+            for (const ld::TableFile& t : tables) row.texts.push_back(text_in(t, key, form));
+            const std::set<std::string> names = form && *form == "gender" ? std::set<std::string>() : ld::placeholders_of(source);
             if (!names.empty()) row.note = "Keep the placeholders as they are: " + ld::describe_names(names) + ".";
+            if (form && *form == "gender") row.note = "The grammatical gender of the text above in this language: f (feminine), m (masculine) or n (neuter). Sentences pick their article by it.";
             sheet.rows.push_back(std::move(row));
         };
+        if (entry.select()) {
+            // The forms of the default language, the ones each language to translate needs, and any a table already has.
+            std::set<std::string> forms;
+            for (const auto& [form, text] : entry.selects) forms.insert(form);
+            for (std::size_t i = 0; i < targets.size(); ++i) {
+                for (const std::string& f : gender_forms(targets[i])) forms.insert(f);
+                if (tables[i].table)
+                    if (const auto it = tables[i].table->entries.find(key); it != tables[i].table->entries.end())
+                        for (const auto& [form, text] : it->second.selects) forms.insert(form);
+            }
+            forms.insert("other");
+            for (const char* name : kSelectOrder) {
+                if (!forms.count(name)) continue;
+                const auto own = entry.selects.find(name);
+                const std::string form = name;
+                add(key + "#" + form, own != entry.selects.end() ? own->second : entry.selects.at("other"), &form);
+            }
+            continue;
+        }
         if (!entry.plural()) {
             add(key, entry.text, nullptr);
+            bool anyGender = entry.gendered();
+            for (const ld::TableFile& t : tables)
+                if (t.table)
+                    if (const auto it = t.table->entries.find(key); it != t.table->entries.end() && it->second.gendered()) anyGender = true;
+            if (anyGender) {
+                const std::string form = "gender";
+                add(key + "#gender", entry.gender, &form);
+            }
             continue;
         }
         // The forms of the default language, the ones each language to translate needs, and any a table already has.
@@ -146,7 +183,8 @@ Json export_translations(const std::string& projectDir, const Json& args) {
         }
         for (PluralCategory c : forms) {
             const auto own = entry.forms.find(c);
-            add(key + "#" + plural_category_name(c), own != entry.forms.end() ? own->second : entry.forms.at(PluralCategory::Other), &c);
+            const std::string form = plural_category_name(c);
+            add(key + "#" + form, own != entry.forms.end() ? own->second : entry.forms.at(PluralCategory::Other), &form);
         }
     }
 
@@ -175,9 +213,16 @@ Json export_translations(const std::string& projectDir, const Json& args) {
 
 // ---- import ----------------------------------------------------------------------------------------------------------------
 
+enum class Kind { Plain, Plural, Select };
+
+const char* kind_name(Kind k) { return k == Kind::Plural ? "a plural entry" : k == Kind::Select ? "a gender (select) entry" : "one plain string"; }
+
+Kind kind_of(const StringEntry& e) { return e.plural() ? Kind::Plural : e.select() ? Kind::Select : Kind::Plain; }
+
 struct Location {
-    std::string pointer;
-    bool plural = false;
+    std::string pointer;  // of the text (of the object for a plural or select entry)
+    Kind kind = Kind::Plain;
+    bool gendered = false;
 };
 
 struct LanguageResult {
@@ -189,16 +234,20 @@ struct LanguageResult {
     std::string file;
 };
 
-// "items#one" -> {"items", One}; a key without a plural form after the '#' is whole.
+// "items#one" -> {"items", "one"}, "ship#f" -> {"ship", "f"}, "ship#gender" -> {"ship", "gender"}; a key without a form after the '#'
+// is whole (form "").
 struct RowKey {
     std::string key;
-    std::optional<PluralCategory> category;
+    std::string form;
 };
 RowKey split_row_key(const std::string& raw) {
     const std::size_t hash = raw.rfind('#');
-    PluralCategory category{};
-    if (hash != std::string::npos && hash > 0 && parse_plural_category(raw.substr(hash + 1), category)) return {raw.substr(0, hash), category};
-    return {raw, std::nullopt};
+    if (hash != std::string::npos && hash > 0) {
+        const std::string form = raw.substr(hash + 1);
+        PluralCategory category{};
+        if (parse_plural_category(form, category) || is_gender_code(form) || form == "gender") return {raw.substr(0, hash), form};
+    }
+    return {raw, std::string()};
 }
 
 std::string child_pointer(const std::string& parent, const std::string& token) { return (Json::json_pointer(parent) / token).to_string(); }
@@ -221,8 +270,8 @@ std::string insert_entry(Json& document, const std::string& key, const Json& val
         if (it == node->end()) {
             (*node)[segments[i]] = Json::object();
             it = node->find(segments[i]);
-        } else if (!it->is_object() || (known.count(prefix) && known.at(prefix).plural)) {
-            *why = "'" + prefix + "' is " + (it->is_object() ? "a plural entry" : "a string") + " in the file, so '" + key + "' cannot sit under it";
+        } else if (!it->is_object() || (known.count(prefix) && (known.at(prefix).kind != Kind::Plain || known.at(prefix).gendered))) {
+            *why = "'" + prefix + "' is " + (it->is_object() ? "an entry with forms" : "a string") + " in the file, so '" + key + "' cannot sit under it";
             return {};
         }
         node = &*it;
@@ -246,13 +295,13 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
     r.document = current.table ? current.document : Json::object();
     std::map<std::string, Location> known;
     if (current.table)
-        for (const auto& [key, entry] : current.table->entries) known[key] = {entry.pointer, entry.plural()};
+        for (const auto& [key, entry] : current.table->entries) known[key] = {entry.pointer, kind_of(entry), entry.gendered()};
     // Is the file written as nested groups ("menu": {"play": ...})? A language with no file yet copies the default table's shape.
     const auto is_nested = [](const Json& document, const StringTable& table) {
         for (auto it = document.begin(); it != document.end(); ++it) {
             if (it.key().empty() || it.key()[0] == '$') continue;
             const auto entry = table.entries.find(it.key());
-            if (it->is_object() && !(entry != table.entries.end() && entry->second.plural())) return true;
+            if (it->is_object() && !(entry != table.entries.end() && (entry->second.plural() || entry->second.select() || entry->second.gendered()))) return true;
         }
         return false;
     };
@@ -262,7 +311,12 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
     std::vector<std::string> defaultKeys;
     for (const auto& [key, entry] : defaults) defaultKeys.push_back(key);
     std::set<std::string> unknownReported;
-    std::map<std::string, std::map<PluralCategory, std::string>> newPlurals;  // plural entries the file lacks, added once complete
+    struct NewObject {
+        Kind kind = Kind::Plural;
+        std::map<std::string, std::string> forms;
+    };
+    std::map<std::string, NewObject> newObjects;  // plural and select entries the file lacks, added once complete
+    std::vector<std::pair<RowKey, const TranslationRow*>> genderRows;  // applied after the texts, which they belong to
 
     const auto set_text = [&](const std::string& pointer, const std::string& text) {
         const Json::json_pointer ptr(pointer);
@@ -289,7 +343,7 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
         const RowKey id = split_row_key(row.key);
         const std::string where = " (row " + std::to_string(row.line) + ")";
         if (id.key == "$name") {
-            if (!id.category) set_text("/$name", row.text);
+            if (id.form.empty()) set_text("/$name", row.text);
             continue;
         }
         const auto original = defaults.find(id.key);
@@ -302,32 +356,56 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
             continue;
         }
         const StringEntry& source = original->second;
-        if (id.category && !source.plural()) {
-            r.warnings.push_back("'" + row.key + "' names a plural form, but '" + id.key + "' is one plain string in " + def.file + ": not imported" + where + ".");
+        const Kind sourceKind = kind_of(source);
+        if (id.form == "gender") {
+            if (sourceKind != Kind::Plain) {
+                r.warnings.push_back("'" + row.key + "' gives a gender, but '" + id.key + "' is " + kind_name(sourceKind) + " in " + def.file + ": not imported" + where + ".");
+                continue;
+            }
+            if (!is_gender_code(trim(row.text))) {
+                r.warnings.push_back("'" + row.key + "' has the gender '" + row.text + "', which is not f, m or n: not imported" + where + ".");
+                continue;
+            }
+            genderRows.push_back({id, &row});
             continue;
         }
-        if (!id.category && source.plural()) {
-            r.warnings.push_back("'" + id.key + "' is a plural entry in " + def.file + ": write one row per form ('" + id.key + "#one', '" + id.key +
-                                 "#other'...); not imported" + where + ".");
+        if (!id.form.empty() && sourceKind == Kind::Plain) {
+            r.warnings.push_back("'" + row.key + "' names a form, but '" + id.key + "' is one plain string in " + def.file + ": not imported" + where + ".");
             continue;
+        }
+        if (id.form.empty() && sourceKind != Kind::Plain) {
+            r.warnings.push_back("'" + id.key + "' is " + kind_name(sourceKind) + " in " + def.file + ": write one row per form ('" + id.key +
+                                 (sourceKind == Kind::Plural ? "#one', '" + id.key + "#other'" : "#f', '" + id.key + "#m', '" + id.key + "#other'") +
+                                 "...); not imported" + where + ".");
+            continue;
+        }
+        if (!id.form.empty()) {
+            PluralCategory category{};
+            const bool valid = sourceKind == Kind::Plural ? parse_plural_category(id.form, category) : (is_gender_code(id.form) || id.form == "other");
+            if (!valid) {
+                r.warnings.push_back("'" + row.key + "' names the form '" + id.form + "', which '" + id.key + "' (" + kind_name(sourceKind) + ") does not have: not imported" + where + ".");
+                continue;
+            }
         }
         // The {names} must be the default language's: the code fills those and nothing else.
         const std::set<std::string> want = ld::placeholders_of(source), have = ld::placeholders_of(row.text);
-        const bool bad = id.category ? !std::includes(want.begin(), want.end(), have.begin(), have.end()) : want != have;
+        const bool bad = !id.form.empty() ? !std::includes(want.begin(), want.end(), have.begin(), have.end()) : want != have;
         if (bad)
             r.warnings.push_back("'" + row.key + "' uses " + ld::describe_names(have) + " but " + def.file + " has " + ld::describe_names(want) +
                                  ": the game fills the names of the default language" + where + ".");
 
         const auto place = known.find(id.key);
         if (place != known.end()) {
-            if (place->second.plural != id.category.has_value()) {
-                r.warnings.push_back("'" + id.key + "' is " + (place->second.plural ? "a plural entry" : "one plain string") + " in " + r.file +
-                                     " but the row is " + (place->second.plural ? "a single text" : "a plural form") + ": not imported" + where + ".");
+            if (place->second.kind != sourceKind) {
+                r.warnings.push_back("'" + id.key + "' is " + kind_name(place->second.kind) + " in " + r.file + " but the row is " +
+                                     (sourceKind == Kind::Plain ? "a single text" : "a form of " + std::string(kind_name(sourceKind))) + ": not imported" + where + ".");
                 continue;
             }
-            set_text(place->second.pointer + (id.category ? "/" + std::string(plural_category_name(*id.category)) : std::string()), row.text);
-        } else if (id.category) {
-            newPlurals[id.key][*id.category] = row.text;
+            set_text(place->second.pointer + (id.form.empty() ? std::string() : "/" + id.form), row.text);
+        } else if (!id.form.empty()) {
+            NewObject& object = newObjects[id.key];
+            object.kind = sourceKind;
+            object.forms[id.form] = row.text;
             ++r.added;
         } else {
             std::string why;
@@ -336,27 +414,49 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
                 r.warnings.push_back("'" + id.key + "' was not added: " + why + where + ".");
                 continue;
             }
-            known[id.key] = {pointer, false};
+            known[id.key] = {pointer, Kind::Plain, false};
             ++r.added;
             r.changed = true;
         }
     }
-    for (const auto& [key, forms] : newPlurals) {
-        if (!forms.count(PluralCategory::Other)) {
+    for (const auto& [key, object] : newObjects) {
+        const auto& forms = object.forms;
+        if (!forms.count("other")) {
             r.added -= int(forms.size());
-            r.warnings.push_back("The plural entry '" + key + "' was not added: it has no text for \"other\", which every plural entry needs ('" + key + "#other').");
+            r.warnings.push_back(std::string("The ") + (object.kind == Kind::Plural ? "plural" : "select") + " entry '" + key +
+                                 "' was not added: it has no text for \"other\", which every such entry needs ('" + key + "#other').");
             continue;
         }
-        Json object = Json::object();
-        for (const auto& [category, text] : forms) object[plural_category_name(category)] = text;
+        Json json = Json::object();
+        for (const auto& [form, text] : forms) json[form] = text;
         std::string why;
-        const std::string pointer = insert_entry(r.document, key, object, nested, known, &why);
+        const std::string pointer = insert_entry(r.document, key, json, nested, known, &why);
         if (pointer.empty()) {
             r.added -= int(forms.size());
-            r.warnings.push_back("The plural entry '" + key + "' was not added: " + why + ".");
+            r.warnings.push_back("The entry '" + key + "' was not added: " + why + ".");
             continue;
         }
-        known[key] = {pointer, true};
+        known[key] = {pointer, object.kind, false};
+        r.changed = true;
+    }
+    for (const auto& [id, row] : genderRows) {
+        const std::string where = " (row " + std::to_string(row->line) + ")";
+        const std::string gender(trim(row->text));
+        const auto place = known.find(id.key);
+        if (place == known.end() || place->second.kind != Kind::Plain) {
+            r.warnings.push_back("'" + row->key + "' gives a gender, but " + r.file + " has no plain text for '" + id.key + "' (translate the text row too): not imported" + where + ".");
+            continue;
+        }
+        if (place->second.gendered) {
+            const std::string& textPointer = place->second.pointer;  // ".../text"
+            set_text(textPointer.substr(0, textPointer.size() - 5) + "/gender", gender);
+            continue;
+        }
+        const Json::json_pointer ptr(place->second.pointer);
+        r.document[ptr] = Json::object({{"text", r.document[ptr]}, {"gender", gender}});
+        place->second.pointer += "/text";
+        place->second.gendered = true;
+        ++r.added;
         r.changed = true;
     }
     if (r.changed) {  // never write a table the game could not read
@@ -478,7 +578,8 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
         "are quoted), format \"xliff\" is one XLIFF 1.2 file per language to translate, translations.<language>.xlf (source = the "
         "default language's text, target = the translation, state \"needs-translation\" when missing; trans-unit id and resname = the "
         "key). A plural entry is one row per form, the key written `items#one`, `items#other`: the forms the language needs "
-        "(CLDR) plus any the tables have. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. "
+        "(CLDR) plus any the tables have. A gender (select) entry is one row per form too (`ship.the#f`, `ship.the#m`, "
+        "`ship.the#other`), and a string that has a gender in any language gets a row `ship.light#gender` whose cell is f, m or n. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. "
         "Returns {format, files, rows, sourceLanguage, languages}. `languages` limits the columns (default: every language except "
         "the default). With `delimiter` \";\" the CSV opens in Excel set to a language that writes decimals with a comma. Read the "
         "result back with i18n.import. Example: {\"format\": \"csv\", \"languages\": [\"es\", \"ja\"]}";
@@ -505,7 +606,7 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
         "Reads a file written by i18n.export (or edited in a spreadsheet or a translation tool) and updates the tables of the "
         "languages in it: existing keys are changed in place (nested objects stay nested, flat keys stay flat, key order is kept), "
         "keys the language lacks are added (nested by their dots when the file is nested), and an empty cell never deletes a "
-        "translation. Rows `items#one` fill the forms of a plural entry. A column or target language that is not in "
+        "translation. Rows `items#one` fill the forms of a plural entry, `ship.the#f` those of a gender entry, and `ship.light#gender` sets the gender of a string (f, m or n; the text becomes an object of text and gender). A column or target language that is not in "
         "localization.languages is an error with \"did you mean\"; a key the default language does not have, a {placeholder} that "
         "differs from the default language's, or a plural/plain mismatch is a warning and that row is not imported (placeholders: "
         "imported with the warning). The default language's own column is the source and is skipped unless named in `languages`. "

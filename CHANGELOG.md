@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Gendered strings and the kit's loading line
+
+- A string table entry can have a gender, `{"text": "Ligera", "gender": "f"}` (`f`, `m` or `n`), and a sentence picks its
+  form by it: a select entry is an object with `f`, `m`, `n` and `other` forms (`"ship_the": {"f": "la {name}", "m": "el
+  {name}", "other": "{name}"}`), chosen by `args.gender`. `i18n.gender(key)` gives the gender of a string; `i18n.t` falls to
+  `other` (warning once) when the gender or the form is missing. `factoria validate` warns about a select entry without a form
+  the language uses and about a name that lost its gender; `i18n.export` and `i18n.import` (CSV and XLIFF) carry the forms
+  (`ship_the#f`) and a `key#gender` row. docs/LOCALIZATION.md, section 5c, also says how to phrase around case.
+- The menu kit's loading screen writes `i18n.t("loading.progress", {percent})` (the Text has no key), so "Cargando... 40%"
+  is Spanish in Spanish. Games that copied the kit keep `loading.text` until they take the new `loading.js`, scene and strings.
+
 A chart widget
 
 - `Chart` draws `values` (one series, or several) as bars or lines inside a widget rectangle, in one batch: the axis is
