@@ -335,16 +335,26 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
         }
     }
 
-    // ---- the pause action
-    if (wanted.count("pause")) {
+    // ---- the input actions a part reads (only the ones the game does not have; a game's own binding is never replaced)
+    struct KitAction { const char* part; const char* name; const char* bindings; const char* who; };
+    static const KitAction kitActions[] = {
+        {"pause", "pause", R"(["Escape", "P", "GamepadStart"])", "scripts/pause_menu.js"},
+        {"cameraRig", "camera_drag", R"(["MouseMiddle"])", "scripts/camera_rig.js"},
+        {"cameraRig", "camera_left", R"(["A", "Left"])", "scripts/camera_rig.js"},
+        {"cameraRig", "camera_right", R"(["D", "Right"])", "scripts/camera_rig.js"},
+        {"cameraRig", "camera_up", R"(["W", "Up"])", "scripts/camera_rig.js"},
+        {"cameraRig", "camera_down", R"(["S", "Down"])", "scripts/camera_rig.js"},
+        {"cameraRig", "camera_zoom_in", R"(["PageUp", "Equal"])", "scripts/camera_rig.js"},
+        {"cameraRig", "camera_zoom_out", R"(["PageDown", "Minus"])", "scripts/camera_rig.js"},
+    };
+    for (const KitAction& a : kitActions) {
+        if (!wanted.count(a.part)) continue;
         const Json* actions = project->contains("input") && (*project)["input"].is_object() && (*project)["input"].contains("actions")
                                   ? &(*project)["input"]["actions"] : nullptr;
-        if (!actions || !actions->is_object() || !actions->contains("pause")) {
-            auto patched = patch_json_file((dir / "factoria.json").string(),
-                                           {{{"input", "actions", "pause"}, Json::parse(R"(["Escape", "P", "GamepadStart"])")}});
-            if (!patched.ok()) return err(who + patched.error().message, patched.error().hint);
-            settings.push_back("factoria.json: input action \"pause\" added (Escape, P, GamepadStart); scripts/pause_menu.js reads it.");
-        }
+        if (actions && actions->is_object() && actions->contains(a.name)) continue;
+        auto patched = patch_json_file((dir / "factoria.json").string(), {{{"input", "actions", a.name}, Json::parse(a.bindings)}});
+        if (!patched.ok()) return err(who + patched.error().message, patched.error().hint);
+        settings.push_back(std::string("factoria.json: input action \"") + a.name + "\" added (" + Json::parse(a.bindings).dump() + "); " + a.who + " reads it.");
     }
 
     Json next = Json::array();

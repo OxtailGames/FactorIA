@@ -607,6 +607,25 @@ In the scene the camera entity has `"Script": { "path": "scripts/follow_camera.j
 
 A level that is not a Tilemap keeps its rectangle in a JSON file that the script imports (section 9.16): `import levels from "../data/levels.json"` with `{ "bounds": { "minX": -640, "minY": -360, "maxX": 1000, "maxY": 720 } }`, and the same clamp with those numbers.
 
+### 9.6.1 A strategy camera (drag, edges, wheel zoom to the cursor)
+
+A management, strategy or builder game needs a camera the player moves: drag to pan, the screen edges and WASD scroll, the wheel zooms towards the cursor, and the view never leaves the map. Two ways, both on an orthographic camera that is not rotated:
+
+1. The kit's behaviour. `project.add_menu_kit {"parts":["cameraRig"]}` copies `scripts/camera_rig.js` (and its test) and adds the input actions `camera_drag` (middle button), `camera_left/right/up/down` (WASD and arrows) and `camera_zoom_in/out` (PageUp/PageDown, =/-). Put the script on the camera entity: `"Script": { "path": "scripts/camera_rig.js", "props": { "boundsEntity": "map", "zoomMin": 0.4, "zoomMax": 2.5, "startZoom": 1, "margin": 100 } }`. `boundsEntity` is the id of the Tilemap or background Sprite whose `bounds()` limits the view (section 9.6; "" = no limit), `zoomMin` and `zoomMax` are pixels per world unit, `edgeSize` the width of the scrolling zone at the screen edge (0 = off), `panSpeed` pixels per second. It ignores a wheel turn and a new drag over a widget or Panel (`ui.pointerOverUi`) and the wheel a ScrollList scrolled (`ui.wheelConsumed`); a modal that the UI does not know about sets `rig.wheelBlocked = true`. A script can call `rig.setView(x, y, zoom)`, `rig.moveTo(x, y, zoom)` (eased; `rig.instantMoves = true` jumps, for a "reduced motion" option), `rig.setBounds({ x, y, w, h })`, `rig.screenToWorld(sx, sy)` and read `rig.view` (`{ x, y, zoom }`). Extend the class to change the controls (override `pointer()`, `updateDrag()`, `edgePanAllowed()` or `onInput()`; Tidewater Market's `scripts/game/map_camera.js` adds a gamepad cursor and click-to-latch drag that way).
+2. The helpers, for your own script. `camera.zoomAt(screenPoint, factor, { min, max })` multiplies the zoom (pixels per world unit) and moves the camera so the world point under `screenPoint` stays put; `camera.panBy(screenDelta)` moves the world with a drag; `camera.clampTo(rect, { margin })` keeps the view inside a rectangle (centred when the rectangle is smaller than the view); `camera.zoomOf()`, `camera.setZoom(zoom)` and `camera.orthoSizeFor(zoom, designHeight)` convert between the zoom and `Camera.orthoSize` (= design height / 2 / zoom), so you never do that division by hand.
+
+```js
+// wheel zoom to the cursor, middle-button drag, clamped to the map (a camera script)
+onUpdate() {
+  if (!ui.pointerOverUi && input.mouse.wheel !== 0) camera.zoomAt(input.mouse.position, 1.15 ** input.mouse.wheel, { min: 0.4, max: 2.5 });
+  if (input.mouse.down("middle")) camera.panBy(input.mouse.delta);
+  const map = world.find("map").bounds();
+  if (map) camera.clampTo(map);
+}
+```
+
+The helpers change the camera at once, but `camera.screenToWorld` answers for the last drawn frame: after a change in the same frame use the rig's `screenToWorld(sx, sy)`, or step a frame in a test.
+
 ### 9.7 Sounds and music
 
 ```js

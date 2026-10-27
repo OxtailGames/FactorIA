@@ -2,12 +2,11 @@
 // The picture behind the title screen: a small hamlet built on the same map the first game is played on, seen by a camera
 // that drifts slowly (not with the "reduced motion" option). It is a real GameState drawn by the real MapView (the same code as the game), on a throwaway state
 // the player cannot touch. Put this behaviour on the title scene's camera entity.
-import { Behaviour } from "factoria";
+import { Behaviour, camera } from "factoria";
 import { getData } from "./data.js";
 import { createGame } from "./state.js";
 import { MapView } from "./map_view.js";
 import { cellToWorld } from "./iso.js";
-import { orthoSizeFor } from "./camera_math.js";
 import { live } from "../settings.js";
 
 /** The hamlet as [type, cell column, cell row, rotation]: roads first (a market needs one at its door). */
@@ -71,6 +70,6 @@ export default class TitleBackdrop extends Behaviour {
     const [x, y] = cellToWorld(this.centre[0], this.centre[1]);
     if (live().reducedMotion) this.entity.position = [x, y, 0]; // reduced motion: the picture stands still
     else this.entity.position = [x + this.drift * Math.sin(this.time * this.speed), y + this.drift * 0.35 * Math.sin(this.time * this.speed * 1.7), 0];
-    this.entity.get("Camera").orthoSize = orthoSizeFor(this.zoom);
+    this.entity.get("Camera").orthoSize = camera.orthoSizeFor(this.zoom);
   }
 }
