@@ -691,7 +691,7 @@ declare module "factoria" {
      */
     bindings(action: string, family?: "keys" | "pad"): string[];
     /**
-     * Replaces this player's bindings of one action, for one family: all the names must be keys ("Space", "W") or all gamepad bindings ("GamepadA", "GamepadLeftStickUp"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with "did you mean" and changes nothing. Other players and the global input.rebind() are unaffected.
+     * Replaces this player's bindings of one action, for one family: all the names must be keys ("Space", "W", or a chord of them such as "Ctrl+Z") or all gamepad bindings ("GamepadA", "GamepadLeftStickUp"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with "did you mean" and changes nothing. Other players and the global input.rebind() are unaffected.
      * @since unreleased
      */
     rebind(action: string, bindings: string[], family?: "keys" | "pad"): void;
@@ -701,7 +701,7 @@ declare module "factoria" {
      */
     reset(action?: string): void;
     /**
-     * Like input.lastPressed() but only for this player's devices: a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a "press a key to rebind" screen.
+     * Like input.lastPressed() but only for this player's devices (a chord included, "Ctrl+Z", when the player's scheme has the modifier): a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a "press a key to rebind" screen.
      * @since unreleased
      */
     lastPressed(): string | null;
@@ -811,7 +811,7 @@ declare module "factoria" {
      */
     bindings(action: string): string[];
     /**
-     * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
+     * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. A key, mouse button or Touch takes modifiers joined by "+": "Ctrl+Z", "Shift+MouseLeft", "Ctrl+Shift+S" (Ctrl, Shift, Alt, Super; each means either side's key); a chord is stored and printed back as Ctrl+Alt+Shift+Super+input, and a malformed one ("Cntrl+Z", "Ctrl+", "Ctrl+GamepadA") throws saying which part is wrong and what to write instead. When another action binds the plain input, the chord wins: Z does not fire while Ctrl is held if some action binds Ctrl+Z. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
      * @since 0.1.6
      */
     rebind(action: string, bindings: string[]): void;
@@ -821,7 +821,7 @@ declare module "factoria" {
      */
     resetBindings(action?: string): void;
     /**
-     * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
+     * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. With modifiers held it is the chord ("Ctrl+Z", "Shift+MouseLeft"), ready for rebind(). A modifier pressed alone ("LeftShift") is reported when it is released, so pressing Ctrl on the way to Ctrl+Z does not end the wait; a modifier that something else was pressed with is not reported by itself. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
      * @since 0.1.6
      */
     lastPressed(): string | null;
@@ -836,10 +836,16 @@ declare module "factoria" {
      */
     buttonName(bindingOrAction: string, pad?: number): string;
     /**
-     * Raw key by name ("Space", "A", "Escape"...).
+     * Raw key by name ("Space", "A", "Escape"...), or a modifier by name: "Ctrl", "Shift", "Alt" and "Super" are held while either side's key is ("LeftShift" is the left key only). A chord in an action binding ("Ctrl+Z") is read with input.down(action), not here.
      */
     keyDown(key: string): boolean;
+    /**
+     * True on the frame the key went down; takes the same names as keyDown, "Ctrl" and the other modifiers included (either side).
+     */
     keyPressed(key: string): boolean;
+    /**
+     * True on the frame the key went up; takes the same names as keyDown, "Ctrl" and the other modifiers included (either side).
+     */
     keyReleased(key: string): boolean;
     readonly mouse: MouseAPI;
     readonly touches: TouchInfo[];
@@ -1900,11 +1906,24 @@ declare module "factoria" {
   }
 
   /**
-   * Persistent JSON save data (<user dir>/storage.json). Tests and `--storage memory` runs use a throw-away in-memory object instead.
+   * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
     get<T = any>(key: string, fallback?: T): T;
-    set(key: string, value: Json): void;
+    /**
+     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
+     */
+    set(key: string, value: Json, options?: { compress?: boolean }): void;
+    /**
+     * Like set, but the file is encoded (and compressed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call.
+     * @since unreleased
+     */
+    setAsync(key: string, value: Json, options?: { compress?: boolean }): Promise<number>;
+    /**
+     * Bytes the key's file takes (the compressed size for a compressed value); 0 when the key is not stored. Waits for pending setAsync writes.
+     * @since unreleased
+     */
+    size(key: string): number;
     remove(key: string): void;
     /**
      * The keys of the game's own values. The engine's own ("factoria.analytics", "factoria.remoteConfig") are not listed.
@@ -1915,7 +1934,7 @@ declare module "factoria" {
      */
     clear(): void;
     /**
-     * True when storage.json did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started with empty save data, so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
+     * True when a storage file (a key's file in storage/, or an older storage.json) did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started without that file's data (the other keys load), so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
      * @since 0.2.0
      */
     readonly corrupt: boolean;
@@ -2128,6 +2147,36 @@ declare module "factoria" {
      * @since 0.2.0
      */
     layout(): void;
+    /**
+     * Shows a tooltip now, for something that is not a widget (a map tile, a chart point). `content` is a string or { title, lines, args }; each text is a localization key when localization is on and has it, else it is shown as written. `at` is a screen position in design pixels (default: the pointer); the box is placed next to it and flipped to stay on screen, like the tooltip of a widget, and styled by the "ui" section of factoria.json (tooltip). It stays until ui.hideTooltip(), until the pointer moves more than 5 pixels from where it was at the call, or until a scene loads. Throws on a content that is not a string or an object. Example: ui.showTooltip({ title: "Harbour", lines: ["Docks: 3"] }, { x: 400, y: 300 }).
+     * @since unreleased
+     */
+    showTooltip(content: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object }, at?: { x: number; y: number }): void;
+    /**
+     * Hides the tooltip at once, whatever showed it (a widget, a script function or ui.showTooltip). A tooltip of a widget shows again only after the pointer rests again.
+     * @since unreleased
+     */
+    hideTooltip(): void;
+    /**
+     * Sets the tooltip of a widget or Panel. Static content is written to the `tooltip` field of its UI component; a function is called when the tooltip is about to show (and each frame while it shows) and returns the content, or null for no tooltip, so it can read the game state; it ends with the scene. null removes the tooltip. A tooltip shows after ui.tooltipDelay seconds of rest within 5 pixels, on the first widget under the pointer or its ancestors that has one. Example: ui.setTooltip("buy", () => ({ title: "Buy", lines: [`${price} coins`] })).
+     * @since unreleased
+     */
+    setTooltip(target: Entity | string, tooltip: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object } | ((entity: Entity) => string | object | null) | null): void;
+    /**
+     * Sets a function asked for a tooltip when the pointer rests over no widget; it gets the pointer in design pixels and returns the content or null. Its tooltip has source "world". null removes it. It ends with the scene.
+     * @since unreleased
+     */
+    setWorldTooltip(fn: ((x: number, y: number) => string | object | null) | null): void;
+    /**
+     * The tooltip that shows now, or null: its title, its lines, its rect [x, y, w, h] in screen pixels (with the interface scale), what showed it (source) and the entity id of the widget for "widget" and "script". Same as `tooltip` in ui.state. Read it after game.step.
+     * @since unreleased
+     */
+    readonly tooltip: { title: string; lines: string[]; rect: number[]; source: "widget" | "script" | "world" | "manual"; widget: string | null } | null;
+    /**
+     * Seconds the pointer rests before a tooltip shows, 0 to 60 (default: tooltipDelay of the "ui" section of factoria.json, 0.5). The rest is counted with the game's UI time, so tests with game.step are exact. Setting a number outside 0 to 60 throws. Resets to the project value for every test file.
+     * @since unreleased
+     */
+    tooltipDelay: number;
     /**
      * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer (ui.scale makes room by growing the whole interface). Setting a number outside 0.5 to 3 throws; clamp a saved value first. A change sends the "textScale" event (ui.on). The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
      * @since 0.2.0
@@ -5460,6 +5509,11 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
      * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
      * @since 0.1.6
      */
@@ -5580,6 +5634,11 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
@@ -5732,6 +5791,11 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
@@ -5887,6 +5951,11 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
@@ -6078,6 +6147,11 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
@@ -6213,6 +6287,11 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
      * Gap in design pixels between children.
      * @since 0.1.6
      */
@@ -6297,6 +6376,11 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
      * Which stick of the touch pad it moves.
      * @since 0.2.0
      */
@@ -6380,6 +6464,11 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
     /**
      * The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.
      * @since 0.2.0
@@ -6510,6 +6599,11 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
      * How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out).
      * @since 0.2.0
      */
@@ -6610,6 +6704,11 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
     /**
      * Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A file that is missing or is not MPEG-1 video is logged once and the entity draws only its background. (asset path: video)
      * @since unreleased
@@ -6807,16 +6906,16 @@ declare module "factoria" {
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number; zoom?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
-    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
-    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
-    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
-    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
-    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
+    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
+    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
+    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }
@@ -7240,11 +7339,17 @@ declare module "factoria:test" {
      */
     tap(action: string): void;
     /**
-     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A chord works too: tapKey("Ctrl+Z") holds Ctrl while Z is tapped. A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
      * @since unreleased
      */
     tapKey(key: string): void;
+    /**
+     * Presses and HOLDS a key until keyUp: a key name ("Z", "LeftShift") or a modifier ("Ctrl", "Shift", "Alt", "Super": the left key), which is how a test holds Shift for a Shift+click: keyDown("Shift"); click(pos); keyUp("Shift").
+     */
     keyDown(key: string): void;
+    /**
+     * Releases a key pressed with keyDown; takes the same names, modifiers included.
+     */
     keyUp(key: string): void;
     /**
      * Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap().
@@ -7282,7 +7387,7 @@ declare module "factoria:test" {
      */
     setAccessibility(settings: { textScale?: number; reduceMotion?: boolean; highContrast?: boolean; screenReader?: boolean }): void;
     /**
-     * Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text ("{\"hi") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file.
+     * Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text ("{"hi") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file.
      * @since 0.2.0
      */
     setStorageText(text: string | null): void;
