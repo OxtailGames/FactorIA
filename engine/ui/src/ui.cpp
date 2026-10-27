@@ -132,12 +132,17 @@ bool scrollable(const World& w, Entity e, Vec2 design, const VisualMeasure& meas
 
 }  // namespace
 
-Entity ui_widget_at(const World& w, Vec2 design, Vec2 p) {
+Entity ui_widget_at(const World& w, Vec2 design, Vec2 p, Entity ignore) {
     Entity best;
     int bestLayer = 0;
     for (Entity e : w.entities()) {
         const UiKind k = ui_kind(w, e);
         if (k == UiKind::None || k == UiKind::Captions || !w.active_in_hierarchy(e)) continue;
+        if (ignore) {
+            bool under = false;
+            for (Entity a = e; a && !under; a = w.parent(a)) under = a == ignore;
+            if (under) continue;
+        }
         const UiBox& box = *ui_box(w, e);
         if (k == UiKind::Panel && box.color.a <= 0.0f && box.texture.empty()) continue;
         if (const TouchStick* ts = w.get<TouchStick>(e); ts && !ts->shown) continue;
@@ -252,6 +257,10 @@ void UiSystem::reset() {
     tooltipTarget_ = 0;
     tooltipManualContent_ = nullptr;
     tooltipWarned_.clear();
+    drag_ = DragState{};
+    dragCand_ = dragImage_ = kNullEntity;
+    dropRules_.clear();
+    worldDrop_ = UiDropMode::Accept;
 }
 
 bool UiSystem::set_focus(World& w, Entity e) {
@@ -371,7 +380,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             emit(w, "ui.change", focus_, Json(t.value));
         }
     }
-    if (in.action_pressed("ui_cancel")) emit(w, "ui.cancel", focus_);
+    const bool navCancel = in.action_pressed("ui_cancel");
+    if (navCancel && !drag_.active) emit(w, "ui.cancel", focus_);  // while dragging, cancel ends the drag instead
 
     if (focus_) {
         if (TextField* tf = w.get<TextField>(focus_)) {
@@ -418,13 +428,18 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     const bool ptrPressed = pointerOn_ ? pointerDown_ && !pointerPrevDown_ : in.mouse_pressed(MouseButton::Left);
     const bool ptrReleased = pointerOn_ ? !pointerDown_ && pointerPrevDown_ : in.mouse_released(MouseButton::Left);
     pointerPrevDown_ = pointerOn_ && pointerDown_;
-    pointerOverUi_ = ui_widget_at(w, design, mouse) != kNullEntity;
+    pointerOverUi_ = ui_widget_at(w, design, mouse, dragImage_) != kNullEntity;
     hover_ = kNullEntity;
     int hoverLayer = 0;
     for (const Item& it : items) {  // creation order, so on equal layers the later entity wins
         if (!it.interactable || !it.rect.contains(mouse)) continue;
         const std::optional<Rect> clip = ui_clip_rect(w, it.e, design);
         if (clip && !clip->contains(mouse)) continue;
+        if (dragImage_) {  // the drag image is not a target
+            bool onImage = false;
+            for (Entity a = it.e; a && !onImage; a = w.parent(a)) onImage = a == dragImage_;
+            if (onImage) continue;
+        }
         if (!hover_ || it.layer >= hoverLayer) {
             hover_ = it.e;
             hoverLayer = it.layer;
@@ -435,6 +450,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         press_ = hover_;
         set_focus(w, hover_);
     }
+    update_drag(w, design, mouse, ptrDown, ptrPressed, ptrReleased, measure, navCancel);
     if (press_) {
         if (Slider* s = w.get<Slider>(press_)) {
             const Item* it = find(press_);

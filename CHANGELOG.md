@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Drag and drop
+
+- `draggable` on any widget or Panel (`true`, or `{ "payload", "slop" }`) lets the player drag it with the mouse, a finger or
+  a gamepad cursor (`ui.setPointer`). `ui.on("dragStart" | "dragOver" | "drop" | "dragCancel", fn)` reports the source, its
+  payload, the pointer and the target (a widget, or `null` over the world). `ui.setDropTarget(widget, true | false | fn)` and
+  `ui.setWorldDropTarget(...)` say what accepts, `ui.setDragImage(widget)` makes a widget follow the pointer, `ui.dragging`
+  tells scripts a drag is on, `ui.cancelDrag()` ends it, and `game.drag(from, to)` drives it in tests. When a drag starts the
+  press is dropped: the release makes no click, and a tooltip hides. `ui_cancel` cancels a drag instead of sending `ui.cancel`.
+  Tidewater Market drops its own drag code for the worker chips.
+
 Modifier chords in input bindings
 
 - A binding takes modifiers: `"Ctrl+Z"`, `"Shift+MouseLeft"`, `"Ctrl+Shift+S"`, in `factoria.json` `input.actions`,

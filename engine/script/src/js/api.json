@@ -2347,6 +2347,53 @@
     },
     {
      "kind": "interface",
+     "name": "UiDragEvent",
+     "doc": "What a ui.on(\"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", ...) callback receives: one step of a drag that started on a widget with `draggable`.",
+     "members": [
+      {
+       "sig": "readonly type: \"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\"",
+       "doc": "Which step: dragStart (the pointer moved past the slop of the pressed draggable widget), dragOver (the pointer moved or the thing under it changed; at most once per frame), drop (the button was released over a target that accepts), dragCancel (the drag ended without a drop: reason says why)."
+      },
+      {
+       "sig": "readonly id: string",
+       "doc": "Id of the dragged widget."
+      },
+      {
+       "sig": "readonly entity: Entity | null",
+       "doc": "The dragged widget (null when it was destroyed during the drag)."
+      },
+      {
+       "sig": "readonly source: Entity | null",
+       "doc": "Same as entity: the dragged widget."
+      },
+      {
+       "sig": "readonly payload: any",
+       "doc": "The `payload` of the source's draggable field (null when it has none)."
+      },
+      {
+       "sig": "readonly x: number",
+       "doc": "The pointer on the screen, design pixels, y down."
+      },
+      {
+       "sig": "readonly y: number",
+       "doc": "The pointer on the screen, design pixels, y down."
+      },
+      {
+       "sig": "readonly target: Entity | null",
+       "doc": "What is under the pointer: the nearest widget at or above the topmost one that has a drop rule (ui.setDropTarget), else the topmost widget; null over the world (no widget). The drag image is never the target."
+      },
+      {
+       "sig": "readonly accepts: boolean",
+       "doc": "Whether target takes the drop: true when its rule (or the world's, for a null target) says so. Over a widget with no rule it is false."
+      },
+      {
+       "sig": "readonly reason?: \"rejected\" | \"cancel\" | \"gone\" | \"script\"",
+       "doc": "dragCancel only: rejected (released over something that does not accept), cancel (ui_cancel: Escape or the pad's B), gone (the source was destroyed or deactivated), script (ui.cancelDrag())."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "UiScaleEvent",
      "doc": "What a ui.on(\"scale\", ...) or ui.on(\"textScale\", ...) callback receives: the interface scale or the text size option changed.",
      "members": [
@@ -2390,6 +2437,26 @@
        "doc": "Runs the UI layout now, exactly what every frame does: autoSize sizes, fit sizes, ScrollList fill, positions and the Panel fallbackLayout choice. After changing a label or a font size, call it and read Button.size, Panel.size or ui.rectOf right away, with no game.step. Throws when the run has no UI system. Example: button.get(\"Button\").text = \"A longer label\"; ui.layout(); const w = ui.rectOf(button).w;"
       },
       {
+       "sig": "readonly dragging: { source: Entity | null; payload: any; from: { x: number; y: number }; x: number; y: number; target: Entity | null; accepts: boolean } | null",
+       "doc": "The drag in progress, or null: truthy exactly while a draggable widget is being dragged (from the dragStart event until drop or dragCancel). A script that reads the pointer for the world can test `if (ui.dragging) return;` so a drag that began on the UI does not also click the map. `from` is where the press was; x, y the pointer now; target and accepts as in the events."
+      },
+      {
+       "sig": "setDropTarget(target: Entity | string, rule: boolean | ((drag: { source: Entity | null; payload: any; x: number; y: number }) => boolean) | null): void",
+       "doc": "Says whether a widget takes drops: true, false, or a function asked every frame while a drag is over it (it returns true to accept; use it to colour the target), or null to remove the rule. A widget with no rule refuses; the nearest ancestor with a rule counts for its children, so one rule on a Panel covers its Buttons. Rules end with the scene. Example: ui.setDropTarget(\\\"slot_1\\\", (d) => canAssign(d.payload))."
+      },
+      {
+       "sig": "setWorldDropTarget(rule: boolean | ((drag: { source: Entity | null; payload: any; x: number; y: number }) => boolean) | null): void",
+       "doc": "Says whether a drop over no widget (the map) is accepted: true by default, false refuses (the drag ends with dragCancel reason \\\"rejected\\\"), a function can look at the world at (x, y). null goes back to the default. Ends with the scene."
+      },
+      {
+       "sig": "setDragImage(widget: Entity | string | null): void",
+       "doc": "Makes a widget follow the pointer during the drag, its centre under the pointer; hit tests, hover and drop targets ignore it. Call it from the dragStart handler (the engine moves it from the next frame on). The engine only moves it: hide or destroy it in the drop and dragCancel handlers. null stops it."
+      },
+      {
+       "sig": "cancelDrag(): void",
+       "doc": "Ends the drag in progress with a dragCancel event (reason \\\"script\\\"). Does nothing when nothing is dragged."
+      },
+      {
        "sig": "showTooltip(content: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object }, at?: { x: number; y: number }): void",
        "doc": "Shows a tooltip now, for something that is not a widget (a map tile, a chart point). `content` is a string or { title, lines, args }; each text is a localization key when localization is on and has it, else it is shown as written. `at` is a screen position in design pixels (default: the pointer); the box is placed next to it and flipped to stay on screen, like the tooltip of a widget, and styled by the \"ui\" section of factoria.json (tooltip). It stays until ui.hideTooltip(), until the pointer moves more than 5 pixels from where it was at the call, or until a scene loads. Throws on a content that is not a string or an object. Example: ui.showTooltip({ title: \"Harbour\", lines: [\"Docks: 3\"] }, { x: 400, y: 300 })."
       },
@@ -2424,6 +2491,14 @@
       {
        "sig": "on(type: \"scale\" | \"textScale\", fn: (e: UiScaleEvent) => void): () => void",
        "doc": "Listens to a change of ui.scale (\"scale\") or ui.textScale (\"textScale\"), like i18n.on(\"change\"): the callback gets { type, value, previous }, once per change to another value, with the game events of the frame (after the code that changed the option has returned). Use it to rebuild what depends on the size of the interface: ui.on(\"scale\", () => { ui.layout(); relayout(); }). Returns the function that stops listening; listeners end with the scene, like ui.on. There is no target: these events are about no widget."
+      },
+      {
+       "sig": "on(type: \"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", fn: (e: UiDragEvent) => void): () => void",
+       "doc": "Listens to the steps of a drag that began on a widget with `draggable` (UiBox.draggable): dragStart, dragOver, drop (released over a target that accepts: a widget with a rule from ui.setDropTarget, or the world) and dragCancel (rejected, cancelled with ui_cancel, the source gone or ui.cancelDrag()). The event has the source, its payload, the pointer (x, y) and the target (null over the world). Returns the function that stops listening; listeners end with the scene."
+      },
+      {
+       "sig": "on(type: \"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", target: Entity | string, fn: (e: UiDragEvent) => void): () => void",
+       "doc": "Like on(type, fn) for one widget: for dragStart and dragCancel `target` is the dragged widget, for dragOver and drop it is the drop target, e.g. ui.on(\"drop\", \"slot_1\", (e) => assign(e.payload))."
       },
       {
        "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", fn: (e: UiEvent) => void): () => void",
@@ -4529,6 +4604,10 @@
       {
        "sig": "click(target: Vec2Like | Entity | string, button?: \"left\" | \"right\" | \"middle\"): void",
        "doc": "Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList."
+      },
+      {
+       "sig": "drag(from: Vec2Like | Entity | string, to: Vec2Like | Entity | string): void",
+       "doc": "Drags with the left mouse button from a position (or the centre of a widget) to another: presses, moves in four steps of one frame each, releases and steps once more (6 steps in all), so a draggable widget's dragStart, dragOver and drop events fire and the click is swallowed. `to` may be any widget (a Panel too) or a position over the world, where the drop reports no target. The path must be longer than the slop of the widget (6 pixels by default), or it is a click."
       },
       {
        "sig": "loadJson(scene: Json, props?: Json): void",

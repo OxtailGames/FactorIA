@@ -1725,7 +1725,8 @@
     burst(entity, count = 10) { N.particlesBurst(entityHandle(entity, "particles.burst"), count); },
   };
 
-  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale"];
+  const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
+  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale", ...DRAG_EVENTS];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
@@ -1783,6 +1784,16 @@
         if (target instanceof Entity) id = target.id;
         else if (typeof target === "string") { const h = N.find(target); id = h === null ? target : N.idOf(h); }
         else throw new Error(`ui.on("${type}", target, fn): target must be an Entity or an entity id such as "play_button", but got ${inspect(target)}`);
+      }
+      if (DRAG_EVENTS.includes(type)) {
+        // The target filter of dragOver / drop is the drop target; of dragStart / dragCancel it is the dragged widget.
+        const byTarget = type === "dragOver" || type === "drop";
+        return addListener(`ui.${type}`, (data, source) => {
+          if (id !== null && (!data || (byTarget ? data.target : data.id) !== id)) return;
+          const targetHandle = data.target === null || data.target === undefined ? null : N.find(data.target);
+          fn({ type, id: data.id, entity: source, source, payload: data.payload, x: data.x, y: data.y,
+            target: targetHandle === null ? null : entityOf(targetHandle), accepts: data.accepts, reason: data.reason });
+        }, null);
       }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
@@ -1843,6 +1854,35 @@
     get wheelConsumed() { return N.uiPointerState()[1]; },
     get focused() { return entityOf(N.uiState()[0]); },
     get hovered() { return entityOf(N.uiState()[1]); },
+    // The drag in progress, or null: { source: Entity, payload, from: {x, y}, x, y, target: Entity | null, accepts }. Truthy exactly while
+    // a draggable widget is being dragged, so a script that reads the pointer for the map can test `if (ui.dragging) return;`.
+    get dragging() {
+      const d = N.uiDragState();
+      if (d === null) return null;
+      const th = d.target === null ? null : N.find(d.target), sh = N.find(d.id);
+      return { source: sh === null ? null : entityOf(sh), payload: d.payload, from: { x: d.from[0], y: d.from[1] }, x: d.x, y: d.y,
+        target: th === null ? null : entityOf(th), accepts: d.accepts };
+    },
+    // Says whether a widget takes drops: true, false, a function ({ source, payload, x, y }) => boolean asked while a drag is over it, or
+    // null to remove the rule. A drag over a widget with no rule (or a descendant of one) is refused; the nearest ancestor with a rule counts.
+    setDropTarget(target, rule) {
+      const h = entityHandle(target, "ui.setDropTarget(widget, rule)");
+      if (rule !== null && typeof rule !== "boolean" && typeof rule !== "function") throw new Error(`ui.setDropTarget(widget, rule): rule is true, false, a function ({ source, payload }) => boolean, or null to remove it, but got ${inspect(rule)}`);
+      dropFns.delete(h);
+      if (typeof rule === "function") dropFns.set(h, rule);
+      N.uiSetDropTarget(h, rule === null ? 0 : typeof rule === "function" ? 3 : rule ? 1 : 2);
+    },
+    // The same for a drop over no widget (the map): true by default; false refuses; a function ({ source, payload, x, y }) => boolean can look at the map.
+    setWorldDropTarget(rule) {
+      if (rule !== null && typeof rule !== "boolean" && typeof rule !== "function") throw new Error(`ui.setWorldDropTarget(rule): rule is true, false, a function ({ source, payload, x, y }) => boolean, or null for the default (true), but got ${inspect(rule)}`);
+      worldDropFn = typeof rule === "function" ? rule : null;
+      N.uiSetDropTarget(null, rule === null ? 0 : typeof rule === "function" ? 3 : rule ? 1 : 2);
+    },
+    // The widget that follows the pointer during the drag (its centre under the pointer, ignored by hit tests). Call it from the
+    // dragStart handler; the engine only moves it, so hide or destroy it in drop / dragCancel. null stops it.
+    setDragImage(target) { N.uiSetDragImage(target === null || target === undefined ? null : entityHandle(target, "ui.setDragImage(widget)")); },
+    // Ends the drag in progress with a dragCancel event (reason "script"). Does nothing when nothing is dragged.
+    cancelDrag() { N.uiCancelDrag(); },
     // The tooltip on screen now, or null: { title, lines: [text], rect: [x, y, w, h] in pixels, source, widget }.
     get tooltip() { return N.uiTooltipView(); },
     // Seconds the pointer rests on a widget before its tooltip shows (factoria.json "ui": {"tooltipDelay"}, default 0.5).
@@ -1883,6 +1923,15 @@
     },
   };
   const tooltipFns = new Map();  // widget handle -> function, ui.setTooltip
+  const dropFns = new Map();     // widget handle -> function, ui.setDropTarget
+  let worldDropFn = null;
+  // What the engine asks while a drag is over a target whose rule is a function (UiSystem drop hooks): the answer as a boolean.
+  function dropInfo(d) {
+    const sh = N.find(d.id);
+    return { source: sh === null ? null : entityOf(sh), payload: d.payload, x: d.x, y: d.y };
+  }
+  function dropAccepts(h, d) { const fn = dropFns.get(h); return fn ? fn(dropInfo(d)) === true : false; }
+  function worldDropAccepts(d) { return worldDropFn ? worldDropFn(dropInfo(d)) === true : false; }
   let worldTooltipFn = null;
   // What the engine asks when the pointer rests (UiSystem tooltip hooks): the answer as plain data, null for none or an error.
   function tooltipFor(h) {
@@ -3183,11 +3232,11 @@
   // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
   // game.step after game.setSafeArea).
   // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
-  const posArg = (p, what) => {
+  const posArg = (p, what, check = true) => {
     if (typeof p === "string" || p instanceof Entity) {
       const h = entityHandle(p, what);
       N.uiLayout();
-      const why = what === "game.mouseMove" ? null : N.uiUnclickable(h);
+      const why = what === "game.mouseMove" || !check ? null : N.uiUnclickable(h);
       if (why) throw new Error(`${what}: ${inspect(p)} cannot be clicked: ${why}`);
       const r = N.screenRect(h);
       if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
@@ -3367,6 +3416,15 @@
     click(p, button = "left") {
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
+    },
+    // Drags with the left mouse button from a position or widget (its centre) to another: presses, moves in four steps of one frame
+    // (past the slop of a draggable widget, so dragStart and dragOver fire), then releases and steps once more. The target may be any
+    // widget, such as a Panel, or a position over the world.
+    drag(from, to) {
+      const a = posArg(from, "game.drag"), b = posArg(to, "game.drag", false);
+      N.inMouseMove(a[0], a[1]); N.inMouseEvent("left", true); stepN(1);
+      for (let i = 1; i <= 4; i++) { N.inMouseMove(a[0] + (b[0] - a[0]) * i / 4, a[1] + (b[1] - a[1]) * i / 4); stepN(1); }
+      N.inMouseEvent("left", false); stepN(1);
     },
     // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
     // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
@@ -3556,18 +3614,18 @@
   function resetScene() {
     voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
-    tooltipFns.clear(); worldTooltipFn = null;
+    tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
 
   return {
-    tooltipFor, worldTooltip,
+    tooltipFor, worldTooltip, dropAccepts, worldDropAccepts,
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
-    entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); tooltipFns.delete(h); },
+    entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); tooltipFns.delete(h); dropFns.delete(h); },
     entity: (h) => entityOf(h),
     emit: emitToListeners,
     testBegin, testRun, testCurrent,

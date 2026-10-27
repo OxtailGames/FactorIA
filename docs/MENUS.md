@@ -424,6 +424,51 @@ keeps the timer, the placement and the drawing; the game says what it says.
   `game.step` past `ui.tooltipDelay`, and assert. `ui.check_layout` reports a `tooltip` issue for a visible widget
   whose static tooltip is invalid or whose box is larger than the screen in some language or size.
 
+## Drag and drop
+
+A widget with `draggable` can be picked up with the pointer and put down on another widget or on the world (the map). The
+engine does the press, the slop, the target under the pointer and the events; the game decides what a drop means.
+
+```json
+{ "id": "worker_3", "components": { "Button": { "text": "#3", "draggable": { "payload": { "worker": 3 }, "slop": 6 } } } }
+```
+
+```js
+ui.setDropTarget("farm_slot", (d) => canWork(d.payload.worker));   // true, false or a function; null removes the rule
+ui.on("dragStart", (e) => ui.setDragImage("drag_chip"));            // the chip follows the pointer
+ui.on("drop", (e) => assign(e.payload.worker, e.target ? e.target.id : mapCellAt(e.x, e.y)));
+ui.on("dragCancel", (e) => hideChip());                             // e.reason: "rejected" | "cancel" | "gone" | "script"
+```
+
+- **Starting.** `draggable` is `true` or `{ "payload": any JSON, "slop": pixels }` (slop 0 to 100, default 6). A press on
+  the widget, or on a child that is not draggable itself, followed by a move of `slop` pixels starts the drag: `dragStart`.
+  A press released before that is an ordinary click. A Slider or a TextField under the press keeps the pointer for itself.
+  When the drag starts the press is dropped, so the release makes no `click` and flips no Toggle, and a tooltip hides.
+- **Events** (`ui.on`): `dragStart`, `dragOver` (the pointer moved, or the thing under it or whether it accepts changed:
+  once per frame at most), `drop` and `dragCancel`. Each has `id` / `entity` / `source` (the dragged widget), `payload`,
+  `x`, `y` (the pointer, design pixels), `target` (an Entity, or `null` over the world) and `accepts`; `dragCancel` also has
+  `reason`. `ui.on("drop", widget, fn)` filters by the drop target, the other three by the dragged widget.
+- **Targets.** The target is the topmost widget under the pointer (`ui.widgetAt`, the drag image left out), moved up to the
+  nearest ancestor that has a rule when one does. A rule is set with `ui.setDropTarget(widget, true | false | fn | null)`;
+  a function gets `{ source, payload, x, y }` every frame the drag is over the widget, so it can also colour the target. A
+  widget with no rule refuses. The world (no widget under the pointer) accepts, unless `ui.setWorldDropTarget(false | fn)`
+  says otherwise. Rules end with the scene.
+- **Ending.** Releasing the button over a target that accepts sends `drop`. Anywhere else it sends `dragCancel` with
+  `reason: "rejected"`. `ui_cancel` (Escape, the pad's B) cancels with `"cancel"` and then does not send `ui.cancel`;
+  `ui.cancelDrag()` with `"script"`; a source that is destroyed or deactivated with `"gone"`. A scene load ends a drag
+  silently. After a `drop` or `dragCancel` the mouse button is still down for a while: nothing else reacts to it.
+- **The image.** `ui.setDragImage(widget)` (call it from `dragStart`) keeps that widget's centre under the pointer; it
+  is ignored by hover and by `widgetAt`. The engine only moves it: show it in `dragStart`, hide it in `drop` and
+  `dragCancel`. It moves the widget's own `position`, so keep it free of a layout parent.
+- **Reading it.** `ui.dragging` is `null`, or `{ source, payload, from: {x, y}, x, y, target, accepts }`. A script that
+  reads the mouse for the map skips while `ui.dragging` is set, and a press that began on the UI is already ignored by
+  `ui.pointerOverUi`.
+- **Gamepad and tests.** A drag follows the UI pointer, so a gamepad cursor drags by holding `ui.setPointer(x, y,
+  { down: true })` and moving it, and a touch drags like the mouse. `game.drag(from, to)` presses on a position or
+  widget, moves to the other in four frames and releases: `game.drag("worker_3", "farm_slot")`, or a position such as
+  `{ x: 640, y: 650 }` for a drop over the world. A press-and-click mode for players who cannot hold a button is the
+  game's own (two clicks); the engine's drag needs the held button.
+
 ## A studio intro: a video that any button skips
 
 A game that opens with a logo film uses a `Video` component and a few lines of script. It is not part of the kit (the
