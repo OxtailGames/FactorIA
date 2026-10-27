@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "engine": "0.2.0",
   "mainScene": "scenes/menu.scene.json",
+  "icon": "assets/icon.png",
   "display": {
     "width": 1280,
     "height": 720,
@@ -190,6 +191,26 @@
         "type": "int"
       }
     ]
+  },
+  "export": {
+    "scriptBytecode": true,
+    "exclude": ["store/**", "assets/src/**"],
+    "macos": {
+      "category": "public.app-category.adventure-games",
+      "minimumSystemVersion": "11.0",
+      "copyright": "Copyright 2026 Oxtail Games",
+      "buildNumber": "1"
+    },
+    "windows": {
+      "msix": {
+        "publisherDisplayName": "Oxtail Games",
+        "displayName": "Larkspur Lodge",
+        "description": "A 3D narrative mystery set in a storm-bound mountain lodge. You are the night porter.",
+        "backgroundColor": "#1b1220"
+      }
+    },
+    "linux": { "categories": ["Game", "AdventureGame"] },
+    "ios": { "iconBackground": "#1b1220", "buildNumber": "1", "usesNonExemptEncryption": false }
   },
   "platforms": [
     "macos",

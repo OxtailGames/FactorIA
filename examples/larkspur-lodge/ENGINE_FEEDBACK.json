@@ -582,6 +582,90 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0801",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The exported player cannot be driven or made to save in a sandbox check",
+      "missing": "To prove a Mac App Store build saves into ~/Library/Containers/<bundle id>/ the exported player has to write a save. Its headless flags (--frames, --input, --dump-state) keep storage in memory, as factoria run does, and a windowed run needs a real click on Play: osascript and CGEvent both need an Accessibility permission that a script cannot grant.",
+      "workaround": "The sandboxed player was started and run (the container was created, log.txt, the replay, a state dump and a screenshot were written into it) but no save file could be produced; the click is in the by-hand list of SHIPPING.md.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Accept --persist-storage (as factoria run does) on the exported player, so an --input replay that presses Play and saves leaves a real file in the container.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0802",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "--record-video holds every frame in memory (4.4 GB for 25 s at 1080p)",
+      "missing": "factoria run --record-video with --render-scale 1.5 for 1480 frames reported a peak memory of 4434 MB, against 66 MB for a run without it. A longer trailer would not fit on a small machine.",
+      "workaround": "The trailer is only the 25 s intro cut-scene (assets/src/make_store.py trailer); a longer cut would have to be recorded in pieces and joined with ffmpeg.",
+      "workaroundFiles": [
+        "assets/src/make_store.py"
+      ],
+      "suggestion": "Stream the frames to the encoder as they are drawn instead of keeping them, or give the memory per second of video in docs/CLI.md.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0803",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "A 16:9 design on a 4:3 iPad is letterboxed, and simctl cannot rotate or tap",
+      "missing": "On the iPad Pro 13-inch simulator the 1280x720 design shows with black bars (scaleMode fit): the iPad shows about a quarter less picture than its screen, and an iPad App Store screenshot (2752x2064) cannot come from a 16:9 render without bars. xcrun simctl has no tap or rotate, so the title could be shown but the game not played.",
+      "workaround": "The iPad run is the title screen only (looked at; the PNG is a build output, not committed); the iPad App Store capsules come from the 16:9 key art with assets.draw_capsules. Playing it on an iPad is in the by-hand list.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "A scale mode that shows more world on 4:3 screens (the HUD anchored to the screen edges), and a way to send touches to the simulator or to play a replay on iOS.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0804",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Installed players carry no build fingerprint, so Windows and Linux exports need --allow-player-mismatch",
+      "missing": "factoria export --platform windows|linux --release stops with 'no build fingerprint' for the installed 0.2.0 players (the same gap as Burrow Brigade's FB-0032).",
+      "workaround": "Both exports were made with --allow-player-mismatch; the MSIX and the Linux folder were built, not run (no such machine here).",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Publish players with fingerprints, or let factoria setup build the player of this checkout.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
