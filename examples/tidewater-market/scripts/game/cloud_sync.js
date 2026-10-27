@@ -9,8 +9,10 @@
 //   2. on equal revisions (two devices saved offline the same number of times) the greater `playSeconds` wins: more play is more progress.
 //   3. still equal: the device's own copy wins (nothing is lost, nothing changes).
 // The loser is never thrown away: it is kept in storage under tm.conflict.<slot>[.auto] (takeConflict swaps it back in).
+// The pictures of the slot screen (save_store.js, .pic) stay on the device: a cloud copy carries none, and an entry that is replaced
+// loses its picture, so the slot screen shows the map of the meta then.
 import { platform, storage } from "factoria";
-import { SLOTS, metaKey, dataKey, conflictKey, readMeta, isMeta, nextRevision, raiseRevision } from "./save_store.js";
+import { SLOTS, metaKey, dataKey, pictureKey, conflictKey, readMeta, isMeta, nextRevision, raiseRevision } from "./save_store.js";
 import { readSave } from "./savegame.js";
 
 export const cloudKey = (slot, kind) => `tm_slot_${slot}${kind === "auto" ? "_auto" : ""}`;
@@ -118,6 +120,7 @@ export function removeQuietly(slot) {
 }
 
 function pullEntry(slot, kind, remote) {
+  storage.remove(pictureKey(slot, kind)); // the cloud copy carries no picture, and the old one is of another game
   storage.set(dataKey(slot, kind), remote.save);
   storage.set(metaKey(slot, kind), { ...remote.meta, slot, kind, revision: remote.revision });
   raiseRevision(remote.revision);
@@ -140,6 +143,7 @@ export function takeConflict(slot, kind = "manual") {
   const c = storage.get(conflictKey(slot, kind), null);
   if (!c || !isMeta(c.meta)) return false;
   const current = localEntry(slot, kind);
+  storage.remove(pictureKey(slot, kind)); // the backup keeps no picture, and the old one is of the game that becomes the backup
   storage.set(dataKey(slot, kind), c.save);
   storage.set(metaKey(slot, kind), { ...c.meta, slot, kind, revision: nextRevision() });
   if (current) storage.set(conflictKey(slot, kind), { from: "device", meta: current.meta, save: current.save });

@@ -4,11 +4,14 @@
 //   key                          value
 //   tm.slot.<n>.meta             what the slot screen lists (SlotMeta below), small: reading the list never parses a whole save
 //   tm.slot.<n>.data             the save (savegame.js)           n = 1..3
-//   tm.slot.<n>.auto.meta/.data  the autosave of the slot (a season ends, the window loses the focus, the game closes, a timer)
+//   tm.slot.<n>.pic              a picture of the town when it was saved (picture.js: Base64 PNG), absent for an older save or when
+//                                none could be taken; the slot screen then draws the map of the meta's `thumb`
+//   tm.slot.<n>.auto.meta/.data/.pic  the autosave of the slot (a season ends, the window loses the focus, the game closes, a timer)
 //   tm.rev                       the revision counter: +1 for every write on this device; the cloud rule compares it (cloud_sync.js)
 //   tm.conflict.<n>[.auto]       the copy that lost a cloud conflict, kept as a backup
-// The data is written first and the meta second, so a crash between them leaves the old meta over the old data or new data without a
-// meta (shown as a damaged slot that still loads), never a meta that promises a save that is not there.
+// The data is written first, the picture second and the meta last, so a crash between them leaves the old meta over the old data or new
+// data without a meta (shown as a damaged slot that still loads), never a meta that promises a save that is not there. The picture
+// belongs to the entry: a write without one removes the old one, so a slot never shows a picture of another game.
 import { storage, game } from "factoria";
 import { serializeGame, readSave, restoreGame, VERSION } from "./savegame.js";
 import { makeThumbnail } from "./thumbnail.js";
@@ -25,6 +28,7 @@ export const NAME_MAX = 24;
 const prefix = (slot, kind) => `tm.slot.${slot}${kind === "auto" ? ".auto" : ""}`;
 export const metaKey = (slot, kind) => `${prefix(slot, kind)}.meta`;
 export const dataKey = (slot, kind) => `${prefix(slot, kind)}.data`;
+export const pictureKey = (slot, kind) => `${prefix(slot, kind)}.pic`;
 export const conflictKey = (slot, kind) => `tm.conflict.${slot}${kind === "auto" ? ".auto" : ""}`;
 
 const validSlot = (slot) => Number.isInteger(slot) && slot >= 1 && slot <= SLOTS;
@@ -127,8 +131,9 @@ export function makeMeta(state, info) {
  * @param {number} slot 1..3
  * @param {"manual" | "auto"} kind
  * @param {import("./state.js").GameState} state
- * @param {{ name?: string, scenario?: string, playSeconds?: number, extra?: Record<string, any>, progress?: any, async?: boolean }} [info]
- *   extra: more top-level fields of the save (serializeGame); progress: more fields of the slot meta;
+ * @param {{ name?: string, scenario?: string, playSeconds?: number, extra?: Record<string, any>, progress?: any, async?: boolean, picture?: string | null }} [info]
+ *   extra: more top-level fields of the save (serializeGame); progress: more fields of the slot meta; picture: the PNG text of
+ *   picture.js (none: the entry has no picture afterwards);
  *   async: write the files off the frame (storage.setAsync, the save compressed): `written` settles when they are on disk.
  *   storage.get sees the new save at once either way. A save made while the window is closing is not async (the web runs
  *   an async write between frames, which a closing tab never reaches).
@@ -151,10 +156,15 @@ export function writeEntry(slot, kind, state, info = {}) {
     });
     if (info.async) {
       // The data first, then the meta that points at it: the writer keeps this order.
-      const written = Promise.all([storage.setAsync(dataKey(slot, kind), save, { compress: true }), storage.setAsync(metaKey(slot, kind), meta)]).then(() => {});
+      const pic = info.picture
+        ? storage.setAsync(pictureKey(slot, kind), info.picture)
+        : (storage.remove(pictureKey(slot, kind)), Promise.resolve());
+      const written = Promise.all([storage.setAsync(dataKey(slot, kind), save, { compress: true }), pic, storage.setAsync(metaKey(slot, kind), meta)]).then(() => {});
       return { ok: true, meta, written };
     }
     storage.set(dataKey(slot, kind), save);
+    if (info.picture) storage.set(pictureKey(slot, kind), info.picture);
+    else storage.remove(pictureKey(slot, kind));
     storage.set(metaKey(slot, kind), meta);
     return { ok: true, meta };
   } catch (e) {
@@ -192,10 +202,11 @@ export function renameEntry(slot, name) {
   return true;
 }
 
-/** Delete a slot entry (both keys). The autosave of a slot goes with "Delete" of that slot only when asked: pass kind "auto" for it. */
+/** Delete a slot entry (meta, picture and data). The autosave of a slot goes with "Delete" of that slot only when asked: pass kind "auto" for it. */
 export function deleteEntry(slot, kind = "manual") {
   if (!validSlot(slot) || !isKind(kind)) return;
   storage.remove(metaKey(slot, kind));
+  storage.remove(pictureKey(slot, kind));
   storage.remove(dataKey(slot, kind));
 }
 

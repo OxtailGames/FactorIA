@@ -14,6 +14,7 @@
 // "season" and "timer" write off the frame (storage.setAsync: a worker thread, the save compressed); "leave" writes at once, because
 // the app may be gone before an asynchronous write runs.
 import { writeEntry } from "./save_store.js";
+import { takePicture } from "./picture.js";
 
 export const AUTOSAVE_SECONDS = 120;
 /** One frame counts at most this many real seconds of play (a stall in a debugger must not add minutes). */
@@ -39,6 +40,21 @@ export class Autosaver {
     this.lastError = /** @type {any} */ (null);
     /** Called with (slot, kind) after every entry written: the save controller pushes it to the cloud. @type {((slot: number, kind: "manual" | "auto") => void) | null} */
     this.onWritten = null;
+    /** A picture taken in advance (rememberPicture), used by the next writes instead of a new one: undefined = take one at the write. @type {string | null | undefined} */
+    this.held = undefined;
+  }
+
+  /**
+   * Keep the picture of the town as it is now for the writes that follow, until forgetPicture(). The pause menu calls it before it opens:
+   * a save from the menu would otherwise take a picture with the menu on it, and a window that loses the focus while the menu is open
+   * would autosave that.
+   */
+  rememberPicture() {
+    this.held = takePicture();
+  }
+
+  forgetPicture() {
+    this.held = undefined;
   }
 
   /** Does this game belong to a slot (so it can be autosaved)? */
@@ -121,6 +137,7 @@ export class Autosaver {
       playSeconds: run.playSeconds,
       extra: tracker ? tracker.saveFields() : undefined,
       progress: tracker ? tracker.metaFields() : undefined,
+      picture: this.held !== undefined ? this.held : takePicture(),
       async: offFrame,
     });
     this.lastError = res.ok ? null : res.error;

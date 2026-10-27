@@ -90,6 +90,9 @@ export default class PauseMenu extends Behaviour {
       this.saveChecked = true;
       this.addSave(); // the game controller starts after this script, so its autosaver is only there now
     }
+    // the picture of a save from this menu is the town, not the menu: the last drawn frame has no menu yet, so take it now
+    const saver = this.saver();
+    if (saver) saver.rememberPicture();
     game.paused = true;
     // the level's scripts stop here, so what they show under the pointer (a building's tooltip) would stay over the menu
     const ctl = world.find("controller");
@@ -98,9 +101,22 @@ export default class PauseMenu extends Behaviour {
     this.menus.show("pause_panel");
   }
 
+  /** The level's autosaver, or null (a level without a game controller). */
+  saver() {
+    const holder = world.find("controller");
+    const controller = holder && holder.behaviour;
+    return (controller && controller.autosaver) || null;
+  }
+
   resume() {
+    const saver = this.saver();
+    if (saver) saver.forgetPicture();
     this.menus.closeAll();
     this.resuming = true;
+  }
+
+  onDestroy() {
+    if (this.slots) this.slots.destroy(); // frees the pictures it made
   }
 
   back() {

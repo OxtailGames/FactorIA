@@ -1043,6 +1043,18 @@ server sends no `Content-Length`) and `{{favicon}}` (`favicon.png`, or `data:,` 
   Atlas pages are at most 2048 px, like on phones: browsers run there too.
 - **Audio** is not changed by the web: WAV, OGG and QOA all decode in the player. Prefer OGG or QOA for long sounds, since
   every byte is downloaded before the game starts.
+- **Audio output** goes through an `AudioWorkletNode` (no `ScriptProcessorNode` deprecation warning in the console). The
+  player has no threads and no `SharedArrayBuffer` (a page without COOP/COEP headers), so Emscripten's `AUDIO_WORKLET` is not
+  used: the worklet only plays queued sample chunks and asks the main thread for more when its queue falls under 2048 frames;
+  the main thread mixes 512-frame chunks and posts them back. Where a browser has no AudioWorklet (or the worklet module fails to
+  load) a `ScriptProcessorNode` of 2048 frames takes over, with the old warning. The console says which one runs
+  (`factoria audio: AudioWorkletNode, ...`); `FactoriaAudio` in the page's console holds `backend`, `baseLatency`,
+  `outputLatency` and `underruns` (a warning is logged when the main thread was too busy to feed the worklet in time).
+  **Latency**, measured in the built-in browser (Chromium, macOS, 44.1 kHz, Burrow Brigade at 60 fps): `AudioContext.baseLatency`
+  5.4 ms, `outputLatency` 24 ms, plus the 2048-frame queue (46 ms full, about 35 ms on average), so a sound starts about 65 to
+  75 ms after the game asks for it, against about 90 ms of buffer alone with the `ScriptProcessorNode` of sokol_audio. 0
+  underruns in 18 s of music. Output latency varies with the device (Bluetooth adds more); the queue is the part the engine
+  chooses, and it is sized to survive one long frame.
 - **Typing.** Typed text reaches the game from the browser's `keypress` events, so it needs a real keyboard (or events a
   browser treats as typed; a browser pane's synthetic key events may only send `keydown`, and then letters do not appear).
   On a phone or tablet, a `TextField` with focus makes the browser show its keyboard through a hidden `<input>`; iOS Safari
