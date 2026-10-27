@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A CJK font subset from the locales
+
+- `assets.subset_font {source, locales, keep, out, axes}` cuts a font down to the characters of `locales/<language>.json` (the
+  languages of `localization.languages` by default; the same characters `factoria validate`'s glyph check asks a font for) plus
+  ASCII, Latin-1, the full-width forms, CJK punctuation and `keep`. A variable font is pinned to one instance (`wght` 400 by
+  default), the shaping tables stay, and the result lists the characters the source lacks. It uses HarfBuzz's subsetter (vendored in
+  `external/harfbuzz`, linked by the tools only): no Python or fontTools. Tidewater Market's 17 MB Noto Sans SC becomes a 340 KB
+  subset with the command, and its `make_subset.py` is gone. TEXT.md and LOCALIZATION.md no longer send you to `pyftsubset`.
+
 A chart widget
 
 - `Chart` draws `values` (one series, or several) as bars or lines inside a widget rectangle, in one batch: the axis is

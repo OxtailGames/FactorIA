@@ -78,7 +78,7 @@
         "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
         "license": "OFL-1.1",
         "author": "Google Fonts / Adobe (Noto Sans SC)",
-        "notes": "Variable font NotoSansSC[wght].ttf instanced to wght 400 and subset to the characters of locales/*.json with assets/fonts/make_subset.py. Used for Chinese, and for the language name in the language list, through localization.fallbackFonts. Licence text: assets/fonts/OFL.txt."
+        "notes": "Variable font NotoSansSC[wght].ttf instanced to wght 400 and subset to the characters of locales/*.json with assets.subset_font. Used for Chinese, and for the language name in the language list, through localization.fallbackFonts. Licence text: assets/fonts/OFL.txt."
       }
     },
     "assets/music/autumn.wav": {

@@ -32,9 +32,11 @@ includes zstd unconditionally and zstd is not vendored). `external/CMakeLists.tx
 player with only the output formats the engine asks for (ASTC 4x4, BC7, ETC2 RGBA8, RGBA8) and no Zstandard
 supercompression, and the encoder into `fa_tooling` only, where it stubs the two XBC7 functions `basisu_comp.cpp` calls.
 
-`external/harfbuzz/` holds the 14.6.0 release's `src/` reduced to the files `src/harfbuzz.cc` (its amalgamation) includes,
-unmodified, plus `COPYING`: no tests, no subsetter sources, no FreeType/ICU/GLib/CoreText/DirectWrite glue (those compile to
-nothing without their `HAVE_*` macros). `external/CMakeLists.txt` builds it with `HB_LEAN` and `HB_NO_AAT`. `external/sheenbidi/`
+`external/harfbuzz/` holds the 14.6.0 release's `src/` reduced to the files `src/harfbuzz.cc` (its amalgamation) and
+`src/harfbuzz-subset.cc` (the same plus the subsetter and the variable-font instancer) include, unmodified, plus `COPYING`: no tests,
+no FreeType/ICU/GLib/CoreText/DirectWrite glue (those compile to nothing without their `HAVE_*` macros). `external/CMakeLists.txt`
+builds `harfbuzz.cc` with `HB_LEAN` and `HB_NO_AAT` for the engine, and `harfbuzz-subset.cc` whole as `fa_ext_harfbuzz_subset`, which
+only `fa_tooling` links (assets.subset_font) and which then defines every hb_* symbol instead of the lean library. `external/sheenbidi/`
 holds `Headers/` and `Source/` of the v3.0.0 release, built through its unity file `Source/SheenBidi.c` (`SB_CONFIG_UNITY`).
 
 ## Tools (not vendored)

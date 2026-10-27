@@ -105,6 +105,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
 - [`assets.set_provenance`](commands/assets.md#assetsset_provenance-modifies-state): Record where an asset came from (hand-made, imported, or made with AI elsewhere). _Since 0.1.6._
 - [`assets.slice_sheet`](commands/assets.md#assetsslice_sheet-modifies-state): Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them. _Since 0.1.6._
+- [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Not released yet._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Not released yet._
 
 ### [audio](commands/audio.md)
