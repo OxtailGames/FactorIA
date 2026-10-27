@@ -1718,4 +1718,33 @@ bool Renderer::capture(Image& out, std::string* error) {
     return true;
 }
 
+bool Renderer::capture_fitted(Image& out, int width, int height, bool stretch, std::string* error) {
+    if (width < 1 || height < 1) {
+        if (error) *error = "capture: the size must be at least 1 x 1";
+        return false;
+    }
+    Image full;
+    if (!capture(full, error)) return false;
+    out = stretch ? resize_image(full, width, height) : cover_image(full, width, height);
+    return true;
+}
+
+std::string Renderer::create_runtime_texture(const Image& img, std::string* error) {
+    if (!initialized() || !impl_->assets) {
+        if (error) *error = "Renderer is not initialized";
+        return {};
+    }
+    constexpr int kMaxSide = 4096;
+    if (img.empty() || img.width > kMaxSide || img.height > kMaxSide ||
+        img.rgba.size() != std::size_t(img.width) * std::size_t(img.height) * 4) {
+        if (error) *error = "a run-time texture must be between 1 x 1 and 4096 x 4096 pixels";
+        return {};
+    }
+    return impl_->assets->make_runtime_texture(img);
+}
+
+bool Renderer::destroy_runtime_texture(const std::string& id) {
+    return impl_ && impl_->assets && impl_->assets->destroy_runtime_texture(id);
+}
+
 }  // namespace fa

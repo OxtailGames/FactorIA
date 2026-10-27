@@ -1485,6 +1485,13 @@ test('render stats of the fixture scene', () => {
   expect(s.drawCalls).toBeGreaterThan(0);
 });
 )JS");
+    p.write("tests/z_fresh.test.js", R"JS(
+import { test } from 'factoria:test';
+import { render } from 'factoria';
+test('a new test file starts with no textures alive', () => {
+  for (let i = 0; i < 32; i++) render.captureTexture({ width: 2, height: 2 });
+});
+)JS");
     Engine e;
     std::string err;
     EngineConfig cfg = headless_cfg(p);
@@ -1535,5 +1542,115 @@ TEST_CASE("clipboard: a replay's clipboard entry is pasted by Ctrl+V into the fo
     e.apply_input_entry(Json::parse(R"({"clipboard":5})"), problems, 3);
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].find("'clipboard' must be a string") != std::string::npos);
+    e.shutdown();
+}
+
+// M31.24: render.captureTexture, texture.toPNG, render.textureFromPNG.
+TEST_CASE("render.captureTexture: pixels of the screenshot, a PNG round trip through storage, and a Sprite that draws it") {
+    TempProject p("m31_24_capture");
+    p.write("tests/capture.test.js", R"JS(
+import { test, expect, game } from 'factoria:test';
+import { render, storage, world } from 'factoria';
+
+test('a capture at the game size is the screenshot, and its PNG draws on a Sprite', () => {
+  game.step(3);
+  const tex = render.captureTexture({ width: 320, height: 180 });
+  expect(tex.placeholder).toBe(false);
+  expect(tex.width).toBe(320);
+  expect(tex.id.startsWith('runtime:')).toBe(true);
+  game.screenshot('shots/frame.png');                    // the same frame
+  storage.set('slot.pic', tex.toPNG());                  // storage holds JSON: the PNG is Base64 text
+  expect(typeof storage.get('slot.pic')).toBe('string');
+  tex.destroy();
+  expect(tex.destroyed).toBe(true);
+  expect(() => tex.toPNG()).toThrow('destroyed');
+  tex.destroy();                                         // twice is fine
+  const back = render.textureFromPNG(storage.get('slot.pic'));
+  expect(back.width).toBe(320);
+  expect(back.height).toBe(180);
+  const pic = world.spawn({ components: { Sprite: { texture: back.id, size: [320, 180], layer: 50 } } });
+  expect(pic.bounds()[2]).toBe(320);
+  game.screenshot('shots/shown.png');
+  pic.destroy();
+  game.step(1);                                          // the frame that no longer draws it
+  back.destroy();
+});
+
+test('a small capture keeps the aspect ratio unless it is asked to stretch', () => {
+  const a = render.captureTexture({ width: 64, height: 64 });
+  const b = render.captureTexture({ width: 64, height: 36, fit: 'stretch' });
+  expect([a.width, a.height, b.width, b.height]).toEqual([64, 64, 64, 36]);
+  const again = render.textureFromPNG(a.toPNG());
+  expect(again.height).toBe(64);
+  const sized = world.spawn({ components: { Sprite: { texture: a.id } } });   // no size: the texture's own
+  expect(sized.bounds()[2]).toBe(64);
+  sized.get('Sprite').texture = again.id;                // a live view takes the id too
+  expect(sized.get('Sprite').texture).toBe(again.id);
+  sized.destroy();
+  game.step(1);
+  a.destroy(); b.destroy(); again.destroy();
+});
+
+test('wrong arguments say what to write', () => {
+  expect(() => render.captureTexture()).toThrow('options object');
+  expect(() => render.captureTexture({ width: 0, height: 10 })).toThrow('width must be a whole number from 1 to 2048');
+  expect(() => render.captureTexture({ width: 10, height: 4000 })).toThrow('height must be a whole number from 1 to 2048');
+  expect(() => render.captureTexture({ width: 10, height: 10, fit: 'zoom' })).toThrow('"cover"');
+  expect(() => render.textureFromPNG(5)).toThrow('texture.toPNG()');
+  expect(() => render.textureFromPNG('not base64 !!')).toThrow();
+  expect(() => render.textureFromPNG('aGVsbG8=')).toThrow('not an image');
+});
+
+test('at most 32 textures are alive at a time', () => {
+  const all = [];
+  for (let i = 0; i < 32; i++) all.push(render.captureTexture({ width: 4, height: 4 }));
+  expect(() => render.captureTexture({ width: 4, height: 4 })).toThrow('destroy()');
+  all[0].destroy();
+  all.push(render.captureTexture({ width: 4, height: 4 }));         // room again
+  // left alive on purpose: the next test file must start with none (checked from C++ below)
+});
+)JS");
+    p.write("tests/z_fresh.test.js", R"JS(
+import { test } from 'factoria:test';
+import { render } from 'factoria';
+test('a new test file starts with no textures alive', () => {
+  for (let i = 0; i < 32; i++) render.captureTexture({ width: 2, height: 2 });
+});
+)JS");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.renderMode = RenderMode::OnDemand;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump());
+    auto frame = load_image((p.dir / "shots/frame.png").generic_string());
+    auto shown = load_image((p.dir / "shots/shown.png").generic_string());
+    REQUIRE(frame.ok());
+    REQUIRE(shown.ok());
+    const ImageDiff d = diff_images(*frame, *shown, 1.0f / 255.0f);
+    INFO("meanError=" << d.meanError << " maxError=" << d.maxError);
+    CHECK(d.sameSize);
+    CHECK(d.meanError < 0.001);  // the picture that went through PNG, storage and a Sprite is the frame
+    e.shutdown();
+}
+
+TEST_CASE("render.captureTexture: without graphics it is a flat placeholder of the size asked, and the PNG still round trips") {
+    TempProject p("m31_24_placeholder");
+    EngineConfig c = headless_cfg(p);
+    c.graphics = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    REQUIRE(e.renderer() == nullptr);
+    auto js = [&](const char* code) {
+        auto r = e.scripts().eval(code);
+        REQUIRE_MESSAGE(r.ok(), std::string(r.ok() ? "" : r.error().message));
+        return r.value();
+    };
+    CHECK(js("render.captureTexture({ width: 40, height: 30 }).placeholder").get<bool>());
+    CHECK(js("render.textureFromPNG(render.captureTexture({ width: 40, height: 30 }).toPNG()).width").get<int>() == 40);
+    CHECK_FALSE(js("render.textureFromPNG(render.captureTexture({ width: 8, height: 8 }).toPNG()).placeholder").get<bool>());
     e.shutdown();
 }

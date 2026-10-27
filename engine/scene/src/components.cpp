@@ -65,7 +65,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], \"#rrggbb\" or a name.")
         .asset_field("texture", static_cast<std::string T::*>(&UiBox::texture), "texture",
                      "Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour "
-                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`.")
+                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\").")
         .field("slice", static_cast<Vec4 T::*>(&UiBox::slice),
                "9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture "
                "pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives "
@@ -290,7 +290,7 @@ void register_builtin_components(TypeRegistry& r) {
                   "Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.",
                   "2D")
         .asset_field("texture", &Sprite::texture, "texture",
-                     "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`.")
+                     "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\").")
         .field("region", &Sprite::region,
                "Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size "
                "means the whole texture. SpriteAnimator overwrites it every frame.")
@@ -1161,7 +1161,7 @@ void register_builtin_components(TypeRegistry& r) {
             .field("bold", &Button::bold, kBoldDoc)
             .asset_field("icon", &Button::icon, "texture",
                          "Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. "
-                         "Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it.")
+                         "Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\").")
             .field("iconRegion", &Button::iconRegion,
                    "Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). "
                    "A zero size means the whole texture.")

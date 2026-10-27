@@ -474,6 +474,8 @@ Assets::Assets(Gpu& gpu) : gpu_(gpu) {
 
 Assets::~Assets() {
     clear();
+    for (auto& [k, t] : runtime_) destroy_texture(*t);
+    runtime_.clear();
     destroy_texture(*white_);
     destroy_texture(*placeholderTex_);
     destroy_mesh(*placeholderMesh_);
@@ -595,6 +597,25 @@ TextureAsset* Assets::make_texture(const std::string& name, const Image& img, bo
     upload_texture(*t, img, mips);
     anonymous_.push_back(std::move(t));
     return anonymous_.back().get();
+}
+
+std::string Assets::make_runtime_texture(const Image& img) {
+    const std::string id = "runtime:" + std::to_string(nextRuntime_++);
+    auto t = std::make_unique<TextureAsset>();
+    t->path = id;
+    upload_texture(*t, img, true);
+    runtime_[id] = std::move(t);
+    return id;
+}
+
+bool Assets::destroy_runtime_texture(const std::string& id) {
+    auto it = runtime_.find(id);
+    if (it == runtime_.end()) return false;
+    destroy_texture(*it->second);
+    runtime_.erase(it);
+    // A Sprite that still names the id drew the placeholder from now on: forget a stale lookup made before.
+    textures_.erase(id);
+    return true;
 }
 
 TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder) {
@@ -745,6 +766,20 @@ TextureAsset* Assets::load_texture(const std::string& path) {
 
 TextureAsset* Assets::texture(const std::string& path) {
     if (path.empty()) return white_.get();
+    if (is_runtime_id(path)) {  // before fs::normalize: the id is not a file path
+        if (auto r = runtime_.find(path); r != runtime_.end()) return r->second.get();
+        auto& slot = textures_[path];
+        if (!slot) {
+            slot = std::make_unique<TextureAsset>();
+            slot->path = path;
+            note_failure("texture", path,
+                         std::format("'{}' is not a texture file but a run-time texture id, and no such texture exists now (it was "
+                                     "destroyed with texture.destroy(), or it was made by an earlier run of the game).", path),
+                         "Make the texture again with render.captureTexture() or render.textureFromPNG() and use its `id`.");
+            use_placeholder(*slot);
+        }
+        return slot.get();
+    }
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
     auto it = textures_.find(key);
@@ -858,6 +893,7 @@ std::size_t Assets::texture_bytes() const {
     for (const auto& [k, t] : textures_)
         if (!t->placeholder && !t->atlas) total += t->bytes;
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
+    for (const auto& [k, t] : runtime_) total += t->bytes;
     return total;
 }
 
@@ -870,6 +906,9 @@ Json Assets::report() const {
         if (t->atlas) entry["atlas"] = t->atlas->path;  // packed: the bytes are the atlas's
         tex.push_back(std::move(entry));
     }
+    for (const auto& [k, t] : runtime_)
+        tex.push_back({{"path", k}, {"width", t->width}, {"height", t->height}, {"format", pixel_format_name(t->format)},
+                       {"bytes", t->bytes}, {"runtime", true}});
     Json meshes = Json::array();
     for (const auto& [k, m] : meshes_) {
         if (m->placeholder) continue;

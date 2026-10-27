@@ -1936,6 +1936,87 @@ declare module "factoria" {
   }
 
   /**
+   * What render.captureTexture takes.
+   * @since unreleased
+   */
+  export interface CaptureTextureOptions {
+    /**
+     * Width of the texture in pixels, a whole number from 1 to 2048.
+     * @since unreleased
+     */
+    width: number;
+    /**
+     * Height of the texture in pixels, a whole number from 1 to 2048.
+     * @since unreleased
+     */
+    height: number;
+    /**
+     * What to do when width : height is not the frame's aspect ratio. "cover" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; "stretch" squeezes the whole frame into the size.
+     * @since unreleased
+     */
+    fit?: "cover" | "stretch";
+  }
+
+  /**
+   * A picture made at run time (render.captureTexture, render.textureFromPNG). Put `id` in a texture field, for example entity.get("Sprite").texture = tex.id, or a Panel's texture or a Button's icon, like the path of an asset; a Sprite with no `size` takes the texture's pixel size. It lives until destroy() (or the end of the game): the engine keeps at most 32 at a time, so destroy the ones you stop showing. Stop showing a texture (destroy its entity or change its texture field) before you destroy it: a frame that still names it draws the missing-texture checker and logs why. The pixels are also kept in memory (width x height x 4 bytes) so toPNG() works in every run. Example: const tex = render.captureTexture({ width: 256, height: 144 }); storage.set("slot1.png", tex.toPNG()); entity.get("Sprite").texture = tex.id;
+   * @since unreleased
+   */
+  export interface Texture {
+    /**
+     * What a texture field takes in place of an asset path ("runtime:3"). Numbers count from 1 in each run and are never reused.
+     * @since unreleased
+     */
+    readonly id: string;
+    /**
+     * Width in pixels.
+     * @since unreleased
+     */
+    readonly width: number;
+    /**
+     * Height in pixels.
+     * @since unreleased
+     */
+    readonly height: number;
+    /**
+     * True when the run has no renderer (a headless run without graphics): the picture is a flat colour of the size asked, not a capture. A normal run, a headless run with graphics and every test with a GPU give false.
+     * @since unreleased
+     */
+    readonly placeholder: boolean;
+    /**
+     * True after destroy().
+     * @since unreleased
+     */
+    readonly destroyed: boolean;
+    /**
+     * The picture as a PNG file, Base64 encoded (a string, because storage keeps JSON): storage.set("slot1.png", tex.toPNG()). render.textureFromPNG takes it back. A 256 x 144 picture of a town is about 20 to 60 KB of text; storage.set(key, value, { compress: true }) shrinks it a little. Throws after destroy().
+     * @since unreleased
+     */
+    toPNG(): string;
+    /**
+     * Frees the texture's memory. Safe to call twice. Do not keep showing it afterwards.
+     * @since unreleased
+     */
+    destroy(): void;
+  }
+
+  /**
+   * Pictures of the running game as textures, for a save slot, a photo mode or a minimap snapshot (docs/SCRIPTING.md, "Render"). A texture's pixels are those of a screenshot of the same frame.
+   * @since unreleased
+   */
+  export interface RenderAPI {
+    /**
+     * Makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. Example: const tex = render.captureTexture({ width: 256, height: 144 });
+     * @since unreleased
+     */
+    captureTexture(options: CaptureTextureOptions): Texture;
+    /**
+     * A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 2048 x 2048. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get("slot1.png", null); if (pic) entity.get("Sprite").texture = render.textureFromPNG(pic).id;
+     * @since unreleased
+     */
+    textureFromPNG(png: string): Texture;
+  }
+
+  /**
    * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
@@ -3438,6 +3519,12 @@ declare module "factoria" {
   export const clipboard: ClipboardAPI;
 
   /**
+   * Textures made at run time: a picture of the game for a save slot (captureTexture, textureFromPNG).
+   * @since unreleased
+   */
+  export const render: RenderAPI;
+
+  /**
    * Save data.
    */
   export const storage: StorageAPI;
@@ -4259,7 +4346,7 @@ declare module "factoria" {
    */
   export interface SpriteComponent {
     /**
-     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. (asset path: texture)
+     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      */
     texture: string;
     /**
@@ -5672,7 +5759,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -5808,7 +5895,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -5928,7 +6015,7 @@ declare module "factoria" {
      */
     bold: boolean;
     /**
-     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (asset path: texture)
+     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since unreleased
      */
     icon: string;
@@ -5992,7 +6079,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6157,7 +6244,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6357,7 +6444,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6502,7 +6589,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6596,7 +6683,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -6690,7 +6777,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -6829,7 +6916,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -6940,7 +7027,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since unreleased
      */
     texture: string;
@@ -7059,7 +7146,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since unreleased
      */
     texture: string;
