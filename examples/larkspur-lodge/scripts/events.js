@@ -43,6 +43,10 @@ export const EVENTS = Object.freeze({
   storyEnded: "story_ended",
   /** Something wants a cut-scene (P4): { id: cut-scene id }. scripts/cutscene.js answers it. */
   cutsceneRequested: "cutscene_requested",
+  /** A cut-scene began to play: { id, skippable }. cutscene.active() is true from now on. */
+  cutsceneStarted: "cutscene_started",
+  /** A cut-scene is over and its end state is in place (also when it was skipped): { id, skipped }. cutscene.active() is false unless another one is queued. */
+  cutsceneEnded: "cutscene_ended",
   /** The porter changed how it is controlled (the last device that gave input): { device: "keyboard"|"mouse"|"touch"|"gamepad" }. */
   deviceChanged: "device_changed",
 });

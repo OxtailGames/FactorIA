@@ -92,7 +92,16 @@
       ],
       "choice_4": [
         "4"
+      ],
+      "skip_cutscene": [
+        "Space",
+        "GamepadB"
       ]
+    }
+  },
+  "audio": {
+    "buses": {
+      "voiceover": {}
     }
   },
   "platforms": [

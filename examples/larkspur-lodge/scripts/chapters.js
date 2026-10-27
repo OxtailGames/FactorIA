@@ -17,7 +17,11 @@
 // the intro line, and fades back in. When the ending flag is set it fades to black, shows prefabs/ui/ending.prefab.json (title, text,
 // Main menu) and sends EVENTS.storyEnded; the porter takes no input then.
 //
-// Fields tests read: `stage` ("" | "out" | "hold" | "in" | "leaving" | "ending"), `endingShown`, `cardShown`.
+// Cut-scenes (scripts/cutscene.js): a new game from the title menu opens with "intro" (once: the flag intro_seen); a chapter from the
+// second on opens with "chapter_<n>" on the black screen, before its card; the ending is told by "ending_<id>" before the ending screen.
+// A chapter that is due waits for a cut-scene to end, as it waits for a conversation.
+//
+// Fields tests read: `stage` ("" | "out" | "hold" | "cut" | "in" | "leaving" | "ending"), `endingShown`, `cardShown`.
 import { Behaviour, world, scene, session, ui, i18n } from "factoria";
 import { EVENTS, emit } from "./events.js";
 import * as story from "./story.js";
@@ -44,10 +48,16 @@ export function isFinal(n = current()) {
   return !!info(n)?.final;
 }
 
-/** A new game: no conversation history, chapter 1 (call it after story.reset() and items.reset()). */
-export function begin() {
+/**
+ * A new game: no conversation history, chapter 1 (call it after story.reset() and items.reset()). `intro: true` (the title menu's
+ * Play) makes the first area play the opening cut-scene once; the bare begin() of a test does not.
+ */
+export function begin({ intro = false } = {}) {
   dialogue.reset();
   session.chapterShown = 0;
+  session.leadInShown = 0;
+  session.cutscenesSeen = [];
+  session.introPending = intro;
   story.set("chapter", 1);
   applyEffects(info(1)?.enter);
 }
@@ -102,6 +112,10 @@ export default class Chapters extends Behaviour {
     this.scenePath = scene.current;
     this.stage = "";
     this.stageTime = 0;
+    /** What to do when the cut-scene that plays ends: "announce" (the chapter card), "ending" (the ending screen) or "". */
+    this.after = "";
+    this.opening = false;
+    this.endingCut = false;
     this.endingShown = false;
     this.cardShown = 0;
     this.holdLeft = 0;
@@ -113,10 +127,54 @@ export default class Chapters extends Behaviour {
     world.on(EVENTS.flagChanged, () => this.check());
     world.on(EVENTS.inventoryChanged, () => this.check());
     world.on(EVENTS.dialogueEnded, () => this.check());
+    world.on(EVENTS.cutsceneEnded, () => this.onCutsceneEnded());
     ui.on("click", "ending_menu", () => scene.current === this.scenePath && scene.load("scenes/menu.scene.json"));
     // The first area of a chapter shows its card (a scene change inside a chapter does not).
+    // The opening waits for the first update: every behaviour of the scene (the cut-scene view, the cast) has started by then.
+    this.opening = current() > 0 && session.chapterShown !== current();
+  }
+
+  /** The first update of a scene in a chapter whose card has not shown: chapter 1 of a new game opens with the intro, a later chapter with its lead-in. */
+  open() {
     const n = current();
-    if (n > 0 && session.chapterShown !== n) this.announce(n);
+    if (n === 1 && session.introPending && !story.get("intro_seen", false)) {
+      session.introPending = false;
+      session.chapterShown = n;
+      this.after = "announce";
+      this.stage = "cut";
+      if (!this.play("intro")) this.onCutsceneEnded();
+    } else if (n > 1 && this.leadIn(n)) {
+      this.stage = "cut";
+    } else this.announce(n);
+  }
+
+  /** Plays a cut-scene. False when it does not play (nothing waits for it then: the caller goes on). */
+  play(id) {
+    return cutscene.play(id).played;
+  }
+
+  /** Starts the cut-scene that opens chapter `n` (data/cutscenes/chapter_<n>.cutscene.json), once per chapter. Returns whether one plays. */
+  leadIn(n) {
+    if (session.leadInShown === n) return false;
+    session.leadInShown = n;
+    this.after = "announce";
+    const played = this.play(`chapter_${n}`);
+    if (!played) this.after = "";
+    return played;
+  }
+
+  /** A cut-scene is over: the chapter goes on (its card and the clear screen), the ending screen shows, or a due change is looked at. */
+  onCutsceneEnded() {
+    if (scene.current !== this.scenePath || cutscene.active()) return;
+    const after = this.after;
+    this.after = "";
+    if (after === "announce") {
+      this.stage = "in";
+      this.stageTime = 0;
+      this.announce(current());
+      this.hud?.fadeTo(0, IN);
+    } else if (after === "ending") this.showEnding();
+    this.check();
   }
 
   /** The chapter card (its number and name) and the intro line. */
@@ -131,7 +189,7 @@ export default class Chapters extends Behaviour {
 
   /** Looks at the story: the ending was reached, or the chapter is over. Waits while a conversation runs or a change is under way. */
   check() {
-    if (scene.current !== this.scenePath || this.stage !== "" || dialogue.active()) return;
+    if (scene.current !== this.scenePath || this.stage !== "" || dialogue.active() || cutscene.active()) return;
     if (isFinal() && ending()) this.startStage("ending");
     else if (due()) this.startStage("out");
   }
@@ -144,6 +202,10 @@ export default class Chapters extends Behaviour {
   }
 
   onUpdate(dt) {
+    if (this.opening) {
+      this.opening = false;
+      this.open();
+    }
     if (this.stage === "") {
       // A flag set by a script that ran before this behaviour started, or a lock released late, is caught here too.
       if (this.stageTime >= 0.25) {
@@ -155,6 +217,10 @@ export default class Chapters extends Behaviour {
     this.stageTime += dt;
     if (this.stage === "out" && !this.hud?.fading) this.change();
     else if (this.stage === "hold" && this.stageTime >= HOLD) {
+      if (this.leadIn(current())) {
+        this.stage = "cut";
+        return;
+      }
       this.stage = "in";
       this.stageTime = 0;
       this.announce(current());
@@ -164,7 +230,11 @@ export default class Chapters extends Behaviour {
       this.stage = "";
       this.stageTime = 0;
       this.check(); // the new chapter may already be due
-    } else if (this.stage === "ending" && !this.endingShown && !this.hud?.fading) this.showEnding();
+    } else if (this.stage === "ending" && !this.endingShown && !this.endingCut && !this.hud?.fading) {
+      this.endingCut = true;
+      this.after = "ending";
+      if (!this.play(`ending_${ending()}`)) this.showEnding();
+    }
   }
 
   /** The screen is black: move to the next chapter and take the porter to where it starts. */
@@ -206,6 +276,7 @@ export default class Chapters extends Behaviour {
     const id = ending();
     const e = data.endings[id];
     this.endingShown = true;
+    this.after = "";
     this.endingRoot.active = true;
     world.find("ending_title").get("Text").text = i18n.t(e.titleKey);
     world.find("ending_text").get("Text").text = i18n.t(e.textKey);

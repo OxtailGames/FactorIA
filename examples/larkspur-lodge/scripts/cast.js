@@ -41,6 +41,25 @@ const ANIMATOR = Object.freeze({
   state: "idle",
 });
 
+/**
+ * The entity JSON of a body for character `id` that is only to be seen, not talked to (a cut-scene's extra, scripts/cutscene.js):
+ * same model, tint and Animator as a character of the cast, but no collider and no interactable. `x`, `z` metres, `yaw` degrees
+ * (0 = looks down -Z).
+ */
+export function bodyJson(id, x, z, yaw, entityId) {
+  const c = cast.characters[id];
+  if (!c) throw new Error(`cast: there is no character '${id}' in data/cast.json. ${didYouMean(id, Object.keys(cast.characters)) ?? ""}`);
+  return {
+    id: entityId,
+    name: id,
+    components: {
+      Transform: { position: [x, FEET, z], rotation: [0, yaw + 180, 0], scale: [SCALE, SCALE, SCALE] },
+      MeshRenderer: { mesh: BODIES[c.body], color: c.tint, castShadows: true, emissive: [0.08, 0.07, 0.07] },
+      Animator: ANIMATOR,
+    },
+  };
+}
+
 export default class Cast extends Behaviour {
   /** The area this scene is (a key of scripts/area.js AREAS); the build script writes it. */
   area = "";

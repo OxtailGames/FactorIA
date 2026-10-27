@@ -8,6 +8,7 @@ import * as dialogue from "../../scripts/dialogue.js";
 import * as story from "../../scripts/story.js";
 import * as items from "../../scripts/items.js";
 import * as chapters from "../../scripts/chapters.js";
+import * as cutscene from "../../scripts/cutscene.js";
 import { AREAS } from "../../scripts/area.js";
 
 /** Where to stand relative to a thing's spot, and the yaw that looks at it (yaw 0 faces -Z, 90 faces -X, 180 faces +Z, 270 faces +X). */
@@ -44,6 +45,7 @@ export class Bot {
   settle(max = 900) {
     game.step(4);
     for (let i = 0; i < max; i += 4) {
+      this.skipCutscene();
       const ch = game.find("chapters")?.behaviour;
       const area = game.find("area")?.behaviour;
       const p = porter();
@@ -53,6 +55,16 @@ export class Bot {
       game.step(4);
     }
     this.fail(`the screen did not settle in ${max} frames (scene ${scene.current})`);
+  }
+
+  /** A cut-scene is playing: the bot skips it with the real skip key (after the moments in which the key is ignored). */
+  skipCutscene() {
+    const c = cutscene.current();
+    if (!c) return;
+    this.trail.push(`skip ${c.id}`);
+    if (c.time < 0.4) game.step(Math.ceil((0.4 - c.time) * 60));
+    game.tapKey("Space");
+    game.step(2);
   }
 
   /** The title screen -> Play -> loading -> the hall, chapter 1. */

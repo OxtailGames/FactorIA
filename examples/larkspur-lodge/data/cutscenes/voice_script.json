@@ -1,0 +1,184 @@
+{
+  "format": "larkspur.voice_script/1",
+  "doc": "Every spoken line of the cut-scenes, written by assets/src/build_cutscenes.py. Make a clip with assets.generate_voice {text, path: 'assets/voice/<id>.mp3', voice: voices[speaker]}, then add it to data/cutscenes/voice.json with its length in seconds.",
+  "voices": {
+    "doc": "The provider voice of each speaker, for assets.generate_voice (OpenAI voice names; pass them as `voice`). The narrator has one too.",
+    "narrator": "ash",
+    "mara": "nova",
+    "hedda": "shimmer",
+    "tobias": "onyx",
+    "haas": "echo",
+    "lucian": "fable",
+    "vale": "alloy"
+  },
+  "lines": [
+    {
+      "id": "intro_01",
+      "speaker": "narrator",
+      "cutscene": "intro",
+      "text": "Larkspur Lodge. Eleven at night, and the storm has taken the road, the telephone and most of the good humour.",
+      "path": "assets/voice/intro_01.mp3"
+    },
+    {
+      "id": "intro_02",
+      "speaker": "mara",
+      "cutscene": "intro",
+      "text": "Close the door, porter, you are letting the whole mountain in.",
+      "path": "assets/voice/intro_02.mp3"
+    },
+    {
+      "id": "intro_03",
+      "speaker": "haas",
+      "cutscene": "intro",
+      "text": "The pass is shut till morning. Nobody comes, nobody goes.",
+      "path": "assets/voice/intro_03.mp3"
+    },
+    {
+      "id": "intro_04",
+      "speaker": "narrator",
+      "cutscene": "intro",
+      "text": "You have the keys, the stove and a house full of strangers until dawn.",
+      "path": "assets/voice/intro_04.mp3"
+    },
+    {
+      "id": "chapter_2_01",
+      "speaker": "narrator",
+      "cutscene": "chapter_2",
+      "text": "The supper went cold on the long table. Dr. Vale's chair was still pushed back, as if he meant to return.",
+      "path": "assets/voice/chapter_2_01.mp3"
+    },
+    {
+      "id": "chapter_3_01",
+      "speaker": "narrator",
+      "cutscene": "chapter_3",
+      "text": "A locked door on the upstairs landing, and a house that has stopped pretending to sleep.",
+      "path": "assets/voice/chapter_3_01.mp3"
+    },
+    {
+      "id": "chapter_4_01",
+      "speaker": "narrator",
+      "cutscene": "chapter_4",
+      "text": "The wind found one note it liked and kept it. Below the kitchen, the old way waited behind the wine.",
+      "path": "assets/voice/chapter_4_01.mp3"
+    },
+    {
+      "id": "chapter_5_01",
+      "speaker": "narrator",
+      "cutscene": "chapter_5",
+      "text": "The wind drops all at once, like a breath let go. The windows go from black to grey.",
+      "path": "assets/voice/chapter_5_01.mp3"
+    },
+    {
+      "id": "chapter_5_02",
+      "speaker": "vale",
+      "cutscene": "chapter_5",
+      "text": "Is it quiet, or have I gone deaf in that hole?",
+      "path": "assets/voice/chapter_5_02.mp3"
+    },
+    {
+      "id": "chapter_5_03",
+      "speaker": "mara",
+      "cutscene": "chapter_5",
+      "text": "It is quiet, Ansel. Sit. You have a great deal to tell us.",
+      "path": "assets/voice/chapter_5_03.mp3"
+    },
+    {
+      "id": "adit_descent_01",
+      "speaker": "haas",
+      "cutscene": "adit_descent",
+      "text": "The third shelf turns on a hinge nobody has oiled in thirty years. Put your shoulder to it.",
+      "path": "assets/voice/adit_descent_01.mp3"
+    },
+    {
+      "id": "adit_descent_02",
+      "speaker": "narrator",
+      "cutscene": "adit_descent",
+      "text": "The rack swings inward with a sound like a long breath, and the lantern shows a stair going down.",
+      "path": "assets/voice/adit_descent_02.mp3"
+    },
+    {
+      "id": "adit_rescue_01",
+      "speaker": "narrator",
+      "cutscene": "adit_rescue",
+      "text": "Dr. Vale comes up the steps one at a time, the lamp in the porter's hand and the page forty in his coat.",
+      "path": "assets/voice/adit_rescue_01.mp3"
+    },
+    {
+      "id": "adit_rescue_02",
+      "speaker": "haas",
+      "cutscene": "adit_rescue",
+      "text": "Easy, doctor. Easy. You are out now.",
+      "path": "assets/voice/adit_rescue_02.mp3"
+    },
+    {
+      "id": "adit_rescue_03",
+      "speaker": "vale",
+      "cutscene": "adit_rescue",
+      "text": "Thirty years, Haas. And it was still exactly where we left it.",
+      "path": "assets/voice/adit_rescue_03.mp3"
+    },
+    {
+      "id": "ending_dawn_01",
+      "speaker": "narrator",
+      "cutscene": "ending_dawn",
+      "text": "At eight the pass opened and the first car came down out of the white.",
+      "path": "assets/voice/ending_dawn_01.mp3"
+    },
+    {
+      "id": "ending_dawn_02",
+      "speaker": "mara",
+      "cutscene": "ending_dawn",
+      "text": "I should have told you all of it years ago. The stones, the page, all of it.",
+      "path": "assets/voice/ending_dawn_02.mp3"
+    },
+    {
+      "id": "ending_dawn_03",
+      "speaker": "vale",
+      "cutscene": "ending_dawn",
+      "text": "The survey will say it for us. It always did.",
+      "path": "assets/voice/ending_dawn_03.mp3"
+    },
+    {
+      "id": "ending_quiet_01",
+      "speaker": "narrator",
+      "cutscene": "ending_quiet",
+      "text": "The page curled in the stove and was gone before anyone found the words to stop it.",
+      "path": "assets/voice/ending_quiet_01.mp3"
+    },
+    {
+      "id": "ending_quiet_02",
+      "speaker": "mara",
+      "cutscene": "ending_quiet",
+      "text": "Thank you. I will not forget what that cost you.",
+      "path": "assets/voice/ending_quiet_02.mp3"
+    },
+    {
+      "id": "ending_quiet_03",
+      "speaker": "haas",
+      "cutscene": "ending_quiet",
+      "text": "Nobody is punished tonight. That is not the same as nobody being free.",
+      "path": "assets/voice/ending_quiet_03.mp3"
+    },
+    {
+      "id": "ending_long_01",
+      "speaker": "narrator",
+      "cutscene": "ending_long",
+      "text": "No car came down in the morning. The snow had other plans for the Brandt road.",
+      "path": "assets/voice/ending_long_01.mp3"
+    },
+    {
+      "id": "ending_long_02",
+      "speaker": "haas",
+      "cutscene": "ending_long",
+      "text": "It was my silence. Let the Captain pay for it, and let the rest of you go in peace.",
+      "path": "assets/voice/ending_long_02.mp3"
+    },
+    {
+      "id": "ending_long_03",
+      "speaker": "mara",
+      "cutscene": "ending_long",
+      "text": "Peace. Is that what you call it?",
+      "path": "assets/voice/ending_long_03.mp3"
+    }
+  ]
+}

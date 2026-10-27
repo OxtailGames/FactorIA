@@ -1,0 +1,114 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "chapter_5",
+  "doc": "Lead-in to chapter 5, Dawn: the hall as the wind drops, the camera finding Dr. Vale on the sofa. Plays in the hall, where chapter 5 begins.",
+  "duration": 19,
+  "room": "hall",
+  "skippable": true,
+  "actors": {
+    "porter": {
+      "as": "porter"
+    },
+    "vale": {
+      "as": "npc",
+      "cast": "vale"
+    },
+    "mara": {
+      "as": "npc",
+      "cast": "mara"
+    }
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "do": "fade",
+      "to": 1,
+      "seconds": 0
+    },
+    {
+      "at": 0,
+      "do": "camera",
+      "pos": [
+        22.0,
+        2.6,
+        17.6
+      ],
+      "look": [
+        14.5,
+        1.0,
+        21.0
+      ],
+      "seconds": 0,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 0.4,
+      "do": "card",
+      "key": "cutscene.chapter_5.card1",
+      "seconds": 3.2
+    },
+    {
+      "at": 2.4,
+      "do": "fade",
+      "to": 0,
+      "seconds": 2.0
+    },
+    {
+      "at": 2.6,
+      "do": "caption",
+      "key": "cutscene.chapter_5.line01",
+      "seconds": 6.0,
+      "voice": "chapter_5_01"
+    },
+    {
+      "at": 2.6,
+      "do": "camera",
+      "pos": [
+        18.0,
+        2.5,
+        17.3
+      ],
+      "look": [
+        12.4,
+        1.0,
+        21.2
+      ],
+      "seconds": 10.0,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 9.0,
+      "do": "caption",
+      "key": "cutscene.chapter_5.line02",
+      "seconds": 4.0,
+      "voice": "chapter_5_02",
+      "speaker": "vale"
+    },
+    {
+      "at": 9.0,
+      "do": "face",
+      "actor": "vale",
+      "toward": "porter"
+    },
+    {
+      "at": 13.2,
+      "do": "caption",
+      "key": "cutscene.chapter_5.line03",
+      "seconds": 4.5,
+      "voice": "chapter_5_03",
+      "speaker": "mara"
+    },
+    {
+      "at": 17.4,
+      "do": "fade",
+      "to": 1,
+      "seconds": 1.4
+    }
+  ],
+  "end": {
+    "fade": 1
+  },
+  "area": "ground"
+}

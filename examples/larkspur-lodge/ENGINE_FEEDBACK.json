@@ -21,7 +21,7 @@
       ],
       "suggestion": "In update_drag skip an ancestor for which ui_box is null (or stop the walk at the first non-widget), and add a test with a widget under a plain entity. Also worth a validate warning for a widget under a non-widget parent if that layout is not meant to be supported.",
       "effort": "small",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -129,7 +129,7 @@
       ],
       "suggestion": "Say it in the ui doc next to the Button fields (and in the field's doc string), or rename the field in a future format version.",
       "effort": "small",
-      "occurrences": 1,
+      "occurrences": 2,
       "status": "open"
     },
     {
@@ -236,6 +236,50 @@
         "scripts/ui/options.js"
       ],
       "suggestion": "A project.add_menu_kit option (for example 'textSpeed': true) that adds the row, or a documented way to add a game row to the options menu.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "assets.generate_voice has no provider in this setup",
+      "missing": "P4 wanted English voice lines for the cut-scenes through assets.generate_voice. No voice provider was available, so no clip was generated and no provenance entry written.",
+      "workaround": "The 24 lines are listed in data/cutscenes/voice_script.json (text, speaker, step); data/cutscenes/voice.json has an empty clips map and the captions run on the step's seconds. When a clip is added to voice.json the caption lasts as long as the clip, the voiceover bus ducks the music and the validator checks the file and its length. Tests use tests/fixtures/test_voice.wav.",
+      "workaroundFiles": [
+        "data/cutscenes/voice_script.json",
+        "data/cutscenes/voice.json",
+        "scripts/cutscene.js"
+      ],
+      "suggestion": "Say in the assets.generate_voice error which provider keys are needed, and document how to test voice-dependent code without a provider.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "scene.current cannot tell a reload of the same scene from the scene itself",
+      "missing": "A script that awaits something (a cut-scene timeline) checks scene.current to see whether its scene is still the current one. A reload of the same scene path leaves scene.current equal, so a result of the old scene looks current although its entities are gone.",
+      "workaround": "scripts/cutscene.js also checks that the porter entity it holds is still alive (run.porter.alive) and drops its run otherwise.",
+      "workaroundFiles": [
+        "scripts/cutscene.js"
+      ],
+      "suggestion": "Expose a scene load counter (scene.generation) that changes on every load, or make handles of a previous load compare unequal.",
       "effort": "small",
       "occurrences": 1,
       "status": "open"
