@@ -1,6 +1,196 @@
 {
   "format": "factoria.assets/1",
   "assets": {
+    "assets/audio/cellar_air.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/clock.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/fire.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/footstep_carpet_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_carpet_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_carpet_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactBell_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/music_ch1.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/music_ch2.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/music_ch3.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/music_ch4.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/music_ch5.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/music_title.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
+    "assets/audio/wind.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
+      }
+    },
     "assets/models/characters/Textures/texture-a.png": {
       "provenance": {
         "origin": "imported",

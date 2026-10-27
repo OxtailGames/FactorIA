@@ -1,14 +1,16 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
-// monitor, size, vsync, frame cap, the interface size and the colour filter, two accessibility options that work without a window),
-// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
-// (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// monitor, size, vsync, frame cap, the interface size), Audio (one slider per bus: master, music, effects, ambience, voices,
+// interface), Accessibility (text size, reduced motion, colour filter, subtitles, caption background, speaker names, dialogue text
+// speed and auto-advance, prompt glyphs, read menus aloud), Controls (camera sensitivity and inversion, rebinding the actions of
+// `actions`; with `players` above 1, for the player you pick) and Language (cycles through the game's languages, privacy).
+// Each tab is a ScrollList (it scrolls at 200 % text); every widget is reachable with the mouse, touch and the gamepad's focus. Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
-const TABS = ["video", "audio", "controls", "language"];
+const TABS = ["video", "audio", "access", "controls", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
 /** Interface sizes (ui.scale) the "Interface size" button cycles through; only the ones this panel still fits the screen at are offered. */
@@ -41,12 +43,14 @@ export default class Options extends Behaviour {
     this.showTab("video");
     this.setupVideo();
     this.setupAudio();
+    this.setupAccess();
     this.setupControls();
     this.setupLanguage();
     this.setupPrivacy();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
+      this.refreshAccess();
       this.refreshControls();
       this.refreshLanguage();
     });
@@ -103,13 +107,6 @@ export default class Options extends Behaviour {
       settings.save(s);
       this.refreshVideo();
     });
-    ui.on("click", "color_filter", () => {
-      const all = settings.COLOR_FILTERS;
-      s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
-      settings.applyColorFilter(s); // Camera.colorFilter: the whole frame, this panel included
-      settings.save(s);
-      this.refreshVideo();
-    });
   }
 
   /**
@@ -151,7 +148,6 @@ export default class Options extends Behaviour {
     const uiScale = world.find("ui_scale").get("Button");
     uiScale.text = i18n.t("options.uiScale", { percent: Math.round(ui.scale * 100) });
     uiScale.interactable = this.uiScales().length > 1; // nothing to choose when no other size fits
-    world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
 
   // ------------------------------------------------------------------------------------------------------------ audio
@@ -192,6 +188,45 @@ export default class Options extends Behaviour {
     this.refreshTextSpeed();
   }
 
+  // ---------------------------------------------------------------------------------------------------- accessibility
+  /** Text size, reduced motion, colour filter, caption background, speaker names, auto-advance and prompt glyphs (subtitles, text speed and read aloud are set up with the audio ones above). */
+  setupAccess() {
+    const s = this.s;
+    /** Moves a setting to the next of `all` (a button that cycles), saves it and writes the buttons again. */
+    const cycle = (id, all, get, set, after) =>
+      ui.on("click", id, () => {
+        const at = all.findIndex((x) => get(x));
+        set(all[(at + 1) % all.length]);
+        after?.();
+        settings.save(s);
+        this.refreshAccess();
+      });
+    cycle("text_scale", settings.TEXT_SCALES, (k) => Math.abs(k - s.textScale) < 1e-3, (k) => { s.textScale = k; ui.textScale = k; });
+    cycle("color_filter", settings.COLOR_FILTERS, (f) => f === s.colorFilter, (f) => { s.colorFilter = f; settings.applyColorFilter(s); }); // Camera.colorFilter: the whole frame, this panel included
+    cycle("caption_bg", settings.CAPTION_BACKGROUNDS, (b) => b.name === s.captionBackground, (b) => { s.captionBackground = b.name; settings.applyCaptionBackground(s); });
+    cycle("auto_advance", settings.AUTO_ADVANCE, (a) => a.name === s.autoAdvance, (a) => { s.autoAdvance = a.name; });
+    cycle("glyphs", settings.GLYPH_MODES, (g) => g === s.glyphs, (g) => { s.glyphs = g; });
+    const toggles = { reduced_motion: "reducedMotion", caption_speakers: "captionSpeakers" };
+    for (const [id, key] of Object.entries(toggles)) {
+      world.find(id).get("Toggle").value = s[key];
+      ui.on("change", id, (e) => {
+        s[key] = e.value;
+        settings.save(s);
+      });
+    }
+    this.refreshAccess();
+  }
+
+  refreshAccess() {
+    const s = this.s;
+    const set = (id, text) => (world.find(id).get("Button").text = text);
+    set("text_scale", i18n.t("options.textScale", { percent: Math.round(s.textScale * 100) }));
+    set("color_filter", i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${s.colorFilter}`) }));
+    set("caption_bg", i18n.t("options.captionBg", { mode: i18n.t(`options.captionBgMode.${s.captionBackground}`) }));
+    set("auto_advance", i18n.t("options.autoAdvance", { mode: i18n.t(`options.autoAdvanceMode.${s.autoAdvance}`) }));
+    set("glyphs", i18n.t("options.glyphs", { mode: i18n.t(`options.glyphsMode.${s.glyphs}`) }));
+  }
+
   refreshTextSpeed() {
     const at = settings.TEXT_SPEEDS.find((x) => x.cps === this.s.textSpeed);
     const name = at ? at.name : "custom";
@@ -203,18 +238,32 @@ export default class Options extends Behaviour {
     const list = world.find("bindings");
     this.players = Math.max(1, Math.min(4, Math.round(Number(this.players)) || 1));
     if (this.players > 1) {
-      world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [740, 44], fontSize: 22, layer: 302, autoSize: true, maxWidth: 700 } } }, { parent: list });
       ui.on("click", "controls_player", () => {
         if (this.waiting) return;
         this.seat = (this.seat + 1) % this.players;
         this.refreshControls();
       });
     }
+    // Camera: sensitivity (a multiplier of every orbit input) and the two inversions; scripts/lodge_camera.js reads them on EVENTS.settingsChanged.
+    const sens = world.find("camera_sensitivity").get("Slider");
+    sens.value = this.s.cameraSensitivity;
+    ui.on("change", "camera_sensitivity", (e) => {
+      this.s.cameraSensitivity = e.value;
+      settings.save(this.s);
+    });
+    for (const [id, key] of [["camera_invert_x", "cameraInvertX"], ["camera_invert_y", "cameraInvertY"]]) {
+      world.find(id).get("Toggle").value = this.s[key];
+      ui.on("change", id, (e) => {
+        this.s[key] = e.value;
+        settings.save(this.s);
+      });
+    }
     const have = input.actions();
     // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
     this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
     for (const action of this.actions) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [740, 44], fontSize: 22, layer: 302, autoSize: true, maxWidth: 700 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };

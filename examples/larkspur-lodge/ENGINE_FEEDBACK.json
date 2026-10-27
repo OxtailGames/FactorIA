@@ -496,6 +496,92 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0701",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "minor",
+      "title": "No way to get or make ambience and music clips from inside the project",
+      "missing": "Ambience beds (wind, fire, clocks) and a score per chapter were needed as CC0 loops. assets.import takes a URL of a known pack (footsteps came from Kenney), but there is no search for sound packs and no audio tooling (no ffmpeg, sox or oggenc, no numpy) to convert or synthesise.",
+      "workaround": "assets/src/make_sound.py synthesises seamless loops in pure Python (seeded) and writes WAVs recorded as origin 'original' in assets.json. Footsteps are the Kenney CC0 imports.",
+      "workaroundFiles": [
+        "assets/src/make_sound.py",
+        "assets.json"
+      ],
+      "suggestion": "A command that generates simple loops (noise beds, drones) or searches CC0 sound packs, and one that converts WAV to OGG.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0702",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "A test cannot run project or engine commands such as ui.check_layout",
+      "missing": "ui.check_layout is the way to find text that overflows at 200 %, but the test game object has no way to call a command, so a test cannot assert 'no layout issues'. It also does not open hidden panels (options is a prefab spawned by a script).",
+      "workaround": "tests/options.test.js opens each options tab and walks its widgets with ui.overflowed(entity) at ui.textScale 1 and 2; menu and ground were checked with the CLI command by hand.",
+      "workaroundFiles": [
+        "tests/options.test.js"
+      ],
+      "suggestion": "Expose game.call(command, args) in factoria:test, and let ui.check_layout take a script to open panels before measuring.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0703",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Warning 'Panel is larger than the screen' for a fit Panel inside a ScrollList",
+      "missing": "The rebinding rows are spawned into a Panel that sits in a ScrollList (so it is clipped and scrolls). The engine still warns that the Panel (fit) is 740 x 1369 px, larger than the screen, as if part of it were lost.",
+      "workaround": "None: the warning is harmless here, the list scrolls; tests print it.",
+      "workaroundFiles": [
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "Do not warn for a Panel whose ancestor is a ScrollList.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0704",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Music started with persist: true survives game.resetState between tests",
+      "missing": "audio.music(path, {persist: true}) keeps playing from one test to the next, and an identical track is only retuned, so a later test that expects the play in game.audioLog() sees nothing. session also survives resetState.",
+      "workaround": "tests/sound.test.js calls audio.stopMusic() and clears session.musicTrack before each new game.",
+      "workaroundFiles": [
+        "tests/sound.test.js",
+        "scripts/sound.js"
+      ],
+      "suggestion": "game.resetState() should stop the music and the voices, or the docs say it does not.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

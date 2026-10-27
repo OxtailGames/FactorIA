@@ -1,0 +1,44 @@
+{
+  "format": "larkspur.sound/1",
+  "doc": "What the lodge sounds like (scripts/sound.js). rooms: the floor entity ids are f_<room>; each room has the floor surface its footsteps use and the looping beds heard in it with a volume 0..1. beds: the looping clips, all on the ambience bus. footsteps: the Kenney impact clips per surface (three variants each, taken in turn) and the stride in metres. music: the track of each chapter (chapter 0 = a bare test scene plays none) and of the title.",
+  "fade": 1.5,
+  "beds": {
+    "wind": "assets/audio/wind.wav",
+    "fire": "assets/audio/fire.wav",
+    "clock": "assets/audio/clock.wav",
+    "cellar_air": "assets/audio/cellar_air.wav"
+  },
+  "stormOverWind": 0.35,
+  "defaultRoom": { "surface": "wood", "beds": { "wind": 0.3 } },
+  "rooms": {
+    "hall": { "surface": "carpet", "beds": { "clock": 0.6, "wind": 0.2, "fire": 0.35 } },
+    "library": { "surface": "carpet", "beds": { "fire": 0.7, "clock": 0.3, "wind": 0.15 } },
+    "kitchen": { "surface": "wood", "beds": { "fire": 0.6, "wind": 0.2 } },
+    "dining": { "surface": "wood", "beds": { "fire": 0.3, "clock": 0.4, "wind": 0.2 } },
+    "stair_hall": { "surface": "wood", "beds": { "clock": 0.5, "wind": 0.25 } },
+    "closet": { "surface": "wood", "beds": { "wind": 0.3 } },
+    "nook": { "surface": "wood", "beds": { "wind": 0.4 } },
+    "main": { "surface": "wood", "beds": { "wind": 0.3 } },
+    "corridor": { "surface": "carpet", "beds": { "clock": 0.4, "wind": 0.3 } },
+    "landing": { "surface": "carpet", "beds": { "clock": 0.5, "wind": 0.3 } },
+    "room_a": { "surface": "carpet", "beds": { "wind": 0.5 } },
+    "room_b": { "surface": "carpet", "beds": { "wind": 0.5, "fire": 0.2 } },
+    "room_c": { "surface": "carpet", "beds": { "wind": 0.5 } },
+    "room_d": { "surface": "carpet", "beds": { "wind": 0.5 } },
+    "cellar": { "surface": "concrete", "beds": { "cellar_air": 1 } }
+  },
+  "footsteps": {
+    "stride": 1.15,
+    "volume": 0.55,
+    "surfaces": {
+      "carpet": ["assets/audio/footstep_carpet_000.ogg", "assets/audio/footstep_carpet_001.ogg", "assets/audio/footstep_carpet_002.ogg"],
+      "concrete": ["assets/audio/footstep_concrete_000.ogg", "assets/audio/footstep_concrete_001.ogg", "assets/audio/footstep_concrete_002.ogg"],
+      "wood": ["assets/audio/footstep_wood_000.ogg", "assets/audio/footstep_wood_001.ogg", "assets/audio/footstep_wood_002.ogg"]
+    }
+  },
+  "music": {
+    "title": "assets/audio/music_title.wav",
+    "chapters": ["assets/audio/music_ch1.wav", "assets/audio/music_ch2.wav", "assets/audio/music_ch3.wav", "assets/audio/music_ch4.wav", "assets/audio/music_ch5.wav"],
+    "fade": 2
+  }
+}

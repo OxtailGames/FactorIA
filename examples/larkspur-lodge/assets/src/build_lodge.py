@@ -348,7 +348,8 @@ class Area:
         }}]})
         out.append({"id": "area", "components": {"Script": {"path": "scripts/area.js", "props": {
             "area": self.name, "titleKey": self.title_key, "preload": self.preload}}}})
-        out.append({"id": "pause_menu", "components": {"Script": {"path": "scripts/pause_menu.js"}}})
+        out.append({"id": "sound", "components": {"Script": {"path": "scripts/sound.js"}}})  # ambience per room, footsteps per floor, chapter music
+        out.append({"id": "pause_menu","components": {"Script": {"path": "scripts/pause_menu.js"}}})
         out.append({"id": "dialogue", "components": {"Script": {"path": "scripts/dialogue_view.js"}}})  # the dialogue box (spawns its own UI)
         out.append({"id": "screens", "components": {"Script": {"path": "scripts/screens.js"}}})  # the inventory, notebook, board and puzzle screens (spawn their own UI)
         if self.name in STORY_AREAS:  # the people of the night and the chapters live in the areas the story walks through

@@ -55,6 +55,8 @@ export const EVENTS = Object.freeze({
   boardChanged: "board_changed",
   /** Two items were combined: { a, b, result } (scripts/items.js combine). */
   itemsCombined: "items_combined",
+  /** The player changed an option (scripts/settings.js save): { settings }. The camera, the dialogue box and the sound read what they need again. */
+  settingsChanged: "settings_changed",
 });
 
 /** Sends an event to every listener of the scene (world.emit with a name from EVENTS). */

@@ -22,6 +22,7 @@
 // faceYaw(deg), walkTo(path), goTo(point), use(interactable), and read `yaw`, `speed`, `grounded`, `target`, `locked`.
 import { Behaviour, input, physics, world, camera, nav, ui, i18n } from "factoria";
 import { EVENTS, emit } from "./events.js";
+import * as glyphs from "./glyphs.js";
 
 const DEG = Math.PI / 180;
 /** Collision layers of the lodge (set by assets/src/build_lodge.py): 0 floors, 1 inside walls, doors, stairs and tall furniture, 2 low furniture, 3 outside walls. */
@@ -315,7 +316,7 @@ export default class Porter extends Behaviour {
       emit(EVENTS.targetChanged, { id: best ? best.entity.id : null, kind: best ? best.kind : "", verb: best ? best.verbKey() : null });
     }
     // The prompt follows the target, the device and the language.
-    const key = best ? `${best.entity.id}|${input.lastDevice}|${i18n.language}|${input.lastDevice === "gamepad" ? input.gamepad(0).type : ""}` : "";
+    const key = best ? `${best.entity.id}|${glyphs.device()}|${i18n.language}|${glyphs.device() === "gamepad" ? input.gamepad(0).type : ""}|${input.bindings("interact").join(",")}` : "";
     if (key !== this.promptKey) {
       this.promptKey = key;
       const hud = world.find(this.hudId)?.behaviour;
@@ -325,8 +326,7 @@ export default class Porter extends Behaviour {
 
   /** The prompt line for `b`: "[F] Open the door", "[A] ...", "[Click] ...", "[Tap] ..." by the last device used. */
   promptText(b) {
-    const device = input.lastDevice;
-    const label = device === "touch" ? i18n.t("prompt.tap") : device === "mouse" ? i18n.t("prompt.click") : input.buttonName("interact");
+    const label = glyphs.prompt("interact");
     return i18n.t("prompt.format", { key: label, verb: i18n.t(b.verbKey()), name: b.displayName() });
   }
 
