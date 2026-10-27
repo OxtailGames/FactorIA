@@ -1,0 +1,889 @@
+{
+  "$name": "Español",
+  "credits": {
+    "madeWith": "Hecho con FactorIA",
+    "software": "Este juego usa el siguiente software:",
+    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, incluido con el juego."
+  },
+  "loading": {
+    "progress": "Cargando... {percent} %"
+  },
+  "menu": {
+    "title": "Albergue Larkspur",
+    "play": "Jugar",
+    "options": "Opciones",
+    "credits": "Créditos",
+    "shop": "Tienda",
+    "quit": "Salir",
+    "back": "Volver",
+    "load": "Cargar partida",
+    "chapters": "Elegir capítulo"
+  },
+  "options": {
+    "title": "Opciones",
+    "tab": {
+      "video": "Vídeo",
+      "audio": "Audio",
+      "controls": "Controles",
+      "language": "Idioma",
+      "access": "Accesibilidad"
+    },
+    "windowMode": "Modo de ventana: {mode}",
+    "mode": {
+      "windowed": "ventana",
+      "borderless": "sin bordes",
+      "fullscreen": "pantalla completa"
+    },
+    "monitor": "Monitor: {n} - {name}",
+    "vsync": "Sincronización vertical",
+    "windowSize": "Tamaño de ventana: {width} x {height}",
+    "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
+    "frameCap": "Límite de imágenes: {fps} por segundo",
+    "frameCapOff": "Límite de imágenes: sin límite",
+    "uiScale": "Tamaño de la interfaz: {percent} %",
+    "colorFilter": "Filtro de color: {filter}",
+    "filter": {
+      "none": "desactivado",
+      "greyscale": "escala de grises",
+      "highContrast": "alto contraste",
+      "protanopia": "protanopía (rojo)",
+      "deuteranopia": "deuteranopía (verde)",
+      "tritanopia": "tritanopía (azul)"
+    },
+    "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
+    "volume": {
+      "master": "General",
+      "music": "Música",
+      "effects": "Efectos",
+      "interface": "Interfaz",
+      "ambience": "Ambiente",
+      "voiceover": "Voces"
+    },
+    "action": {
+      "move_forward": "Avanzar",
+      "move_back": "Retroceder",
+      "move_left": "Ir a la izquierda",
+      "move_right": "Ir a la derecha",
+      "run": "Correr",
+      "interact": "Usar / hablar / recoger",
+      "camera_left": "Girar la cámara a la izquierda",
+      "camera_right": "Girar la cámara a la derecha",
+      "camera_up": "Inclinar la cámara hacia arriba",
+      "camera_down": "Inclinar la cámara hacia abajo",
+      "zoom_in": "Acercar la cámara",
+      "zoom_out": "Alejar la cámara",
+      "pause": "Pausa",
+      "inventory": "Abrir los objetos",
+      "notebook": "Abrir la libreta",
+      "dialogue_log": "Registro de conversación",
+      "skip_cutscene": "Saltar una escena"
+    },
+    "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "pressKey": "{action}: pulsa una tecla o un botón (Esc cancela)",
+    "resetControls": "Restablecer valores",
+    "language": "Idioma: {language}",
+    "readAloud": "Leer los menús en voz alta",
+    "subtitles": "Subtítulos",
+    "textSpeed": "Velocidad del texto: {speed}",
+    "speed": {
+      "slow": "lenta",
+      "normal": "normal",
+      "fast": "rápida",
+      "instant": "instantánea",
+      "custom": "personalizada"
+    },
+    "privacyOptions": "Privacidad de los anuncios",
+    "analytics": "Compartir datos de uso anónimos",
+    "on": "sí",
+    "off": "no",
+    "percent": "{value} por ciento",
+    "reducedMotion": "Movimiento reducido",
+    "captionSpeakers": "Mostrar los nombres de quien habla",
+    "cameraSensitivity": "Sensibilidad de la cámara",
+    "cameraInvertX": "Invertir la cámara de izquierda a derecha",
+    "cameraInvertY": "Invertir la cámara de arriba abajo",
+    "textScale": "Tamaño del texto: {percent} %",
+    "captionBg": "Fondo de los subtítulos: {mode}",
+    "captionBgMode": {
+      "clear": "ninguno",
+      "dark": "oscuro",
+      "solid": "negro sólido"
+    },
+    "autoAdvance": "Avance automático del diálogo: {mode}",
+    "autoAdvanceMode": {
+      "off": "no",
+      "slow": "lento",
+      "normal": "normal",
+      "fast": "rápido"
+    },
+    "glyphs": "Iconos de las indicaciones: {mode}",
+    "glyphsMode": {
+      "auto": "según el último dispositivo",
+      "keyboard": "teclado",
+      "gamepad": "mando",
+      "touch": "pantalla táctil"
+    }
+  },
+  "pause": {
+    "title": "Pausa",
+    "resume": "Continuar",
+    "mainMenu": "Menú principal",
+    "save": "Guardar partida",
+    "load": "Cargar partida"
+  },
+  "prompt": {
+    "format": "[{key}] {verb} {name}",
+    "click": "Clic",
+    "tap": "Toca"
+  },
+  "interact": {
+    "verb": {
+      "open": "Abrir",
+      "enter": "Atravesar",
+      "climb": "Subir",
+      "descend": "Bajar",
+      "examine": "Mirar",
+      "take": "Registrar",
+      "talk": "Hablar con",
+      "read": "Leer",
+      "mend": "Mirar dentro de"
+    }
+  },
+  "area": {
+    "ground": "La planta baja",
+    "upstairs": "Las habitaciones",
+    "cellar": "El sótano",
+    "testRoom": "La sala de pruebas"
+  },
+  "door": {
+    "opened": "Abres la puerta.",
+    "locked": "Está cerrada con llave.",
+    "libraryLocked": "La puerta de la biblioteca está cerrada con llave. La llave tiene que estar en algún lugar de la casa.",
+    "frontLocked": "Fuera sigue rugiendo la tormenta. Esta noche no sale nadie.",
+    "guestLocked": "Esta habitación está cerrada con llave.",
+    "testLocked": "Cerrada. La llave de prueba está en la caja del rincón."
+  },
+  "object": {
+    "library_door": "la puerta de la biblioteca",
+    "cellar_door": "la puerta del sótano",
+    "front_door": "la puerta principal",
+    "test_door": "la puerta del armario",
+    "guest_door_a": "la puerta de la habitación A",
+    "guest_door_b": "la puerta de la habitación B",
+    "guest_door_c": "la puerta de la habitación C",
+    "guest_door_d": "la puerta de la habitación D",
+    "stairs_up": "las escaleras",
+    "stairs_down": "las escaleras",
+    "hall_bench": "el banco",
+    "hall_bear": "el oso disecado",
+    "reception": "el mostrador de recepción",
+    "radio": "la radio",
+    "library_desk": "el escritorio",
+    "wine_rack": "las estanterías del vino",
+    "kitchen_box": "la caja de cartón",
+    "cellar_box": "la caja de cartón",
+    "cellar_lantern_box": "la caja de cartón",
+    "dining_box": "la caja de cartón",
+    "guest_box": "la caja de cartón",
+    "test_box": "la caja de cartón",
+    "fuse_box": "la caja de fusibles",
+    "cartridge_box": "la caja de cartón"
+  },
+  "examine": {
+    "nothing": "Nada especial.",
+    "hallBench": "Un banco para quitarse las botas llenas de barro. Nadie se ha sentado en él desde que empezó la tormenta.",
+    "hallBear": "Un oso disecado con ojos de cristal. Parece seguirte con la mirada por el vestíbulo.",
+    "reception": "El libro de huéspedes está abierto. La última anotación está borrosa por la lluvia.",
+    "radio": "Solo estática. La tormenta se ha llevado la señal.",
+    "libraryDesk": "Un escritorio ordenado. Un cajón está abierto y vacío.",
+    "wineRack": "Botellas polvorientas, casi todas más viejas que el último dueño del albergue."
+  },
+  "item": {
+    "taken": "Coges: {name}.",
+    "library_key": {
+      "name": "Llave de la biblioteca",
+      "description": "Una pesada llave de latón con una etiqueta: BIBLIOTECA."
+    },
+    "room_c_key": {
+      "name": "Llave de la habitación C",
+      "description": "Una llavecita de plata con una C grabada."
+    },
+    "room_d_key": {
+      "name": "Llave de la habitación D",
+      "description": "Una llave de cobre con una D grabada."
+    },
+    "lamp_oil": {
+      "name": "Aceite de lámpara",
+      "description": "Una botella de aceite de lámpara, todavía medio llena."
+    },
+    "guest_ledger": {
+      "name": "Libro de huéspedes",
+      "description": "Nombres y fechas con letra pulcra. Falta una página, arrancada.",
+      "read": "[b]Libro de huéspedes, hace ocho inviernos[/b]\nTres empleados del ferrocarril se alojaron aquella semana: Pell el 3 de marzo, Rudd el 4 de marzo, Kerr el 5 de marzo.\nEn el margen, a lápiz: [c:#c8b890]piedras movidas - Rudd[/c]."
+    },
+    "torn_letter": {
+      "name": "Carta rota",
+      "description": "Una carta rota en cuatro tiras. La primera línea dice: No te fíes del dueño.",
+      "read": "[b]Cuatro tiras[/b], en el orden en que salieron de la caja:\n[c:#c8b890]{strips}[/c]",
+      "readWhole": "[b]La carta, recompuesta[/b]\n[c:#c8b890]{strips}[/c]"
+    },
+    "cellar_lantern": {
+      "name": "Farol del sótano",
+      "description": "Un farol de mano. Todavía conserva un poco de luz."
+    },
+    "test_key": {
+      "name": "Llave de prueba",
+      "description": "Una llave que solo abre la sala de pruebas."
+    },
+    "fuse_wire": {
+      "name": "Hilo fusible",
+      "description": "Un rollito de hilo fusible fino, guardado en un cajón para una noche como esta."
+    },
+    "fuse_cartridge": {
+      "name": "Cartucho de fusible",
+      "description": "Un cartucho de porcelana con el hilo fundido."
+    },
+    "fuse_mended": {
+      "name": "Fusible reparado",
+      "description": "El cartucho, con hilo nuevo. Volverá a aguantar el circuito del sótano."
+    },
+    "view": {
+      "hint": "Arrastra para girarlo. Los botones + y -, pellizcar, R / V o los gatillos acercan y alejan."
+    }
+  },
+  "puzzle": {
+    "again": "Aquí ya no hay nada más que hacer.",
+    "drawer": {
+      "title": "El cajón cerrado",
+      "intro": "El cajón de abajo del escritorio está cerrado con un candado de latón de cuatro ruedas. Cada rueda muestra un dígito.",
+      "try": "Probar el candado",
+      "wrong": "Las ruedas giran y nada cede.",
+      "open": "El candado cede con un clic. En el cajón: un rollo de hilo fusible y una tarjeta con la letra de Emil.",
+      "done": "El cajón está abierto. No hay nada más dentro.",
+      "hint": "Cuatro dígitos. Una fecha, quizá: mes y día."
+    },
+    "timetable": {
+      "title": "El horario del ferrocarril",
+      "intro": "Los servicios del puerto están clavados sin orden. Ponlos en el orden en que pasan, con el primero de la mañana arriba.",
+      "notes": "Notas clavadas al lado:",
+      "note1": "El tren del correo es el primer servicio del día.",
+      "note2": "Las lecheras suben al tren justo antes de los vagones de mercancías.",
+      "note3": "La diligencia de montaña sale después del tren de mercancías.",
+      "check": "Comprobar el orden",
+      "wrong": "Eso no puede ser. Alguna de las notas no encaja.",
+      "solved": "El horario está claro: correo, leche, mercancías, diligencia.",
+      "done": "Ya sabes el orden de los servicios.",
+      "up": "Antes",
+      "down": "Después"
+    },
+    "service": {
+      "mail": "Tren del correo",
+      "milk": "Tren de la leche",
+      "goods": "Tren de mercancías",
+      "coach": "Diligencia de montaña"
+    },
+    "letter": {
+      "title": "La carta rota",
+      "intro": "Cuatro tiras de una misma carta. Elige dos tiras para intercambiarlas hasta que las frases se lean en orden.",
+      "solved": "La carta está entera. La escribieron para hacer venir aquí al doctor Vale.",
+      "done": "La carta ya está recompuesta.",
+      "wrong": "Todavía no se lee bien.",
+      "noItem": "No tienes ninguna carta rota que recomponer.",
+      "strip1": "No te fíes del dueño, doctor Vale.",
+      "strip2": "Hace ocho inviernos Emil Lindqvist movió de noche los mojones del lindero,",
+      "strip3": "y lo que enterró esa semana está guardado bajo llave en su escritorio, bajo la fecha que él eligió.",
+      "strip4": "Pregunta quién estaba en la casa. Quema esto. - Una amiga"
+    },
+    "fuse": {
+      "title": "La caja de fusibles del sótano",
+      "intro": "La caja está abierta; falta su cartucho. Debajo esperan cuatro interruptores, cada uno marcado con un servicio del puerto.",
+      "fit": "Colocar el fusible",
+      "noFuse": "No tienes ningún fusible que funcione para colocar.",
+      "fitted": "El fusible reparado encaja con un clic. Los interruptores esperan.",
+      "needFuse": "Coloca primero un fusible.",
+      "thrown": "Interruptor bajado.",
+      "trip": "Los interruptores saltan de golpe con un estampido. Empieza de nuevo.",
+      "fixed": "Se encienden las luces y, muy arriba, el viento amaina.",
+      "noPower": "Las luces están encendidas. Aquí abajo no hay nada que reparar.",
+      "status": "Fusible: {state}",
+      "stateMissing": "falta",
+      "stateFitted": "colocado",
+      "done": "El albergue vuelve a tener corriente."
+    }
+  },
+  "combo": {
+    "fuse_mended": "Enrollas el hilo en el cartucho. Vuelve a ser un fusible.",
+    "refuse": "Esos dos no van juntos.",
+    "pick": "Elige el objeto que quieres combinar con {name}."
+  },
+  "screens": {
+    "items": "Objetos",
+    "notebook": "Libreta",
+    "board": "Tablero",
+    "close": "Cerrar",
+    "hudItems": "Objetos  [I]",
+    "hudNotebook": "Libreta  [N]",
+    "empty": "Todavía no llevas nada.",
+    "noClues": "Aún no hay pistas. Habla con los de la casa y echa un vistazo.",
+    "combine": "Combinar",
+    "cancel": "Cancelar",
+    "pieceTogether": "Recomponer",
+    "useOnBoard": "Elegir en el tablero",
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "hintItems": "Tab o los botones superiores: página siguiente.   Esc o B: cerrar.",
+    "hintBoard": "Elige dos pistas para unirlas.   Z: deshacer   Y: rehacer   Esc o B: cerrar.",
+    "kindKey": "Llave",
+    "kindClue": "Pista",
+    "kindTool": "Herramienta",
+    "deductions": "Deducciones",
+    "clues": "Pistas",
+    "hintJournal": "Tab, RePág / AvPág o los botones superiores: cambiar de página.   Esc o B: cerrar.",
+    "hintPuzzle": "Esc o B: volver atrás.",
+    "itemDetail": "{kind}",
+    "try": "Probar",
+    "state": "Estado"
+  },
+  "board": {
+    "picked": "Elegida: {name}. Elige una segunda pista para unirlas.",
+    "made": "Deducción hecha: {name}.",
+    "nothing": "Estas dos todavía no llevan a nada.",
+    "already": "Ya has unido estas dos.",
+    "same": "Elige otra pista.",
+    "undone": "Deshecho: {name}.",
+    "redone": "Recuperado: {name}.",
+    "cannotRedo": "Ya no se conocen las pistas de esa deducción."
+  },
+  "notebook": {
+    "clue": {
+      "oil": {
+        "title": "Farol y aceite",
+        "text": "El doctor Vale se llevó un farol y aceite de lámpara al sótano."
+      },
+      "cellar": {
+        "title": "El sótano alargado",
+        "text": "El sótano se alarga más allá de sus estanterías."
+      },
+      "page": {
+        "title": "La página que falta",
+        "text": "El doctor Vale vino por una página que falta del plano."
+      },
+      "argument": {
+        "title": "Discusión en la cena",
+        "text": "Mara y el doctor Vale discutieron durante la cena."
+      },
+      "survey": {
+        "title": "Los mojones",
+        "text": "El plano trata de los mojones del lindero, y la página cuarenta es la prueba."
+      },
+      "hedda": {
+        "title": "La carta de Hedda",
+        "text": "Hedda reconoce haber escrito la carta rota."
+      },
+      "adit": {
+        "title": "La galería",
+        "text": "El capitán Haas admite que hay una galería tras la tercera estantería del vino."
+      },
+      "ledger": {
+        "title": "Libro de huéspedes",
+        "text": "Tres empleados del ferrocarril se alojaron hace ocho inviernos: Pell el 3 de marzo, Rudd el 4 de marzo, Kerr el 5 de marzo. En el margen se lee: piedras movidas - Rudd."
+      },
+      "letter": {
+        "title": "Carta rota",
+        "text": "Una carta rota en cuatro tiras, de la habitación B."
+      },
+      "letter_whole": {
+        "title": "La carta entera",
+        "text": "Emil movió los mojones de noche, y lo que enterró está guardado bajo llave en su escritorio, bajo la fecha que él eligió."
+      },
+      "timetable": {
+        "title": "Orden de los servicios",
+        "text": "Correo, leche, mercancías, diligencia."
+      },
+      "card": {
+        "title": "Tarjeta de la caja de fusibles",
+        "text": "Baja los interruptores en el orden de los servicios del día, del primero al último."
+      },
+      "power": {
+        "title": "Corte de luz",
+        "text": "Se han apagado las luces. La caja de fusibles del sótano necesita un fusible reparado."
+      }
+    },
+    "ded": {
+      "d_date": {
+        "title": "La fecha que él eligió",
+        "text": "La noche de Rudd fue el 4 de marzo. El código del cajón es 0403."
+      },
+      "d_order": {
+        "title": "Orden de los interruptores",
+        "text": "Baja los interruptores en este orden: correo, leche, mercancías, diligencia."
+      },
+      "d_trail": {
+        "title": "Adónde fue Vale",
+        "text": "El doctor Vale bajó luz y aceite al sótano alargado."
+      },
+      "d_motive": {
+        "title": "Por qué vino Vale",
+        "text": "Vale vino por la página que falta, y Mara discutió con él por eso."
+      },
+      "d_author": {
+        "title": "Quién la escribió",
+        "text": "Hedda escribió la carta que hizo venir al doctor Vale al albergue."
+      },
+      "d_adit": {
+        "title": "El camino hacia abajo",
+        "text": "La galería tras la tercera estantería del vino es por donde fue Vale."
+      },
+      "d_truth": {
+        "title": "La verdad del asunto",
+        "text": "Los mojones se movieron, la página lo demuestra, y en la casa lo sabían."
+      }
+    },
+    "new": "Pista nueva: {name}"
+  },
+  "cutscene": {
+    "intro": {
+      "line01": "Albergue Larkspur. Las once de la noche, y la tormenta se ha llevado el camino, el teléfono y casi todo el buen humor.",
+      "line02": "Cierra la puerta, portero, que se nos está metiendo toda la montaña.",
+      "line03": "El puerto de montaña está cerrado hasta la mañana. Nadie viene, nadie se va.",
+      "line04": "Tienes las llaves, la estufa y una casa llena de desconocidos hasta el amanecer."
+    },
+    "chapter_2": {
+      "card1": "Medianoche",
+      "line01": "La cena se enfrió sobre la mesa larga. La silla del doctor Vale seguía echada hacia atrás, como si pensara volver."
+    },
+    "chapter_3": {
+      "card1": "La una de la madrugada",
+      "line01": "Una puerta cerrada en el rellano de arriba, y una casa que ha dejado de fingir que duerme."
+    },
+    "chapter_4": {
+      "card1": "Las tres de la madrugada",
+      "line01": "El viento encontró una nota que le gustó y no la soltó. Bajo la cocina, el viejo camino esperaba tras el vino."
+    },
+    "chapter_5": {
+      "card1": "Amanecer",
+      "line01": "El viento cae de golpe, como un aliento que se suelta. Las ventanas pasan del negro al gris.",
+      "line02": "¿Hay silencio o me he quedado sordo en ese agujero?",
+      "line03": "Hay silencio, Ansel. Siéntate. Tienes mucho que contarnos."
+    },
+    "adit_descent": {
+      "line01": "La tercera estantería gira sobre una bisagra que nadie ha engrasado en treinta años. Apoya el hombro.",
+      "line02": "El estante se abre hacia dentro con un sonido como un suspiro largo, y el farol ilumina una escalera que baja."
+    },
+    "adit_rescue": {
+      "line01": "El doctor Vale sube los escalones uno a uno, con la lámpara en la mano del portero y la página cuarenta en el abrigo.",
+      "line02": "Despacio, doctor. Despacio. Ya está fuera.",
+      "line03": "Treinta años, Haas. Y seguía exactamente donde lo dejamos."
+    },
+    "ending_dawn": {
+      "line01": "A las ocho se abrió el puerto y el primer coche bajó de entre lo blanco.",
+      "line02": "Debí contárselo todo hace años. Los mojones, la página, todo.",
+      "line03": "El plano lo dirá por nosotros. Siempre lo hizo."
+    },
+    "ending_quiet": {
+      "line01": "La página se onduló en la estufa y desapareció antes de que nadie encontrara las palabras para impedirlo.",
+      "line02": "Gracias. No olvidaré lo que le ha costado.",
+      "line03": "Esta noche nadie será castigado. Eso no es lo mismo que ser libre."
+    },
+    "ending_long": {
+      "line01": "Por la mañana no bajó ningún coche. La nieve tenía otros planes para el camino de Brandt.",
+      "line02": "Fue mi silencio. Que lo pague el capitán, y que los demás se vayan en paz.",
+      "line03": "¿Paz? ¿Así lo llama?"
+    },
+    "skip": "Saltar",
+    "hint": "{key} para saltar"
+  },
+  "keyboard": {
+    "space": "Espacio",
+    "delete": "Borrar",
+    "done": "Listo"
+  },
+  "slots": {
+    "titleSave": "Guardar partida",
+    "titleLoad": "Cargar partida",
+    "empty": "Ranura {n}: vacía",
+    "emptyAuto": "Autoguardado: vacío",
+    "used": "Ranura {n}: {name}\nCapítulo {chapter}, {time}",
+    "usedAuto": "Autoguardado: {name}\nCapítulo {chapter}, {time}",
+    "damaged": "Ranura {n}: dañada (bórrala para liberar la ranura)",
+    "damagedAuto": "Autoguardado: dañado (bórralo)",
+    "damagedNote": "No se puede leer una ranura. Bórrala o carga otra.",
+    "unnamed": "Sin nombre",
+    "autoName": "autoguardado",
+    "delete": "Borrar",
+    "nameTitle": "Nombre de la partida en la ranura {n}",
+    "namePlaceholder": "Ponle un nombre a la partida",
+    "confirmSave": "Guardar",
+    "cancel": "Cancelar",
+    "deleteTitle": "¿Borrar la ranura {n}?",
+    "confirmDelete": "Borrar",
+    "saved": "Guardado en la ranura {n}.",
+    "noGame": "Todavía no hay ninguna partida que guardar.",
+    "noCutscene": "No se puede guardar durante una escena.",
+    "noDialogue": "No se puede guardar durante una conversación.",
+    "busy": "Ahora no se puede guardar."
+  },
+  "chapterSelect": {
+    "title": "Elegir capítulo",
+    "note": "Empieza de nuevo la noche desde un capítulo que ya hayas alcanzado.",
+    "chapter": "Capítulo {n}: {title}",
+    "locked": "Capítulo {n}: todavía sin alcanzar"
+  },
+  "ach": {
+    "ending_dawn": {
+      "name": "Amanecer en el albergue",
+      "desc": "Llega al final del amanecer."
+    },
+    "ending_quiet": {
+      "name": "Una mañana tranquila",
+      "desc": "Llega al final tranquilo."
+    },
+    "ending_long": {
+      "name": "La noche larga",
+      "desc": "Llega al final de la noche larga."
+    },
+    "all_endings": {
+      "name": "Todos los amaneceres",
+      "desc": "Llega a los tres finales."
+    },
+    "all_clues": {
+      "name": "Sin dejar nada",
+      "desc": "Encuentra todas las pistas en una sola noche."
+    }
+  },
+  "dlg": {
+    "ch1_mara": {
+      "greet": "Aquí estás. Tú debes de ser el nuevo portero de noche. Mara Lindqvist; el albergue es mío, y la tormenta de esta noche no es culpa de nadie.",
+      "intro_c1": "¿Por dónde empiezo?",
+      "intro_c2": "¿Pasa algo?",
+      "intro_c3": "Esta noche cuidaré de que todos estén a salvo.",
+      "intro": "El puerto cerró a las seis. Hasta que abra somos seis almas bajo este techo, y ninguna de buen humor. Tu trabajo son las puertas, la estufa y las llaves.",
+      "tip": "Recorre la casa. Mira lo que quieras, recoge lo que encuentres y no despiertes a los huéspedes.",
+      "worry": "¿Que si pasa algo? Una casa llena de desconocidos y un puerto cerrado. Eso es todo. Si quieres más, pregúntale a Hedda.",
+      "promise": "A salvo. Es una buena palabra para empezar un turno. Aférrate a ella.",
+      "bye": "Hedda está al pie de la escalera, en el lado oeste. Ve a verla.",
+      "again": "Hedda está al pie de la escalera. Anda."
+    },
+    "ch1_hedda": {
+      "greet": "El portero. Bien. Estoy en pie desde las cuatro y lo único que tengo para ti son problemas.",
+      "trouble_c1": "Quizá esté dormido.",
+      "trouble_c2": "¿Podemos abrir la puerta?",
+      "trouble_c3": "¿Alguien lo ha visto?",
+      "trouble": "El doctor Vale, habitación C. Subió después de la cena. Le llevé el agua caliente a las diez y la puerta estaba cerrada con llave; no contestó. A medianoche, lo mismo.",
+      "asleep": "Un durmiente ronca. Conozco un ronquido. En esa habitación no se oye nada de nada.",
+      "nokey": "La llave de la habitación C es del propio huésped, y la de repuesto cuelga del llavero de la señora Lindqvist. No la prestará hasta que no le quede más remedio.",
+      "seen": "Discutió con Mara durante la cena. Después se quedó un buen rato junto a la puerta del sótano. Y luego nadie lo vio más.",
+      "conclude": "Un hombre ha desaparecido de una casa cerrada en plena tormenta de nieve. Encuéntralo, portero.",
+      "again": "Habitación C. Encuéntralo."
+    },
+    "ch1_tobias": {
+      "greet_c1": "Gracias.",
+      "greet_c2": "Ahora no.",
+      "greet": "¿El portero de noche? Pasa, que vienes medio helado. Hay sopa al fondo de la estufa.",
+      "soup": "Ocho años llevo cocinando en esta casa y nunca había visto cerrado el puerto en noviembre. Cuidado con la olla, cuidado con los pies.",
+      "busy": "Luego, entonces. La sopa aguanta. La tormenta también."
+    },
+    "ch1_haas": {
+      "greet": "Capitán Haas, retirado. Cuarenta inviernos guiando gente por ese puerto, y todavía cree que puede sorprenderme.",
+      "pass_c1": "¿Se ha ido alguien?",
+      "pass_c2": "Traeré más leña.",
+      "pass": "No abrirá antes de la mañana. Quien se haya ido esta noche no va a volver.",
+      "who": "Nadie podría. De eso se trata con la nieve.",
+      "wood": "Un hombre que trae leña es un hombre que me cae bien."
+    },
+    "ch1_lucian": {
+      "greet_c1": "Solo sisea.",
+      "greet_c2": "¿Qué hace usted aquí?",
+      "greet": "Lucian Arne, de El Correo del Valle. Dígame, por favor, que la radio funciona.",
+      "hiss": "Claro que sí. Subí a buscar un reportaje sobre una disputa de tierras y me encontré con una ventisca.",
+      "dispute": "Un reportaje. Pregúntemelo mañana, cuando esté caliente y usted sea menos útil."
+    },
+    "ch2_tobias": {
+      "greet": "Preguntas por el doctor. Todo el mundo lo hace. Siéntate; yo no vendo más que hechos.",
+      "fact_c1": "¿Dijo para qué?",
+      "fact_c2": "¿Se los diste?",
+      "fact_c3": "¿Parecía asustado?",
+      "fact": "Entró en mi cocina a las nueve, educado como un obispo. Pidió un farol y una lata de aceite de lámpara, y dijo que su lámpara daba problemas.",
+      "why": "Para el sótano. Eso fue todo lo que dijo. Pensé que quería echar un vistazo al vino.",
+      "gave": "El aceite, sí. Una lata. Hay otra en la caja de la puerta, si la quieres. El farol no lo encontré; en esta casa los faroles están donde les da la gana.",
+      "afraid": "¿Asustado? No. Emocionado. Como un chaval que ha encontrado la tabla suelta del desván de su padre.",
+      "close": "Eso es todo lo que sé. El sótano, el aceite de lámpara y un hombre muy contento.",
+      "again": "No tengo nada que añadir. El sótano, aceite de lámpara, un hombre contento. Pregunta a otro."
+    },
+    "ch2_haas": {
+      "greet": "Vale. Un hombre cuidadoso. Midió el patio antes del desayuno y el sótano después de comer. Uno mide lo que no se fía.",
+      "cellar_c1": "¿Es así?",
+      "cellar_c2": "Le creo, capitán.",
+      "cellar_c3": "Las estanterías de vino esconden cosas.",
+      "cellar": "Me preguntó si el sótano se alargaba más allá de las estanterías. Le dije que no. Lo apuntó.",
+      "deflect": "Un sótano llega hasta donde llegan sus paredes. No te retuerzas la cabeza con eso.",
+      "thanks": "Es amable por tu parte. Acuérdate de que lo has dicho.",
+      "warn": "Todo esconde algo. Para eso están las estanterías.",
+      "close": "Mira el sótano tú mismo si te hace falta. Ojo con la tercera estantería del vino: la madera está podrida.",
+      "again": "Ya he dicho lo que sé. La tercera estantería está podrida. Déjalo ahí."
+    },
+    "ch2_lucian": {
+      "greet": "¡Portero! Excelente. La cena de Vale sigue aquí, sin tocar. Me parece elocuente.",
+      "page_c1": "¿Por qué importa una página?",
+      "page_c2": "¿Quién escondería una página?",
+      "page_c3": "¿Y usted qué saca de esto?",
+      "page": "Entre nosotros: Vale levanta planos de terrenos para la compañía del ferrocarril. Hace ocho años se registró aquí un plano de este valle, y a la copia del condado le falta una página. La cuarenta. Vino a buscar el original.",
+      "why": "La página cuarenta traza la línea entre este albergue y el derecho de paso del ferrocarril. Mueve una línea y moverás una fortuna.",
+      "who": "Quien gane con que la línea esté donde está. Una lista corta. Tiene un solo nombre y es dueña de la casa.",
+      "you": "Un reportaje. Uno bueno. No me avergüenzo.",
+      "close": "Encuentre a Vale y encontrará la página cuarenta, apostaría. O al revés.",
+      "again": "Ya le he dicho lo que sé. Página cuarenta. Vaya a buscarla."
+    },
+    "ch2_mara": {
+      "greet": "Has hablado con Hedda, así que sabes que el doctor Vale ha desaparecido.",
+      "supper_c1": "Debió de ser duro.",
+      "supper_c2": "¿Mentías?",
+      "supper_c3": "Querías que se fuera.",
+      "supper": "Discutimos durante la cena. No voy a fingir lo contrario; toda la mesa lo oyó. Pidió el plano de 1911, le dije que la copia del albergue se había perdido, y me llamó mentirosa delante de mi cocinero.",
+      "kind": "Lo fue. Gracias por notarlo; la mayoría solo nota los gritos.",
+      "blunt": "¿Sobre la copia? Le dije lo que sabía. Mi marido guardaba los papeles y yo nunca los leí. Ojalá lo hubiera hecho.",
+      "accuse": "Quería que callara. No que desapareciera. No confundas las dos cosas, portero: una es un negocio y la otra es un delito.",
+      "close": "Encuéntralo. Sea lo que sea lo que ha descubierto, prefiero que lo encuentre alguien con quien pueda hablar.",
+      "again": "Encuéntralo, portero. Es todo lo que te pido."
+    },
+    "ch2_hedda": {
+      "greet": "He mirado por el ojo de la cerradura de la habitación C. Su maleta está abierta sobre la silla y la cama está hecha.",
+      "think": "Quien deja la maleta abierta piensa volver. Entonces, ¿dónde está?",
+      "close": "Pregunta a los demás. Alguien en esta casa sabe más de lo que dice."
+    },
+    "ch3_hedda": {
+      "greet": "Estás ante la habitación C. No me digas que quieres la llave.",
+      "ask_c1": "He encontrado una carta rota en la habitación B.",
+      "ask_c2": "Puede que un hombre se esté helando en la oscuridad.",
+      "ask_c3": "Dame la llave o le digo a Mara que la escondiste.",
+      "ask_c4": "Por favor.",
+      "ask": "Mara me dio la de repuesto a medianoche y me dijo que la guardara. Se la daré a quien diga lo correcto.",
+      "letter": "Así que Lucian la guardó. La escribí para el periódico y para el doctor, dos copias. Sí, escribí «no te fíes del dueño». ¿Mara es amable conmigo? Siempre. ¿Es sincera? Pregúntale por los mojones.",
+      "letter2": "No quería que saliera ningún mal de eso. Quería que un hombre con una cadena de agrimensor hiciera la pregunta adecuada.",
+      "urgent": "Sí. Por eso sigo en pie. Está bien.",
+      "threat": "Díselo. Sabe que yo nunca negaría una llave a quien la necesita. Toma.",
+      "please": "Eso no basta, pero tampoco está mal. Vuelve con una razón.",
+      "give": "Tómala. Si está ahí dentro, tráemelo.",
+      "again": "Ya tienes la llave. Úsala."
+    },
+    "ch3_tobias": {
+      "greet": "¿El doctor otra vez? Tienes cara de hombre que quiere una llave.",
+      "key_c1": "Le diste aceite de lámpara a las nueve. Si está herido, la cocina tiene parte.",
+      "key_c2": "Soy el portero. Me corresponde la llave.",
+      "key_c3": "Le diré que fue idea mía.",
+      "key": "La de repuesto de la habitación C cuelga en mi despensa. La señora Lindqvist cree que no lo sé. ¿Qué me ofreces?",
+      "oil": "Ja. Has estado escuchando. Tómala.",
+      "owed": "Portero u obispo, estás junto a mi olla y no junto a mi despensa. Pregunta a otro.",
+      "idea": "Sería generoso y tonto. Tómala.",
+      "give": "Está en el gancho, detrás de la harina. Devuélvemela sin romper.",
+      "again": "Ya tienes lo que venías a buscar. Sigue."
+    },
+    "ch3_mara": {
+      "greet": "Has encontrado la biblioteca. No he entrado aquí desde el funeral de mi marido.",
+      "desk_c1": "Tengo el libro de huéspedes.",
+      "desk_c2": "Cuéntame lo de los mojones.",
+      "desk_c3": "¿Estás bien?",
+      "desk": "Este era el escritorio de Emil. Libros de cuentas, un abrecartas y un cajón que nunca he tenido valor para abrir.",
+      "fine": "Todavía no. Hazme una pregunta mejor.",
+      "ledger": "Esa es la letra de su empleado. Mira: tres hombres de la oficina del ferrocarril se alojaron una noche cada uno, hace ocho años. El primero se quedó tres. Emil pagó ese silencio.",
+      "stones": "Emil movió dos de ellos en la primavera en que el ferrocarril vino a preguntar por primera vez. Me dijo que era por el drenaje. Le creí hasta que el doctor Vale dijo «derecho de paso» en la cena.",
+      "confess": "La página cuarenta mostraría dónde estaban los mojones en 1911. Si muestra lo que temo, el prado de abajo, el huerto y el camino pertenecen al ferrocarril, y la granja de los Brandt se quitó para dejar sitio a nada.",
+      "bye": "Ahora sabes lo que no pude decir en la cena. Encuentra al doctor, y luego encuentra la página.",
+      "again": "Te lo he contado todo lo que sé. Encuentra al doctor."
+    },
+    "ch3_haas": {
+      "greet_c1": "¿Puedo registrar su habitación, capitán?",
+      "greet_c2": "¿Dónde estaba usted a medianoche?",
+      "greet_c3": "Nada, capitán.",
+      "greet": "Portero. Subes y bajas estas escaleras como quien ha perdido un botón.",
+      "room": "Habitación D. La llave está en mi bolsillo. No hay nada allí salvo mapas viejos; llévatela si eso te tranquiliza.",
+      "gave": "No me lo agradezcas. Una llave es poca cosa para prestar a quien la pide claro.",
+      "midnight": "Aquí, en el extremo este, escuchando la tormenta. Una costumbre de viejos guías.",
+      "nothing": "Pues ve a hacerlo a otra parte.",
+      "again": "Ya he dicho lo mío."
+    },
+    "ch3_lucian": {
+      "greet": "Pase, pase. Viene por los mojones; se lo veo en las botas.",
+      "stones_c1": "¿Lo publicará?",
+      "stones_c2": "Perdone a la viuda.",
+      "stones": "Emil Lindqvist movió dos mojones hace ocho años para que el derecho de paso del ferrocarril rodeara el albergue y atravesara la granja de Brandt. Vale lo sospechaba. No puedo probar nada sin la página cuarenta.",
+      "print": "Si la página existe, lo publicaré. Le duela a quien le duela.",
+      "spare": "Perdonar es cosa de gente con otro oficio.",
+      "again": "Encuentre la página, portero, y tráigamela a mí antes que a nadie."
+    },
+    "ch4_haas": {
+      "greet": "Portero. Entonces has leído su croquis. La habitación C te ha dicho lo que yo no quise decir.",
+      "greet_knows": "Portero. Mara te habló de los mojones, y el croquis te dijo dónde mirar. Entonces mi silencio ya no tiene sentido.",
+      "confess": "Tras la tercera estantería está la vieja galería, la mina que abrieron antes de construir el albergue. Emil y yo tapiamos su boca con una puerta y un pestillo hace ocho años. No le dije nada al doctor Vale. Pensé que era más seguro olvidarla.",
+      "why_c1": "¿Por qué esconderla?",
+      "why_c2": "Puede que un hombre se esté muriendo ahí dentro.",
+      "why_c3": "No podía saber que entraría.",
+      "why": "Di lo que piensas de mí. Yo he dicho cosas peores.",
+      "reason": "Porque Emil me lo pidió, y Emil era mi amigo. La lealtad es un vicio, pero es el único que he conservado.",
+      "angry": "Entonces ábrela. Rápido. No me sermonees.",
+      "calm": "Es más de lo que merezco. Gracias.",
+      "ready": "Has vuelto. El pestillo te espera.",
+      "plan_c1": "Ábrala.",
+      "plan_c2": "No tengo farol.",
+      "plan_c3": "No tengo aceite de lámpara.",
+      "plan_c4": "El pestillo no se mueve.",
+      "plan": "El pestillo cae por el lado oscuro y no se puede levantar desde aquí. Hace falta luz y el aceite de un farol para bajar y subir a alguien.",
+      "hint_lantern": "Emil guardaba un farol en una caja de cartón del rincón, junto a la pared del fondo. Ve a buscarlo.",
+      "hint_power": "El pestillo funciona con el circuito del sótano, y la tormenta ha matado el circuito. La caja de fusibles está en la pared del sótano. Emil guardaba hilo en su escritorio de la biblioteca, y hay un cartucho de repuesto en la otra caja del rincón de la cocina. Luego, el orden de los trenes del día, si recuerdo cómo lo dejó.",
+      "hint_oil": "El cocinero guarda una lata en la caja junto a la puerta de la cocina. Date prisa.",
+      "descend": "La tercera estantería gira hacia dentro sobre una bisagra oxidada y sale un soplo de frío de la oscuridad. Enciendes el farol. La galería baja, húmeda y baja de techo.",
+      "found": "¡Aquí abajo! ¿Quién es? Dios te bendiga; se me han acabado las cerillas y el buen juicio.",
+      "found2": "El pestillo cayó tras de mí y llevo seis horas contando piedras. Toma esto. La página cuarenta, de la caja de hierro bajo la primera piedra, exactamente como decía la carta.",
+      "found3": "Ansel. Lo siento.",
+      "found4": "Capitán. Lo perdonaré cuando entre en calor.",
+      "up": "Lo subes por los escalones hasta la luz de las lámparas. Fuera, el viento ha amainado. El amanecer no queda lejos.",
+      "done": "Está abierta y él ha subido. Ve a atenderlo."
+    },
+    "ch4_mara": {
+      "greet_c1": "Sé lo de los mojones, señora Lindqvist.",
+      "greet_c2": "Creo que está en el sótano.",
+      "greet_c3": "Todavía nada.",
+      "greet": "Pareces un hombre que carga algo pesado. ¿Es por Vale?",
+      "truth": "Entonces sabes por qué no pude decirlo. Di lo que tengas que decir, pero encuéntralo primero.",
+      "cellar": "¿El sótano? Emil nunca me dejó pasar de la segunda estantería. La puerta no está cerrada. Ve.",
+      "nothing": "Entonces date prisa.",
+      "bye": "Estaré aquí, junto al fuego.",
+      "again": "Estaré aquí, junto al fuego."
+    },
+    "ch4_hedda": {
+      "confess": "Escribí yo la carta. La granja de mi padre quedó bajo el ferrocarril, y quería que un hombre con un teodolito hiciera una pregunta.",
+      "sorry": "Nunca quise mandarlo a la oscuridad.",
+      "known": "Hice lo que pude, y no fue bastante. Tráelo de vuelta."
+    },
+    "ch4_tobias": {
+      "greet": "Si vas al sótano, necesitarás aceite. Hay una lata en la caja junto a la puerta de la cocina.",
+      "bread": "Y llévale al doctor el cuscurro del pan. Quien sale de la oscuridad sale con hambre."
+    },
+    "ch4_lucian": {
+      "greet_c1": "Hágalo, por favor.",
+      "greet_c2": "Ya veremos.",
+      "greet": "Haré compañía a Mara en el vestíbulo. Si encuentra la página, mi lápiz se queda en el bolsillo hasta que usted diga.",
+      "thanks": "Una promesa. He roto unas cuantas, pero nunca una hecha a un hombre con un farol.",
+      "later": "Justo. Andaré por aquí.",
+      "again": "Mi lápiz está en el bolsillo."
+    },
+    "ch5_vale": {
+      "greet": "Ahí está, el hombre del farol. Te debo una cama, un desayuno y una explicación. Primero, la página.",
+      "page": "Página cuarenta del plano Ostrander, de puño y letra del agrimensor. El primer mojón estaba al pie de los escalones del sótano, no en el camino.",
+      "page2": "Hace ocho años Emil Lindqvist movió el mojón del camino para que el derecho de paso rodeara el albergue, y enterró la prueba en la galería.",
+      "ask_c1": "Regístrelo. La verdad, entera.",
+      "ask_c2": "Mara ha perdido bastante esta noche. Déjele el albergue.",
+      "ask_c3": "Fue el capitán. Le encerró.",
+      "ask_c4": "Deme un momento.",
+      "ask": "Mi informe llega al ferrocarril y a la oficina de tierras a mediodía, a menos que alguien me muestre un camino mejor. ¿Qué dices, portero?",
+      "wait": "Tómate tu tiempo. El sol no puede darse prisa por nosotros.",
+      "done": "Buen viaje, portero. Y gracias.",
+      "truth_a": "Entonces lo registro tal como es: los mojones, la página y la sinceridad de la señora Lindqvist de anoche, que añadiré en su favor.",
+      "dawn_warm": "Para la primavera la tierra de los Brandt vuelve a llevar el nombre de los Brandt. Mara conserva la casa y vende el huerto para pagarlo, y Hedda abre ella misma los primeros postigos del año.",
+      "dawn_cold": "El informe queda registrado. El albergue conserva su techo pero pierde el huerto y el camino, y Mara no habla con nadie durante un mes. Hedda se vuelve sola a la tierra de los Brandt.",
+      "dawn_end": "Estás en la puerta principal mientras se abre el puerto. Es la primera mañana en ocho años sin una mentira en la casa.",
+      "bury_a_c1": "Quémela.",
+      "bury_a_c2": "No. Eso no.",
+      "bury_a": "Una página no es más que papel. Si esta noche se quemara en la lámpara, podría jurar que nunca la encontré. ¿Es eso lo que quieres?",
+      "bury_b": "La página se ondula y se vuelve negra en la lámpara. Echas detrás el libro de huéspedes y la carta rota, y la llama tarda mucho en morir.",
+      "bury_c": "Vale registra un informe que da el plano por perdido. Mara conserva el albergue. Hedda se va al amanecer y no mira atrás, y el portero se queda con las llaves y con el silencio.",
+      "bury_end": "Abajo, en el sótano, tras la tercera estantería, un pestillo sujeta algo más fuerte que antes.",
+      "accuse_a": "¿El capitán? No oí pasos; el pestillo cayó solo. Pero él sabía y no dijo nada. Para un informe, eso es culpa suficiente.",
+      "accuse_b": "Sabía que acabaría así. Adelante, portero. Dilo lo bastante alto para que lo oigan los demás.",
+      "accuse_c": "El capitán se va en el primer trineo que baja. El informe de Vale nombra el silencio de un anciano y no dice nada de los mojones. Mara te da las gracias con una voz sin ningún calor.",
+      "accuse_end": "El albergue sigue en pie, la página vuelve a un cajón, y el invierno se cierra sobre todo."
+    },
+    "ch5_mara": {
+      "greet_c1": "Dame las gracias más tarde.",
+      "greet_c2": "¿Qué harás?",
+      "greet": "Está a salvo. No sé si darte las gracias o odiarte por ello.",
+      "later": "Lo haré. Si queda un albergue donde dártelas.",
+      "plan": "Lo que diga la página. Llevo ocho años teniéndole miedo, y hay alivio en verla a la luz de una lámpara."
+    },
+    "ch5_hedda": {
+      "greet": "Entonces está vivo. Me iré a mediodía, se decida lo que se decida.",
+      "close": "Solo quería que alguien mirara. Nada más."
+    },
+    "ch5_tobias": {
+      "greet": "Desayuno en diez minutos para quien tenga la conciencia tranquila, es decir, para nadie. Comed igualmente."
+    },
+    "ch5_haas": {
+      "greet": "No discutiré lo que decidas. Llevo ocho años equivocado.",
+      "close": "Cueste lo que cueste, fue más barato que la vida de un hombre."
+    },
+    "ch5_lucian": {
+      "greet": "Elija lo que elija, recuerde que fui una compañía excelente durante la tormenta.",
+      "letter": "Esa carta era de Hedda, ¿sabe? No publicaría su nombre. Publicaría todo lo demás."
+    }
+  },
+  "cast": {
+    "mara": {
+      "name": "Mara Lindqvist"
+    },
+    "hedda": {
+      "name": "Hedda Brandt"
+    },
+    "tobias": {
+      "name": "Tobias Rowe"
+    },
+    "haas": {
+      "name": "Capitán Haas"
+    },
+    "lucian": {
+      "name": "Lucian Arne"
+    },
+    "vale": {
+      "name": "Dr. Ansel Vale"
+    },
+    "porter": {
+      "name": "Portero"
+    }
+  },
+  "chapter": {
+    "1": {
+      "title": "El turno de noche",
+      "intro": "La nieve cerró el puerto de montaña a las seis. Tienes las llaves, la estufa y una casa llena de desconocidos hasta la mañana."
+    },
+    "2": {
+      "title": "Cena fría",
+      "intro": "La cena del doctor Vale sigue en la mesa y nadie quiere decir por qué la dejó."
+    },
+    "3": {
+      "title": "Habitación C",
+      "intro": "La maleta de un hombre yace abierta tras una puerta cerrada. Quien tenga la llave tiene la primera respuesta."
+    },
+    "4": {
+      "title": "El viejo camino",
+      "intro": "Tras la tercera estantería del vino, el sótano llega más lejos de lo que nadie admitía."
+    },
+    "5": {
+      "title": "Amanecer",
+      "intro": "El viento ha caído. El puerto abrirá dentro de una hora, y entonces todos tendrán una historia que contar."
+    },
+    "label": "Capítulo {n}"
+  },
+  "ending": {
+    "dawn": {
+      "title": "La verdad al amanecer",
+      "text": "La verdad queda registrada: los mojones, la página y la sinceridad de Mara. La tierra de los Brandt vuelve a casa, y el albergue aprende a vivir sin una mentira."
+    },
+    "quiet": {
+      "title": "El camino tranquilo",
+      "text": "La página arde y el albergue conserva su techo. Nadie es castigado, y nadie queda libre de ello."
+    },
+    "long": {
+      "title": "El largo invierno",
+      "text": "El capitán paga por un silencio que nunca fue solo suyo. El albergue sigue en pie, y el invierno se cierra sobre todo."
+    },
+    "label": "Final",
+    "menu": "Menú principal"
+  },
+  "dialogue": {
+    "next": "Siguiente",
+    "log": "Registro",
+    "logTitle": "Registro de conversación",
+    "close": "Cerrar"
+  }
+}
