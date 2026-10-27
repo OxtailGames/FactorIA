@@ -14,7 +14,7 @@ endif()
 target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # The Basis Universal encoder and stb_rect_pack make the compressed textures and atlases of `factoria export`.
-target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb fa_ext_quickjs)
+target_link_libraries(fa_tooling PUBLIC fa_ext_harfbuzz_subset fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb fa_ext_quickjs)
 
 # Bake docs, templates and schemas into the binary (offline AI access), plus the Android/iOS project templates of
 # platforms/ so that `factoria export --platform android|ios` works without the engine source (prebuilt mode).
