@@ -1404,6 +1404,20 @@
   // The camera argument of a conversion: an Entity (or its id) naming one of the drawn cameras, or none (null for "the one
   // under the point, else the first").
   const cameraArg = (c, what) => (c === undefined || c === null ? null : entityHandle(c, what));
+  // The camera entity a helper works on: the one given, the one under the point, or the first drawn.
+  const cameraView = (what, cam, point) => {
+    let e = cam === undefined || cam === null ? null : entityOf(entityHandle(cam, what));
+    if (!e && point) e = camera.at(point);
+    if (!e) e = camera.main;
+    if (!e) throw new Error(`${what}: there is no camera in the scene (add an entity with a Camera component)`);
+    const c = e.get("Camera");
+    if (!c || c.projection !== "orthographic") throw new Error(`${what}: the camera '${e.id}' is not orthographic; these helpers are for 2D cameras`);
+    const s = N.screenSize();
+    const vp = c.viewport;
+    const w = s[0] * vp.w, h = s[1] * vp.h;
+    const ortho = c.orthoSize > 0 ? c.orthoSize : h / 2; // orthoSize 0 = one world unit per design pixel
+    return { e, c, cx: s[0] * (vp.x + vp.w / 2), cy: s[1] * (vp.y + vp.h / 2), w, h, ppu: h / 2 / ortho };
+  };
   const camera = {
     // The first camera drawn (lowest depth) among the active cameras with primary = true; null when there is none.
     get main() { return entityOf(N.cameraMain()); },
@@ -1431,6 +1445,52 @@
       const a = vecArr(v, 2, "camera.screenRay(v)");
       const r = N.screenRay(a[0], a[1], cameraArg(cam, "camera.screenRay(v, camera)"));
       return { origin: new Vec3(r[0], r[1], r[2]), direction: new Vec3(r[3], r[4], r[5]) };
+    },
+    // --- the 2D strategy-camera helpers (an orthographic camera that is not rotated) ---
+    // Pixels per world unit of a camera (how many design pixels one world unit covers): 1 at the pixel-perfect orthoSize 0.
+    zoomOf(cam) { return cameraView("camera.zoomOf(camera)", cam).ppu; },
+    // Sets the pixels per world unit: orthoSize = (the viewport's height in design pixels) / 2 / zoom.
+    setZoom(zoom, cam) {
+      if (!(zoom > 0) || !Number.isFinite(zoom)) throw new Error(`camera.setZoom(zoom): zoom must be a positive number but got ${inspect(zoom)}`);
+      const v = cameraView("camera.setZoom(zoom, camera)", cam);
+      v.c.orthoSize = v.h / 2 / zoom;
+    },
+    // orthoSize that shows `designHeight` design pixels of the screen at `zoom` pixels per world unit (default: the whole
+    // screen height, zoom 1): designHeight / 2 / zoom.
+    orthoSizeFor(zoom = 1, designHeight) {
+      if (!(zoom > 0)) throw new Error(`camera.orthoSizeFor(zoom): zoom must be a positive number but got ${inspect(zoom)}`);
+      return (designHeight === undefined ? N.screenSize()[1] : designHeight) / 2 / zoom;
+    },
+    // Multiplies the zoom by `factor` and moves the camera so the world point under the screen point stays under it.
+    zoomAt(point, factor, opts = {}) {
+      const p = vecArr(point, 2, "camera.zoomAt(screenPoint, factor)");
+      if (!(factor > 0) || !Number.isFinite(factor)) throw new Error(`camera.zoomAt(screenPoint, factor): factor must be a positive number but got ${inspect(factor)}`);
+      const v = cameraView("camera.zoomAt(screenPoint, factor)", opts.camera, p);
+      let ppu = v.ppu * factor;
+      if (opts.min !== undefined && ppu < opts.min) ppu = opts.min;
+      if (opts.max !== undefined && ppu > opts.max) ppu = opts.max;
+      const pos = v.e.position;
+      const wx = pos.x + (p[0] - v.cx) / v.ppu, wy = pos.y - (p[1] - v.cy) / v.ppu;
+      v.c.orthoSize = v.h / 2 / ppu;
+      v.e.position = [wx - (p[0] - v.cx) / ppu, wy + (p[1] - v.cy) / ppu, pos.z];
+      return ppu;
+    },
+    // Moves the camera so the world follows a screen movement (a drag): a delta of (+10, 0) shows what was 10 pixels to the left.
+    panBy(delta, cam) {
+      const d = vecArr(delta, 2, "camera.panBy(screenDelta)");
+      const v = cameraView("camera.panBy(screenDelta, camera)", cam);
+      const pos = v.e.position;
+      v.e.position = [pos.x - d[0] / v.ppu, pos.y + d[1] / v.ppu, pos.z];
+    },
+    // Keeps the view inside the world rectangle (grown by `margin`); an axis where the view is wider than the rectangle is centred on it.
+    clampTo(rect, opts = {}) {
+      const r = rectArr(rect, "camera.clampTo(rect)");
+      const v = cameraView("camera.clampTo(rect)", opts.camera);
+      const m = opts.margin || 0;
+      const hw = v.w / 2 / v.ppu, hh = v.h / 2 / v.ppu;
+      const axis = (pos, lo, hi, half) => (lo + half > hi - half ? (lo + hi) / 2 : Math.min(Math.max(pos, lo + half), hi - half));
+      const p = v.e.position;
+      v.e.position = [axis(p.x, r[0] - m, r[0] + r[2] + m, hw), axis(p.y, r[1] - m, r[1] + r[3] + m, hh), p.z];
     },
   };
 

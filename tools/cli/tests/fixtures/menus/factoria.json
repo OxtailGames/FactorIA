@@ -23,7 +23,14 @@
       "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
       "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"],
       "jump": ["Space", "W", "Up", "GamepadA"],
-      "pause": ["Escape", "P", "GamepadStart"]
+      "pause": ["Escape", "P", "GamepadStart"],
+      "camera_drag": ["MouseMiddle"],
+      "camera_left": ["A", "Left"],
+      "camera_right": ["D", "Right"],
+      "camera_up": ["W", "Up"],
+      "camera_down": ["S", "Down"],
+      "camera_zoom_in": ["PageUp", "Equal"],
+      "camera_zoom_out": ["PageDown", "Minus"]
     }
   }
 }

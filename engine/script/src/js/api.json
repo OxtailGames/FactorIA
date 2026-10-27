@@ -1780,6 +1780,30 @@
       {
        "sig": "screenRay(v: Vec2Like, camera?: Entity | string): { origin: Vec3; direction: Vec3 }",
        "doc": "The ray under the screen point `v` (design pixels) through `camera` (default: the camera whose viewport contains `v`, else the first camera). For a 3D pick: physics.raycast(origin, origin + direction * distance)."
+      },
+      {
+       "sig": "zoomOf(camera?: Entity | string): number",
+       "doc": "Pixels per world unit of an orthographic camera (design pixels one world unit covers), the zoom of a strategy camera: the viewport height in design pixels / 2 / orthoSize; 1 when orthoSize is 0 (pixel perfect on a full-screen viewport). `camera` defaults to the first camera drawn. Throws without a camera or for a perspective one."
+      },
+      {
+       "sig": "setZoom(zoom: number, camera?: Entity | string): void",
+       "doc": "Sets the camera's zoom in pixels per world unit by writing Camera.orthoSize = (viewport height in design pixels) / 2 / zoom, so a game never derives orthoSize from its design height by hand. Throws for a zoom that is not a positive number. Example: camera.setZoom(1.5); // 1.5 pixels per world unit"
+      },
+      {
+       "sig": "orthoSizeFor(zoom?: number, designHeight?: number): number",
+       "doc": "The Camera.orthoSize that shows the world at `zoom` pixels per world unit on a screen `designHeight` design pixels high: designHeight / 2 / zoom. Defaults: zoom 1 and the design height of the screen (screen.size.y). Pure, it changes nothing."
+      },
+      {
+       "sig": "zoomAt(screenPoint: Vec2Like, factor: number, options?: { camera?: Entity | string; min?: number; max?: number }): number",
+       "doc": "Zooms in by `factor` (2 doubles the pixels per world unit, 0.5 halves them) and moves the camera so the world point under `screenPoint` (design pixels) stays under it: zoom towards the cursor. `min` and `max` clamp the resulting zoom (pixels per world unit, see zoomOf); the camera is the one under the point unless `options.camera` names one. Returns the zoom now. It does not keep the view inside the map: call clampTo after. A 2D helper: the camera must be orthographic and not rotated. Throws for a factor that is not a positive number. Example: camera.zoomAt(input.mouse.position, 1.15 ** input.mouse.wheel, { min: 0.4, max: 2.5 });"
+      },
+      {
+       "sig": "panBy(screenDelta: Vec2Like, camera?: Entity | string): void",
+       "doc": "Moves the camera so the world follows a screen movement, as a drag does: a delta of (10, 0) leaves the world 10 design pixels further right on the screen (the camera moves left in the world); +Y of the delta is down the screen. Takes the delta in design pixels whatever the zoom, e.g. camera.panBy(input.mouse.delta) while a button is held."
+      },
+      {
+       "sig": "clampTo(rect: RectLike, options?: { camera?: Entity | string; margin?: number }): void",
+       "doc": "Moves the camera as little as needed so the view stays inside the world rectangle `rect` ({ x, y, w, h } with (x, y) the bottom-left corner, like entity.bounds()), grown by `margin` world units. On an axis where the view is wider than the rectangle the camera is centred on it. Example: camera.clampTo(world.find(\"map\").bounds(), { margin: 100 });"
       }
      ]
     },

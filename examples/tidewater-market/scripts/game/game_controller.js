@@ -4,7 +4,7 @@
 // Who owns what:
 //   GameState  (state.js)   all rules and all state; never touches the engine.
 //   MapView    (map_view.js) sprites for the state; this controller asks it for the highlight diamonds and the ghost.
-//   CameraRig  (camera_rig.js) the strategy camera on the "camera" entity; this controller asks it which cell is under the mouse.
+//   MapCamera  (map_camera.js, on the kit's CameraRig) the strategy camera on the "camera" entity; this controller asks it which cell is under the mouse.
 //   Hud        (ui_hud.js)  the panels: build menu, inspector, goods table, charts, help, notifications, tooltips, overlays.
 //   this file               tools (build / road / demolish), hover, drag, hotkeys, top bar, status line, toasts.
 //
@@ -32,7 +32,7 @@ import { footprintCells, roadPath } from "./rules.js";
 import { cellToWorld, mapBounds } from "./iso.js";
 import { amountText, buildingName, compactText, dateText, reasonText, stepText } from "./format.js";
 import { Hud } from "./ui_hud.js";
-import { DESIGN } from "./camera_math.js";
+import { DESIGN } from "./design.js";
 
 const COLOR_BUTTON = [0.17, 0.21, 0.28, 1];
 const COLOR_BUTTON_ACTIVE = [0.33, 0.52, 0.72, 1];
@@ -83,7 +83,7 @@ export default class GameController extends Behaviour {
     if (grow && !boot.state) this.stressSteps.push(...this.growSteps(grow));
     this.view = new MapView(this.state);
     this.cameraEntity = this.world.find("camera");
-    /** @type {import("./camera_rig.js").default} */
+    /** @type {import("./map_camera.js").default} */
     this.rig = this.cameraEntity.behaviour;
     const map = this.state.map;
     this.rig.setBounds(mapBounds(map.width, map.height));

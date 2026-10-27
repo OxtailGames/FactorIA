@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A strategy camera
+
+- Camera helpers for a 2D camera: `camera.zoomAt(screenPoint, factor, { min, max })` zooms towards the cursor (the world point
+  under it stays under it), `camera.panBy(screenDelta)` moves the world with a drag, `camera.clampTo(rect, { margin })` keeps
+  the view inside a rectangle (centred when it is smaller), and `camera.zoomOf()`, `camera.setZoom(zoom)` and
+  `camera.orthoSizeFor(zoom, designHeight)` convert between pixels per world unit and `Camera.orthoSize`.
+- The menu kit has a `cameraRig` part: `scripts/camera_rig.js`, a behaviour for the camera entity with drag pan, keys, edge
+  pan, wheel zoom to the cursor between `zoomMin` and `zoomMax`, and a limit from `entity.bounds()` (`boundsEntity`). It
+  ignores the wheel and new drags over the UI and the wheel a ScrollList took. `project.add_menu_kit` adds its `camera_*`
+  input actions. The recipe is AI_GUIDE.md section 9.6.1.
+- Tidewater Market drops `camera_math.js` and `camera_rig.js` for the kit's rig (`scripts/game/map_camera.js` adds its gamepad
+  cursor and latched drag on top); its draw calls and entities are the same.
+
 Modifier chords in input bindings
 
 - A binding takes modifiers: `"Ctrl+Z"`, `"Shift+MouseLeft"`, `"Ctrl+Shift+S"`, in `factoria.json` `input.actions`,

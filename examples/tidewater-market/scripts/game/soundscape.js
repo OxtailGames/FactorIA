@@ -26,7 +26,7 @@ const CART_EVERY = 1.1;
 export class Soundscape {
   /**
    * @param {import("./state.js").GameState} state
-   * @param {import("./camera_rig.js").default} rig the camera rig (view, screenToCell, worldToScreen)
+   * @param {import("./map_camera.js").default} rig the camera rig (view, screenToCell, worldToScreen)
    */
   constructor(state, rig) {
     this.state = state;
