@@ -19,9 +19,22 @@
 #include "fa/core/hash.h"
 
 namespace fa::export_detail {
+
+// Draws `m` at (x, y) of `page` with `pad` pixels of its own edge repeated around it, so that filtering at the border of
+// a sprite never reads the neighbour. Shared with assets.pack_atlas (assets_atlas.cpp).
+void blit_extruded(Image& page, const Image& m, int x, int y, int pad) {
+    for (int dy = -pad; dy < m.height + pad; ++dy) {
+        for (int dx = -pad; dx < m.width + pad; ++dx) {
+            const int sx = std::clamp(dx, 0, m.width - 1), sy = std::clamp(dy, 0, m.height - 1);
+            const std::uint8_t* from = &m.rgba[(std::size_t(sy) * m.width + sx) * 4];
+            std::uint8_t* to = &page.rgba[(std::size_t(y + dy) * page.width + (x + dx)) * 4];
+            std::copy(from, from + 4, to);
+        }
+    }
+}
+
 namespace {
 
-constexpr int kAtlasPadding = 2;           // pixels around each packed texture, filled by repeating its edge pixels
 constexpr int kMaxAtlasSideDesktop = 4096;
 constexpr int kMaxAtlasSideMobile = 2048;  // what every GLES3 device samples (GL_MAX_TEXTURE_SIZE >= 2048)
 // The size of a 4x4 block. A compressed texture must be a whole number of blocks wide and high: D3D11 and WebGPU refuse to
@@ -91,20 +104,6 @@ struct Page {
     std::vector<Sprite> sprites;
 };
 
-// Draws `m` at (x, y) of `page` with kAtlasPadding pixels of its own edge repeated around it, so that filtering at the border of
-// a sprite never reads the neighbour.
-void blit_extruded(Image& page, const Image& m, int x, int y) {
-    constexpr int pad = kAtlasPadding;
-    for (int dy = -pad; dy < m.height + pad; ++dy) {
-        for (int dx = -pad; dx < m.width + pad; ++dx) {
-            const int sx = std::clamp(dx, 0, m.width - 1), sy = std::clamp(dy, 0, m.height - 1);
-            const std::uint8_t* from = &m.rgba[(std::size_t(sy) * m.width + sx) * 4];
-            std::uint8_t* to = &page.rgba[(std::size_t(y + dy) * page.width + (x + dx)) * 4];
-            std::copy(from, from + 4, to);
-        }
-    }
-}
-
 // Packs `members` into as few pages as fit maxSide x maxSide. A member too large for any page is left out and reported.
 std::vector<Page> pack_pages(const std::string& basePath, std::vector<Member> members, int maxSide,
                              std::vector<std::string>& warnings) {
@@ -149,7 +148,7 @@ std::vector<Page> pack_pages(const std::string& basePath, std::vector<Member> me
                 rest.push_back(std::move(m));
                 continue;
             }
-            blit_extruded(page.image, m.image, r.x + pad, r.y + pad);
+            blit_extruded(page.image, m.image, r.x + pad, r.y + pad, pad);
             page.sprites.push_back({m.path, r.x + pad, r.y + pad, m.image.width, m.image.height});
         }
         const std::string stem = basePath.substr(0, basePath.size() - 4);  // basePath ends in ".png"

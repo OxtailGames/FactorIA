@@ -1,0 +1,430 @@
+{
+ "terrain.grass": [
+  0.5,
+  0.6154
+ ],
+ "terrain.sand": [
+  0.5,
+  0.6154
+ ],
+ "terrain.water": [
+  0.5,
+  0.569
+ ],
+ "terrain.rock": [
+  0.5,
+  0.6154
+ ],
+ "road.crossroad": [
+  0.5,
+  0.6154
+ ],
+ "road.crossroadESW": [
+  0.5,
+  0.6154
+ ],
+ "road.crossroadNES": [
+  0.5,
+  0.6154
+ ],
+ "road.crossroadNEW": [
+  0.5,
+  0.6154
+ ],
+ "road.crossroadNSW": [
+  0.5,
+  0.6154
+ ],
+ "road.road": [
+  0.5,
+  0.6154
+ ],
+ "road.roadES": [
+  0.5,
+  0.6154
+ ],
+ "road.roadEW": [
+  0.5,
+  0.6154
+ ],
+ "road.roadNE": [
+  0.5,
+  0.6154
+ ],
+ "road.roadNS": [
+  0.5,
+  0.6154
+ ],
+ "road.roadNW": [
+  0.5,
+  0.6154
+ ],
+ "road.roadSW": [
+  0.5,
+  0.6154
+ ],
+ "tree.0": [
+  0.5,
+  0.0
+ ],
+ "tree.1": [
+  0.5,
+  0.0
+ ],
+ "tree.2": [
+  0.5,
+  0.0
+ ],
+ "tree.3": [
+  0.5,
+  0.0
+ ],
+ "tree.4": [
+  0.5,
+  0.0
+ ],
+ "tree.5": [
+  0.5,
+  0.0
+ ],
+ "building.pier.0": [
+  0.75,
+  0.0
+ ],
+ "building.pier.1": [
+  0.25,
+  0.0
+ ],
+ "building.pier.2": [
+  0.75,
+  0.0
+ ],
+ "building.pier.3": [
+  0.25,
+  0.0
+ ],
+ "building.house.0": [
+  0.5,
+  0.0
+ ],
+ "building.house.1": [
+  0.5,
+  0.0
+ ],
+ "building.house.2": [
+  0.5,
+  0.0
+ ],
+ "building.house.3": [
+  0.5,
+  0.0
+ ],
+ "building.farm.0": [
+  0.5,
+  0.0
+ ],
+ "building.farm.1": [
+  0.5,
+  0.0
+ ],
+ "building.farm.2": [
+  0.5,
+  0.0
+ ],
+ "building.farm.3": [
+  0.5,
+  0.0
+ ],
+ "building.fisher_dock.0": [
+  0.6667,
+  0.0
+ ],
+ "building.fisher_dock.1": [
+  0.3333,
+  0.0
+ ],
+ "building.fisher_dock.2": [
+  0.6667,
+  0.0
+ ],
+ "building.fisher_dock.3": [
+  0.3333,
+  0.0
+ ],
+ "building.lumber_camp.0": [
+  0.5,
+  0.0
+ ],
+ "building.lumber_camp.1": [
+  0.5,
+  0.0
+ ],
+ "building.lumber_camp.2": [
+  0.5,
+  0.0
+ ],
+ "building.lumber_camp.3": [
+  0.5,
+  0.0
+ ],
+ "building.quarry.0": [
+  0.5,
+  0.0
+ ],
+ "building.quarry.1": [
+  0.5,
+  0.0
+ ],
+ "building.quarry.2": [
+  0.5,
+  0.0
+ ],
+ "building.quarry.3": [
+  0.5,
+  0.0
+ ],
+ "building.sawmill.0": [
+  0.5,
+  0.0
+ ],
+ "building.sawmill.1": [
+  0.5,
+  0.0
+ ],
+ "building.sawmill.2": [
+  0.5,
+  0.0
+ ],
+ "building.sawmill.3": [
+  0.5,
+  0.0
+ ],
+ "building.mill.0": [
+  0.5,
+  0.0
+ ],
+ "building.mill.1": [
+  0.5,
+  0.0
+ ],
+ "building.mill.2": [
+  0.5,
+  0.0
+ ],
+ "building.mill.3": [
+  0.5,
+  0.0
+ ],
+ "building.bakery.0": [
+  0.5,
+  0.0
+ ],
+ "building.bakery.1": [
+  0.5,
+  0.0
+ ],
+ "building.bakery.2": [
+  0.5,
+  0.0
+ ],
+ "building.bakery.3": [
+  0.5,
+  0.0
+ ],
+ "building.smokehouse.0": [
+  0.5,
+  0.0
+ ],
+ "building.smokehouse.1": [
+  0.5,
+  0.0
+ ],
+ "building.smokehouse.2": [
+  0.5,
+  0.0
+ ],
+ "building.smokehouse.3": [
+  0.5,
+  0.0
+ ],
+ "building.workshop.0": [
+  0.5,
+  0.0
+ ],
+ "building.workshop.1": [
+  0.5,
+  0.0
+ ],
+ "building.workshop.2": [
+  0.5,
+  0.0
+ ],
+ "building.workshop.3": [
+  0.5,
+  0.0
+ ],
+ "building.warehouse.0": [
+  0.6,
+  0.0
+ ],
+ "building.warehouse.1": [
+  0.4,
+  0.0
+ ],
+ "building.warehouse.2": [
+  0.6,
+  0.0
+ ],
+ "building.warehouse.3": [
+  0.4,
+  0.0
+ ],
+ "building.market.0": [
+  0.6,
+  0.0
+ ],
+ "building.market.1": [
+  0.4,
+  0.0
+ ],
+ "building.market.2": [
+  0.6,
+  0.0
+ ],
+ "building.market.3": [
+  0.4,
+  0.0
+ ],
+ "icon.fish": [
+  0.5,
+  0.5
+ ],
+ "icon.grain": [
+  0.5,
+  0.5
+ ],
+ "icon.wood": [
+  0.5,
+  0.5
+ ],
+ "icon.stone": [
+  0.5,
+  0.5
+ ],
+ "icon.planks": [
+  0.5,
+  0.5
+ ],
+ "icon.bread": [
+  0.5,
+  0.5
+ ],
+ "icon.tools": [
+  0.5,
+  0.5
+ ],
+ "icon.flour": [
+  0.5,
+  0.5
+ ],
+ "icon.smoked_fish": [
+  0.5,
+  0.5
+ ],
+ "icon.pop": [
+  0.5,
+  0.5
+ ],
+ "icon.coin": [
+  0.5,
+  0.5
+ ],
+ "icon.star": [
+  0.5,
+  0.5
+ ],
+ "icon.ship": [
+  0.5,
+  0.5
+ ],
+ "ship.skiff.0": [
+  0.5,
+  0.2292
+ ],
+ "ship.skiff.1": [
+  0.5,
+  0.2292
+ ],
+ "ship.skiff.2": [
+  0.5,
+  0.2292
+ ],
+ "ship.skiff.3": [
+  0.5,
+  0.2292
+ ],
+ "ship.cog.0": [
+  0.5,
+  0.2292
+ ],
+ "ship.cog.1": [
+  0.5,
+  0.2292
+ ],
+ "ship.cog.2": [
+  0.5,
+  0.2292
+ ],
+ "ship.cog.3": [
+  0.5,
+  0.2292
+ ],
+ "ship.carrack.0": [
+  0.5,
+  0.2292
+ ],
+ "ship.carrack.1": [
+  0.5,
+  0.2292
+ ],
+ "ship.carrack.2": [
+  0.5,
+  0.2292
+ ],
+ "ship.carrack.3": [
+  0.5,
+  0.2292
+ ],
+ "walker.villager.0": [
+  0.5,
+  0.0
+ ],
+ "walker.villager.1": [
+  0.5,
+  0.0
+ ],
+ "walker.villager.2": [
+  0.5,
+  0.0
+ ],
+ "walker.villager.3": [
+  0.5,
+  0.0
+ ],
+ "walker.carrier.0": [
+  0.5,
+  0.0
+ ],
+ "walker.carrier.1": [
+  0.5,
+  0.0
+ ],
+ "walker.carrier.2": [
+  0.5,
+  0.0
+ ],
+ "walker.carrier.3": [
+  0.5,
+  0.0
+ ]
+}

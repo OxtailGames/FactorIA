@@ -60,11 +60,11 @@ the ground cell behind it, not the building.
 
 | Path | What |
 |---|---|
-| `data/*.json` | The tables (and `ships`, `events`, `story` for P5, below): `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
+| `data/*.json` | The tables (and `ships`, `events`, `story` for P5, below): `terrain`, `goods`, `recipes`, `buildings`, `economy` (start, refund, undo limit, calendar, the `sim` knobs), `seasons` (what each season changes), `map` (generator settings), `test_map` (a 12 x 10 map for tests), `atlas` (frame rectangles; made by `assets.pack_atlas`, `roadFrames` is the game's own). Validated against each other, the atlas and the locale strings when the game starts, and by `project.validate_data` |
 | `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (the roads as an engine `nav.createGrid` and one `nav.flowField` per goal), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (the engine's `rng.create` streams with a weighted pick), `trade_data` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's single-pair path finder on the roads' grid as a route backend, tests only). Behaviours: `game_controller`, `map_camera` (the menu kit's `camera_rig` with the game's controls), `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board and the cards), `achievements` (the store bridge), `music_director`, `title_backdrop` |
 | `scenes/` | `menu` (title), `loading`, `game`, `stress` (the game scene with a 640-villager town built at start: `perf.measure` with `{"scene": "scenes/stress.scene.json"}`) |
 | `locales/en.json` | Every text the player sees. Nothing is hard-coded in a script |
-| `assets/atlas.png` | One 2048 x 2048 atlas with every picture the map draws (one atlas is one draw call). `assets/src/make_atlas.py` builds it from the Kenney CC0 images in `assets/src/kenney/` plus placeholder art drawn in the script; `assets.json` has the provenance |
+| `assets/atlas.png` | One atlas with every picture the map draws (one atlas is one draw call). `assets.pack_atlas` builds it, and `data/atlas.json`, from the pictures in `assets/src/frames/` (one PNG per frame, named by its path; `pivots.json` there holds the pivots); `assets.json` has the provenance |
 | `tools/` | `project.map_preview`, `project.validate_data`, `project.grow_town` (the bot grows a town from a seed and reports it) |
 | `tests/` | map generation, rules, data tables, camera and picking, the pause menu, the mouse-only flow from the title screen, the clock and seasons, the HUD speed control, the simulation (walkers, road cuts, carriers, chains, wages, sales), the bot's year, the stress town, the trade (`trade`, `trade_ui`, `rich_text`) and screenshots to look at (`.factoria/tmp/*.png`) |
 
@@ -466,7 +466,7 @@ of every language.
   entity; goods with `"hud": true` in `data/goods.json` are added by the controller itself.
 - **Palette:** a new entry in `data/buildings.json` is a new button.
 - **Text:** a new string in `locales/en.json`; the data check fails when a building or good has no name.
-- **Pictures:** frames are in `data/atlas.json` (`rect` in atlas pixels, `pivot`); P7 replaces `atlas.png` and keeps the names.
+- **Pictures:** frames are in `data/atlas.json` (`rect` in atlas pixels, `pivot`); P7 replaces the pictures of `assets/src/frames/` and keeps the names.
 - **Rules:** `checkPlacement` in `scripts/game/rules.js` returns a list of reasons; a new rule is a new reason code plus
   its `reason.<code>` string.
 - **Menu:** the menu kit scripts (`settings.js`, `main_menu.js`, `pause_menu.js`, `ui/*`) are the kit's own; Escape is both the
@@ -475,7 +475,14 @@ of every language.
 ## Assets
 
 Terrain, road and tree pictures are from Kenney's Isometric Roads pack (CC0, www.kenney.nl), imported with `assets.import` and
-recorded in `assets.json`. The buildings, the rock tile and the goods icons are placeholder art drawn by
-`assets/src/make_atlas.py` (run it from this folder with Pillow: `python3 assets/src/make_atlas.py`).
+recorded in `assets.json`. The buildings, the rock tile and the goods icons are placeholder art. All of them are the PNGs of
+`assets/src/frames/`; the atlas is packed from that folder by the engine, from this folder:
+
+```
+factoria call assets.pack_atlas '{"folder":"assets/src/frames","out":"assets/atlas.png","table":"data/atlas.json"}'
+```
+
+A frame that keeps its size keeps its rectangle, so adding a picture changes one line of the table. The `text.icons` of
+`factoria.json` copy the rectangles of the `icon.*` frames; `rich_text.test.js` fails when they differ after packing.
 
 Gaps found in the engine while building this are in `ENGINE_FEEDBACK.json`.

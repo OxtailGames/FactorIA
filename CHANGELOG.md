@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Atlas packing while developing
+
+- `assets.pack_atlas {folder, out, table, maxSize, padding}` packs a folder of images into one PNG and writes the frame table
+  (`rect` and `pivot` per frame) that a Sprite's `region` and `pivot` read. Packing again keeps the frames whose size did not
+  change where they were, so adding a picture changes one line of the table. docs/ASSETS.md says when the export's atlas
+  groups are enough and when an atlas while developing is worth it. Tidewater Market uses it instead of its Python script.
+
 A strategy camera
 
 - Camera helpers for a 2D camera: `camera.zoomAt(screenPoint, factor, { min, max })` zooms towards the cursor (the world point

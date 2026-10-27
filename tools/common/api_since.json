@@ -600,6 +600,7 @@
     "assets.generate_voice": "0.1.6",
     "assets.import": "0.1.6",
     "assets.list": "0.1.0",
+    "assets.pack_atlas": "unreleased",
     "assets.provenance": "0.1.6",
     "assets.set_provenance": "0.1.6",
     "assets.slice_sheet": "0.1.6",
