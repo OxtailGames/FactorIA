@@ -95,6 +95,59 @@
       ]
     }
   },
+  "platform": {
+    "achievements": [
+      {
+        "id": "ending_dawn",
+        "nameKey": "ach.ending_dawn.name",
+        "descriptionKey": "ach.ending_dawn.desc",
+        "name": "Dawn at the Lodge",
+        "description": "Reach the dawn ending."
+      },
+      {
+        "id": "ending_quiet",
+        "nameKey": "ach.ending_quiet.name",
+        "descriptionKey": "ach.ending_quiet.desc",
+        "name": "A Quiet Morning",
+        "description": "Reach the quiet ending."
+      },
+      {
+        "id": "ending_long",
+        "nameKey": "ach.ending_long.name",
+        "descriptionKey": "ach.ending_long.desc",
+        "name": "The Long Night",
+        "description": "Reach the long night ending."
+      },
+      {
+        "id": "all_endings",
+        "nameKey": "ach.all_endings.name",
+        "descriptionKey": "ach.all_endings.desc",
+        "name": "Every Dawn",
+        "description": "Reach all three endings."
+      },
+      {
+        "id": "all_clues",
+        "nameKey": "ach.all_clues.name",
+        "descriptionKey": "ach.all_clues.desc",
+        "name": "Nothing Missed",
+        "description": "Find every clue in one night."
+      }
+    ],
+    "stats": [
+      {
+        "id": "saves_made",
+        "type": "int"
+      },
+      {
+        "id": "endings_seen",
+        "type": "int"
+      },
+      {
+        "id": "play_minutes",
+        "type": "int"
+      }
+    ]
+  },
   "platforms": [
     "macos",
     "windows",
