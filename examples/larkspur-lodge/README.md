@@ -23,7 +23,7 @@ The game is built in packages. Each one adds to the contracts below and replaces
 | P4 | Cut-scenes and voice: the player in `scripts/cutscene.js`, ten cut-scenes, captions, the voice pipeline | done (no voice clips yet: see Cut-scenes) |
 | P5 | Saves: five slots and an autosave, the save / load screen, versioned format (v1 -> v2), cloud, chapter select, achievements and stats | done |
 | P6 | Sound, options, accessibility: ambience per room, footsteps per floor, music per chapter, five options tabs, rebinding, glyphs, read aloud | done (the ambience and the score are generated, not recorded: see Sound and options) |
-| P7 | Shipping: store builds, icons, listings | pending |
+| P7 | Shipping: store builds, icons, listings | done (see `SHIPPING.md`: Mac App Store pkg run sandboxed, iPad built and shown on the simulator, MSIX and Linux built not run) |
 | P8 | Languages: es, de, ko, he | pending (only `locales/en.json`) |
 
 ## What P1 contains
@@ -450,5 +450,7 @@ fake store's `stats.add` is not atomic (FB-0502), a TextField and the pause acti
 answer time is undocumented (FB-0504).
 P3 adds LL/FB-0012 to LL/FB-0017 (no wheel through a modal panel, no viewport widget, camera viewports count the window, late `destroy`, how the lodge lights overexpose a far stage, a disabled button cannot take focus); `UiSystem::update_drag` (FB-0001) is avoided: no widget of P3 is draggable, the item turns by reading `input.mouse`, and every ancestor of a widget has a Panel.
 P6 adds FB-0701 to FB-0704 (no way to get ambience clips, tests cannot call `ui.check_layout`, a spurious panel size warning in a ScrollList, persisted music survives `game.resetState`).
+
+P7 adds FB-0801 to FB-0804 (the exported player cannot be made to save for a sandbox check, `--record-video` memory, the 16:9 design letterboxed on a 4:3 iPad, players without a build fingerprint). See `SHIPPING.md` for what ran where.
 P4 adds: no voice provider for `assets.generate_voice` (FB-0601) and a
 reload of the same scene that `scene.current` cannot tell apart (FB-0602); it met FB-0001 and FB-0006 again.
