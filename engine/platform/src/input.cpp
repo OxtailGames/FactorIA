@@ -1259,7 +1259,9 @@ bool Input::action_pressed(std::string_view action) const {
     if (it != actions_.end()) {
         View all;
         all.anyPad = all.pointer = all.keyboard = true;
-        const std::vector<Binding> list = readable(it->second, true);
+        const bool plain = !text_input_mode() && consumedBindings_.empty();  // the common frame: no copy
+        const std::vector<Binding> filtered = plain ? std::vector<Binding>() : readable(it->second, true);
+        const std::vector<Binding>& list = plain ? it->second : filtered;
         wasDown = wasDown || was_down_in(list, all);
         edge = edge || edge_in(list, all, false);
     }
@@ -1275,7 +1277,8 @@ bool Input::action_released(std::string_view action) const {
     if (it != actions_.end()) {
         View all;
         all.anyPad = all.pointer = all.keyboard = true;
-        const std::vector<Binding> list = readable(it->second, false);
+        const std::vector<Binding> filtered = text_input_mode() ? readable(it->second, false) : std::vector<Binding>();
+        const std::vector<Binding>& list = text_input_mode() ? filtered : it->second;
         wasDown = wasDown || was_down_in(list, all);
         edge = edge || edge_in(list, all, true);
     }
