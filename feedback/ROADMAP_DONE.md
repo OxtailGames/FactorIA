@@ -2097,6 +2097,417 @@ Windows and Linux exports were refused: no player of this development build here
 `SHIPPING.md`); the stress town (640 villagers, about 600 walking at once) stays under its draw-call budget headless;
 `factoria feedback collect` includes the game.
 
+## M31. Found by the fourth reference game — DONE (the `m31/*` branches)
+
+Planned 2026-10-26, against `cf2664d`, from the triage above: 26 packages, ranked by points (occurrences x severity
+weight) and size; a package that others build on comes just before the first of them (M31.4). Each ships with its
+doctest or JS test, its docs and the `"unreleased"` rows in `tools/common/api_since.json` for the API it adds. When one
+merges, its entries get a `Fixed in <commit>` note in the bookkeeping PR at the end, and Tidewater Market drops the
+workaround it no longer needs (its widget scan and focus sink for the pad cursor, its wheel flag, its tooltips, drag
+code and chart rectangles, its markup renderer and fake bold, its widget registry for the interface size, its own Rng,
+its distance fields, its ambience bus and voice list, its atlas and font subset scripts).
+Order of work: three builds at once at most, a rolling pool; a package starts when the packages it comes after have
+merged. Packages that only share a file run at once and the later one merges `origin/main` before its PR; packages that
+change the same function wait for each other (the "after" lines). First M31.1, M31.2 and M31.4; then M31.3, M31.6 and
+M31.7; then the rest in order, as their "after" packages merge.
+
+### M31.1 A UI hit test, a virtual pointer, the consumed wheel and an empty focus (M) — TM/FB-0043, 0013, 0044
+
+Done (branch `m31/hit-test`, `399e06d6`): `ui.widgetAt(x, y)` and `ui.pointerOverUi` cover every visible `UiBox`; `ui.setPointer(x, y, {down})` drives hover, press and click from the next frame on until `ui.setPointer(null)`; a `ScrollList` that scrolls keeps the wheel (`input.mouse.wheel` reads 0, `ui.wheelConsumed` is true); `ui.focus(null)` holds until an arrow or D-pad press. As planned. Tidewater Market dropped its widget scan, its focus sink and its panel-rectangle wheel flag (its stress scene has one entity less, 4979).
+
+- `widget_at(x, y)` comes out of the pointer code in `ui.cpp`, whose hit test covers interactable controls only, and
+  covers every visible `UiBox`: the topmost widget or Panel under a screen point, skipping what a `ScrollList` clips.
+  Scripts get `ui.widgetAt(x, y)` (an entity or null) and `ui.pointerOverUi`.
+- `ui.setPointer(x, y, {down})` drives hover, press and click like the mouse, for a gamepad cursor and for tests.
+- A `ScrollList` that scrolls marks the wheel consumed: `input.wheel()` reads 0 that frame and `ui.wheelConsumed` is
+  true (the UI runs before scripts, so both are current). A camera script skips the wheel when `ui.pointerOverUi`.
+- `ui.focus(null)` holds until the next navigation input: an open Panel's `autoFocus` no longer takes the focus back on
+  the next frame.
+- COMPONENTS.md and MENUS.md (hit testing, a gamepad cursor), SCRIPTING.md (the wheel).
+
+Acceptance: ui doctests: `widget_at` finds the topmost widget, a Panel, nothing over empty space and nothing for a row a
+ScrollList clips; JS tests: `setPointer` hovers and clicks a Button; the wheel over a ScrollList scrolls it and
+`input.wheel()` reads 0; `ui.focus(null)` stays null over frames until an arrow key. Tidewater Market's `pointer.js`
+scan and its focus sink go.
+
+### M31.2 Web and mobile players checked against the engine build (S) — TM/FB-0050
+
+Done (branch `m31/player-check`, `973e7e72`): `check_player_build` now runs for the web wasm and the prebuilt Android and iOS libraries, `looks_like_executable` recognises wasm and static archives, the web export prefers the player whose fingerprint matches (`build/web-release` before the installed one), and a script import or call the player lacks names the module or object and says the player may be older. As planned.
+
+- `check_player_build` (`export.cpp`) runs for the web, Android and iOS players too, not only the desktop ones; a wasm
+  player is recognised (`looks_like_executable` refuses it today); a player of another build stops the export and says
+  what to do (`factoria setup players`, the checkout's `build/web-release`, or `allowPlayerMismatch`).
+- The web export prefers a player whose fingerprint matches: the checkout's `build/web-release` before the installed one.
+- When a script's import or call fails because the player lacks it, the error names the module and the missing export
+  and says the player may be older than the game's engine, instead of QuickJS's generic message.
+- EXPORTING.md (web and mobile players).
+
+Acceptance: tooling tests: a web export with a player of another fingerprint fails with the hint and passes with
+`allowPlayerMismatch`; a script test that imports a missing export gets the new message.
+
+### M31.3 Docs for what is already there (S) — TM/FB-0016, 0063, 0014, 0035, 0046
+
+Done (branch `m31/docs`, `77f3acbf`): Docs for `active` and `activeInHierarchy`, `fa.call` in tests (`ui.state`, `ui.check_layout`, `i18n.state`), a screen-space line's `size.y`, a Panel's children and `game.tap("ui_submit")` against `game.press`; `ui.rectOf` returns null for a widget hidden by a parent. As planned; TM/FB-0063's second half (`ui.check_layout` on the current frame without reloading) stays out.
+
+- `Entity.active` and `activeInHierarchy` get doc strings (api.json, SCRIPTING.md): a child of a hidden Panel keeps
+  `active` true; ask `activeInHierarchy`. `ui.rectOf` returns null for an entity hidden by a parent, like `ui.state`.
+- SCRIPTING.md's test section uses `fa.call("ui.state")`, not `ui.state()` (a bug: scripts have no such function), and
+  shows `fa.call("ui.check_layout")` and `fa.call("i18n.state")` from a test; `ui.check_layout` reloads the scenes it
+  checks, so it does not see the current frame's state.
+- `Shape2D.size` says that in screen space a line's `size.y` points up, unlike Panels, Texts and Sprites; a chart bar is
+  a rectangle with pivot `[0, 1]`.
+- AI_GUIDE.md (screen space): a Panel's children are offset from the parent's `Transform.position`; the parent's anchor
+  and pivot do not move them.
+- MENUS.md: in a test, `game.tap("ui_submit")` presses the focused widget; `game.press` holds the action until
+  `release`, so pressing it again presses nothing.
+
+Acceptance: `factoria docs` shows each; a JS test: `ui.rectOf` of a child of a hidden Panel is null.
+
+### M31.4 Wrapped text measures its widest line; Toggles that fit (S) — TM/FB-0060, 0064, 0018
+
+Done (branch `m31/text-measure`, `cceb927e`): With a renderer a wrapped text now measures its widest line, like headless, and a UI label is aligned inside that width; a Toggle's box is one line of the label high (`fontSize` times 1.2, plus 4 px) and `Toggle.autoShrink` and `minFontSize` fit the label right of it. As planned, with one side effect the CHANGELOG records: a wrapped Text with a pivot or centre alignment is placed by its widest line, so it can sit a little differently than before.
+
+- The bug: with a renderer a wrapped text measures at least its `maxWidth` (`fonts.cpp` takes the larger of the two), so
+  `ui.overflowed` and `ui.check_layout` flag a short label and `autoShrink` shrinks it for nothing; headless,
+  `approx_text_size` (`bounds.cpp`) measures the widest line. Both now measure the widest line, so a layout test and the
+  window agree.
+- A Toggle's box follows the font size, not the widget's height (`ui2d.cpp`, `layout.cpp`, `text_fit.cpp`), so a wrapped
+  label no longer grows the box; Toggle gets `autoShrink` and `minFontSize` like Button.
+- COMPONENTS.md: `Button.autoShrink` and `minFontSize` next to `maxWidth` (TM/FB-0018 is already supported there), and
+  how a Toggle sizes its box and label.
+
+Acceptance: text doctests: "VSync" with `maxWidth` 440 measures its own width with a renderer and headless; ui doctests:
+a Toggle with a two-line label keeps its box size. Tidewater Market's options screen passes `ui.check_layout` at 200 %
+text in every language with toggles sized by their labels.
+
+### M31.5 An interface scale, Panel minimum and maximum sizes, a text-scale event (L) — TM/FB-0042, 0017, 0065
+
+Done (branch `m31/ui-scale`, `ff667322`): `ui.scale` (0.5 to 3; `"ui": {"scale"}` in `factoria.json`, the `ui.set_scale` command, `uiScale` in `ui.state`), `Panel.minSize` and `maxSize` (also held when `fit` is true), `ui.on("scale")` and `ui.on("textScale")`; `ui.check_layout` takes `uiScales`; the menu kit's Options has an "Interface size" button with only the sizes at which the panel fits. The plan differs in one fix found on the way: a Text with `maxWidth` and a centred or right-aligned `align` was drawn in a box of `maxWidth` but its bounds were its widest line, so a right-aligned note in an Arabic Panel was drawn off its rectangle (`bounds.cpp` now reports the drawn box; the `menus_ar.png` golden was regenerated). Screen-space particle emitters are not scaled. Tidewater Market dropped its widget registry and rule spacers and offers 100 % and 125 %.
+
+After M31.4 (both change `text_fit.cpp`).
+- `ui.scale` (a project default in `factoria.json`, and an interface size choice in the menu kit's Options) multiplies
+  the size, offset, padding, spacing, margins and font size of every screen-space widget, with `ui.textScale` on top;
+  `ui_rect`, `layout`, `text_fit`, the fixed margins of `ui2d`, `scene2d` and the hit test all read it.
+- `Panel.minSize` and `maxSize`, honoured when `fit` is true too.
+- `ui.on("scale")` and `ui.on("textScale")` when either changes, like `i18n.on("change")`.
+- COMPONENTS.md, MENUS.md (the Options tab) and AI_GUIDE.md (laying out for every interface size).
+
+Acceptance: ui doctests: at `ui.scale` 1.5 a Panel's rectangle, padding and fonts are 1.5 times as big and its children
+stay inside it; a fit Panel with `minSize` keeps it; JS tests: each event fires once per change. Tidewater Market drops
+its widget registry and its rule spacers.
+
+### M31.6 Script helpers: the rng state, running a module, did-you-mean, a shadowed method (M) — TM/FB-0032, 0004, 0003, 0036
+
+Done (branch `m31/script-helpers`, `88d1b741`): `rng.create` generators have a `state`, `script.eval` takes `module`, `call` and `args`, `didYouMean` is exported from `"factoria"` with an EXTENDING.md recipe for a project tool that validates data tables, and `instantiate` and `factoria validate` warn about a field that shadows `Behaviour.on`, `after`, `every` or `world`. As planned; of TM/FB-0003 only the validation recipe and the did-you-mean helper were built, the optional history (undo) helper stays out. Tidewater Market uses `rng.create` streams (old saves load: same algorithm and state).
+
+- Generators from `rng.create` get a `state` getter and setter (a 32-bit number), documented as stable like the
+  algorithm, so a saved game resumes its stream.
+- `script.eval` takes `module` (a project path) and `call` (an exported function) with `args`, and runs it without
+  loading a scene: `factoria call script.eval` runs a pure module. CLI.md says `factoria test FILE --filter` starts one
+  engine for the whole run.
+- `didYouMean(word, choices)` exported from `factoria.js` (the `closest` the engine already uses), and an EXTENDING.md
+  recipe: a project tool that validates the cross references of `data/*.json` with file, JSON pointer, hint and
+  did-you-mean (`ToolError`).
+- `instantiate` warns once per class when an instance field shadows a `Behaviour` method or getter (`on`, `after`,
+  `every`, `world`), naming the field; `factoria validate` reports it too.
+
+Acceptance: JS tests: a generator resumed from a saved `state` draws the same numbers; `didYouMean("woood", ["wood",
+"stone"])` is `"wood"`; a Behaviour with a field `on` logs the warning; `script.eval` with `module` and `call` returns the
+function's result. Tidewater Market drops its own Rng.
+
+### M31.7 Audio: project buses, voices, a listener zoom (M) — TM/FB-0041, 0045, 0040
+
+Done (branch `m31/audio-buses`, `51c723a0`): `audio.buses` in `factoria.json` declares buses with a parent (the mixer's fixed enum is a table; the built-ins are unchanged and `factoria validate` checks the names with a "did you mean"), `audio.activeVoices()`, `audio.play`'s `onEnded` (finish, stop or eviction; not `stopAll` or a scene load), `setVoiceVolume` entries in `game.audioLog()` and `AudioListener.zoom`. As planned. Tidewater Market got a real ambience bus and its voice book reads `audio.activeVoices()`.
+
+- `factoria.json` `audio.buses` declares buses with a parent (`{"ambience": {"parent": "sfx"}}`): the mixer's fixed
+  enum (sfx, music, ui and master, `audio.cpp`) becomes a table; playing, bus volumes, effects, ducking and snapshots
+  take the new names, and `factoria validate` checks them with did-you-mean.
+- `audio.activeVoices()`, an `onEnded` callback on `audio.play`, and `setVoiceVolume` entries in `game.audioLog()`.
+- `AudioListener.zoom` scales the distance positional sounds are heard at (`gain = 1 - d / (range * zoom)`), so a
+  zoomed-out 2D camera hears farther; a camera can drive it from its `orthoSize`.
+- SCRIPTING.md (audio) and COMPONENTS.md (`AudioListener`).
+
+Acceptance: audio doctests: a project bus scales the voices on it and its parent scales it; a voice's end calls
+`onEnded` once; a listener zoom of 2 doubles the distance a sound reaches. Tidewater Market drops its ambience bus and
+its voice list.
+
+### M31.8 Rich text and bold (L) — TM/FB-0010, 0031
+
+Done (branch `m31/rich-text`, `47e73975`): `Text.markup` reads `[b]`, `[c:colour]` and `[icon:region]`; the engine wraps (CJK too), aligns, measures and autoShrinks the runs, and a line's glyphs are one batch (each icon texture adds one). Beyond the plan, the labels of Toggle, Slider and TouchButton take markup as well as Button's, and `ui.markupProblems(text)` lists mistakes for a test (an unknown tag shows as written, with one warning per text). The `text` section of `factoria.json` holds `colors`, `icons` and `fonts` (the bold file of each font); a font without a bold face is emboldened by the engine and `factoria validate` suggests adding one. Tidewater Market dropped its markup parser, entity pool and fake bold.
+
+After M31.4 (both change `fonts.cpp`).
+- `Text.markup: true` reads `[b]`, `[c:<colour>]` and `[icon:<region>]` (a sprite region drawn inline at the line
+  height); wrapping (CJK too), alignment, `maxWidth` and `autoShrink` work on the runs, and a line draws as one batch.
+  Button labels take markup too, and `ui.measureText` measures it.
+- Bold: `[b]` and `Text.bold` use the project's bold face (a `bold` file next to each font in `factoria.json`); a font
+  with no bold face is emboldened by the engine, and `factoria validate` suggests adding one.
+- It touches `fonts.cpp`, `scene2d.cpp`, `text_fit.cpp` and the headless `bounds.cpp`; TEXT.md loses its one-colour
+  limit.
+
+Acceptance: text doctests: a markup line with two colours, a bold word and an icon wraps where plain text would,
+measures the same with a renderer and headless, and draws in one batch; a JS test: a Button label with an icon run.
+Tidewater Market drops its markup renderer and its fake bold.
+
+### M31.9 Tooling: feedback merges, perf files of several scenes, the fake's stats, recording progress (S) — TM/FB-0072, 0056, 0037, 0055 (part)
+
+Done (branch `m31/tooling`, `dc4dbb92`): `feedback collect` needs four shared tokens for the `contained` similarity, weighs the `missing` text and honours `distinctFrom`, and prints each merged entry's score; ctest runs every `<example>.perf.json` and `<example>-*.perf.json`; PLATFORM.md says a `stats.add` shows as a `stats.get` and a `stats.set`; `--record-video` prints its progress on stderr. As planned. Tidewater Market's title and game perf files say 2712 and 2965 entities, what this Mac measures (they said 2713 and 2966); draw calls are unchanged.
+
+- `feedback collect` (`feedback.cpp`): the `contained` similarity needs four shared tokens or more, the `missing` text
+  weighs in, an entry may list `distinctFrom` ids it never merges with (the schema and ENGINE_FEEDBACK.md), and the
+  report prints each merged group with its score.
+- The example tests in `tools/cli/CMakeLists.txt` run every `<example>.perf.json` and `<example>-*.perf.json` (not
+  `<example>*`, which would catch another example with the same prefix); PERFORMANCE.md says so.
+- PLATFORM.md's test section: `calls()` shows a `stats.add` as a `stats.get` and a `stats.set`.
+- `--record-video` prints its progress (frames written of the total) while it runs.
+
+Acceptance: `feedback_test.cpp`: TM/FB-0010's and TM/FB-0011's titles no longer merge, and `distinctFrom` keeps two
+similar ones apart; ctest runs Tidewater Market's title, game and stress perf files; a recording prints progress lines.
+
+### M31.10 The web export's report: big folders, download sizes, the icon (S) — TM/FB-0052, 0053, 0071
+
+Done (branch `m31/web-report`, `bcfb468e`): Every export names the five heaviest folders (`largestFolders` in `--json`) and warns when a `store/`, `screenshots/` or `src/` folder is packed, at any depth; a web export lists the raw and gzip size of each file and the download time of the total at 1, 5, 20 and 100 Mbit/s (`webFiles`, `webBytes`, `webGzipBytes`, `webDownloadSeconds`); the page links a 64x64 `favicon.png` made from the game's icon (a `{{favicon}}` placeholder in the template; a game without an icon keeps the empty one). As planned.
+
+After M31.2 (both change `export.cpp` and `export_web.cpp`).
+- The export prints the largest folders that went into the pak and warns when a `store/`, `screenshots/` or `src/`
+  folder is packed, pointing at `export.exclude`.
+- A web export prints the raw and gzip size of each file (`zip_web` already computes the deflate sizes) and the
+  download time of the total at a few connection speeds.
+- The page links a `favicon.png` made from the game's icon (`icons.cpp`) instead of `data:,`; EXPORTING.md loses that
+  limit.
+
+Acceptance: tooling tests: an export that packs a `store/` folder warns and names it; a web export's report has the
+gzip total; the exported `index.html` links a favicon that is in the zip.
+
+### M31.11 Players for a development build (M) — TM/FB-0051
+
+Done (branch `m31/dev-players`, `9f03b101`): `factoria setup webplayer` (and `setup.install {component: "webplayer"}`) builds the web player from the checkout `factoria` was built from, finding or fetching Emscripten 6.0.10 into `.cache/emsdk` and leaving it in `build/web-release/player`; `setup players` on a version with no release installs the newest release's players and warns that their fingerprint will not match (an export needs `allowPlayerMismatch`). A second commit (`6fb82020`) keeps the web player's build fingerprint and strips the quotes of the Emscripten version file. The plan differs in what stays open: Windows and Linux players from CI artifacts need a GitHub token and were always out of M31 (TM/FB-0051 stays open).
+
+After M31.2.
+- `factoria setup players` on a development build, whose version has no release, offers the latest release's players
+  and says that their fingerprint will not match (an export then needs `allowPlayerMismatch`).
+- One command builds the web player from the checkout: it fetches the pinned Emscripten (the CI version) into `.cache/`
+  when `emcc` is missing and runs the `web-release` preset; the web export finds it (M31.2).
+- EXPORTING.md's web section has the Emscripten setup (now only in BUILDING.md).
+
+Acceptance: a tooling test with a fake release list: a development version falls back to the latest release and prints
+the mismatch; on this Mac the command leaves a web player in `build/web-release`, and Tidewater Market's web export uses
+it.
+
+### M31.12 Tile paths on a reusable grid, and flow fields (M) — TM/FB-0006
+
+Done (branch `m31/nav-grid`, `cad41749`): `nav.createGrid` keeps a cost grid in the engine, `nav.findTilePath(grid, from, to)` reuses it, `nav.flowField(grid, goals)` gives `stepToward`, `distance` and `pathFrom`, and the stateless `nav.flow_field` command returns the distances. In a debug build 600 walkers on a 60x60 map for 75 ticks cost about 228 s with the array form, 8.2 s with the kept grid and 0.16 s with flow fields (a benchmark test prints it). A second commit (`8f00334f`) reserves the engine's JS class ids (the nav handle and the debugger frame) in a fixed order right after `JS_NewRuntime`, so the ids match in every runtime. Tidewater Market's own distance fields are now `nav.flowField` over a `nav.createGrid`.
+
+- `nav.createGrid({width, height, cost})` returns a handle kept natively; `grid.setCost(col, row, cost)` changes a cell;
+  `nav.findTilePath(grid, from, to)` reuses it, so a short route no longer costs the whole map (each call converts the
+  array four times and sweeps it for its `minCost` today).
+- `nav.flowField(grid, goals)` returns a distance field from one or more goal cells, and `field.stepToward(col, row)`
+  gives the next cell in O(1); a field built on a grid that changed is rebuilt.
+- The tile-path command (`commands.cpp`), NAVIGATION.md and PERFORMANCE.md (the costs) follow.
+
+Acceptance: nav doctests: a grid gives the same paths as the array form; a flow field's steps reach the nearest goal; a
+JS benchmark test: 600 walkers on a 60x60 grid for 75 ticks cost a fraction of the array form (Tidewater Market measured
+442 ms with its fields against 5978 ms). Tidewater Market's distance fields move to the engine.
+
+### M31.13 Tooltips (M) — TM/FB-0007
+
+Done (branch `m31/tooltips`, `ed67f982`): `tooltip` on any widget or Panel (a locale key, `{title, lines, args}`, or a function from `ui.setTooltip`) shows after `ui.tooltipDelay` of rest within 5 px, beside the pointer and flipped to stay on screen; the `"ui"` section of `factoria.json` styles it and it is off on touch unless `tooltipOnTouch`. `ui.showTooltip`, `hideTooltip`, `ui.setWorldTooltip`, `ui.tooltip` and `tooltip` in `ui.state`; `ui.check_layout` reports a `tooltip` issue. The tooltip is World state drawn by the renderer, not entities, and its delay counts UI dt. Tidewater Market dropped its Tooltips class; its perf budgets fell with the tooltip pool (drawCalls 19 to 18, entities 4978 to 4968 stress and 2964 to 2954 game).
+
+After M31.1 (it uses `widget_at`).
+- `tooltip` on any widget or Panel: a locale key or `{title, lines}`, or a script function that returns the text when
+  it shows; shown after `ui.tooltipDelay` of rest within a slop, next to the pointer and flipped to stay on screen,
+  styled by the UI theme; off on touch unless the project turns it on.
+- `ui.showTooltip(text, {x, y})` for what is not a widget (a building under the pointer on the map), with the same
+  placement.
+- COMPONENTS.md and MENUS.md.
+
+Acceptance: JS tests: a tooltip shows after the delay and not before, hides when the pointer moves away and stays inside
+a 1280x720 screen at each corner; `ui.check_layout` checks it. Tidewater Market drops its Tooltips class.
+
+### M31.14 Drag and drop (M) — TM/FB-0008
+
+Done (branch `m31/drag-drop`, `4b7da894`): `draggable` (`true` or `{payload, slop}`), `ui.on("dragStart" | "dragOver" | "drop" | "dragCancel")`, `ui.setDropTarget` and `ui.setWorldDropTarget`, `ui.setDragImage`, `ui.dragging`, `ui.cancelDrag` and `game.drag(from, to)`; the release makes no click, a tooltip hides when a drag starts, and `ui_cancel` cancels a drag instead of sending `ui.cancel`. As planned. Tidewater Market dropped its own drag code for the worker chips; its hold-free "carry" mode (two clicks) stays its own. Perf budgets unchanged.
+
+After M31.1 and M31.13 (all three change the pointer code in `ui.cpp`).
+- `draggable` on a widget, with a payload and a slop in pixels; `ui.on("dragStart" | "dragOver" | "drop" |
+  "dragCancel")` with the source, the target (a widget from `widget_at`, or null over the world) and the screen
+  position; a target says whether it accepts, and an optional drag image follows the pointer.
+- `ui.dragging` for the scripts that read the pointer; the click the release would produce is swallowed; a gamepad cursor
+  drags through `ui.setPointer` (M31.1).
+- `game.drag(from, to)` in the test API; COMPONENTS.md and the `UI_EVENTS` list.
+
+Acceptance: JS tests: a drag from a Button onto a Panel fires the events in order and no click; a drop over the world
+reports no target and the screen position; `game.drag` drives it. Tidewater Market drops its drag code in `ui_hud.js`.
+
+### M31.15 A chart widget (M) — TM/FB-0009
+
+Done (branch `m31/chart`, `666de009`): `Chart` (a UiBox) with `values`, `kind` bar or line, `colors`, automatic axis (always including the `baseline`), `min` and `max`, `marks`, axis labels in the language's number format, all in one UI batch; `ui.on("chartHover")` reports `index`, `series` and `value`, and `Chart.hoverIndex` and `hoverSeries` hold them. `slots` (beyond the plan) keeps each sample's width while a rolling series fills up. Tidewater Market's charts panel spawns one Chart per chart instead of about 80 rectangles: entities fell by 100 (game 2926 to 2826, stress 4940 to 4840), draw calls are unchanged. A follow-up commit (`232222e3`) regenerated docs and typings.
+
+After M31.1 (its hover uses `widget_at`).
+- A `Chart` component: `values` (one series or several), `kind` bar or line, colours, axis minimum and maximum (automatic
+  by default), a baseline and axis labels in the language's number format, drawn by the UI layer in one batch; the
+  sample under the pointer is reported (`ui.on("chartHover")`).
+- COMPONENTS.md.
+
+Acceptance: render doctests: bars scale to the maximum, a line passes through its points, automatic axes include zero;
+a JS test hovers a bar and gets its index. Tidewater Market drops its chart rectangles.
+
+### M31.16 The web's hide and close signals, and storage that scales (M) — TM/FB-0021, 0022
+
+Done (branch `m31/web-storage`, `e8b12dcc`): A web export raises `suspend` and `resume` on `visibilitychange` and `quit` on `pagehide`, and copies the save folder to IndexedDB right after the handlers run; `storage` writes one file per key in `<save folder>/storage/` (an old `storage.json` is split and renamed `storage.migrated.json`), with `storage.size(key)`, `storage.set(..., {compress: true})` and `storage.setAsync` (a worker thread; between frames on the web). A second commit (`bc764225`) writes the `setAsync` files still waiting right after the suspend and quit handlers. As planned. Tidewater Market autosaves off the frame with `setAsync` (compressed) and saves at once with `storage.set` on blur, suspend and quit.
+
+- Web: `visibilitychange` raises `suspend` and `resume`, and `pagehide` raises `quit` (it cannot be cancelled there);
+  IndexedDB is flushed after the handlers run, so a `storage.set` inside one is kept (today it only schedules the 500 ms
+  flush, `fs_web.cpp`). SCRIPTING.md, MOBILE.md and EXPORTING.md list which of blur, suspend and quit each platform
+  raises.
+- `storage` writes one file per key (an old `storage.json` is read and split), so a save rewrites its own key only;
+  `storage.size(key)`; `storage.set(key, value, {compress: true})`; `storage.setAsync` writes on a worker thread (after
+  the frame on the web).
+- SCRIPTING.md (storage).
+
+Acceptance: storage doctests: two keys are two files, a split `storage.json` keeps its keys, a compressed value
+round-trips smaller; a JS test: `setAsync` resolves and the value reads back. In the browser pane, a web export that
+saves on `quit` keeps the save after its tab is closed. Tidewater Market saves off the frame.
+
+### M31.17 Buttons with an icon (S) — TM/FB-0011
+
+Done (branch `m31/icon-buttons`, `90a88faa`): `Button.icon`, `iconRegion`, `iconSize` and `iconPosition` (`left`, `top`, `alone`), drawn inside the hit area, counted by `autoSize` and `autoShrink`. As planned. Tidewater Market's build menu items are icon Buttons: two entities fewer per item, 14 items, so its perf budgets drop by 28 entities (stress 4968 to 4940, game 2954 to 2926). A separate commit (`2ff48221`) records the new fields in `api_since.json`.
+
+After M31.4 (both change the label layout in `ui2d.cpp`).
+- `Button.icon` (a sprite or region), `iconSize` and `iconPosition` (left, top or alone), drawn inside the hit area; the
+  label sits beside or under it, and `autoSize` and `autoShrink` count it.
+- COMPONENTS.md.
+
+Acceptance: ui doctests: an icon-top Button's label sits under the icon and a click on the icon presses it; the fitted
+size includes the icon. Tidewater Market's build menu items become Buttons.
+
+### M31.18 Modifier chords in bindings (M) — TM/FB-0012
+
+Done (branch `m31/chords`, `47c076b1`): Bindings take modifiers (`"Ctrl+Z"`, `"Shift+MouseLeft"`, `"Ctrl+Shift+S"`) in `factoria.json`, `input.rebind` and `input.player(i).rebind`; `Ctrl`, `Shift`, `Alt` and `Super` name either side's key, also in `input.keyDown`; the chord wins over its plain key; a bad chord is an error with a "did you mean" (in `factoria validate` too). `input.lastPressed` returns the chord, and a modifier pressed alone is now reported when it is released, so a "press a key" screen can record `Ctrl+Z`; the menu kit's Controls tab records and shows chords. `game.keyDown("Shift")` and `game.tapKey("Ctrl+Z")` drive them in tests, and replay files accept the modifier names. Tidewater Market binds Ctrl+Z, Ctrl+Y and Shift+click.
+
+- A binding takes modifiers (`"Ctrl+Z"`, `"Shift+MouseLeft"`); `Ctrl`, `Shift`, `Alt` and `Super` name either side's key
+  in `input.keyDown` too. When one action binds `Z` and another `Ctrl+Z`, the chord wins: `Z` does not fire on it.
+- `rebind` and `lastPressed` record chords; per-player bindings, the `factoria.json` `input` schema, `factoria validate`
+  and the menu kit's Controls tab follow; test helpers can hold modifiers.
+- SCRIPTING.md (input).
+
+Acceptance: input doctests: `"Ctrl+Z"` parses and prints back; the action fires only with Ctrl held, and a plain `Z`
+action does not fire on the chord; a rebind records a chord. Tidewater Market binds Ctrl+Z, Ctrl+Y and Shift+click.
+
+### M31.19 A choice card in the menu kit, and modal panels (M) — TM/FB-0033
+
+Done (branch `m31/modal-card`, `dc5013d1`): `Panel.modal` makes the topmost modal Panel (highest `layer`) a focus scope for the pointer, the wheel and navigation: nothing under it gets hover, press, click, focus, tooltip or drop, and `ui.pointerOverUi` is true everywhere. The menu kit's `card` part (`scripts/ui/card.js`, `prefabs/ui/card.prefab.json`, `tests/card.test.js`) has a title, a wrapped rich-text body, choices with a detail line, a disabled choice with its reason, a result stage and a `holdClock` option. As planned. Tidewater Market's event and story cards are the kit's; draw calls and entities are the same.
+
+After M31.1 (modality uses the hit test).
+- `Panel.modal`: while it is open, the pointer, the wheel and navigation reach only its widgets (a focus scope), and
+  what is under it gets no hover or click.
+- The menu kit's card: a title, a wrapped body, choice buttons each with a detail line, a choice disabled with its
+  reason, a result stage, and an option to hold the game clock while it is open; mouse, keyboard and pad.
+- MENUS.md.
+
+Acceptance: JS tests: a modal card blocks a click on a button under it and keeps the focus inside; arrow keys move
+between its choices; a disabled choice does nothing and shows why. Tidewater Market's event card becomes the kit's.
+
+### M31.20 An AudioWorklet backend on the web (M) — TM/FB-0054
+
+Done (branch `m31/web-audio`, `df5c4392`): The web player's audio goes through an `AudioWorkletNode` fed from the main thread by messages (no pthreads or `SharedArrayBuffer`), with a `ScriptProcessorNode` only where worklets are missing; no deprecation warning in the console. Latency is measured in EXPORTING.md. As planned.
+
+- The web player's audio moves from `ScriptProcessorNode` (`sokol_audio.h`) to an `AudioWorkletNode` fed from the main
+  thread; the player has no pthreads and no SharedArrayBuffer without COOP/COEP, so Emscripten's `AUDIO_WORKLET` is out
+  and the samples go by messages. It is wrapped from engine code (`external/` is not edited), with ScriptProcessorNode
+  as the fallback where worklets are missing.
+- EXPORTING.md (web audio and its latency).
+
+Acceptance: in the browser pane a web export plays with no deprecation warning in the console and no gaps at 60 fps;
+the latency is measured and written in EXPORTING.md.
+
+### M31.21 A strategy camera (M) — TM/FB-0002
+
+Done (branch `m31/strategy-camera`, `3c69d82a`): `camera.zoomAt`, `panBy`, `clampTo`, `zoomOf`, `setZoom` and `orthoSizeFor`. The plan's `CameraRig` behaviour became the menu kit's `cameraRig` part (`scripts/camera_rig.js`; `project.add_menu_kit` adds its `camera_*` input actions), with drag pan, keys, edge pan, wheel zoom to the cursor, `zoomMin` and `zoomMax` and bounds from `entity.bounds()` (`boundsEntity`); it ignores the wheel and new drags over the UI. The recipe is AI_GUIDE.md section 9.6.1. Tidewater Market dropped `camera_math.js` and `camera_rig.js` (its `map_camera.js` adds the gamepad cursor and a latched drag); its perf budgets are unchanged. A follow-up commit (`d9e6e7ba`) regenerated docs and typings.
+
+After M31.1 (it reads `ui.pointerOverUi` and the consumed wheel).
+- Camera helpers: `camera.zoomAt(screenPoint, factor)` keeps the point under the cursor, `camera.panBy(screenDelta)`,
+  `camera.clampTo(rect)`, and `orthoSize` from a design height.
+- A `CameraRig` behaviour, added to a project like the menu kit: drag pan, edge pan, keys, wheel zoom to the cursor,
+  `zoomMin` and `zoomMax`, bounds from `entity.bounds()`; it ignores the wheel and drags over the UI.
+- An AI_GUIDE.md recipe next to the follow camera.
+
+Acceptance: JS tests: `zoomAt` keeps the world point under the cursor at zooms 0.4 to 2.5; the rig stays inside its
+bounds; a wheel over a ScrollList does not zoom. Tidewater Market drops `camera_math.js` and `camera_rig.js`.
+
+### M31.22 Atlas packing while developing (M) — TM/FB-0034
+
+Done (branch `m31/atlas-pack`, `6777c93b`): `assets.pack_atlas {folder, out, table, maxSize, padding}` packs a folder of images into one PNG and writes the frame table (`rect` and `pivot`); packing again keeps the frames whose size did not change where they were. As planned. Tidewater Market dropped `make_atlas.py`: its 107 frames are PNGs in `assets/src/frames` and the command packs them (frames and pivots identical; draw calls and entities unchanged; `textureMB` of the macOS runner entries 21.33 to 13.21, because the page is 1268x2048 instead of 2048x2048).
+
+- `assets.pack_atlas {folder, out, maxSize, padding}` packs a folder of images into one PNG and writes the frame table
+  (rectangle and pivot per frame) that a Sprite's `region` reads, reusing the export's packer (`export_textures.cpp`);
+  packing again keeps the frames that did not change where they were when they still fit.
+- ASSETS.md: when the export's atlas groups are enough (Sprites keep naming the source PNGs) and when an atlas while
+  developing is worth it.
+
+Acceptance: tooling tests: a folder of frames packs into one PNG whose table matches; adding an image keeps the others
+in place; a Sprite with a region from the table draws its frame. Tidewater Market drops `make_atlas.py`.
+
+### M31.23 The kit's loading line, and gendered strings (M) — TM/FB-0005, 0061
+
+Done (branch `m31/gender-strings`, `56053954`): A string table entry can carry a gender (`{text, gender}` with `f`, `m` or `n`) and a select entry (`f`, `m`, `n` and `other` forms) picks its form by `args.gender`; `i18n.gender(key)` is new; `i18n.t` falls back to `other` with one warning; `factoria validate` warns about missing forms and lost genders; `i18n.export` and `import` (CSV and XLIFF) carry the forms (`ship_the#f`) and a `key#gender` row; LOCALIZATION.md section 5c also says how to phrase around case. The menu kit's `loading.js` writes `i18n.t("loading.progress", {percent})` with a keyless Text (the CLI fixture's copy is the same). As planned, with `n` added to the genders.
+
+- The menu kit's `loading.js` writes `i18n.t("loading.progress", {percent})`, and its scene's Text has no key;
+  `loading.progress` is in the kit's tables and in the CLI fixture's copy of the kit.
+- A string table entry can carry a gender (`{"text": "Ligera", "gender": "f"}`) and a sentence picks its form by it (a
+  `select` entry with `f`, `m` and `other` forms, like plural entries with a count); `i18n.t`, `localization validate`
+  and `i18n.export` and `import` (XLIFF and CSV) follow.
+- LOCALIZATION.md: gender, and how to phrase around agreement where a language also needs case.
+
+Acceptance: i18n doctests: a gendered name picks its article in Spanish and French; a missing form falls back to `other`
+and `validate` warns; the kit's loading line is Spanish in Spanish.
+
+### M31.24 A picture of the running game as a texture (L) — TM/FB-0020
+
+Done (branch `m31/capture-texture`, `54565fbd`): `render.captureTexture({width, height, fit})` makes a run-time texture (`"runtime:N"`) of the frame the player sees, up to 2048 px a side (`fit` is `"cover"`, the default, or `"stretch"`); a capture at the game's size has exactly a screenshot's pixels. `Sprite.texture`, `Panel.texture` and `Button.icon` take the id; `texture.toPNG()` gives Base64 text, `render.textureFromPNG(text)` loads it, `texture.destroy()` frees it; 32 alive at most, reset per test file; without a renderer the texture is a flat placeholder of the size asked (`texture.placeholder`). Readback reuses the screenshot code of Metal, GL/GLES (WebGL2) and D3D11. The plan said `toPNG` gives bytes: it gives Base64 text, because `storage` keeps JSON. Tidewater Market's slots and autosaves store a 156 x 156 picture under `<slot>.pic` (taken before the pause menu opens, removed with its entry and when a cloud copy replaces it); the run-length map stays as the fallback for older saves. Perf budgets unchanged.
+
+After M31.16 (the picture is saved in `storage`).
+- `render.captureTexture({width, height})` renders the current frame offscreen into a texture with a runtime id that a
+  Sprite or Image takes; `texture.toPNG()` gives bytes for `storage`, and `render.textureFromPNG(bytes)` loads one back.
+  Readback on Metal, GL, D3D11 and WebGL2; headless runs get a placeholder of the right size.
+- SCRIPTING.md and COMPONENTS.md.
+
+Acceptance: render doctests where a renderer exists: a captured texture's pixels match a screenshot of the same frame;
+a PNG round-trips through `storage` and draws on a Sprite. Tidewater Market's save slots show a real picture.
+
+### M31.25 Isometric tilemaps and cell picking (L) — TM/FB-0001
+
+Done (branch `m31/iso-tilemap`, `ca5f3025`): `Tilemap.projection: "isometric"` (with `groundHeight` and `groundOffset`) draws diamond tiles as one batched mesh in depth order; `solidTiles` colliders, `occludesLight` shadows, `nav.findTilePath`, `entity.bounds()`, the editor's outline and click area, and the `scene.import_ascii` anchor follow the projection. `entity.tilemap.cellAt` and `cellToWorld` and the commands `tilemap.cell_at` and `tilemap.cell_to_world` work for both projections; the sprites section of AI_GUIDE.md states the draw order inside a layer. The plan said the editor's painting follows the projection: it does not, the editor has no tile painting tool. Tidewater Market's ground (terrain, trees, roads) is one Tilemap with a tileset PNG per season (`assets/src/make_terrain_tiles.py`): game 2826 to 246 entities, title 2712 to 112, stress 4840 to 1029; the title and stress scenes draw one call more (the tileset is a second texture), and the `maxEntities` budgets were lowered to 1500, 600 and 400 so they keep guarding against a sprite per cell.
+
+After M31.12 (both change `nav_tiles.cpp`) and M31.22 (an isometric map draws from one atlas).
+- `Tilemap.projection: "isometric"` (diamond tiles, 100x50 say) drawn as one batched mesh in depth order; colliders,
+  light occluders, tile paths and the editor's painting follow the projection.
+- `tilemap.cellAt(worldPoint)` and `cellToWorld(col, row)` for both projections (the diamond hit test for isometric).
+- COMPONENTS.md; AI_GUIDE.md's sprites section repeats the draw order inside a layer (lower y on top, then creation
+  order).
+
+Acceptance: render doctests: a 40x40 isometric map draws in a few draw calls in depth order; `cellAt(cellToWorld(c, r))`
+is `(c, r)` at zooms 0.4 to 2.5 through `camera.screenToWorld`; a tile path on an isometric map. Tidewater Market's 2655
+map entities become one Tilemap.
+
+### M31.26 A CJK font subset from the locales (M) — TM/FB-0062
+
+Done (branch `m31/cjk-subset`, `c5f926a3`): `assets.subset_font {source, locales, keep, out, axes}` keeps the characters of the locale tables (the ones `factoria validate`'s glyph check asks for) plus ASCII, Latin-1, full-width forms, CJK punctuation and `keep`, pins a variable font's axes (`wght` 400 by default), keeps the shaping tables and lists the characters the source lacks. HarfBuzz's subsetter and instancer (14.6.0) are vendored in `external/harfbuzz` and linked by `fa_tooling` only; TEXT.md and LOCALIZATION.md no longer send you to `pyftsubset`. Tidewater Market's Noto Sans SC subset is rebuilt by the command (340064 bytes) and `make_subset.py` is gone.
+
+- `assets.subset_font {source, locales, keep, out}` keeps the characters of the locale tables plus punctuation and Latin,
+  pins a variable font's axes (`wght` 400 by default) and keeps the shaping tables. HarfBuzz's subsetter (`hb-subset*.cc`
+  and the instancer) is vendored in `external/harfbuzz` from the same upstream version (VERSIONS.md), for the tools only.
+- It reuses the character collection of `factoria validate`'s glyph check; TEXT.md and LOCALIZATION.md replace the
+  `pyftsubset` advice.
+
+Acceptance: a tooling test: the subset of a test font for a small table has exactly those glyphs and passes `factoria
+validate`; Tidewater Market's Noto Sans SC subset is rebuilt by the command (about 340 KB) and `make_subset.py` goes.
+
+Out of M31: a Timeline or cut-scene component for trailers (camera keys, text cards, fades; the rest of TM/FB-0055, L,
+next to the editor's animation timeline in M20's "Left open"), Windows and Linux players of a development build from CI
+artifacts (they need a GitHub token; TM/FB-0051), grammatical case beyond gender (TM/FB-0061), brotli sizes in the web
+report, an undo history helper (TM/FB-0003 asks for it as optional) and `ui.check_layout` on the current frame without
+reloading (TM/FB-0063).
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

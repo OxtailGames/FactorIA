@@ -58,8 +58,9 @@ player, but a player of another build may lack what the game uses (the installed
 ### Web
 
 Exported with a web player built from this checkout (`cmake --preset web-release && cmake --build --preset web-release`,
-Emscripten 6.0.10 from `~/emsdk`) and `--player build/web-release/player`. Without `--player` the export takes the older
-installed player first (FB-0050), and that one cannot run the game.
+Emscripten 6.0.10 from `~/emsdk`) and `--player build/web-release/player`. Without `--player` the export used to take the older
+installed player first (FB-0050), and that one cannot run the game; since M31.2 it prefers a player whose build matches
+(`build/web-release` first) and stops on a player of another build.
 
 | File | Raw | gzip -9 |
 |---|---|---|
@@ -89,8 +90,8 @@ Seen while playing:
   Fixed: opening the menu puts it away (`tests/pause.test.js`).
 - The first click on a building card right after switching the build tab did not select it once; the next click did.
   Not reproduced since.
-- The browser logs "ScriptProcessorNode is deprecated" from the player's audio (FB-0054).
-- The tab shows no icon: the page declares an empty one so hosts log no 404, and does not use the game icon (FB-0071). The
+- The browser logged "ScriptProcessorNode is deprecated" from the player's audio (FB-0054). Fixed in the engine (M31.20): the web player plays through an `AudioWorkletNode`; this export is from before it.
+- The tab showed no icon: the page declared an empty one and did not use the game icon (FB-0071). Fixed in the engine (M31.10): a web export links a `favicon.png` made from the game's icon; this export is from before it. The
   `favicon.ico` 404s in the local server log came from the browser pane, which asks for it anyway.
 
 ## Budget
