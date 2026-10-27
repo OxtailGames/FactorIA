@@ -278,32 +278,25 @@ export class Hud {
     this.addPanel("charts", { root, refresh: () => this.refreshCharts(), every: 1 });
   }
 
-  /** A chart area: a dark panel with a pool of lines (a polyline) or bars, the min and max labels and a line per season boundary. */
+  /** A Chart widget (the engine draws the bars or the line, the axis labels, the baseline and the season rules) and the "since N days" text. */
   makeChart(id, parent, kind, w = 540, h = 110) {
-    const area = panel(id, parent, { layout: "none", size: [w, h], pivot: [0, 1], color: [0, 0, 0, 0.35], padding: [0, 0, 0, 0] });
-    const marks = [];
-    for (let i = 0; i < 8; i++) marks.push(this.lineShape(`${id}_season_${i}`, area, [1, 1, 1, 0.16], 1));
-    const items = [];
-    for (let i = 0; i < CHART_POINTS; i++) {
-      if (kind === "line") items.push(this.lineShape(`${id}_seg_${i}`, area, [1, 0.82, 0.38, 1], 2));
-      else {
-        items.push(world.spawn(
-          { id: `${id}_bar_${i}`, components: { Transform: { position: [0, 0, 0] }, Shape2D: { shape: "rectangle", size: [8, 4], pivot: [0, 1], space: "screen", color: [0.55, 0.78, 1, 1], layer: LAYER.panel + 6 } } },
-          { parent: area },
-        ));
-      }
-    }
-    const top = label(`${id}_max`, area, "", { position: [4, 2, 0], fontSize: FONT.small - 2, color: COLORS.dim });
-    const bottom = label(`${id}_min`, area, "", { position: [4, h - 16, 0], fontSize: FONT.small - 2, color: COLORS.dim });
-    const left = label(`${id}_from`, area, "", { position: [w - 4, h - 16, 0], pivot: [1, 1], fontSize: FONT.small - 2, color: COLORS.dim });
-    return { id, area, kind, w, h, marks, items, top, bottom, left, points: [] };
-  }
-
-  lineShape(id, parent, color, thickness) {
-    return world.spawn(
-      { id, components: { Transform: { position: [0, 0, 0] }, Shape2D: { shape: "line", size: [0, 0], space: "screen", color, thickness, layer: LAYER.panel + 6 } } },
+    const zeroBased = kind === "bars";
+    const area = world.spawn(
+      {
+        id,
+        components: {
+          Transform: { position: [0, 0, 0] },
+          Chart: {
+            size: [w, h], pivot: [0, 1], kind: zeroBased ? "bar" : "line", colors: [zeroBased ? [0.55, 0.78, 1, 1] : [1, 0.82, 0.38, 1]],
+            color: [0, 0, 0, 0.35], layer: LAYER.panel + 1, slots: CHART_POINTS, padding: 8, barGap: 0.15, lineWidth: 2,
+            includeBaseline: zeroBased, showBaseline: zeroBased, fontSize: FONT.small - 2, textColor: COLORS.dim,
+          },
+        },
+      },
       { parent },
     );
+    const left = label(`${id}_from`, area, "", { position: [w - 4, h - 16, 0], pivot: [1, 1], fontSize: FONT.small - 2, color: COLORS.dim, layer: LAYER.panel + 8 });
+    return { id, area, kind: zeroBased ? "bars" : "line", w, h, left, points: [] };
   }
 
   buildHelpPanel() {
@@ -735,72 +728,27 @@ export class Hud {
     this.chartGoodButton.get("Button").text = t("charts.good", { name: i18n.t(`good.${this.chartGood}`) });
     this.chartMoneyLabel.get("Text").text = t("charts.money");
     this.chartMadeLabel.get("Text").text = t("charts.made", { name: i18n.t(`good.${this.chartGood}`) });
-    this.fillChart(this.moneyChart, this.recorder.money(CHART_POINTS), false);
-    this.fillChart(this.madeChart, this.recorder.madePerDay(this.chartGood, CHART_POINTS), true);
+    this.fillChart(this.moneyChart, this.recorder.money(CHART_POINTS));
+    this.fillChart(this.madeChart, this.recorder.madePerDay(this.chartGood, CHART_POINTS));
   }
 
-  fillChart(chart, pts, zeroBased) {
+  fillChart(chart, pts) {
     chart.points = pts;
-    const { w, h } = chart;
-    const pad = 16;
     const n = pts.length;
-    let lo = Math.min(...pts.map((p) => p.value), zeroBased ? 0 : Infinity);
-    let hi = Math.max(...pts.map((p) => p.value), zeroBased ? 1 : -Infinity);
-    if (!isFinite(lo)) lo = 0;
-    if (!isFinite(hi) || hi <= lo) hi = lo + 1;
-    chart.top.get("Text").text = compactText(hi);
-    chart.bottom.get("Text").text = compactText(lo);
-    const step = n > 1 ? (w - 2 * pad) / (CHART_POINTS - 1) : 0;
-    const y = (v) => pad / 2 + (1 - (v - lo) / (hi - lo)) * (h - pad - 6);
-    const x = (i) => w - pad - (n - 1 - i) * step;
-    chart.left.get("Text").text = n ? t("charts.since", { count: n }) : "";
-    if (chart.kind === "line") {
-      chart.items.forEach((seg, i) => {
-        const on = i < n - 1;
-        setActive(seg, on);
-        if (!on) return;
-        seg.position = [x(i), y(pts[i].value), 0];
-        seg.get("Shape2D").size = [x(i + 1) - x(i), -(y(pts[i + 1].value) - y(pts[i].value))];
-      });
-    } else {
-      chart.items.forEach((bar, i) => {
-        const on = i < n;
-        setActive(bar, on);
-        if (!on) return;
-        const top = y(pts[i].value);
-        const base = y(Math.max(lo, 0));
-        bar.position = [x(i) - step / 2 + 1, Math.min(top, base - 1), 0];
-        bar.get("Shape2D").size = [Math.max(2, step - 2), Math.max(1, base - top)];
-      });
-    }
     const perSeason = this.data.economy.calendar.daysPerSeason;
-    chart.marks.forEach((m, k) => {
-      const first = n ? pts[0].day : 0;
-      let boundary = -1;
-      let count = 0;
-      for (let i = 0; i < n; i++) {
-        if (pts[i].day % perSeason === 0 && pts[i].day > first) {
-          if (count === k) boundary = i;
-          count++;
-        }
-      }
-      setActive(m, boundary >= 0);
-      if (boundary >= 0) {
-        m.position = [x(boundary), h - 2, 0];
-        m.get("Shape2D").size = [0, h - 4];
-      }
-    });
+    const first = n ? pts[0].day : 0;
+    const marks = [];
+    for (let i = 0; i < n; i++) if (pts[i].day % perSeason === 0 && pts[i].day > first) marks.push(i);
+    const c = chart.area.get("Chart");
+    c.values = pts.map((p) => p.value);
+    c.marks = marks;
+    chart.left.get("Text").text = n ? t("charts.since", { count: n }) : "";
   }
 
-  /** The tooltip of a chart: the day and the value under the pointer. */
+  /** The tooltip of a chart: the day and the value under the pointer (the Chart's own hover says which sample). */
   chartTip(chart) {
-    const r = ui.rectOf(chart.area);
-    if (!r || !chart.points.length) return null;
-    const n = chart.points.length;
-    const pad = 16 * ui.scale; // r and the pointer are in screen pixels
-    const step = (r.w - 2 * pad) / (CHART_POINTS - 1);
-    const i = Math.round(n - 1 - (r.x + r.w - pad - this.mouse.x) / step);
-    const p = chart.points[Math.max(0, Math.min(n - 1, i))];
+    const p = chart.points[chart.area.get("Chart").hoverIndex];
+    if (!p) return null;
     return { title: t("charts.dayTip", { day: p.day + 1 }), lines: [{ text: chart.kind === "line" ? coinsText(p.value) : t("charts.madeTip", { n: numberText(p.value) }) }] };
   }
 

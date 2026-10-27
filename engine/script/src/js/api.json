@@ -2371,6 +2371,37 @@
     },
     {
      "kind": "interface",
+     "name": "UiChartEvent",
+     "doc": "What ui.on(\"chartHover\", ...) receives: the sample of a Chart under the pointer changed.",
+     "members": [
+      {
+       "sig": "readonly type: \"chartHover\"",
+       "doc": "The event type."
+      },
+      {
+       "sig": "readonly id: string",
+       "doc": "Id of the Chart entity."
+      },
+      {
+       "sig": "readonly entity: Entity | null",
+       "doc": "The Chart entity."
+      },
+      {
+       "sig": "readonly index: number",
+       "doc": "Position of the sample in its series (0 = the first value of `values`), -1 when the pointer left the chart."
+      },
+      {
+       "sig": "readonly series: number",
+       "doc": "Which series (0 for a chart with one), -1 when the pointer left the chart."
+      },
+      {
+       "sig": "readonly value?: number",
+       "doc": "The value of the sample; absent when the pointer left the chart."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "UiDragEvent",
      "doc": "What a ui.on(\"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", ...) callback receives: one step of a drag that started on a widget with `draggable`.",
      "members": [
@@ -2515,6 +2546,14 @@
       {
        "sig": "on(type: \"scale\" | \"textScale\", fn: (e: UiScaleEvent) => void): () => void",
        "doc": "Listens to a change of ui.scale (\"scale\") or ui.textScale (\"textScale\"), like i18n.on(\"change\"): the callback gets { type, value, previous }, once per change to another value, with the game events of the frame (after the code that changed the option has returned). Use it to rebuild what depends on the size of the interface: ui.on(\"scale\", () => { ui.layout(); relayout(); }). Returns the function that stops listening; listeners end with the scene, like ui.on. There is no target: these events are about no widget."
+      },
+      {
+       "sig": "on(type: \"chartHover\", fn: (e: UiChartEvent) => void): () => void",
+       "doc": "Listens to the pointer moving over the samples of a Chart (a bar, or the nearest point of a line): the callback gets { type, id, entity, index, series, value } each time the sample under the pointer changes, and index -1 when the pointer leaves the chart. Returns the function that stops listening; listeners end with the scene."
+      },
+      {
+       "sig": "on(type: \"chartHover\", target: Entity | string, fn: (e: UiChartEvent) => void): () => void",
+       "doc": "Like on(\"chartHover\", fn) for one Chart, e.g. ui.on(\"chartHover\", \"sales_chart\", (e) => showDay(e.index))."
       },
       {
        "sig": "on(type: \"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", fn: (e: UiDragEvent) => void): () => void",

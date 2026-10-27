@@ -38,7 +38,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
                "Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
-               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel "
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel "
                "with fit = true recomputes it every frame (within its minSize and maxSize).")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
@@ -1401,6 +1401,65 @@ void register_builtin_components(TypeRegistry& r) {
                    "Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there).")
             .runtime_only().range(0, 1000000)
             .field("duration", &Video::duration, "Runtime: length of the video in seconds; 0 while the file is not open.")
+            .runtime_only().read_only();
+    }
+
+    {
+        auto chart = r.add<Chart>("Chart",
+                  "A bar or line chart (docs/MENUS.md, \"Charts\"): draws `values` as bars or lines inside this entity's rectangle, "
+                  "scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the "
+                  "current language's number format, and optional vertical `marks`. `values` is one series ([3, 5, 2]) or several "
+                  "([[3, 5, 2], [1, 4, 4]]); write it from a script (`chart.values = history`) whenever the data changes. The axis is "
+                  "automatic (the lowest and highest value, always including the baseline, zero by default) unless `min` / `max` are "
+                  "set. The sample under the pointer is reported: the game event `ui.chartHover` ({id, index, series, value}; index and "
+                  "series are -1 when the pointer leaves), `ui.on(\"chartHover\", fn)` in scripts, and `hoverIndex` / `hoverSeries` on "
+                  "the component. A Chart is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. "
+                  "Defaults: 480 x 200, a dark translucent background, bars.",
+                  "UI");
+        ui_box_fields(chart)
+            .field("values", &Chart::values,
+                   "The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). "
+                   "Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest "
+                   "(right) end.")
+            .enum_field("kind", &Chart::kind, {"bar", "line"},
+                        "bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: "
+                        "one polyline per series through its points, spanning the plot from edge to edge.")
+            .field("colors", &Chart::colors,
+                   "Colour of each series: an array of colours (\"#rrggbb\", a name or [r, g, b, a]). Series beyond the list start over "
+                   "from its first colour; an empty list uses a built-in palette.")
+            .field("min", &Chart::min, "Lowest value of the axis. null (default) = automatic.")
+            .field("max", &Chart::max, "Highest value of the axis. null (default) = automatic.")
+            .field("baseline", &Chart::baseline,
+                   "The value bars grow from and where the baseline rule is drawn (0 by default, the line between gains and losses).")
+            .field("showBaseline", &Chart::showBaseline, "true (default): draw a thin rule at `baseline` when it is inside the axis.")
+            .field("includeBaseline", &Chart::includeBaseline,
+                   "true (default): the automatic axis always includes `baseline`, so bars of a series that is all large numbers still "
+                   "start at zero. false: the axis fits the data tightly (a line of coins that stays near 5000). Ignored for a side "
+                   "set by `min` / `max`.")
+            .field("slots", &Chart::slots,
+                   "How many samples the plot has room for. With fewer values the series is right-aligned, so a chart that fills up "
+                   "keeps each sample's width. 0 (default) = as many as the longest series.").range(0, 100000)
+            .field("marks", &Chart::marks,
+                   "Sample indexes (counted from the first value of the longest series) where a thin vertical rule is drawn, e.g. "
+                   "the first day of each season: [7, 14]. null = none.")
+            .field("baselineColor", &Chart::baselineColor, "Colour of the baseline rule.")
+            .field("markColor", &Chart::markColor, "Colour of the vertical rules of `marks`.")
+            .field("lineWidth", &Chart::lineWidth, "Thickness of a line chart's lines, in UI units.").range(0, 64)
+            .field("barGap", &Chart::barGap, "Fraction of a sample's column left empty between neighbouring bars, 0 to 0.9.").range(0, 0.9f)
+            .field("padding", &Chart::padding, "Space in UI units between the box and the plot area.").range(0, 1000)
+            .field("showLabels", &Chart::showLabels,
+                   "true (default): write the axis maximum at the top-left and the minimum at the bottom-left of the plot, in the "
+                   "current language's number format (\"1,234.5\" in English, \"1.234,5\" in Spanish).")
+            .field("decimals", &Chart::decimals,
+                   "Digits after the decimal separator in the labels, 0 to 9. -1 (default) = as many as the value has, rounded to two.")
+            .range(-1, 9)
+            .asset_field("font", &Chart::font, "font", "Font of the labels: project path of a .ttf, empty = the built-in font (same values as Text.font).")
+            .field("fontSize", &Chart::fontSize, "Label glyph height in design pixels, before ui.textScale.").range(1, 4096)
+            .field("textColor", &Chart::textColor, "Colour of the axis labels.")
+            .field("hoverIndex", &Chart::hoverIndex,
+                   "Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame.")
+            .runtime_only().read_only()
+            .field("hoverSeries", &Chart::hoverSeries, "Runtime: the series of the sample under the pointer, -1 when none.")
             .runtime_only().read_only();
     }
 

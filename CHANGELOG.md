@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A chart widget
+
+- `Chart` draws `values` (one series, or several) as bars or lines inside a widget rectangle, in one batch: the axis is
+  automatic (always including the `baseline`, zero by default) unless `min` / `max` are set, a baseline rule, `marks` (vertical
+  rules at sample indexes), `colors` per series, and the axis maximum and minimum written in the language's number format.
+  `slots` keeps each sample's width while a rolling series fills up. The sample under the pointer is reported: `ui.on("chartHover",
+  (e) => ...)` gets `index`, `series` and `value` (`index` -1 when the pointer leaves), and `Chart.hoverIndex` / `hoverSeries`
+  hold it. Tidewater Market's charts panel is two Charts instead of pools of rectangles and lines.
+
 A strategy camera
 
 - Camera helpers for a 2D camera: `camera.zoomAt(screenPoint, factor, { min, max })` zooms towards the cursor (the world point
