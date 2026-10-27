@@ -1,0 +1,61 @@
+{
+  "format": "larkspur.items/1",
+  "items": {
+    "library_key": {
+      "kind": "key",
+      "nameKey": "item.library_key.name",
+      "descriptionKey": "item.library_key.description",
+      "color": [0.85, 0.7, 0.25, 1],
+      "opens": ["library_door"]
+    },
+    "room_c_key": {
+      "kind": "key",
+      "nameKey": "item.room_c_key.name",
+      "descriptionKey": "item.room_c_key.description",
+      "color": [0.75, 0.75, 0.8, 1],
+      "opens": ["guest_door_c"]
+    },
+    "room_d_key": {
+      "kind": "key",
+      "nameKey": "item.room_d_key.name",
+      "descriptionKey": "item.room_d_key.description",
+      "color": [0.7, 0.45, 0.3, 1],
+      "opens": ["guest_door_d"]
+    },
+    "lamp_oil": {
+      "kind": "tool",
+      "nameKey": "item.lamp_oil.name",
+      "descriptionKey": "item.lamp_oil.description",
+      "color": [0.95, 0.8, 0.4, 1],
+      "opens": []
+    },
+    "guest_ledger": {
+      "kind": "clue",
+      "nameKey": "item.guest_ledger.name",
+      "descriptionKey": "item.guest_ledger.description",
+      "color": [0.45, 0.3, 0.2, 1],
+      "opens": []
+    },
+    "torn_letter": {
+      "kind": "clue",
+      "nameKey": "item.torn_letter.name",
+      "descriptionKey": "item.torn_letter.description",
+      "color": [0.9, 0.88, 0.8, 1],
+      "opens": []
+    },
+    "cellar_lantern": {
+      "kind": "tool",
+      "nameKey": "item.cellar_lantern.name",
+      "descriptionKey": "item.cellar_lantern.description",
+      "color": [0.9, 0.7, 0.3, 1],
+      "opens": []
+    },
+    "test_key": {
+      "kind": "key",
+      "nameKey": "item.test_key.name",
+      "descriptionKey": "item.test_key.description",
+      "color": [0.6, 0.9, 0.6, 1],
+      "opens": ["test_door"]
+    }
+  }
+}

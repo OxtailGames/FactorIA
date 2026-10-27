@@ -1,0 +1,189 @@
+{
+  "$name": "English",
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game."
+  },
+  "loading": {
+    "progress": "Loading... {percent}%"
+  },
+  "menu": {
+    "title": "Larkspur Lodge",
+    "play": "Play",
+    "options": "Options",
+    "credits": "Credits",
+    "shop": "Shop",
+    "quit": "Quit",
+    "back": "Back"
+  },
+  "options": {
+    "title": "Options",
+    "tab": {
+      "video": "Video",
+      "audio": "Audio",
+      "controls": "Controls",
+      "language": "Language"
+    },
+    "windowMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {n} - {name}",
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "uiScale": "Interface size: {percent}%",
+    "colorFilter": "Color filter: {filter}",
+    "filter": {
+      "none": "off",
+      "greyscale": "greyscale",
+      "highContrast": "high contrast",
+      "protanopia": "protanopia (red)",
+      "deuteranopia": "deuteranopia (green)",
+      "tritanopia": "tritanopia (blue)"
+    },
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": {
+      "master": "Master",
+      "music": "Music",
+      "effects": "Effects",
+      "interface": "Interface"
+    },
+    "action": {
+      "move_forward": "Move forward",
+      "move_back": "Move back",
+      "move_left": "Move left",
+      "move_right": "Move right",
+      "run": "Run",
+      "interact": "Use / talk / pick up",
+      "camera_left": "Turn the camera left",
+      "camera_right": "Turn the camera right",
+      "camera_up": "Tilt the camera up",
+      "camera_down": "Tilt the camera down",
+      "zoom_in": "Camera closer",
+      "zoom_out": "Camera farther",
+      "pause": "Pause"
+    },
+    "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language: {language}",
+    "readAloud": "Read menus aloud",
+    "subtitles": "Subtitles",
+    "privacyOptions": "Ad privacy settings",
+    "analytics": "Share anonymous usage data",
+    "on": "on",
+    "off": "off",
+    "percent": "{value} percent"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "mainMenu": "Main menu"
+  },
+  "prompt": {
+    "format": "[{key}] {verb} {name}",
+    "click": "Click",
+    "tap": "Tap"
+  },
+  "interact": {
+    "verb": {
+      "open": "Open",
+      "enter": "Go through",
+      "climb": "Go up",
+      "descend": "Go down",
+      "examine": "Look at",
+      "take": "Search",
+      "talk": "Talk to"
+    }
+  },
+  "area": {
+    "ground": "The ground floor",
+    "upstairs": "The guest rooms",
+    "cellar": "The cellar",
+    "testRoom": "The test room"
+  },
+  "door": {
+    "opened": "You open the door.",
+    "locked": "It is locked.",
+    "libraryLocked": "The library door is locked. The key must be somewhere in the house.",
+    "frontLocked": "The storm is still raging outside. Nobody leaves tonight.",
+    "guestLocked": "This guest room is locked.",
+    "testLocked": "Locked. The test key is in the box in the corner."
+  },
+  "object": {
+    "library_door": "library door",
+    "cellar_door": "cellar door",
+    "front_door": "front door",
+    "test_door": "closet door",
+    "guest_door_a": "door of room A",
+    "guest_door_b": "door of room B",
+    "guest_door_c": "door of room C",
+    "guest_door_d": "door of room D",
+    "stairs_up": "stairs",
+    "stairs_down": "stairs",
+    "hall_bench": "bench",
+    "hall_bear": "stuffed bear",
+    "reception": "reception desk",
+    "radio": "radio",
+    "library_desk": "writing desk",
+    "wine_rack": "wine shelves",
+    "kitchen_box": "cardboard box",
+    "cellar_box": "cardboard box",
+    "cellar_lantern_box": "cardboard box",
+    "dining_box": "cardboard box",
+    "guest_box": "cardboard box",
+    "test_box": "cardboard box"
+  },
+  "examine": {
+    "nothing": "Nothing special.",
+    "hallBench": "A bench for taking off muddy boots. Nobody has sat on it since the storm began.",
+    "hallBear": "A stuffed bear with glass eyes. It seems to follow you across the hall.",
+    "reception": "The guest book lies open. The last entry is smudged by rain.",
+    "radio": "Only static. The storm has taken the signal.",
+    "libraryDesk": "A tidy desk. One drawer is open and empty.",
+    "wineRack": "Dusty bottles, most of them older than the lodge's last owner."
+  },
+  "item": {
+    "taken": "You take the {name}.",
+    "library_key": {
+      "name": "Library key",
+      "description": "A heavy brass key with a tag: LIBRARY."
+    },
+    "room_c_key": {
+      "name": "Key of room C",
+      "description": "A small silver key marked C."
+    },
+    "room_d_key": {
+      "name": "Key of room D",
+      "description": "A copper key marked D."
+    },
+    "lamp_oil": {
+      "name": "Lamp oil",
+      "description": "A bottle of lamp oil, still half full."
+    },
+    "guest_ledger": {
+      "name": "Guest ledger",
+      "description": "Names and dates in a neat hand. One page has been torn out."
+    },
+    "torn_letter": {
+      "name": "Torn letter",
+      "description": "A letter torn in two. The first line reads: Do not trust the owner."
+    },
+    "cellar_lantern": {
+      "name": "Cellar lantern",
+      "description": "A hand lantern. It still holds a little light."
+    },
+    "test_key": {
+      "name": "Test key",
+      "description": "A key that only opens the test room."
+    }
+  }
+}
