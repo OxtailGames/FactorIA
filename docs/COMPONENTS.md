@@ -508,6 +508,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `layout` | enum: none \\| row \\| column \\| grid | `"none"` | How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot. |
 | `spacing` | float | `8.0` | Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it). Range 0.0..10000.0. |
 | `padding` | vec4 | `[16.0,16.0,16.0,16.0]` | Space [left, top, right, bottom] in UI units between the panel's edge and its children (`ui.scale` multiplies it). |
@@ -539,6 +540,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
@@ -558,6 +560,10 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
 | `markup` | bool | `false` | true: the text reads tags: [b]bold[/b], [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text". (not released yet, on main after 0.2.0) |
 | `bold` | bool | `false` | true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the text. false (default): regular weight. (not released yet, on main after 0.2.0) |
+| `icon` | asset (texture) | `""` | Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. |
+| `iconRegion` | rect | `[0.0,0.0,0.0,0.0]` | Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture. |
+| `iconSize` | vec2 | `[32.0,32.0]` | Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32]. |
+| `iconPosition` | enum: left \\| top \\| alone | `"left"` | left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves. |
 
 ### Toggle
 
@@ -576,6 +582,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
@@ -614,6 +621,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
@@ -659,6 +667,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (not released yet, on main after 0.2.0) |
@@ -693,6 +702,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `spacing` | float | `8.0` | Gap in design pixels between children. Range 0.0..10000.0. |
 | `padding` | vec4 | `[8.0,8.0,8.0,8.0]` | Space [left, top, right, bottom] between the list's edge and its children. |
 | `scroll` | float | `0.0` | Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame. Runtime-only (not saved). |
@@ -717,6 +727,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `stick` | enum: left \\| right | `"left"` | Which stick of the touch pad it moves. |
 | `knobColor` | color | `[1.0,1.0,1.0,0.6]` | Colour of the knob, a disc 45% as wide as the stick. |
 | `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
@@ -741,6 +752,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `button` | enum: A \\| B \\| X \\| Y \\| Start \\| Back \\| Guide \\| DpadLeft \\| DpadRight \\| DpadUp \\| DpadDown \\| LeftShoulder \\| RightShoulder \\| LeftThumb \\| RightThumb | `"A"` | The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them. |
 | `text` | string | `""` | Label centred on the button, e.g. "A" or "Jump". Empty (default) draws none. |
 | `key` | string | `""` | Localization key, e.g. "touch.jump" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key that no string table has keeps `text` and logs one warning. (not released yet, on main after 0.2.0) |
@@ -774,6 +786,7 @@ The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audi
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
 | `maxLines` | int | `3` | How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out). Range 1.0..16.0. |
 | `padding` | vec4 | `[16.0,8.0,16.0,8.0]` | Space [left, top, right, bottom] between the edge of the background and the text. |
 | `font` | asset (font) | `""` | Font of the captions: project path of a .ttf, empty = the built-in font (same values as Text.font). |
@@ -801,6 +814,7 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 | `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
 | `path` | asset (video) | `""` | Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A file that is missing or is not MPEG-1 video is logged once and the entity draws only its background. |
 | `autoplay` | bool | `true` | true (default): `playing` becomes true as soon as the file is open. false: it waits for `entity.video.play()` or `playing = true`, showing the first picture. |
 | `loop` | bool | `false` | true: at the end the video starts over from the beginning, picture and sound (no `video.ended` event). false: it stops on its last picture and fires `video.ended`. |
@@ -2044,7 +2058,7 @@ The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own). |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -4319,6 +4333,36 @@ declare module "factoria" {
      * @since unreleased
      */
     screenRay(v: Vec2Like, camera?: Entity | string): { origin: Vec3; direction: Vec3 };
+    /**
+     * Pixels per world unit of an orthographic camera (design pixels one world unit covers), the zoom of a strategy camera: the viewport height in design pixels / 2 / orthoSize; 1 when orthoSize is 0 (pixel perfect on a full-screen viewport). `camera` defaults to the first camera drawn. Throws without a camera or for a perspective one.
+     * @since unreleased
+     */
+    zoomOf(camera?: Entity | string): number;
+    /**
+     * Sets the camera's zoom in pixels per world unit by writing Camera.orthoSize = (viewport height in design pixels) / 2 / zoom, so a game never derives orthoSize from its design height by hand. Throws for a zoom that is not a positive number. Example: camera.setZoom(1.5); // 1.5 pixels per world unit
+     * @since unreleased
+     */
+    setZoom(zoom: number, camera?: Entity | string): void;
+    /**
+     * The Camera.orthoSize that shows the world at `zoom` pixels per world unit on a screen `designHeight` design pixels high: designHeight / 2 / zoom. Defaults: zoom 1 and the design height of the screen (screen.size.y). Pure, it changes nothing.
+     * @since unreleased
+     */
+    orthoSizeFor(zoom?: number, designHeight?: number): number;
+    /**
+     * Zooms in by `factor` (2 doubles the pixels per world unit, 0.5 halves them) and moves the camera so the world point under `screenPoint` (design pixels) stays under it: zoom towards the cursor. `min` and `max` clamp the resulting zoom (pixels per world unit, see zoomOf); the camera is the one under the point unless `options.camera` names one. Returns the zoom now. It does not keep the view inside the map: call clampTo after. A 2D helper: the camera must be orthographic and not rotated. Throws for a factor that is not a positive number. Example: camera.zoomAt(input.mouse.position, 1.15 ** input.mouse.wheel, { min: 0.4, max: 2.5 });
+     * @since unreleased
+     */
+    zoomAt(screenPoint: Vec2Like, factor: number, options?: { camera?: Entity | string; min?: number; max?: number }): number;
+    /**
+     * Moves the camera so the world follows a screen movement, as a drag does: a delta of (10, 0) leaves the world 10 design pixels further right on the screen (the camera moves left in the world); +Y of the delta is down the screen. Takes the delta in design pixels whatever the zoom, e.g. camera.panBy(input.mouse.delta) while a button is held.
+     * @since unreleased
+     */
+    panBy(screenDelta: Vec2Like, camera?: Entity | string): void;
+    /**
+     * Moves the camera as little as needed so the view stays inside the world rectangle `rect` ({ x, y, w, h } with (x, y) the bottom-left corner, like entity.bounds()), grown by `margin` world units. On an axis where the view is wider than the rectangle the camera is centred on it. Example: camera.clampTo(world.find("map").bounds(), { margin: 100 });
+     * @since unreleased
+     */
+    clampTo(rect: RectLike, options?: { camera?: Entity | string; margin?: number }): void;
   }
 
   /**
@@ -4814,6 +4858,63 @@ declare module "factoria" {
   }
 
   /**
+   * What a ui.on("dragStart" | "dragOver" | "drop" | "dragCancel", ...) callback receives: one step of a drag that started on a widget with `draggable`.
+   * @since unreleased
+   */
+  export interface UiDragEvent {
+    /**
+     * Which step: dragStart (the pointer moved past the slop of the pressed draggable widget), dragOver (the pointer moved or the thing under it changed; at most once per frame), drop (the button was released over a target that accepts), dragCancel (the drag ended without a drop: reason says why).
+     * @since unreleased
+     */
+    readonly type: "dragStart" | "dragOver" | "drop" | "dragCancel";
+    /**
+     * Id of the dragged widget.
+     * @since unreleased
+     */
+    readonly id: string;
+    /**
+     * The dragged widget (null when it was destroyed during the drag).
+     * @since unreleased
+     */
+    readonly entity: Entity | null;
+    /**
+     * Same as entity: the dragged widget.
+     * @since unreleased
+     */
+    readonly source: Entity | null;
+    /**
+     * The `payload` of the source's draggable field (null when it has none).
+     * @since unreleased
+     */
+    readonly payload: any;
+    /**
+     * The pointer on the screen, design pixels, y down.
+     * @since unreleased
+     */
+    readonly x: number;
+    /**
+     * The pointer on the screen, design pixels, y down.
+     * @since unreleased
+     */
+    readonly y: number;
+    /**
+     * What is under the pointer: the nearest widget at or above the topmost one that has a drop rule (ui.setDropTarget), else the topmost widget; null over the world (no widget). The drag image is never the target.
+     * @since unreleased
+     */
+    readonly target: Entity | null;
+    /**
+     * Whether target takes the drop: true when its rule (or the world's, for a null target) says so. Over a widget with no rule it is false.
+     * @since unreleased
+     */
+    readonly accepts: boolean;
+    /**
+     * dragCancel only: rejected (released over something that does not accept), cancel (ui_cancel: Escape or the pad's B), gone (the source was destroyed or deactivated), script (ui.cancelDrag()).
+     * @since unreleased
+     */
+    readonly reason?: "rejected" | "cancel" | "gone" | "script";
+  }
+
+  /**
    * What a ui.on("scale", ...) or ui.on("textScale", ...) callback receives: the interface scale or the text size option changed.
    * @since unreleased
    */
@@ -4864,6 +4965,31 @@ declare module "factoria" {
      */
     layout(): void;
     /**
+     * The drag in progress, or null: truthy exactly while a draggable widget is being dragged (from the dragStart event until drop or dragCancel). A script that reads the pointer for the world can test `if (ui.dragging) return;` so a drag that began on the UI does not also click the map. `from` is where the press was; x, y the pointer now; target and accepts as in the events.
+     * @since unreleased
+     */
+    readonly dragging: { source: Entity | null; payload: any; from: { x: number; y: number }; x: number; y: number; target: Entity | null; accepts: boolean } | null;
+    /**
+     * Says whether a widget takes drops: true, false, or a function asked every frame while a drag is over it (it returns true to accept; use it to colour the target), or null to remove the rule. A widget with no rule refuses; the nearest ancestor with a rule counts for its children, so one rule on a Panel covers its Buttons. Rules end with the scene. Example: ui.setDropTarget(\"slot_1\", (d) => canAssign(d.payload)).
+     * @since unreleased
+     */
+    setDropTarget(target: Entity | string, rule: boolean | ((drag: { source: Entity | null; payload: any; x: number; y: number }) => boolean) | null): void;
+    /**
+     * Says whether a drop over no widget (the map) is accepted: true by default, false refuses (the drag ends with dragCancel reason \"rejected\"), a function can look at the world at (x, y). null goes back to the default. Ends with the scene.
+     * @since unreleased
+     */
+    setWorldDropTarget(rule: boolean | ((drag: { source: Entity | null; payload: any; x: number; y: number }) => boolean) | null): void;
+    /**
+     * Makes a widget follow the pointer during the drag, its centre under the pointer; hit tests, hover and drop targets ignore it. Call it from the dragStart handler (the engine moves it from the next frame on). The engine only moves it: hide or destroy it in the drop and dragCancel handlers. null stops it.
+     * @since unreleased
+     */
+    setDragImage(widget: Entity | string | null): void;
+    /**
+     * Ends the drag in progress with a dragCancel event (reason \"script\"). Does nothing when nothing is dragged.
+     * @since unreleased
+     */
+    cancelDrag(): void;
+    /**
      * Shows a tooltip now, for something that is not a widget (a map tile, a chart point). `content` is a string or { title, lines, args }; each text is a localization key when localization is on and has it, else it is shown as written. `at` is a screen position in design pixels (default: the pointer); the box is placed next to it and flipped to stay on screen, like the tooltip of a widget, and styled by the "ui" section of factoria.json (tooltip). It stays until ui.hideTooltip(), until the pointer moves more than 5 pixels from where it was at the call, or until a scene loads. Throws on a content that is not a string or an object. Example: ui.showTooltip({ title: "Harbour", lines: ["Docks: 3"] }, { x: 400, y: 300 }).
      * @since unreleased
      */
@@ -4908,6 +5034,16 @@ declare module "factoria" {
      * @since 0.1.6
      */
     on(type: "scale" | "textScale", fn: (e: UiScaleEvent) => void): () => void;
+    /**
+     * Listens to the steps of a drag that began on a widget with `draggable` (UiBox.draggable): dragStart, dragOver, drop (released over a target that accepts: a widget with a rule from ui.setDropTarget, or the world) and dragCancel (rejected, cancelled with ui_cancel, the source gone or ui.cancelDrag()). The event has the source, its payload, the pointer (x, y) and the target (null over the world). Returns the function that stops listening; listeners end with the scene.
+     * @since 0.1.6
+     */
+    on(type: "dragStart" | "dragOver" | "drop" | "dragCancel", fn: (e: UiDragEvent) => void): () => void;
+    /**
+     * Like on(type, fn) for one widget: for dragStart and dragCancel `target` is the dragged widget, for dragOver and drop it is the drop target, e.g. ui.on("drop", "slot_1", (e) => assign(e.payload)).
+     * @since 0.1.6
+     */
+    on(type: "dragStart" | "dragOver" | "drop" | "dragCancel", target: Entity | string, fn: (e: UiDragEvent) => void): () => void;
     /**
      * Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
      * @since 0.1.6
@@ -8230,6 +8366,11 @@ declare module "factoria" {
      */
     tooltip: any;
     /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
      * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
      * @since 0.1.6
      */
@@ -8356,6 +8497,11 @@ declare module "factoria" {
      */
     tooltip: any;
     /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
@@ -8454,6 +8600,24 @@ declare module "factoria" {
      * @since unreleased
      */
     bold: boolean;
+    /**
+     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (asset path: texture)
+     */
+    icon: string;
+    /**
+     * Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture.
+     */
+    get iconRegion(): Rect;
+    set iconRegion(value: RectLike);
+    /**
+     * Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32].
+     */
+    get iconSize(): Vec2;
+    set iconSize(value: Vec2Like);
+    /**
+     * left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves.
+     */
+    iconPosition: "left" | "top" | "alone";
   }
   /**
    * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}. The box is one line of the label high (fontSize at the player's text size, times 1.2, plus 4 px), centred in the widget and never bigger than its height minus 12: a wrapped label or a taller widget does not make the box bigger. autoShrink and minFontSize shrink the label to the room right of the box.
@@ -8512,6 +8676,11 @@ declare module "factoria" {
      * @since unreleased
      */
     tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
@@ -8672,6 +8841,11 @@ declare module "factoria" {
      * @since unreleased
      */
     tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
@@ -8868,6 +9042,11 @@ declare module "factoria" {
      */
     tooltip: any;
     /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
@@ -9008,6 +9187,11 @@ declare module "factoria" {
      */
     tooltip: any;
     /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
      * Gap in design pixels between children.
      * @since 0.1.6
      */
@@ -9097,6 +9281,11 @@ declare module "factoria" {
      */
     tooltip: any;
     /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
      * Which stick of the touch pad it moves.
      * @since 0.2.0
      */
@@ -9185,6 +9374,11 @@ declare module "factoria" {
      * @since unreleased
      */
     tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
     /**
      * The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.
      * @since 0.2.0
@@ -9320,6 +9514,11 @@ declare module "factoria" {
      */
     tooltip: any;
     /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
      * How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out).
      * @since 0.2.0
      */
@@ -9425,6 +9624,11 @@ declare module "factoria" {
      * @since unreleased
      */
     tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
     /**
      * Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A file that is missing or is not MPEG-1 video is logged once and the entity draws only its background. (asset path: video)
      * @since unreleased
@@ -9622,16 +9826,16 @@ declare module "factoria" {
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number; zoom?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
-    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
-    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
-    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
-    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
-    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
+    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
+    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
+    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }
@@ -10151,6 +10355,11 @@ declare module "factoria:test" {
      * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
+    /**
+     * Drags with the left mouse button from a position (or the centre of a widget) to another: presses, moves in four steps of one frame each, releases and steps once more (6 steps in all), so a draggable widget's dragStart, dragOver and drop events fire and the click is swallowed. `to` may be any widget (a Panel too) or a position over the world, where the drop reports no target. The path must be longer than the slop of the widget (6 pixels by default), or it is a click.
+     * @since unreleased
+     */
+    drag(from: Vec2Like | Entity | string, to: Vec2Like | Entity | string): void;
     /**
      * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file. `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
