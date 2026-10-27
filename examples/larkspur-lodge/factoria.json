@@ -92,6 +92,39 @@
       ],
       "choice_4": [
         "4"
+      ],
+      "inventory": [
+        "I",
+        "GamepadX"
+      ],
+      "notebook": [
+        "N",
+        "GamepadBack"
+      ],
+      "tab_next": [
+        "Tab",
+        "PageDown",
+        "GamepadRightShoulder"
+      ],
+      "tab_prev": [
+        "PageUp",
+        "GamepadLeftShoulder"
+      ],
+      "board_undo": [
+        "Z",
+        "GamepadLeftTrigger"
+      ],
+      "board_redo": [
+        "Y",
+        "GamepadRightTrigger"
+      ],
+      "view_zoom_in": [
+        "R",
+        "GamepadRightTrigger"
+      ],
+      "view_zoom_out": [
+        "V",
+        "GamepadLeftTrigger"
       ]
     }
   },

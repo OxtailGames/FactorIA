@@ -6,13 +6,17 @@
 //   "area": "ground",                      the scene the porter stands in (a key of scripts/area.js AREAS)
 //   "spawn": { "position": [x, y, z], "yaw": degrees },   where it stands
 //   "story": { "flags": {...}, "counters": {...} },       scripts/story.js snapshot()
-//   "inventory": ["library_key", ...] }                   scripts/items.js snapshot()
+//   "inventory": ["library_key", ...],                    scripts/items.js snapshot()
+//   "puzzles": { drawer, timetable, letter, fuse },       scripts/puzzles.js snapshot(): the puzzles in progress
+//   "notebook": { board: { deductions, redo }, notebook: { seen } } }   scripts/notebook.js snapshot()
 //
-// apply(data) puts story and inventory back and returns { area, arrive } for the caller to scene.load: the porter is placed
+// apply(data) puts story, inventory, puzzles and notebook back and returns { area, arrive } for the caller to scene.load: the porter is placed
 // by scripts/area.js from session.restoreSpawn. A save of another format is refused with a message that says what to do.
 import { session, world } from "factoria";
 import * as story from "./story.js";
 import * as items from "./items.js";
+import * as puzzles from "./puzzles.js";
+import * as notebook from "./notebook.js";
 
 export const FORMAT = "larkspur.save/1";
 
@@ -27,6 +31,8 @@ export function snapshot() {
     spawn: { position: [p.x, p.y, p.z], yaw },
     story: story.snapshot(),
     inventory: items.snapshot(),
+    puzzles: puzzles.snapshot(),
+    notebook: notebook.snapshot(),
   };
 }
 
@@ -40,6 +46,8 @@ export function apply(data) {
   }
   story.restore(data.story);
   items.restore(data.inventory);
+  puzzles.restore(data.puzzles);
+  notebook.restore(data.notebook);
   session.restoreSpawn = data.spawn ?? null;
   return { ok: true, area: data.area, message: "", hint: "" };
 }

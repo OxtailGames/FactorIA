@@ -8,6 +8,8 @@ import * as dialogue from "../../scripts/dialogue.js";
 import * as story from "../../scripts/story.js";
 import * as items from "../../scripts/items.js";
 import * as chapters from "../../scripts/chapters.js";
+import * as puzzles from "../../scripts/puzzles.js";
+import * as notebook from "../../scripts/notebook.js";
 import { AREAS } from "../../scripts/area.js";
 
 /** Where to stand relative to a thing's spot, and the yaw that looks at it (yaw 0 faces -Z, 90 faces -X, 180 faces +Z, 270 faces +X). */
@@ -128,6 +130,77 @@ export class Bot {
     this.trail.push(`talk ${who} [${picked}]`);
     this.settle();
     return picked;
+  }
+
+  /** Uses a puzzle object (the use key) and checks its screen opened. Returns the screens behaviour. */
+  openPuzzle(objectId, puzzle) {
+    this.use(objectId);
+    const screens = game.find("screens").behaviour;
+    if (screens.mode !== "puzzle" || screens.puzzle !== puzzle) this.fail(`using '${objectId}' did not open the '${puzzle}' screen (mode ${screens.mode}, puzzle '${screens.puzzle}')`);
+    return screens;
+  }
+
+  /** Closes the puzzle screen with its Close button and lets the porter go free. */
+  closePuzzle(screens) {
+    game.click(game.find(screens.id("close")));
+    game.step(6);
+    if (screens.mode !== null) this.fail("the puzzle screen did not close");
+  }
+
+  /**
+   * The chain that ends the storm, played in chapter 4 (the power is out): the library key, the library's ledger, the torn letter
+   * pieced together, the date deduced on the board, the drawer opened with it, the cartridge, the mended fuse, the timetable
+   * and the fuse box in the cellar. The screens are opened by using the objects; the moves inside them go through the puzzle
+   * logic (the UI itself is tested in tests/puzzles.test.js and tests/screens.test.js).
+   */
+  fixTheFuse() {
+    if (!story.has("power_out")) this.fail("the power is not out: this is for chapter 4");
+    if (!items.has("library_key") && !story.has("open.library_door")) {
+      this.go("cellar");
+      this.use("p_cellar_box");
+    }
+    this.go("ground");
+    if (!story.has("open.library_door")) this.use("library_door");
+    if (!story.has("ledger_taken")) this.use("p_ledger_box");
+    if (!story.has("letter_taken")) {
+      this.go("upstairs");
+      this.use("p_letter_box");
+      this.go("ground");
+    }
+    // The letter: swap strips into place from the items page, as a player does ("Piece together").
+    const order = puzzles.state("letter").order;
+    for (let pos = 0; pos < order.length; pos++) {
+      const at = order.indexOf(pos);
+      if (at !== pos) puzzles.swapStrips(pos, at);
+    }
+    if (!story.has("letter_pieced")) this.fail("the torn letter did not piece together");
+    // The board: letter + ledger give the date.
+    const r = notebook.link("letter_whole", "ledger");
+    if (!r.ok) this.fail(`the board refused letter_whole + ledger: ${r.key}`);
+    // The drawer with the date.
+    let screens = this.openPuzzle("p_library_desk", "drawer");
+    for (let i = 0; i < 4; i++) while (puzzles.state("drawer").dials[i] !== Number(puzzles.data.drawer.code[i])) puzzles.turnDial(i, 1);
+    puzzles.tryCode();
+    this.closePuzzle(screens);
+    if (!items.has("fuse_wire")) this.fail("the drawer gave no fuse wire");
+    this.use("p_cartridge_box");
+    if (!items.combine("fuse_wire", "fuse_cartridge").ok) this.fail("the fuse did not mend");
+    // The timetable: bubble sort with the earlier/later moves.
+    screens = this.openPuzzle("p_reception", "timetable");
+    const want = puzzles.timetableSolution();
+    for (let guard = 0; guard < 20 && puzzles.timetableOrder().join() !== want.join(); guard++) {
+      const o = puzzles.timetableOrder();
+      for (let i = 0; i < o.length - 1; i++) if (want.indexOf(o[i]) > want.indexOf(o[i + 1])) puzzles.moveService(i, 1);
+    }
+    puzzles.checkTimetable();
+    this.closePuzzle(screens);
+    // The fuse box in the cellar.
+    this.go("cellar");
+    screens = this.openPuzzle("p_fuse_box", "fuse");
+    puzzles.fitFuse();
+    for (const id of puzzles.breakerOrder()) puzzles.throwBreaker(id);
+    this.closePuzzle(screens);
+    if (!story.has("fuse_fixed") || !story.has("storm_over")) this.fail("the fuse box is not mended");
   }
 
   /** The state of the story as a stable string, and its hash: flags and counters sorted, the items sorted, the conversations in order. */
