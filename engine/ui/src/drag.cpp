@@ -98,8 +98,10 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
             if (kind == UiKind::Slider || kind == UiKind::TextField) break;  // they keep the pointer for themselves
             const UiControl* c = ui_control(w, a);
             if (c && !c->interactable) continue;
+            const UiBox* box = ui_box(w, a);
+            if (!box) continue;  // a plain entity between widgets (a HUD root with a Transform): not draggable, keep walking up
             std::string problem;
-            if (ui_drag_spec(ui_box(w, a)->draggable, &problem)) {
+            if (ui_drag_spec(box->draggable, &problem)) {
                 dragCand_ = a;
                 dragCandFrom_ = mouse;
                 break;
@@ -110,7 +112,10 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
     if (dragCand_) {
         if (!w.alive(dragCand_) || (!down && !released)) {
             dragCand_ = kNullEntity;
-        } else if (const std::optional<UiDragSpec> spec = ui_drag_spec(ui_box(w, dragCand_)->draggable);
+        } else if (const std::optional<UiDragSpec> spec = [&]() -> std::optional<UiDragSpec> {
+                       const UiBox* candBox = ui_box(w, dragCand_);
+                       return candBox ? ui_drag_spec(candBox->draggable) : std::nullopt;
+                   }();
                    spec && distance(mouse, dragCandFrom_) >= spec->slop) {
             drag_ = DragState{};
             drag_.active = true;

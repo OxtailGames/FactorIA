@@ -15,16 +15,17 @@
       "severity": "major",
       "title": "Crash when a widget has a parent without a UI component",
       "missing": "Pressing the mouse (or a tap) over any Panel, Button or other widget whose parent entity has no UI component (a plain HUD root with a Transform and a Script) crashes the engine with a segmentation fault (UiSystem::update_drag, engine/ui/src/drag.cpp: ui_box(w, a)->draggable is read for every ancestor while looking for a draggable one, and ui_box is null for an ancestor that is not a widget). Minimal repro: a Panel with a Text child inside an entity that has only a Transform, then game.click on the Panel in a test. Found by clicking the prompt panel of the HUD prefab.",
-      "workaround": "The HUD prefab root (prefabs/ui/hud.prefab.json) carries a fully transparent 1x1 Panel with layout none, which is a widget and is never hit, so every widget below it has only widget ancestors.",
+      "workaround": "The HUD prefab root (prefabs/ui/hud.prefab.json) carries a fully transparent 1x1 Panel with layout none, which is a widget and is never hit, so every widget below it has only widget ancestors. (removed in M33.1)",
       "workaroundFiles": [
         "prefabs/ui/hud.prefab.json"
       ],
       "suggestion": "In update_drag skip an ancestor for which ui_box is null (or stop the walk at the first non-widget), and add a test with a widget under a plain entity. Also worth a validate warning for a widget under a non-widget parent if that layout is not meant to be supported.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md.",
+        "Fixed in M33.1: update_drag skips an ancestor that is not a widget (the other walks up the UI tree already tolerated one); doctest 'ui tree' in engine/ui/tests. The HUD prefab lost its transparent Panel."
       ]
     },
     {
@@ -515,9 +516,10 @@
       "suggestion": "Make ui.focus return false on a disabled widget instead of throwing, or document it.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md.",
+        "Fixed in M33.1: ui.focus returns true, and false (changing nothing) for a widget with interactable false; documented in SCRIPTING.md and api.json; test in engine/runtime/tests/ui_tests.cpp."
       ]
     },
     {
@@ -638,9 +640,10 @@
       "suggestion": "Do not warn for a Panel whose ancestor is a ScrollList.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md.",
+        "Fixed in M33.1: no 'Panel is larger than the screen' warning for a Panel inside a ScrollList; doctest in engine/ui/tests."
       ]
     },
     {

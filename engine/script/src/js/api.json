@@ -2653,8 +2653,8 @@
        "doc": "Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on(\"click\", \"play_button\", () => scene.load(\"scenes/level1.scene.json\"))."
       },
       {
-       "sig": "focus(target: Entity | string | null): void",
-       "doc": "Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false)."
+       "sig": "focus(target: Entity | string | null): boolean",
+       "doc": "Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false, so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive)."
       },
       {
        "sig": "speak(text: string, opts?: { interrupt?: boolean }): void",
