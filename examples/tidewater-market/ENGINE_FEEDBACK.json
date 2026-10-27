@@ -27,7 +27,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.25): Tilemap.projection \"isometric\" (groundHeight, groundOffset) with entity.tilemap.cellAt and cellToWorld exists, and the sprite draw order inside a layer is in the sprites section of the AI guide. map_view.js now draws the ground (terrain, trees, roads) as ONE Tilemap whose tileset is one PNG per season (assets/src/make_terrain_tiles.py); a season swaps the PNG, a road or a cut forest rewrites one tile. Map entities went from 2826 to 246 (game), 2712 to 112 (title) and 4840 to 1029 (stress); draw calls are +1 on the title and the stress scene (the tileset is a second texture). iso.js stays as the pure maths of the picking (tests/map_view.test.js checks it against cellAt). Trees are now part of the ground layer, so a building covers the trees in front of it."
+        "Fixed in ca5f3025 (M31.25): Tilemap.projection \"isometric\" (groundHeight, groundOffset) with entity.tilemap.cellAt and cellToWorld exists, and the sprite draw order inside a layer is in the sprites section of the AI guide. map_view.js now draws the ground (terrain, trees, roads) as ONE Tilemap whose tileset is one PNG per season (assets/src/make_terrain_tiles.py); a season swaps the PNG, a road or a cut forest rewrites one tile. Map entities went from 2826 to 246 (game), 2712 to 112 (title) and 4840 to 1029 (stress); draw calls are +1 on the title and the stress scene (the tileset is a second texture). iso.js stays as the pure maths of the picking (tests/map_view.test.js checks it against cellAt). Trees are now part of the ground layer, so a building covers the trees in front of it."
       ]
     },
     {
@@ -53,7 +53,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.21): camera.zoomAt, panBy, clampTo, zoomOf, setZoom and orthoSizeFor exist, and the menu kit's cameraRig part (scripts/camera_rig.js). The game keeps scripts/game/map_camera.js, a subclass with its gamepad cursor and latched drag; camera_math.js and the old camera_rig.js are gone."
+        "Fixed in 3c69d82a (M31.21): camera.zoomAt, panBy, clampTo, zoomOf, setZoom and orthoSizeFor exist, and the menu kit's cameraRig part (scripts/camera_rig.js). The game keeps scripts/game/map_camera.js, a subclass with its gamepad cursor and latched drag; camera_math.js and the old camera_rig.js are gone."
       ]
     },
     {
@@ -78,7 +78,11 @@
       "suggestion": "Document a recipe for validating data tables in a project tool (file, pointer, hint, did-you-mean), and offer a did-you-mean helper to scripts so each game does not write its own; optionally a small history helper.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-27 (M31.6, 88d1b741): part fixed. didYouMean(word, choices) is exported from \"factoria\" and docs/EXTENDING.md has the recipe for a project tool that validates data tables with file, JSON pointer, hint and did-you-mean (the game's data.js and project.validate_data could use them). Still open: the optional history helper (transactions, an undo limit) is out of M31; the game keeps state.js."
+      ],
+      "engineIssue": "M31.6 (the validation recipe and did-you-mean only)"
     },
     {
       "id": "FB-0004",
@@ -100,7 +104,10 @@
       "suggestion": "factoria eval <file.js> or script.eval on a module path that runs a pure module headless without loading a scene, or documenting that factoria test FILE --filter is the quick way.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 88d1b741 (M31.6): script.eval takes module, call and args, so `factoria call script.eval` runs a pure module with no scene."
+      ]
     },
     {
       "id": "FB-0005",
@@ -125,7 +132,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.23): the menu kit's loading.js writes i18n.t('loading.progress', {percent}) and its scene's Text has no key; loading.progress is in the kit's en, es and ar tables. The game keeps its own copy until it takes the kit's."
+        "Fixed in 56053954 (M31.23): the menu kit's loading.js writes i18n.t('loading.progress', {percent}) and its scene's Text has no key; loading.progress is in the kit's en, es and ar tables. The game keeps its own copy until it takes the kit's."
       ]
     },
     {
@@ -149,7 +156,10 @@
       "suggestion": "nav.createGrid({width, height, cost}) returning a handle that findTilePath(grid, from, to) reuses (update cells with grid.setCost(col, row, cost)), and nav.flowField(grid, goals) returning a distance field that nav.stepToward(field, col, row) reads in O(1).",
       "effort": "medium",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cad41749 (M31.12): nav.createGrid keeps the cost grid in the engine; nav.findTilePath(grid, from, to) reuses it; nav.flowField(grid, goals) gives stepToward, distance and pathFrom in O(1). In a debug build 600 walkers on a 60x60 map for 75 ticks cost about 228 s with the array form, 8.2 s with the kept grid and 0.16 s with flow fields. The game's own distance fields are now nav.flowField over a nav.createGrid."
+      ]
     },
     {
       "id": "FB-0007",
@@ -174,7 +184,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.13): tooltips exist in the engine. Text has no tooltip field and is not hit by the pointer, so the top bar texts are answered by the bar's Panel."
+        "Fixed in ed67f982 (M31.13): tooltips exist in the engine. Text has no tooltip field and is not hit by the pointer, so the top bar texts are answered by the bar's Panel."
       ]
     },
     {
@@ -199,7 +209,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.14): draggable, ui.on(dragStart|dragOver|drop|dragCancel), ui.setDropTarget, ui.dragging and game.drag exist in the engine. ui_hud.js uses them; only the hold-free carry mode stays its own."
+        "Fixed in 4b7da894 (M31.14): draggable, ui.on(dragStart|dragOver|drop|dragCancel), ui.setDropTarget, ui.dragging and game.drag exist in the engine. ui_hud.js uses them; only the hold-free carry mode stays its own."
       ]
     },
     {
@@ -224,7 +234,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.15): the Chart component exists (values, kind bar/line, colors, automatic axis, baseline, marks, number-format labels, ui.on(\"chartHover\")). ui_hud.js spawns one Chart per chart instead of about 80 rectangles; the Recorder stays in ui_model.js."
+        "Fixed in 666de009 (M31.15): the Chart component exists (values, kind bar/line, colors, automatic axis, baseline, marks, number-format labels, ui.on(\"chartHover\")). ui_hud.js spawns one Chart per chart instead of about 80 rectangles; the Recorder stays in ui_model.js."
       ]
     },
     {
@@ -253,7 +263,7 @@
       "occurrences": 2,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-26 (M31.8): Text.markup, Button.markup and the project `text` section (colors, icons, fonts bold) exist. The glyphs of a line, whatever their colour or weight, are one draw call; each icon texture adds one batch."
+        "Fixed in 47e73975 (M31.8): Text.markup, Button.markup and the project `text` section (colors, icons, fonts bold) exist. The glyphs of a line, whatever their colour or weight, are one draw call; each icon texture adds one batch."
       ]
     },
     {
@@ -276,7 +286,10 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "M31.17"
+      "engineIssue": "M31.17",
+      "notes": [
+        "Fixed in 90a88faa (M31.17): Button.icon, iconRegion, iconSize and iconPosition (left, top, alone) draw an icon inside the hit area; autoSize and autoShrink count it. The build menu items are icon Buttons (two entities fewer per item). Not done: the icon has a fixed iconSize, no tint, and a right-to-left layout does not flip it."
+      ]
     },
     {
       "id": "FB-0012",
@@ -298,7 +311,10 @@
       "suggestion": "Bindings like \"Ctrl+Z\" and input.down(\"Shift\") as modifier state in action bindings.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 47c076b1 (M31.18): Bindings take modifiers (\"Ctrl+Z\", \"Shift+MouseLeft\"); the chord wins over its plain key. The game binds Ctrl+Z, Ctrl+Y (with the plain Z and Y it had) and Shift+click through the engine."
+      ]
     },
     {
       "id": "FB-0013",
@@ -320,7 +336,10 @@
       "suggestion": "input.wheelConsumed / ui.consumedWheel: true when the pointer is over a scrolling widget, or input.wheel() returning 0 over a widget that handles it.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 399e06d6 (M31.1): A ScrollList that scrolls keeps the wheel: input.mouse.wheel reads 0 that frame and ui.wheelConsumed is true, and ui.pointerOverUi says the pointer is over a widget. The game dropped its panel-rectangle wheel flag."
+      ]
     },
     {
       "id": "FB-0014",
@@ -341,7 +360,10 @@
       "suggestion": "Document it next to Shape2D.size, or make screen-space shapes +Y down like everything else in space: \"screen\".",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs only: Shape2D.size says that in screen space a line's size.y points up, unlike Panels, Texts and Sprites, and that a chart bar is a rectangle with pivot [0, 1]. The line itself is unchanged."
+      ]
     },
     {
       "id": "FB-0015",
@@ -384,7 +406,10 @@
       "suggestion": "Mention activeInHierarchy under Entity.active in the scripting docs, or make ui.rectOf return null for entities hidden by a parent.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs and one behaviour: Entity.active and activeInHierarchy have doc strings (a child of a hidden Panel keeps active true; ask activeInHierarchy), and ui.rectOf now returns null for a widget hidden by a parent, as ui.state already left it out."
+      ]
     },
     {
       "id": "FB-0017",
@@ -406,7 +431,10 @@
       "suggestion": "Panel.minSize (and maxSize) that also apply when fit is true.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ff667322 (M31.5): Panel.minSize and Panel.maxSize (0 = no limit on an axis) bound a Panel's size, also one with fit: true. The game dropped its rule spacers."
+      ]
     },
     {
       "id": "FB-0018",
@@ -428,7 +456,10 @@
       "suggestion": "Button.fitText: 'shrink' with a minimum font size.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cceb927e (M31.4): Button.autoShrink and minFontSize already existed (since 0.2.0). M31.4 added Toggle.autoShrink and minFontSize, and a wrapped text now measures its widest line, so autoShrink no longer shrinks a short label for nothing."
+      ]
     },
     {
       "id": "FB-0020",
@@ -452,7 +483,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.24): render.captureTexture({width, height, fit}) returns a Texture whose id a Sprite, Panel or Button takes; texture.toPNG() gives Base64 text for storage and render.textureFromPNG(text) loads it back. Save slots and the autosave store a 156 x 156 picture under <slot>.pic and the slots screen shows it; a save with no picture (older saves, a headless run) keeps the run-length map of thumbnail.js."
+        "Fixed in 54565fbd (M31.24): render.captureTexture({width, height, fit}) returns a Texture whose id a Sprite, Panel or Button takes; texture.toPNG() gives Base64 text for storage and render.textureFromPNG(text) loads it back. Save slots and the autosave store a 156 x 156 picture under <slot>.pic and the slots screen shows it; a save with no picture (older saves, a headless run) keeps the run-length map of thumbnail.js."
       ]
     },
     {
@@ -475,7 +506,10 @@
       "suggestion": "Document which of blur / suspend / quit each platform raises (web: visibilitychange and pagehide), and raise suspend on a hidden tab and quit on pagehide in the web runtime.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in e8b12dcc (M31.16): A web export raises suspend/resume on visibilitychange and quit on pagehide (not cancellable), and copies the save folder to IndexedDB right after the handlers run, so a storage.set inside one is kept. SCRIPTING.md (Window close), MOBILE.md and EXPORTING.md list which of blur, suspend and quit each platform raises."
+      ]
     },
     {
       "id": "FB-0022",
@@ -498,7 +532,10 @@
       "suggestion": "storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in e8b12dcc (M31.16): storage writes one file per key (an old storage.json is split and renamed storage.migrated.json), storage.size(key), storage.set(key, value, {compress: true}) and storage.setAsync (a worker thread; between frames on the web). The game autosaves with setAsync (compressed) and saves at once on blur, suspend and quit."
+      ]
     },
     {
       "id": "FB-0030",
@@ -547,7 +584,10 @@
       "suggestion": "A Text.weight or a bold font slot in the project font settings.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 47e73975 (M31.8): Text.bold and [b] use the bold face listed in factoria.json text.fonts; a font without one is emboldened by the engine and factoria validate suggests adding one. The game dropped its fake bold."
+      ]
     },
     {
       "id": "FB-0032",
@@ -569,7 +609,10 @@
       "suggestion": "rng.state getter and setter (a number) on generators from rng.create, documented as stable like the algorithm.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 88d1b741 (M31.6): Generators from rng.create have a state getter and setter (a 32-bit integer), stable like the algorithm. The game uses rng.create streams and saves their state; old saves load (same algorithm and state)."
+      ]
     },
     {
       "id": "FB-0033",
@@ -593,7 +636,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.19): Panel.modal (a focus scope: the pointer, the wheel and navigation reach only the panel's widgets; nothing under it is hovered, clicked, given a tooltip or taken as a drop target) and the menu kit's card part (scripts/ui/card.js, prefabs/ui/card.prefab.json): title, wrapped body, choices with a detail line, a choice disabled with its reason, a result stage and an optional game.paused hold. trade_ui.js uses it; the game keeps its own clock hold (its speed buttons), so it does not pass holdClock."
+        "Fixed in dc5013d1 (M31.19): Panel.modal (a focus scope: the pointer, the wheel and navigation reach only the panel's widgets; nothing under it is hovered, clicked, given a tooltip or taken as a drop target) and the menu kit's card part (scripts/ui/card.js, prefabs/ui/card.prefab.json): title, wrapped body, choices with a detail line, a choice disabled with its reason, a result stage and an optional game.paused hold. trade_ui.js uses it; the game keeps its own clock hold (its speed buttons), so it does not pass holdClock."
       ]
     },
     {
@@ -618,7 +661,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.22): assets.pack_atlas packs a folder of images into one PNG and writes data/atlas.json (rect and pivot per frame); packing again keeps the frames that did not change where they were. make_atlas.py is gone: the 107 frames are PNGs in assets/src/frames (pivots.json beside them) and the atlas is 1268x2048 instead of 2048x2048. The game keeps roadFrames in the same table (the command leaves unknown keys alone) and the icon regions of factoria.json, which rich_text.test.js checks."
+        "Fixed in 6777c93b (M31.22): assets.pack_atlas packs a folder of images into one PNG and writes data/atlas.json (rect and pivot per frame); packing again keeps the frames that did not change where they were. make_atlas.py is gone: the 107 frames are PNGs in assets/src/frames (pivots.json beside them) and the atlas is 1268x2048 instead of 2048x2048. The game keeps roadFrames in the same table (the command leaves unknown keys alone) and the icon regions of factoria.json, which rich_text.test.js checks."
       ]
     },
     {
@@ -641,7 +684,10 @@
       "suggestion": "One sentence plus an example in the guide's screen-space section: children of a Panel are offset from its corner.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs only: AI_GUIDE.md (screen space) says a Panel's children are offset from the parent's Transform.position; neither the parent's anchor nor its pivot moves them."
+      ]
     },
     {
       "id": "FB-0036",
@@ -662,7 +708,10 @@
       "suggestion": "Validate script classes: warn when an instance field shadows a Behaviour method (on, emit, get...).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 88d1b741 (M31.6): The first instance of a class with a field named on, after, every or world logs one warning naming the field, and factoria validate reports it."
+      ]
     },
     {
       "id": "FB-0037",
@@ -684,7 +733,10 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "M31.9"
+      "engineIssue": "M31.9",
+      "notes": [
+        "Fixed in dc4dbb92 (M31.9): PLATFORM.md's test section says game.platform.calls() shows a stats.add as a stats.get and a stats.set."
+      ]
     },
     {
       "id": "FB-0040",
@@ -706,7 +758,10 @@
       "suggestion": "A listener height or zoom factor for 2D audio (audio.setListener({position, zoom})) that scales the falloff distance.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 51c723a0 (M31.7): AudioListener.zoom (default 1) scales how far positional sounds reach: a zoom of 2 doubles the distance. The game does not use it yet (soundmix.js computes its ambience volume and pan itself)."
+      ]
     },
     {
       "id": "FB-0041",
@@ -729,7 +784,10 @@
       "suggestion": "Let a project declare extra buses in factoria.json (audio.buses) with a parent, or add an ambience bus.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 51c723a0 (M31.7): factoria.json audio.buses declares buses with a parent; the game has a real ambience bus under sfx. factoria validate checks the names with a did-you-mean."
+      ]
     },
     {
       "id": "FB-0042",
@@ -751,7 +809,10 @@
       "suggestion": "A ui.scale (or a Canvas scale) that multiplies sizes, offsets and fonts of every screen-space widget, with text scale on top.",
       "effort": "large",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ff667322 (M31.5): ui.scale (0.5 to 3; \"ui\": {\"scale\"}, the ui.set_scale command) multiplies size, offset, padding, spacing, margins and font size of every screen-space widget, with ui.textScale on top. The menu kit's Options has an Interface size button; the game offers 100 % and 125 % and dropped its widget registry."
+      ]
     },
     {
       "id": "FB-0043",
@@ -773,7 +834,10 @@
       "suggestion": "ui.widgetAt(x, y) returning the topmost visible, unclipped widget, and ui.setPointer(x, y) that drives hover and click like a mouse.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 399e06d6 (M31.1): ui.widgetAt(x, y) and ui.pointerOverUi give the topmost visible widget or Panel under a point; ui.setPointer(x, y, {down}) drives hover, press and click like the mouse. The game dropped its widget scan for the pad cursor."
+      ]
     },
     {
       "id": "FB-0044",
@@ -795,7 +859,10 @@
       "suggestion": "Honour an explicit ui.focus(null) until the next navigation input, or a ui.autoFocus = false switch.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 399e06d6 (M31.1): ui.focus(null) holds until the next arrow or D-pad press: an open panel's autoFocus no longer takes the focus back. The game dropped its focus sink."
+      ]
     },
     {
       "id": "FB-0045",
@@ -817,7 +884,10 @@
       "suggestion": "audio.activeVoices(), an onEnded callback, and setVoiceVolume entries in the audio log.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 51c723a0 (M31.7): audio.activeVoices() lists the sounds that play, audio.play takes onEnded (finish, stop or eviction; not stopAll or a scene load), and game.audioLog() has setVoiceVolume entries. The game's voice book reads audio.activeVoices() instead of clip lengths."
+      ]
     },
     {
       "id": "FB-0046",
@@ -838,7 +908,10 @@
       "suggestion": "Document it, or make game.press release the action at the end of the step like tapKey.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs only: MENUS.md says game.tap(\"ui_submit\") presses the focused widget for one frame, while game.press holds the action until release, so pressing it again presses nothing."
+      ]
     },
     {
       "id": "FB-0050",
@@ -859,7 +932,10 @@
       "suggestion": "Apply the same fingerprint check to the web (and mobile) players, and print the missing API when a script fails to import or call something the player lacks.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 973e7e72 (M31.2): check_player_build runs for the web wasm and the prebuilt Android and iOS players too; a player of another build stops the export and says what to do (factoria setup players, the checkout's build/web-release, or allowPlayerMismatch); the web export prefers the player whose fingerprint matches. A script import or call the player lacks names the module or object and says the player may be older."
+      ]
     },
     {
       "id": "FB-0051",
@@ -883,7 +959,7 @@
       "status": "open",
       "engineIssue": "M31.11 (the web player and a fallback to the newest release only)",
       "notes": [
-        "2026-10-26: M31.11: `factoria setup webplayer` builds the web player from the checkout (fetching Emscripten 6.0.10 when none is found) and `setup players` takes the newest release's players for a development build, with a fingerprint warning. Still open: Windows and Linux players from CI artifacts."
+        "2026-10-27 (M31.11, 9f03b101): `factoria setup webplayer` builds the web player from the checkout (finding or fetching Emscripten 6.0.10 into .cache/emsdk) and `setup players` takes the newest release's players for a development build, with a fingerprint warning (the export then needs allowPlayerMismatch); the web export uses build/web-release first and EXPORTING.md has the Emscripten setup. Still open: Windows and Linux players of a development build from CI artifacts (they need a GitHub token), so those exports are still refused here."
       ]
     },
     {
@@ -905,7 +981,10 @@
       "suggestion": "Print the largest folders that went into the pak, and warn when a folder named store/, screenshots/ or src/ is packed.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in bcfb468e (M31.10): Every export names the five heaviest folders that went into the pak (largestFolders in --json) and warns when a store/, screenshots/ or src/ folder is packed, pointing at export.exclude."
+      ]
     },
     {
       "id": "FB-0053",
@@ -924,7 +1003,10 @@
       "suggestion": "Print raw and gzip sizes per file at the end of a web export, and the time budget of a download at a few connection speeds.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in bcfb468e (M31.10): A web export lists the raw and gzip size of each file and the download time of the gzip total at 1, 5, 20 and 100 Mbit/s (webFiles, webBytes, webGzipBytes, webDownloadSeconds in --json). Brotli sizes are not reported."
+      ]
     },
     {
       "id": "FB-0054",
@@ -945,7 +1027,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.20): the web player plays through an AudioWorkletNode fed by messages (ScriptProcessorNode only as the fallback); no deprecation warning. Latency in EXPORTING.md."
+        "Fixed in df5c4392 (M31.20): the web player plays through an AudioWorkletNode fed by messages (ScriptProcessorNode only as the fallback); no deprecation warning. Latency in EXPORTING.md."
       ]
     },
     {
@@ -971,7 +1053,7 @@
       "status": "open",
       "engineIssue": "M31.9 (progress line of --record-video only)",
       "notes": [
-        "2026-10-26: --record-video now prints its progress on stderr (M31.9). Still open: a Timeline or Cutscene component (camera keys, text cards, fades) for a trailer."
+        "2026-10-27 (M31.9, dc4dbb92): --record-video prints its progress (frames written of the total) on stderr. Still open: a Timeline or Cutscene component (camera keys, text cards, fades) for a trailer; out of M31, next to the editor's animation timeline in M20's left-open list."
       ]
     },
     {
@@ -992,7 +1074,10 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "M31.9"
+      "engineIssue": "M31.9",
+      "notes": [
+        "Fixed in dc4dbb92 (M31.9): ctest runs every <example>.perf.json and <example>-*.perf.json of an example (not <example>*, which would catch another example with the same prefix); the game has a perf file for its title, game and stress scenes."
+      ]
     },
     {
       "id": "FB-0060",
@@ -1014,7 +1099,10 @@
       "suggestion": "Measure the wrapped label by its widest line, or document that maxWidth + box + margins must fit the design size.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cceb927e (M31.4): With a renderer a wrapped text measures its widest line, like headless, so ui.overflowed and ui.check_layout no longer flag a short autoSize + maxWidth label."
+      ]
     },
     {
       "id": "FB-0061",
@@ -1038,7 +1126,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.23): a string can have a gender ({text, gender}) and a select entry (f, m, n, other forms) picks its form by args.gender; i18n.gender(key), validate and i18n.export/import follow (docs/LOCALIZATION.md, 5c). Grammatical case stays out: phrase around it. The game's es and fr tables still use noun-first phrasing."
+        "Fixed in 56053954 (M31.23): a string can have a gender ({text, gender}) and a select entry (f, m, n, other forms) picks its form by args.gender; i18n.gender(key), validate and i18n.export/import follow (docs/LOCALIZATION.md, 5c). Grammatical case stays out: phrase around it. The game's es and fr tables still use noun-first phrasing."
       ]
     },
     {
@@ -1063,7 +1151,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 (M31.26): assets.subset_font {source, locales, keep, out, axes} keeps the characters of the locale tables plus Latin and punctuation, pins a variable font to wght 400 and keeps the shaping tables, with HarfBuzz's subsetter (no Python). assets/fonts/make_subset.py is gone; the Noto Sans SC subset is rebuilt by the command from the 17 MB NotoSansSC[wght].ttf: 340064 bytes (the script made 339988)."
+        "Fixed in c5f926a3 (M31.26): assets.subset_font {source, locales, keep, out, axes} keeps the characters of the locale tables plus Latin and punctuation, pins a variable font to wght 400 and keeps the shaping tables, with HarfBuzz's subsetter (no Python). assets/fonts/make_subset.py is gone; the Noto Sans SC subset is rebuilt by the command from the 17 MB NotoSansSC[wght].ttf: 340064 bytes (the script made 339988)."
       ]
     },
     {
@@ -1086,7 +1174,10 @@
       "suggestion": "Expose ui.check_layout() (the problems of the current frame) and i18n.state to scripts, or let a test call any command.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs: SCRIPTING.md's test section shows fa.call(\"ui.state\"), fa.call(\"ui.check_layout\") and fa.call(\"i18n.state\") from a test (fa.call runs any command; the entry's suggestion is met that way). Not done: ui.check_layout reloads the scenes it checks, so it does not see the current frame's state."
+      ]
     },
     {
       "id": "FB-0064",
@@ -1108,7 +1199,10 @@
       "suggestion": "Let a Toggle with maxWidth wrap by default when its label is longer, or make autoSize honour a maximum width.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cceb927e (M31.4): A Toggle's box is one line of its label high, no longer the widget's height, and Toggle.autoShrink and minFontSize fit the label into the room right of it, so a long localised label no longer pushes the Toggle off the screen."
+      ]
     },
     {
       "id": "FB-0065",
@@ -1130,7 +1224,10 @@
       "suggestion": "An event when ui.textScale changes (ui.on(\"textScale\")), and layout containers that stack Texts of different heights without a script.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ff667322 (M31.5): ui.on(\"textScale\") and ui.on(\"scale\") fire once per change with { value, previous }, so a script-laid-out card relays itself; Panel.minSize and maxSize bound the rows, and Text.markup lets the engine lay out rich text (M31.8)."
+      ]
     },
     {
       "id": "FB-0070",
@@ -1170,7 +1267,10 @@
       "suggestion": "Write the game's icon as a small favicon.png in the web export and link it from index.html instead of data:,.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in bcfb468e (M31.10): A web export links a 64x64 favicon.png made from the game's icon in index.html, instead of an empty icon (a game without an icon keeps the empty one)."
+      ]
     },
     {
       "id": "FB-0072",
@@ -1190,7 +1290,10 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "M31.9"
+      "engineIssue": "M31.9",
+      "notes": [
+        "Fixed in dc4dbb92 (M31.9): feedback collect needs four shared tokens for the contained similarity, weighs the missing text in, honours distinctFrom ids, and prints each merged entry's score; FB-0010 and FB-0011 are no longer merged."
+      ]
     }
   ]
 }
