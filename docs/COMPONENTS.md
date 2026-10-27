@@ -1267,6 +1267,22 @@ background "auto" first makes a solid background transparent (the four corners m
 | `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
 | `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
 
+### `assets.subset_font` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes.
+
+Reads the font `source` (an absolute path on this machine, or relative to the project) and writes `out` (under assets/) with only the glyphs for: every character of locales/<language>.json for the `locales` (default: factoria.json's localization.languages; the same characters the glyph check of `factoria validate` asks a font for), printable ASCII, Latin-1 (Spanish and French letters), the full-width forms, the CJK punctuation line breaking needs, and the characters of `keep`. The shaping tables (GSUB, GPOS, GDEF, kerning) and the name strings (the license) stay; hinting and glyph names are dropped. A variable font is pinned to one instance (`axes`, default {"wght":400}; its other axes go to their default), because the engine draws a variable font's default instance and a Thin default would draw hairlines. Runs HarfBuzz's subsetter: no Python or fontTools. The result has the sizes, the glyph and character counts, and `missing`: characters of the strings the source font does not have. Nothing is written when the result is the same bytes, so run it again whenever a string changes. Example: {"source":"C:/fonts/NotoSansSC[wght].ttf","locales":["zh-Hans"],"out":"assets/fonts/NotoSansSC-Regular-subset.ttf"}. Check the font's license allows modifying it (SIL OFL fonts do, but ask not to keep the Reserved Font Name; Noto has none) and keep its license file next to the result.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | yes | The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable. |
+| `out` | string | yes | Project-relative .ttf or .otf under assets/ to write, e.g. "assets/fonts/NotoSansSC-Regular-subset.ttf". Replaced if it exists. |
+| `locales` | array | no | Languages whose locales/<language>.json give the characters, e.g. ["zh-Hans"]. Default: every language of localization.languages in factoria.json. |
+| `keep` | string | no | Extra characters to keep, written out: e.g. the characters a script builds names from, or a whole alphabet. |
+| `axes` | object | no | Where to pin the variable font's axes, tag to value: {"wght":400}. Default {"wght":400}. An axis not listed goes to its default. |
+
 ### `assets.synth_sound` (modifies state)
 
 Not released yet (on main after 0.2.0).

@@ -1058,7 +1058,10 @@
       "suggestion": "A command like assets.subset_font {source, locales} that does the same, so a game needs no Python.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.26): assets.subset_font {source, locales, keep, out, axes} keeps the characters of the locale tables plus Latin and punctuation, pins a variable font to wght 400 and keeps the shaping tables, with HarfBuzz's subsetter (no Python). assets/fonts/make_subset.py is gone; the Noto Sans SC subset is rebuilt by the command from the 17 MB NotoSansSC[wght].ttf: 340064 bytes (the script made 339988)."
+      ]
     },
     {
       "id": "FB-0063",

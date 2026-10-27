@@ -91,6 +91,18 @@ std::vector<EntryText> texts_of(const StringEntry& entry) {
     return out;
 }
 
+std::set<char32_t> table_code_points(const TableFile& table) {
+    std::set<char32_t> out;
+    if (!table.table) return out;
+    const auto add = [&](const std::string& text) {
+        for (char32_t cp : utf8_decode(text)) out.insert(cp);
+    };
+    for (const auto& [key, entry] : table.table->entries)
+        for (const EntryText& e : texts_of(entry)) add(*e.text);
+    add(table.table->name);
+    return out;
+}
+
 std::string describe_code_point(std::uint32_t cp) {
     std::string out = std::format("U+{:04X}", cp);
     if (cp >= 0x20 && cp != 0x7F) {

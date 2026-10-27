@@ -21,9 +21,13 @@ project (`assets/fonts/`):
 
 Keep the font's license file (`OFL.txt`) next to it: the OFL lets you ship and embed the font, and asks that its license
 travels with it. `factoria export` writes the notices of the engine, not of your fonts. CJK fonts are big (a few MB to
-10 MB): the player downloads what you ship, so subset the font to the characters the game uses if size matters (fontTools'
-`pyftsubset` with `--layout-features='*'` keeps the shaping tables). A variable font (`NotoSansJP[wght].ttf`) draws its
-default weight: instance it to a static file first (`fontTools.varLib.instancer`).
+10 MB): the player downloads what you ship, so cut the font to the characters the game uses with `assets.subset_font`
+(`factoria call assets.subset_font '{"source":"NotoSansJP[wght].ttf","out":"assets/fonts/NotoSansJP-Regular-subset.ttf"}'`; no
+Python needed). It keeps the characters of `locales/<language>.json` for the `locales` you name (default: every language of
+`localization.languages`) plus ASCII, Latin-1, the full-width forms, the CJK punctuation line breaking needs and the
+characters of `keep`, and it keeps the shaping tables (GSUB, GPOS, kerning). A variable font (`NotoSansJP[wght].ttf`) draws its
+default weight, which for Noto is Thin: the command pins it to one instance (`wght` 400, or `axes` such as `{"wght": 700}`),
+so the result is a static font. Run it again when a string changes; `factoria validate` then confirms every string has a glyph.
 
 Colour emoji are not supported (the engine draws outlines of TrueType fonts only): an emoji draws as nothing, with a
 warning. Draw emoji as sprites.

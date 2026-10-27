@@ -1,7 +1,7 @@
 // The languages of the game (P8): every locale file has every key with the same placeholders and markup, the formatting module
 // writes numbers, money and dates the way each language does, a language switch redraws the screens, and a save made in one language
 // loads in another. (The glyph check of the Chinese font is `factoria validate`, which asks the font for every character of
-// every string; assets/fonts/make_subset.py --check lists the same. The layouts at 200 % are in languages_layout.test.js.)
+// every string; assets.subset_font lists the characters its source font lacks. The layouts at 200 % are in languages_layout.test.js.)
 import { test, expect, game } from "factoria:test";
 import { i18n, scene, session, storage, ui } from "factoria";
 import en from "../locales/en.json";

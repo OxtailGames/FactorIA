@@ -129,6 +129,13 @@ add_library(fa_ext_harfbuzz STATIC ${FA_HB}/src/harfbuzz.cc)
 target_include_directories(fa_ext_harfbuzz SYSTEM PUBLIC ${FA_HB}/src)
 target_compile_definitions(fa_ext_harfbuzz PRIVATE HB_LEAN HB_NO_AAT HB_OPTIMIZE_SIZE)
 
+# The same HarfBuzz with its subsetter and instancer (src/harfbuzz-subset.cc, which includes everything harfbuzz.cc does) for
+# the tools: assets.subset_font. It is a superset of fa_ext_harfbuzz, so it replaces it where both are linked (a game never
+# links this one). fa_tooling lists it before fa_runtime so that it is the library that defines every hb_* symbol.
+add_library(fa_ext_harfbuzz_subset STATIC ${FA_HB}/src/harfbuzz-subset.cc)
+target_include_directories(fa_ext_harfbuzz_subset SYSTEM PUBLIC ${FA_HB}/src)
+target_compile_definitions(fa_ext_harfbuzz_subset PRIVATE HB_OPTIMIZE_SIZE)
+
 # SheenBidi: its unity build (Source/SheenBidi.c) is one translation unit; only the paragraph/line API is used.
 add_library(fa_ext_sheenbidi STATIC ${FA_EXT}/sheenbidi/Source/SheenBidi.c)
 set_target_properties(fa_ext_sheenbidi PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
@@ -136,7 +143,7 @@ target_include_directories(fa_ext_sheenbidi SYSTEM PUBLIC ${FA_EXT}/sheenbidi/He
 target_include_directories(fa_ext_sheenbidi PRIVATE ${FA_EXT}/sheenbidi/Source)
 target_compile_definitions(fa_ext_sheenbidi PRIVATE SB_CONFIG_UNITY)
 
-foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_sheenbidi)
+foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi)
     if(NOT TARGET ${t})
         continue()
     endif()
