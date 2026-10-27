@@ -444,7 +444,10 @@
       "suggestion": "render.captureTexture({width, height}) returning a texture id a Sprite or Image can use (and storage-friendly PNG bytes), or a Sprite field that takes a data URL.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.24): render.captureTexture({width, height, fit}) returns a Texture whose id a Sprite, Panel or Button takes; texture.toPNG() gives Base64 text for storage and render.textureFromPNG(text) loads it back. Save slots and the autosave store a 156 x 156 picture under <slot>.pic and the slots screen shows it; a save with no picture (older saves, a headless run) keeps the run-length map of thumbnail.js."
+      ]
     },
     {
       "id": "FB-0021",

@@ -220,6 +220,20 @@ public:
 
     // Read back the last finished game target (RGBA8, top row first).
     bool capture(Image& out, std::string* error = nullptr);
+    // capture() resampled to width x height (both >= 1): the whole frame squeezed into that aspect when `stretch`, else
+    // the middle part with that aspect ratio (cover_image: nothing is distorted, the long side loses its edges). The
+    // same size as the target gives exactly the pixels of capture(), so of a screenshot of the same frame.
+    bool capture_fitted(Image& out, int width, int height, bool stretch, std::string* error = nullptr);
+
+    // ---- Run-time textures ------------------------------------------------------------------------------------------
+    // A texture made from pixels at run time (render.captureTexture, render.textureFromPNG in scripts). Returns its id,
+    // "runtime:N" (N counts from 1, never reused): put it in Sprite.texture (or any other texture field) like an asset
+    // path. The texture lives until destroy_runtime_texture; clear_asset_cache() keeps it. "" + *error when the renderer is
+    // not initialized or the image is empty / bigger than 4096 px.
+    std::string create_runtime_texture(const Image& img, std::string* error = nullptr);
+    // Frees the texture; false when `id` is not a live run-time texture. A Sprite that still names it draws the missing-
+    // texture checker (and the failure is listed in asset_report()).
+    bool destroy_runtime_texture(const std::string& id);
 
     // Camera helpers (valid after update() or render_world()). Screen points are design pixels, top-left origin, over the WHOLE
     // screen: with several cameras (Camera.viewport) a point of the screen belongs to the camera whose viewport holds it.

@@ -58,6 +58,11 @@ std::vector<std::uint8_t> encode_jpeg(const Image& img, int quality = 90);
 // The two axes are resampled independently. The same size returns a copy.
 Image resize_image(const Image& src, int width, int height);
 
+// `src` filled into width x height without distortion: the middle part of `src` with the aspect ratio of the result is
+// cut out (the long side loses its edges equally) and resampled with resize_image. An empty result for an empty `src` or
+// a size below 1. A save slot's picture of a 16:9 frame in a 4:3 box.
+Image cover_image(const Image& src, int width, int height);
+
 // A size x size canvas filled with `background`, with `src` drawn over it (alpha compositing) and centered. `src` keeps
 // its aspect ratio and is scaled so that its LONGER side is size * scale pixels: scale 1 fills the canvas, 0.61 leaves
 // the margin an Android adaptive icon asks for, and a non-square `src` is centered on the canvas (the background shows

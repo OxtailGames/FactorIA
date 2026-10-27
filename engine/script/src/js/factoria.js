@@ -2692,6 +2692,49 @@
     },
   };
 
+  // ---- render: pictures made at run time (docs/SCRIPTING.md, "Render") ----
+  const RT_MAX_SIDE = 2048;
+  class Texture {
+    constructor(info) {
+      Object.defineProperty(this, "id", { value: info[0], enumerable: true });
+      Object.defineProperty(this, "width", { value: info[1], enumerable: true });
+      Object.defineProperty(this, "height", { value: info[2], enumerable: true });
+      Object.defineProperty(this, "placeholder", { value: info[3], enumerable: true });
+      Object.defineProperty(this, "$alive", { value: true, writable: true });
+    }
+    get destroyed() { return !this.$alive; }
+    toPNG() {
+      if (!this.$alive) throw new Error(`texture.toPNG(): ${this.id} was destroyed with texture.destroy(); make the picture again`);
+      return N.renderPng(this.id);
+    }
+    destroy() {
+      if (!this.$alive) return;
+      this.$alive = false;
+      N.renderDestroy(this.id);
+    }
+    toString() { return `Texture(${this.id}, ${this.width}x${this.height}${this.$alive ? "" : ", destroyed"})`; }
+  }
+  const render = {
+    // captureTexture({ width, height, fit? }): the picture the player sees now, as a texture; see RenderAPI.
+    captureTexture(o) {
+      const label = "render.captureTexture({ width, height })";
+      if (!o || typeof o !== "object")
+        throw new Error(`${label}: expected an options object, e.g. render.captureTexture({ width: 320, height: 180 }), but got ${inspect(o)}`);
+      for (const k of ["width", "height"])
+        if (!Number.isInteger(o[k]) || o[k] < 1 || o[k] > RT_MAX_SIDE)
+          throw new Error(`${label}: ${k} must be a whole number from 1 to ${RT_MAX_SIDE}, e.g. render.captureTexture({ width: 320, height: 180 }), but got ${inspect(o[k])}`);
+      if (o.fit !== undefined && o.fit !== "cover" && o.fit !== "stretch")
+        throw new Error(`${label}: fit must be "cover" (default: crop to the aspect ratio) or "stretch" (squeeze the whole frame), but got ${inspect(o.fit)}`);
+      return new Texture(N.renderCapture(o.width, o.height, o.fit === "stretch"));
+    },
+    // textureFromPNG(png): the text texture.toPNG() returned, as a texture again.
+    textureFromPNG(png) {
+      if (typeof png !== "string" || png === "")
+        throw new Error(`render.textureFromPNG(png): expected the text texture.toPNG() returned (Base64), e.g. render.textureFromPNG(storage.get("slot1.png")), but got ${inspect(png)}`);
+      return new Texture(N.renderFromPng(png));
+    },
+  };
+
   // ---- nav: path finding on the baked NavMesh3D (docs/NAVIGATION.md) ----
   // A grid kept natively (nav.createGrid) and flow fields over it (nav.flowField); docs/NAVIGATION.md, "Reusable grids".
   const navCellArgs = (label, a, b) => {
@@ -3034,7 +3077,7 @@
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
-    window: windowApi, clipboard: clipboardApi, tween, ease, cancelTweens, bt,
+    window: windowApi, clipboard: clipboardApi, render, tween, ease, cancelTweens, bt,
   };
 
   // ============================================================================================ eval serialization
