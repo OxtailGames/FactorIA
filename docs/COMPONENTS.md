@@ -560,10 +560,10 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
 | `markup` | bool | `false` | true: the text reads tags: [b]bold[/b], [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text". (not released yet, on main after 0.2.0) |
 | `bold` | bool | `false` | true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the text. false (default): regular weight. (not released yet, on main after 0.2.0) |
-| `icon` | asset (texture) | `""` | Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. |
-| `iconRegion` | rect | `[0.0,0.0,0.0,0.0]` | Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture. |
-| `iconSize` | vec2 | `[32.0,32.0]` | Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32]. |
-| `iconPosition` | enum: left \\| top \\| alone | `"left"` | left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves. |
+| `icon` | asset (texture) | `""` | Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (not released yet, on main after 0.2.0) |
+| `iconRegion` | rect | `[0.0,0.0,0.0,0.0]` | Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture. (not released yet, on main after 0.2.0) |
+| `iconSize` | vec2 | `[32.0,32.0]` | Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32]. (not released yet, on main after 0.2.0) |
+| `iconPosition` | enum: left \\| top \\| alone | `"left"` | left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves. (not released yet, on main after 0.2.0) |
 
 ### Toggle
 
@@ -8602,20 +8602,24 @@ declare module "factoria" {
     bold: boolean;
     /**
      * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (asset path: texture)
+     * @since unreleased
      */
     icon: string;
     /**
      * Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture.
+     * @since unreleased
      */
     get iconRegion(): Rect;
     set iconRegion(value: RectLike);
     /**
      * Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32].
+     * @since unreleased
      */
     get iconSize(): Vec2;
     set iconSize(value: Vec2Like);
     /**
      * left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves.
+     * @since unreleased
      */
     iconPosition: "left" | "top" | "alone";
   }
