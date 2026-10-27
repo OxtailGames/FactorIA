@@ -13,6 +13,12 @@ Every hit of a ray, and colliders you can switch off
   raycasts, shape casts, overlaps, contacts and trigger events and left out of the NavMesh3D bake, and the component stays,
   so a door that opened can close again. The change takes effect at the next physics sync (once a frame, before scripts).
 
+Glyph atlas that refills its texts
+
+- The glyph atlas grows 1024 -> 2048 -> 4096 before it clears, and says so in the log. When it grows or clears halfway
+  through a frame, the frame is gathered again, so no `Text` or UI label stays blank (LL/FB-0901). `RenderStats` has
+  `glyphAtlasSize` and `glyphAtlasResets`. docs/TEXT.md, Limits.
+
 Isometric tilemaps and cell picking
 
 - `Tilemap.projection: "isometric"` draws diamond tiles (a 2:1 city or strategy map) as one batched mesh, row by row so the

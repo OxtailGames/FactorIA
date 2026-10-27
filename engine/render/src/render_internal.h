@@ -492,6 +492,9 @@ public:
     void set_fallback_fonts(std::vector<std::string> fonts);
     // Uploads the atlas if new glyphs were rasterized. Call after layout, before drawing.
     void sync();
+    // Counts the times the glyph atlas was cleared or grown: quads laid out before a change hold UVs of the old atlas.
+    unsigned atlas_epoch() const;
+    int atlas_size() const;
     TextureAsset* atlas() { return &atlasTex_; }
     void clear();
     Json report() const;
