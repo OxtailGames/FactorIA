@@ -67,8 +67,10 @@ struct QuadEmitter {
 // Draws a text layout (text_draw.cpp): all its glyphs as one item of the glyph atlas whatever their colours and weights
 // (`color` is the text's; a run colour of a rich text replaces its RGB and keeps its alpha), then the pictures of a rich text,
 // one item per texture. `m` places the layout's local units (y up; `screen` flips y as QuadEmitter does).
-void emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
-               float secondary, const Rect& clip);
+// `visible` >= 0 draws only the glyphs and pictures of the first `visible` grapheme clusters (Text.visibleCharacters): the layout
+// is the whole text's, so nothing moves while a line reveals. Returns the number of glyphs drawn (pictures not counted).
+int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
+              float secondary, const Rect& clip, int visible = -1);
 
 // advance = true steps SpriteAnimator time by f.dt; false only (re)applies the current frame to
 // Sprite.region (idempotent, used by the draw pass).

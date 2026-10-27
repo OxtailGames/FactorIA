@@ -18,10 +18,11 @@
 
 namespace fa {
 
-// How a text is read: Text.markup (tags are not characters) and Text.bold. Part of what a measurement depends on.
+// How a text is read: Text.markup (tags are not characters), Text.bold and Text.wordBreak. Part of what a measurement depends on.
 struct TextStyle {
     bool markup = false;
     bool bold = false;
+    WordBreak wordBreak = WordBreak::Auto;
     bool operator==(const TextStyle&) const = default;
 };
 

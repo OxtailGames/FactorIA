@@ -100,9 +100,10 @@
       "suggestion": "A Text.visibleCharacters field (or a 'reveal' fraction 0..1) that clips the laid-out text without re-laying it out.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md.",
+        "Fixed in M33.3 (branch m33/typewriter): Text.visibleCharacters (-1 = all) clips the laid-out text by grapheme clusters without laying it out again; scripts/dialogue_view.js no longer wraps by hand or pads the box with blank lines."
       ]
     },
     {
@@ -808,9 +809,10 @@
       "suggestion": "A Text.wordBreak option (normal | keepAll) or break Hangul only at spaces by default.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md.",
+        "Fixed in M33.3 (branch m33/typewriter): Text.wordBreak (auto, normal, keepAll); auto keeps Korean words whole, so the dialogue box wraps with Text.maxWidth."
       ]
     },
     {

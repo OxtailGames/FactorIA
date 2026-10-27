@@ -839,6 +839,7 @@ Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_v
     Text t;
     t.markup = style.markup;
     t.bold = style.bold;
+    t.wordBreak = style.wordBreak;
     t.text = std::string(text);
     t.font = std::string(font);
     t.fontSize = fontSize;
@@ -860,6 +861,7 @@ Vec2 Renderer::measure_text(const Text& text) const {
         t.maxWidth = wrap;
         t.markup = style.markup;
         t.bold = style.bold;
+        t.wordBreak = style.wordBreak;
         return impl_->fonts->layout(t, px, screen ? impl_->uiScale : 1.0f).size;  // px is final: no text scale
     };
     return fit_text(text_fit_spec(text), text.text, text.font, textScale_, extent).size;

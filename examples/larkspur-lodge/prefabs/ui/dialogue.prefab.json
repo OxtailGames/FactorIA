@@ -134,6 +134,7 @@
                   "Text": {
                     "text": " ",
                     "fontSize": 28,
+                    "maxWidth": 980,
                     "align": "start",
                     "layer": 227,
                     "space": "screen",

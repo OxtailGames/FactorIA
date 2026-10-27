@@ -474,6 +474,8 @@
     "Text.safeArea": "0.2.0",
     "Text.space": "0.1.0",
     "Text.text": "0.1.0",
+    "Text.visibleCharacters": "unreleased",
+    "Text.wordBreak": "unreleased",
     "TextField": "0.1.6",
     "TextField.accentColor": "0.1.6",
     "TextField.anchor": "0.1.6",
