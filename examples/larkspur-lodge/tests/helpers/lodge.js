@@ -3,6 +3,8 @@ import { game } from "factoria:test";
 import { camera } from "factoria";
 import * as story from "../../scripts/story.js";
 import * as items from "../../scripts/items.js";
+import * as puzzles from "../../scripts/puzzles.js";
+import * as notebook from "../../scripts/notebook.js";
 
 export const porter = () => game.find("porter");
 export const cam = () => game.find("camera");
@@ -16,6 +18,8 @@ export function enter(area = "ground", spawn = "spawn_default", keepStory = fals
   if (!keepStory) {
     story.reset();
     items.reset();
+    puzzles.reset();
+    notebook.reset();
   }
   game.load(`scenes/${area}.scene.json`, { arrive: spawn });
   game.step(30);

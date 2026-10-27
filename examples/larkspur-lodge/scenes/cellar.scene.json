@@ -214,6 +214,14 @@
       }
     },
     {
+      "id": "screens",
+      "components": {
+        "Script": {
+          "path": "scripts/screens.js"
+        }
+      }
+    },
+    {
       "id": "cast",
       "components": {
         "Script": {
@@ -1093,6 +1101,37 @@
           "size": [0.208, 0.428, 0.234],
           "offset": [-0.0, 0.214, 0.005],
           "layer": 2
+        }
+      }
+    },
+    {
+      "id": "p_fuse_box",
+      "tags": ["interactable"],
+      "components": {
+        "Transform": {
+          "position": [3.217, 1.15, 11.393],
+          "rotation": [0, 180, 0],
+          "scale": [1.5, 1.5, 1.5]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/kitchenMicrowave.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.29, 0.2, 0.23],
+          "offset": [0.145, 0.1, -0.105],
+          "layer": 2
+        },
+        "Script": {
+          "path": "scripts/interactable.js",
+          "props": {
+            "kind": "puzzle",
+            "name": "object.fuse_box",
+            "puzzle": "fuse",
+            "verb": "interact.verb.mend",
+            "reach": 2.0,
+            "point": [3.0, 11.55]
+          }
         }
       }
     },

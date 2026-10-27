@@ -45,6 +45,12 @@ export const EVENTS = Object.freeze({
   cutsceneRequested: "cutscene_requested",
   /** The porter changed how it is controlled (the last device that gave input): { device: "keyboard"|"mouse"|"touch"|"gamepad" }. */
   deviceChanged: "device_changed",
+  /** A puzzle was solved: { id: "drawer" | "timetable" | "letter" | "fuse" } (scripts/puzzles.js). */
+  puzzleSolved: "puzzle_solved",
+  /** The deduction board changed: { deductions: [ids], made: id | null, undone: id | null } (scripts/notebook.js). */
+  boardChanged: "board_changed",
+  /** Two items were combined: { a, b, result } (scripts/items.js combine). */
+  itemsCombined: "items_combined",
 });
 
 /** Sends an event to every listener of the scene (world.emit with a name from EVENTS). */
