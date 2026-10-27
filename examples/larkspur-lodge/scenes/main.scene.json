@@ -1,0 +1,20 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [0, 3, 8],
+          "rotation": [-15, 0, 0]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "fov": 60,
+          "primary": true
+        }
+      }
+    }
+  ]
+}

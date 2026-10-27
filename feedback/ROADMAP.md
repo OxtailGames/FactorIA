@@ -34,11 +34,11 @@ open (TM/FB-0003, the optional undo helper; TM/FB-0051, the Windows and Linux pl
 a Timeline component for trailers), ranked below; the game dropped the workarounds that no longer had a reason (M31,
 "Left open", lists what it keeps and what each package left).
 M32, a fifth reference game (a 3D narrative adventure for the Mac App Store, the Microsoft Store, the iPad and the Steam
-Deck), is planned: it is how dialogue, cut-scenes, the engine's save slots and the closed stores get ranked.
+Deck), is in progress: it is how dialogue, cut-scenes, the engine's save slots and the closed stores get ranked.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
-Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade examples/tidewater-market --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
+Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep examples/clockwork-courier examples/burrow-brigade examples/tidewater-market examples/larkspur-lodge --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
 3 entries from 8 project(s), 3 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
@@ -1034,7 +1034,7 @@ need real stores, devices and operating systems (M8, M9, M12, the lists above) n
 The three Tidewater Market entries still open (TM/FB-0003, 0051, 0055) are in the ranked list above. M32 below is a
 fifth reference game that asks for some of them.
 
-## M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck (L, high) — planned
+## M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck (L, high) — in progress (the `m32/reference-game` branch)
 
 Planned 2026-10-27 against `0dac04e4` (`m31/integrated`, the top of the unpushed M29-M31 stack: GitHub is still
 suspended, so the branch starts there). Three Tidewater Market entries are open (TM/FB-0003, 0051, 0055), no other game
