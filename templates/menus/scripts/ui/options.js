@@ -302,10 +302,10 @@ export default class Options extends Behaviour {
     this.waiting = null;
     this.release = true;
     if (pressed !== "Escape" && this.players > 1) {
-      // A key replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
-      // mouse and touch belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
+      // A key or a chord (Ctrl+Z) replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
+      // mouse and touch (also in a chord) belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
       const player = input.player(this.seat);
-      if (!/^(Mouse|Touch)/.test(pressed)) {
+      if (!/(^|\+)(Mouse|Touch)/.test(pressed)) {
         try {
           player.rebind(action, [pressed], pressed.startsWith("Gamepad") ? "pad" : "keys");
           this.s.playerBindings[String(this.seat)] = player.export();

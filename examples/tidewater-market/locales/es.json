@@ -68,6 +68,7 @@
       "pan_up": "Desplazar hacia arriba",
       "pan_down": "Desplazar hacia abajo",
       "pan_drag": "Arrastrar el mapa",
+      "primary_shift": "Carretera o derribo en dos clics",
       "zoom_in": "Acercar",
       "zoom_out": "Alejar",
       "rotate": "Girar edificio",

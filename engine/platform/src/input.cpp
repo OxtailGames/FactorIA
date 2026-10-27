@@ -114,6 +114,59 @@ Key key_from_name(std::string_view name) {
     return key_alias(to_lower(name));
 }
 
+std::uint8_t modifier_from_name(std::string_view name) {
+    const std::string l = to_lower(trim(name));
+    if (l == "shift") return modifier::Shift;
+    if (l == "ctrl" || l == "control") return modifier::Ctrl;
+    if (l == "alt") return modifier::Alt;
+    if (l == "super" || l == "cmd" || l == "command" || l == "win") return modifier::Super;
+    return 0;
+}
+
+const char* modifier_name(std::uint8_t bit) {
+    switch (bit) {
+        case modifier::Shift: return "Shift";
+        case modifier::Ctrl: return "Ctrl";
+        case modifier::Alt: return "Alt";
+        case modifier::Super: return "Super";
+    }
+    return "";
+}
+
+Key modifier_key(std::uint8_t bit, bool right) {
+    switch (bit) {
+        case modifier::Shift: return right ? Key::RightShift : Key::LeftShift;
+        case modifier::Ctrl: return right ? Key::RightControl : Key::LeftControl;
+        case modifier::Alt: return right ? Key::RightAlt : Key::LeftAlt;
+        case modifier::Super: return right ? Key::RightSuper : Key::LeftSuper;
+    }
+    return Key::Unknown;
+}
+
+namespace {
+// The order a chord prints its modifiers in.
+constexpr std::uint8_t kModifierOrder[4] = {modifier::Ctrl, modifier::Alt, modifier::Shift, modifier::Super};
+std::pair<Key, Key> modifier_keys(std::uint8_t bit) {
+    switch (bit) {
+        case modifier::Shift: return {Key::LeftShift, Key::RightShift};
+        case modifier::Ctrl: return {Key::LeftControl, Key::RightControl};
+        case modifier::Alt: return {Key::LeftAlt, Key::RightAlt};
+        default: return {Key::LeftSuper, Key::RightSuper};
+    }
+}
+bool is_modifier_key(size_t k) {
+    return k == size_t(Key::LeftShift) || k == size_t(Key::RightShift) || k == size_t(Key::LeftControl) ||
+           k == size_t(Key::RightControl) || k == size_t(Key::LeftAlt) || k == size_t(Key::RightAlt) ||
+           k == size_t(Key::LeftSuper) || k == size_t(Key::RightSuper);
+}
+std::string modifier_prefix(std::uint8_t mods) {
+    std::string out;
+    for (std::uint8_t bit : kModifierOrder)
+        if (mods & bit) out += std::string(modifier_name(bit)) + "+";
+    return out;
+}
+}  // namespace
+
 const char* gamepad_button_name(GamepadButton b) { return size_t(b) < size_t(GamepadButton::Count) ? kPadButtonNames[size_t(b)] : "Unknown"; }
 const char* gamepad_axis_name(GamepadAxis a) { return size_t(a) < size_t(GamepadAxis::Count) ? kPadAxisNames[size_t(a)] : "Unknown"; }
 
@@ -216,6 +269,8 @@ void Input::on_key(Key key, bool down) {
     if (down && !keys_[i]) {
         keyPressedEdge_[i] = true;
         lastDevice_ = InputDevice::Keyboard;
+        mark_modifiers_used();
+        if (is_modifier_key(i)) modKeyUsed_[i] = false;
     }
     if (!down && keys_[i]) keyReleasedEdge_[i] = true;
     keys_[i] = down;
@@ -240,6 +295,7 @@ void Input::on_mouse_button(MouseButton b, bool down) {
     if (down && !mouse_buttons_[i]) {
         mousePressedEdge_[i] = true;
         lastDevice_ = InputDevice::Mouse;
+        mark_modifiers_used();
     }
     if (!down && mouse_buttons_[i]) mouseReleasedEdge_[i] = true;
     mouse_buttons_[i] = down;
@@ -370,6 +426,26 @@ void Input::update_touch_pad() {
         if (!buttons[i] && pad.buttons[i]) pad.releasedEdge[i] = true;
     }
     pad.buttons = buttons;
+}
+
+// Something was pressed while modifier keys are held: they are part of a chord, not a binding of their own. A modifier
+// pressed while another is held makes both part of one (a chord of modifiers is not offered alone).
+void Input::mark_modifiers_used() {
+    for (size_t k = 1; k < size_t(Key::Count); ++k)
+        if (is_modifier_key(k) && keys_[k]) modKeyUsed_[k] = true;
+}
+
+std::uint8_t Input::modifiers_down() const {
+    View all;
+    all.keyboard = true;
+    return mods_held(false, all);
+}
+
+bool Input::modifier_pressed(std::uint8_t bit) const {
+    return key_pressed(modifier_key(bit, false)) || key_pressed(modifier_key(bit, true));
+}
+bool Input::modifier_released(std::uint8_t bit) const {
+    return key_released(modifier_key(bit, false)) || key_released(modifier_key(bit, true));
 }
 
 bool Input::command_chord_down() const {
@@ -516,6 +592,7 @@ void Input::release_all() {
         if (keys_[i]) keyReleasedEdge_[i] = true;
         keys_[i] = false;
     }
+    modKeyUsed_.fill(true);  // the focus loss is not a modifier tap
     for (size_t i = 0; i < mouse_buttons_.size(); ++i) {
         if (mouse_buttons_[i]) mouseReleasedEdge_[i] = true;
         mouse_buttons_[i] = false;
@@ -586,13 +663,72 @@ std::vector<std::string> all_binding_names() {
     std::vector<std::string> names = key_names().all;
     for (const char* n : kMouseNames) names.emplace_back(n);
     names.emplace_back("Touch");
+    for (std::uint8_t bit : kModifierOrder) names.emplace_back(modifier_name(bit));
     for (const auto& p : pad_binding_names()) names.push_back(p.name);
     return names;
 }
 
 }  // namespace
 
+std::uint8_t Input::mods_held(bool previous, const View& view) const {
+    if (!view.keyboard) return 0;
+    const auto& keys = previous ? prevKeys_ : keys_;
+    auto down = [&](Key k) { return keys[size_t(k)] && (!view.keySet || (*view.keySet)[size_t(k)]); };
+    std::uint8_t held = 0;
+    for (std::uint8_t bit : kModifierOrder) {
+        const auto [l, r] = modifier_keys(bit);
+        if (down(l) || down(r)) held |= bit;
+    }
+    return held;
+}
+
+bool Input::same_input(const Binding& a, const Binding& b) {
+    if (a.kind != b.kind) return false;
+    switch (a.kind) {
+        case Binding::Kind::Key: return a.key == b.key;
+        case Binding::Kind::Mouse: return a.mouse == b.mouse;
+        case Binding::Kind::Mod: return a.modBit == b.modBit;
+        case Binding::Kind::Touch: return true;
+        default: return false;
+    }
+}
+
+bool Input::in_key_set(const Binding& b, const KeySet& set) {
+    auto side = [&](std::uint8_t bit) {
+        const auto [l, r] = modifier_keys(bit);
+        return set[size_t(l)] || set[size_t(r)];
+    };
+    for (std::uint8_t bit : kModifierOrder)
+        if ((b.mods & bit) && !side(bit)) return false;
+    if (b.kind == Binding::Kind::Mod) return side(b.modBit);
+    return b.kind != Binding::Kind::Key || set[size_t(b.key)];
+}
+
+bool Input::shadowed(const Binding& b, bool previous, const View& view) const {
+    if (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis) return false;
+    const std::uint8_t held = mods_held(previous, view);
+    auto scan = [&](const std::vector<Binding>& list) {
+        for (const Binding& c : list)  // the same input with more modifiers, all of them held
+            if (c.mods != b.mods && (c.mods & b.mods) == b.mods && !(c.mods & ~held) && same_input(b, c)) return true;
+        return false;
+    };
+    for (const auto& [name, list] : actions_) {
+        if (view.player < 0) {
+            if (scan(list)) return true;
+        } else if (const auto* own = player_list(view.player, Family::Keys, name)) {
+            if (scan(*own)) return true;
+        }
+    }
+    return false;
+}
+
 float Input::binding_value_in(const Binding& b, bool previous, const View& view) const {
+    const float v = binding_raw(b, previous, view);
+    if (v >= kActionDownThreshold && shadowed(b, previous, view)) return 0.0f;
+    return v;
+}
+
+float Input::binding_raw(const Binding& b, bool previous, const View& view) const {
     auto pads = [&](auto&& each) {  // the pads this view reads (a disconnected pad has nothing down and its axes at 0)
         if (view.anyPad) {
             for (const Pad& pad : pads_) each(pad);
@@ -603,11 +739,17 @@ float Input::binding_value_in(const Binding& b, bool previous, const View& view)
     switch (b.kind) {
         case Binding::Kind::Key:
             if (!view.keyboard || (view.keySet && !(*view.keySet)[size_t(b.key)])) return 0.0f;
+            if (b.mods & ~mods_held(previous, view)) return 0.0f;
             return (previous ? prevKeys_ : keys_)[size_t(b.key)] ? 1.0f : 0.0f;
+        case Binding::Kind::Mod:
+            if (b.mods & ~mods_held(previous, view)) return 0.0f;
+            return (mods_held(previous, view) & b.modBit) ? 1.0f : 0.0f;
         case Binding::Kind::Mouse:
-            if (!view.pointer) return 0.0f;
+            if (!view.pointer || (b.mods & ~mods_held(previous, view))) return 0.0f;
             return (previous ? prevMouse_ : mouse_buttons_)[size_t(b.mouse)] ? 1.0f : 0.0f;
-        case Binding::Kind::Touch: return view.pointer && (previous ? prevTouchDown_ : touchDown_) ? 1.0f : 0.0f;
+        case Binding::Kind::Touch:
+            if (!view.pointer || (b.mods & ~mods_held(previous, view))) return 0.0f;
+            return (previous ? prevTouchDown_ : touchDown_) ? 1.0f : 0.0f;
         case Binding::Kind::PadButton: {
             float v = 0.0f;
             pads([&](const Pad& pad) {
@@ -636,6 +778,23 @@ bool Input::was_down_in(const std::vector<Binding>& list, const View& view) cons
     return false;
 }
 
+bool Input::main_edge(const Binding& b, const View& view, bool released) const {
+    auto key = [&](Key k) {
+        if (!view.keyboard || (view.keySet && !(*view.keySet)[size_t(k)])) return false;
+        return released ? key_released(k) : key_pressed(k);
+    };
+    switch (b.kind) {
+        case Binding::Kind::Key: return key(b.key);
+        case Binding::Kind::Mod: {
+            const auto [l, r] = modifier_keys(b.modBit);
+            return key(l) || key(r);
+        }
+        case Binding::Kind::Mouse: return view.pointer && (released ? mouse_released(b.mouse) : mouse_pressed(b.mouse));
+        case Binding::Kind::Touch: return view.pointer && (released ? touchReleasedEdge_ : touchPressedEdge_);
+        default: return false;
+    }
+}
+
 bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool released) const {
     auto pads = [&](auto&& each) {
         if (view.anyPad) {
@@ -647,16 +806,6 @@ bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool rel
     bool edge = false;
     for (const Binding& b : list) {
         switch (b.kind) {
-            case Binding::Kind::Key:
-                if (view.keyboard && (!view.keySet || (*view.keySet)[size_t(b.key)]))
-                    edge = edge || (released ? key_released(b.key) : key_pressed(b.key));
-                break;
-            case Binding::Kind::Mouse:
-                if (view.pointer) edge = edge || (released ? mouse_released(b.mouse) : mouse_pressed(b.mouse));
-                break;
-            case Binding::Kind::Touch:
-                if (view.pointer) edge = edge || (released ? touchReleasedEdge_ : touchPressedEdge_);
-                break;
             case Binding::Kind::PadButton:  // the touch pad too, for the global view
                 pads([&](const Pad& pad) { edge = edge || (released ? pad.releasedEdge : pad.pressedEdge)[size_t(b.button)]; });
                 break;
@@ -665,13 +814,48 @@ bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool rel
             case Binding::Kind::PadAxis:
                 if (!released) edge = edge || binding_value_in(b, false, view) >= kActionDownThreshold;
                 break;
+            default: {  // keys, modifiers, mouse buttons and touch, plain or in a chord
+                bool e = main_edge(b, view, released);
+                if (e && b.mods) {  // a release counts when the chord's modifiers were held at either end of the frame
+                    const bool held = !(b.mods & ~mods_held(false, view)) || (released && !(b.mods & ~mods_held(true, view)));
+                    e = held;
+                }
+                if (e && (shadowed(b, false, view) || (released && shadowed(b, true, view)))) e = false;
+                // A chord also starts when its modifier arrives after its input (Z held, then Ctrl).
+                if (!e && b.mods && !released)
+                    e = binding_value_in(b, false, view) >= kActionDownThreshold &&
+                        binding_value_in(b, true, view) < kActionDownThreshold;
+                edge = edge || e;
+                break;
+            }
         }
     }
     return edge;
 }
 
-// Parses one binding name; returns false if unknown.
+// Parses one binding name: an input, or modifiers joined to it by '+'. Returns false if unknown.
 bool Input::parse_binding(std::string_view name, Binding& out) {
+    const std::string_view text = trim(name);
+    out = Binding{};
+    if (text.find('+') == std::string_view::npos) return parse_single_binding(text, out);
+    const std::vector<std::string> parts = split(text, '+', false);
+    if (parts.size() < 2) return false;
+    std::uint8_t mods = 0;
+    for (size_t i = 0; i + 1 < parts.size(); ++i) {
+        const std::uint8_t bit = modifier_from_name(parts[i]);
+        if (!bit || (mods & bit)) return false;
+        mods |= bit;
+    }
+    Binding main;
+    if (!parse_single_binding(parts.back(), main)) return false;
+    if (main.kind == Binding::Kind::PadButton || main.kind == Binding::Kind::PadAxis) return false;
+    if (main.kind == Binding::Kind::Mod && (mods & main.modBit)) return false;
+    main.mods = mods;
+    out = main;
+    return true;
+}
+
+bool Input::parse_single_binding(std::string_view name, Binding& out) {
     std::string_view text = trim(name);
     std::string lower = to_lower(text);
     out = Binding{};
@@ -689,11 +873,79 @@ bool Input::parse_binding(std::string_view name, Binding& out) {
         }
         return false;
     }
+    if (std::uint8_t bit = modifier_from_name(text)) {
+        out.kind = Binding::Kind::Mod;
+        out.modBit = bit;
+        return true;
+    }
     Key k = key_from_name(text);
     if (k == Key::Unknown) return false;
     out.kind = Binding::Kind::Key;
     out.key = k;
     return true;
+}
+
+std::string Input::binding_problem(std::string_view name) {
+    const std::string_view text = trim(name);
+    const std::vector<std::string> names = all_binding_names();
+    if (text.find('+') == std::string_view::npos) return did_you_mean(text, names);
+    const std::vector<std::string> mods = {"Ctrl", "Shift", "Alt", "Super"};
+    const std::string chordForm = "A chord is modifiers then ONE input joined by '+', e.g. \"Ctrl+Z\" or \"Shift+MouseLeft\".";
+    const std::vector<std::string> parts = split(text, '+', false);
+    std::vector<std::string> fixed;  // the chord with what could be mended
+    std::string why;
+    std::uint8_t seen = 0;
+    for (size_t i = 0; i < parts.size() && why.empty(); ++i) {
+        const std::string part(trim(parts[i]));
+        const bool last = i + 1 == parts.size();
+        if (part.empty()) {
+            why = std::format("the chord has an empty part. {}", chordForm);
+            break;
+        }
+        if (!last) {
+            const std::uint8_t bit = modifier_from_name(part);
+            if (bit && (seen & bit)) {
+                why = std::format("the modifier '{}' appears twice", part);
+            } else if (bit) {
+                seen |= bit;
+                fixed.push_back(part);
+            } else {
+                Binding side;
+                if (parse_single_binding(part, side) && side.kind == Binding::Kind::Key && is_modifier_key(size_t(side.key))) {
+                    const char* both = modifier_name(side.key == Key::LeftShift || side.key == Key::RightShift ? modifier::Shift
+                                                     : side.key == Key::LeftControl || side.key == Key::RightControl ? modifier::Ctrl
+                                                     : side.key == Key::LeftAlt || side.key == Key::RightAlt ? modifier::Alt
+                                                                                                           : modifier::Super);
+                    why = std::format("'{}' names one side's key; a modifier names both sides. Did you mean '{}'?", part, both);
+                    fixed.push_back(both);
+                } else {
+                    const std::string best = closest_match(part, mods);
+                    why = std::format("'{}' is not a modifier. {}", part, did_you_mean(part, mods));
+                    fixed.push_back(best.empty() ? part : best);
+                }
+            }
+        } else {
+            Binding main;
+            if (!parse_single_binding(part, main)) {
+                why = std::format("'{}' is not an input. {}", part, did_you_mean(part, names));
+                const std::string best = closest_match(part, names);
+                fixed.push_back(best.empty() ? part : best);
+            } else if (main.kind == Binding::Kind::PadButton || main.kind == Binding::Kind::PadAxis) {
+                why = std::format("modifiers combine with keys, mouse buttons and Touch, not with the gamepad binding '{}'", part);
+            } else if (main.kind == Binding::Kind::Mod && (seen & main.modBit)) {
+                why = std::format("the modifier '{}' appears twice", part);
+            } else {
+                fixed.push_back(part);
+            }
+        }
+    }
+    if (why.empty()) why = "it is not a valid chord. " + chordForm;
+    std::string out = std::format("{}.", why);
+    if (fixed.size() == parts.size()) {
+        const std::string joined = join(fixed, "+");
+        if (iequals(joined, text) == false && is_binding_name(joined)) out += std::format(" Write it as \"{}\".", joined);
+    }
+    return out;
 }
 
 bool Input::is_binding_name(std::string_view name) {
@@ -722,7 +974,7 @@ std::vector<Input::Binding> Input::parse_binding_list(const std::string& action,
         std::string text = item.get<std::string>();
         if (!parse_binding(text, b)) {
             problems.push_back(std::format("input.actions.{}: unknown binding '{}'. {}", action, text,
-                                           did_you_mean(text, candidates)));
+                                           binding_problem(text)));
             return;
         }
         out.push_back(b);
@@ -762,9 +1014,10 @@ std::vector<std::string> Input::set_actions(const Json& actions) {
 
 std::string Input::binding_name(const Binding& b) {
     switch (b.kind) {
-        case Binding::Kind::Key: return key_name(b.key);
-        case Binding::Kind::Mouse: return kMouseNames[size_t(b.mouse)];
-        case Binding::Kind::Touch: return "Touch";
+        case Binding::Kind::Key: return modifier_prefix(b.mods) + key_name(b.key);
+        case Binding::Kind::Mod: return modifier_prefix(b.mods) + modifier_name(b.modBit);
+        case Binding::Kind::Mouse: return modifier_prefix(b.mods) + kMouseNames[size_t(b.mouse)];
+        case Binding::Kind::Touch: return modifier_prefix(b.mods) + "Touch";
         case Binding::Kind::PadButton: return std::string("Gamepad") + kPadButtonNames[size_t(b.button)];
         case Binding::Kind::PadAxis:
             for (const auto& p : pad_binding_names())
@@ -794,7 +1047,7 @@ std::vector<std::string> Input::rebind(std::string_view action, const std::vecto
     for (const std::string& text : bindings) {
         Binding b;
         if (parse_binding(text, b)) parsed.push_back(b);
-        else problems.push_back(std::format("input.rebind('{}'): unknown binding '{}'. {}", action, text, did_you_mean(text, candidates)));
+        else problems.push_back(std::format("input.rebind('{}'): unknown binding '{}'. {}", action, text, binding_problem(text)));
     }
     if (problems.empty()) it->second = std::move(parsed);
     return problems;
@@ -826,12 +1079,38 @@ std::vector<std::string> Input::reset_bindings(std::string_view action) {
 // ---------------------------------------------------------------------------
 // Last input and button names
 // ---------------------------------------------------------------------------
-std::string Input::last_pressed() const {
+// The modifiers that were held around this frame's press, as "Ctrl+Shift+": held now, held at the start of the frame, or
+// pressed and released within it, so a quick Ctrl+Z still reads as the chord.
+std::string Input::chord_prefix(const View& view) const {
+    std::uint8_t mods = 0;
+    for (std::uint8_t bit : kModifierOrder) {
+        const auto [l, r] = modifier_keys(bit);
+        for (Key k : {l, r})
+            if (view.keyboard && (!view.keySet || (*view.keySet)[size_t(k)]) &&
+                (keys_[size_t(k)] || prevKeys_[size_t(k)] || keyPressedEdge_[size_t(k)] || keyReleasedEdge_[size_t(k)]))
+                mods |= bit;
+    }
+    return modifier_prefix(mods);
+}
+
+// A modifier key let go without anything else pressed while it was held: the player meant the key itself.
+std::string Input::lone_modifier_release(const View& view) const {
+    if (!view.keyboard) return "";
     for (size_t i = 1; i < size_t(Key::Count); ++i)
-        if (keyPressedEdge_[i]) return key_name(Key(i));
-    if (touchPressedEdge_) return "Touch";
+        if (is_modifier_key(i) && keyReleasedEdge_[i] && !modKeyUsed_[i] && (!view.keySet || (*view.keySet)[i]))
+            return key_name(Key(i));
+    return "";
+}
+
+std::string Input::last_pressed() const {
+    View all;
+    all.anyPad = all.pointer = all.keyboard = true;
+    for (size_t i = 1; i < size_t(Key::Count); ++i)
+        if (keyPressedEdge_[i] && !is_modifier_key(i)) return chord_prefix(all) + key_name(Key(i));
+    if (touchPressedEdge_) return chord_prefix(all) + "Touch";
     for (size_t i = 0; i < size_t(MouseButton::Count); ++i)
-        if (mousePressedEdge_[i]) return kMouseNames[i];
+        if (mousePressedEdge_[i]) return chord_prefix(all) + kMouseNames[i];
+    if (std::string lone = lone_modifier_release(all); !lone.empty()) return lone;
     for (const Pad& pad : pads_)
         for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
             if (pad.pressedEdge[i]) return std::string("Gamepad") + kPadButtonNames[i];
@@ -869,11 +1148,13 @@ std::string Input::binding_label(std::string_view binding, GamepadType type) {
     Binding b;
     if (!parse_binding(binding, b)) return "";
     const size_t t = size_t(type) < 5 ? size_t(type) : 0;
+    const std::string prefix = modifier_prefix(b.mods);
     switch (b.kind) {
-        case Binding::Kind::Key: return key_name(b.key);
+        case Binding::Kind::Key: return prefix + key_name(b.key);
+        case Binding::Kind::Mod: return prefix + modifier_name(b.modBit);
         case Binding::Kind::Mouse:
-            return std::string(b.mouse == MouseButton::Left ? "Left" : b.mouse == MouseButton::Right ? "Right" : "Middle") + " Click";
-        case Binding::Kind::Touch: return "Touch";
+            return prefix + std::string(b.mouse == MouseButton::Left ? "Left" : b.mouse == MouseButton::Right ? "Right" : "Middle") + " Click";
+        case Binding::Kind::Touch: return prefix + "Touch";
         case Binding::Kind::PadButton: return kPadLabels[t][size_t(b.button)];
         case Binding::Kind::PadAxis: {
             if (b.axis == GamepadAxis::LeftTrigger || b.axis == GamepadAxis::RightTrigger)
@@ -1208,7 +1489,7 @@ void Input::rebuild_player_defaults() {
             }
             std::vector<Binding> keys;
             for (const Binding& b : all)
-                if (b.kind == Binding::Kind::Key && scheme.keys[size_t(b.key)]) keys.push_back(b);
+                if (is_key_family(b) && in_key_set(b, scheme.keys)) keys.push_back(b);
             keyDefaults_[name][action] = std::move(keys);
         }
     }
@@ -1255,6 +1536,7 @@ int Input::player_pad(int player) const {
 Input::View Input::player_view(int player) const {
     View view;
     if (!valid_player(player)) return view;
+    view.player = player;
     const PlayerDevice& d = players_[size_t(player)].device;
     if (!d.keys.empty()) {
         auto it = schemes_.find(d.keys);
@@ -1353,7 +1635,7 @@ std::vector<std::string> Input::player_bindings(int player, std::string_view act
     for (Family f : families)
         if (const auto* list = player_list(player, f, name))
             for (const Binding& b : *list) {
-                if (b.kind == Binding::Kind::Key && set && !(*set)[size_t(b.key)]) continue;
+                if (is_key_family(b) && set && !in_key_set(b, *set)) continue;
                 out.push_back(binding_name(b));
             }
     return out;
@@ -1386,7 +1668,7 @@ std::vector<std::string> Input::player_rebind(int player, std::string_view actio
     for (const std::string& text : bindings) {
         Binding b;
         if (!parse_binding(text, b)) {
-            problems.push_back(std::format("{}: unknown binding '{}'. {}", who, text, did_you_mean(text, candidates)));
+            problems.push_back(std::format("{}: unknown binding '{}'. {}", who, text, binding_problem(text)));
             continue;
         }
         const std::string canonical = binding_name(b);
@@ -1401,7 +1683,7 @@ std::vector<std::string> Input::player_rebind(int player, std::string_view actio
                                            isPad ? "gamepad" : "keyboard", family));
             continue;
         }
-        if (!isPad && scheme != schemes_.end() && !scheme->second.keys[size_t(b.key)]) {
+        if (!isPad && scheme != schemes_.end() && !in_key_set(b, scheme->second.keys)) {
             problems.push_back(std::format(
                 "{}: '{}' is not a key of this player's scheme '{}'. Pick one of its keys (input.keySchemeKeys('{}')), or give the "
                 "player another scheme with input.player({}).use({{keys: ...}}) first",
@@ -1447,9 +1729,12 @@ std::vector<std::string> Input::player_reset(int player, std::string_view action
 
 std::string Input::player_last_pressed(int player) const {
     const View view = player_view(player);
-    if (view.keyboard)
+    if (view.keyboard) {
         for (size_t i = 1; i < size_t(Key::Count); ++i)
-            if (keyPressedEdge_[i] && (!view.keySet || (*view.keySet)[i])) return key_name(Key(i));
+            if (keyPressedEdge_[i] && !is_modifier_key(i) && (!view.keySet || (*view.keySet)[i]))
+                return chord_prefix(view) + key_name(Key(i));
+        if (std::string lone = lone_modifier_release(view); !lone.empty()) return lone;
+    }
     if (view.pad >= 0 && view.pad < kMaxGamepads) {
         const Pad& pad = pads_[size_t(view.pad)];
         for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
@@ -1523,7 +1808,7 @@ std::vector<std::string> Input::player_import(int player, const Json& data) {
                     Binding b;
                     const bool parsed = item.is_string() && parse_binding(item.get<std::string>(), b);
                     const bool isPad = parsed && (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis);
-                    const bool isKey = parsed && b.kind == Binding::Kind::Key;
+                    const bool isKey = parsed && is_key_family(b);
                     if (!(f == Family::Pad ? isPad : isKey)) {
                         problems.push_back(std::format("{}: {} is not a {} binding, the action was skipped", where,
                                                        describe_json_value(item), f == Family::Pad ? "gamepad" : "key"));

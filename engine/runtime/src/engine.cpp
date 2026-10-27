@@ -50,6 +50,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
         return true;
     }
     Key k = key_from_name(name);
+    if (k == Key::Unknown) k = modifier_key(modifier_from_name(name));  // "Ctrl", "Shift", "Alt", "Super": the left key
     if (k != Key::Unknown) {
         input.on_key(k, down);
         return true;
@@ -61,7 +62,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
     if (error) {
         std::vector<std::string> candidates = input.action_names();
         for (int i = 1; i < int(Key::Count); ++i) candidates.emplace_back(key_name(Key(i)));
-        for (const char* m : {"MouseLeft", "MouseRight", "MouseMiddle"}) candidates.emplace_back(m);
+        for (const char* m : {"MouseLeft", "MouseRight", "MouseMiddle", "Ctrl", "Shift", "Alt", "Super"}) candidates.emplace_back(m);
         *error = "Unknown input '" + name + "' (not an action, key or mouse button). " + did_you_mean(name, candidates);
         if (starts_with(to_lower(name), "gamepad") || starts_with(to_lower(name), "touch"))
             *error += " Gamepads and fingers have their own fields: {\"gamepad\": {\"buttons\": {\"A\": true}}}, "

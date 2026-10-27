@@ -68,6 +68,7 @@
       "pan_up": "向上移动",
       "pan_down": "向下移动",
       "pan_drag": "拖动地图",
+      "primary_shift": "两次点击：道路或拆除",
       "zoom_in": "放大",
       "zoom_out": "缩小",
       "rotate": "旋转建筑",

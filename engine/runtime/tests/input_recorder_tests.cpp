@@ -326,6 +326,37 @@ TEST_CASE("input recorder: a recorded keyboard and pad session replays to the sa
     CHECK(std::hash<std::string>{}(st.value()["entities"].dump()) == std::hash<std::string>{}(played.dump()));
 }
 
+TEST_CASE("input recorder: a chord (Ctrl held, then a key) is recorded as its keys and replays without problems") {
+    RecProject p;
+    Json replay;
+    int frames = 0;
+    {
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+        e.start_input_recording();
+        for (int i = 0; i < 6; ++i) {
+            if (i == 1) e.input().on_key(Key::LeftControl, true);
+            if (i == 2) e.input().on_key(Key::Z, true);
+            if (i == 3) e.input().on_key(Key::Z, false);
+            if (i == 4) e.input().on_key(Key::LeftControl, false);
+            e.frame(0.016);
+        }
+        frames = int(e.input_recording_frames());
+        replay = e.stop_input_recording();
+        REQUIRE(save_json_file((p.dir / "chord.json").generic_string(), replay).ok());
+        e.shutdown();
+    }
+    CHECK(replay["frames"]["1"]["keys"]["LeftControl"] == true);
+    CHECK(replay["frames"]["2"]["keys"]["Z"] == true);
+    HeadlessRunOptions o;
+    o.frames = frames;
+    o.inputReplayPath = (p.dir / "chord.json").generic_string();
+    Json report;
+    CHECK(run_headless(p.config(), o, &report) == 0);
+    CHECK_FALSE(report.contains("problems"));
+}
+
 TEST_CASE("input.record: start, stop returns the replay, path writes it, stop without start teaches") {
     RecProject p;
     Engine e;

@@ -258,7 +258,19 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   give exactly -1, 0 or 1, and `vector(...)` is `(axis, axis)` normalized only when longer than 1 (a half-tilted stick
   gives a short vector, two keys a unit diagonal). An action is `down` from `value >= 0.5` (a stick pushed about 60 %
   of the way with the default deadzone); `pressed`/`released` fire when it crosses that threshold.
-- Keys: `keyDown("Space")`, `keyPressed("A")`, `keyReleased("Escape")`
+- Keys: `keyDown("Space")`, `keyPressed("A")`, `keyReleased("Escape")`. `"Ctrl"`, `"Shift"`, `"Alt"` and `"Super"` name
+  either side's key: `keyDown("Shift")` is true while the left or the right Shift is held (`"LeftShift"` is one side).
+- Modifier chords: a binding in `input.actions` can carry modifiers, `"Ctrl+Z"`, `"Shift+MouseLeft"`, `"Ctrl+Shift+S"`
+  (modifiers are `Ctrl`, `Shift`, `Alt`, `Super`; the input is a key, a mouse button or `Touch`, not a gamepad binding).
+  The chord is down while its modifiers and its input are held; extra modifiers do not stop it. When another action binds
+  the same input with MORE modifiers and those are held, the shorter binding is silent: with `"undo": ["Ctrl+Z"]` and
+  `"z": ["Z"]`, holding Ctrl and pressing Z fires `undo` and not `z`. `"Shift"` on its own is a binding (either Shift key).
+  Chords print back in one order, `Ctrl+Alt+Shift+Super+input` (`input.bindings`, `input.buttonName` as `"Ctrl+Z"`).
+  A bad chord is an error that names the part (`"Cntrl+Z"`: unknown modifier, did you mean `Ctrl`), in `factoria.json`
+  (`factoria validate`), `input.rebind` and `input.player(i).rebind` alike. Per-player bindings take chords of keys in the
+  player's scheme (all the modifier keys of the chord must be in it); mouse chords belong to the shared pointer, like the
+  mouse. A chord starts when its input goes down with the modifiers held, or when the last modifier arrives while the
+  input is already down.
 - Mouse: `mouse.position` (screen, top-left origin), `mouse.world` (world coords via the camera under the pointer: the main camera when there is one),
   `mouse.delta`, `mouse.wheel`, `mouse.down("left")`, `mouse.pressed("right")`
 - Touch: `touches` → `[{ id, position, world, pressed }]`. The first finger also drives the mouse (position, and the
@@ -333,6 +345,9 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   - `lastPressed()` is the binding that went down this frame (`"Space"`, `"MouseLeft"`, `"GamepadA"`, `"GamepadLeftStickLeft"`
     when a stick crosses halfway) or `null`. Poll it from a "press the new key" screen and pass the result to `rebind`;
     keys come first when several go down in the same frame. Mouse movement, a held key and a connected pad do not count.
+    With modifiers held it is the chord (`"Ctrl+Z"`, `"Shift+MouseLeft"`), which `rebind` takes as it is. A modifier
+    pressed alone is reported when it is RELEASED, by its side (`"LeftShift"`), and never when something else was pressed
+    while it was held, so pressing Ctrl on the way to Ctrl+Z does not end the wait.
   - `lastDevice` is `"keyboard" | "mouse" | "touch" | "gamepad"`, whichever produced the last real input (a pad that merely
     sits plugged in never takes it), so a game can switch its on-screen hints between key caps and pad buttons.
   - `buttonName(bindingOrAction, pad = 0)` is the label a player sees: `"Space"`, `"Left Click"`, `"A"` (Xbox),
@@ -1247,7 +1262,8 @@ test("player jumps", () => {
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`; like a finger on a device,
   the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
   `click` needed), `press(action)`, `release(action)`, `tap(action)`,
-  `keyDown(key)`, `keyUp(key)`, `tapKey(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
+  `keyDown(key)`, `keyUp(key)` (hold and release; `"Ctrl"`, `"Shift"`, `"Alt"`, `"Super"` work, so `keyDown("Shift"); click(pos);
+  keyUp("Shift")` is a Shift+click), `tapKey(key)` (`tapKey("Ctrl+Z")` holds Ctrl while Z is tapped), `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
   `[{ kind, voice, fade, seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok, layer }]`, cleared before each test),
   `today()`, `setDate("YYYY-MM-DD")` (the fixed date is `2026-01-01`; reset before each test), `focused`, `suspend()`, `resume()`,
