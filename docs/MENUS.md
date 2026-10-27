@@ -470,6 +470,47 @@ ui.on("dragCancel", (e) => hideChip());                             // e.reason:
   `{ x: 640, y: 650 }` for a drop over the world. A press-and-click mode for players who cannot hold a button is the
   game's own (two clicks); the engine's drag needs the held button.
 
+## Charts
+
+A `Chart` draws numbers as bars or lines inside its rectangle. It is a widget like a Panel: placed by `size`, `anchor`,
+`pivot` and `layer`, with `color` as the background, a `tooltip` of its own, and a child of a Panel or a ScrollList like
+the others. The UI layer draws all its bars or lines in one batch, so a chart of hundreds of samples costs one draw call
+more than its background.
+
+```json
+{ "id": "coins_chart", "components": { "Chart": { "size": [540, 110], "kind": "line", "colors": ["#ffd166"], "includeBaseline": false } } }
+```
+
+```js
+const chart = world.find("coins_chart").get("Chart");
+chart.values = history;                                  // [3, 5, 2, ...] or [[3, 5], [1, 4]] for two series
+ui.on("chartHover", "coins_chart", (e) => {              // e.index: -1 when the pointer left the chart
+  if (e.index >= 0) ui.showTooltip({ title: `Day ${e.index + 1}`, lines: [String(e.value)] });
+  else ui.hideTooltip();
+});
+```
+
+- **Data.** `values` is an array of numbers (one series) or an array of arrays (a series each, oldest value first). A
+  value that is not a number counts as 0. Write a whole new array when the data changes; the chart redraws every frame.
+- **Kinds.** `bar` (default) gives each sample a column, the series side by side in it, each bar growing from `baseline`
+  with `barGap` empty between columns; a bar is at least one unit tall. `line` draws one polyline per series through its
+  points, spanning the plot edge to edge with `lineWidth`.
+- **The axis.** Automatic: the lowest and highest value, always including `baseline` (0 unless you set it), so bars scale to
+  the maximum and start at zero. `includeBaseline: false` fits the data tightly (a line of coins that stays near 5000),
+  `min` and `max` fix a side. The maximum and minimum are written in the plot's top-left and bottom-left corners (`showLabels`,
+  `decimals`, `font`, `fontSize`, `textColor`) in the current language's number format: "1,234.5" in English, "1.234,5" in
+  Spanish. The rule at `baseline` is `showBaseline`; `marks` is a list of sample indexes that get a thin vertical rule (the
+  first day of a season).
+- **Slots.** A series shorter than `slots` is right-aligned: a chart that fills over time keeps each sample's width, the
+  empty room is on the left. With `slots` 0 the plot has room for the longest series.
+- **Hover.** The pointer over the plot is reported as the sample under it: for bars the column (and the bar of it, in
+  `series`), for lines the point closest horizontally (and the closest series vertically). `ui.on("chartHover", fn)` (or
+  `ui.on("chartHover", chart, fn)` for one chart) gets `{ id, entity, index, series, value }` each time that sample changes
+  and `index` and `series` -1, no `value`, when the pointer leaves the plot or the chart. `Chart.hoverIndex` and `hoverSeries`
+  hold the same. A chart is not focusable, but it counts as a widget for `ui.pointerOverUi` and `ui.widgetAt`, so a click on
+  it does not reach the world. `game.mouseMove([x, y])` and one `game.step()` hover it in a test; a chart is also listed in
+  `ui.state` as kind `Chart`.
+
 ## A studio intro: a video that any button skips
 
 A game that opens with a logo film uses a `Video` component and a few lines of script. It is not part of the kit (the

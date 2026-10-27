@@ -2075,3 +2075,51 @@ TEST_CASE("tooltips: a script function can give the text, and showTooltip stays 
     t.frame(2);
     CHECK_FALSE(t.w.ui_tooltip().shown);
 }
+
+TEST_CASE("Chart: the sample under the pointer is written to the component and sent as ui.chartHover when it changes") {
+    Ui t;
+    Entity e = t.add<Chart>("sales", {10, 10}, {200, 100});
+    Chart& c = *t.w.get<Chart>(e);
+    c.values = Json::array({10, 20, 40, 30});  // four bars of 47 units each in the 188 wide plot (padding 6)
+    c.padding = 6;
+    auto chart_events = [&] {
+        std::vector<Json> out;
+        for (const GameEvent& g : t.w.events().game)
+            if (g.name == "ui.chartHover") out.push_back(g.data);
+        t.w.events().game.clear();
+        return out;
+    };
+    t.ui.set_pointer({20, 60}, false);  // plot x = 16 .. 204: the first slot is 16 .. 63
+    t.frame();
+    std::vector<Json> ev = chart_events();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["id"] == "sales");
+    CHECK(ev[0]["index"] == 0);
+    CHECK(ev[0]["series"] == 0);
+    CHECK(ev[0]["value"].get<double>() == 10.0);
+    CHECK(c.hoverIndex == 0);
+    t.frame();
+    CHECK(chart_events().empty());  // the same sample: nothing new
+    t.ui.set_pointer({100, 60}, false);  // slot 1 (63 .. 110)... x = 100 is in slot 1
+    t.frame();
+    ev = chart_events();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["index"] == 1);
+    CHECK(c.hoverIndex == 1);
+    t.ui.set_pointer({300, 60}, false);  // off the chart
+    t.frame();
+    ev = chart_events();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["index"] == -1);
+    CHECK(ev[0]["series"] == -1);
+    CHECK(!ev[0].contains("value"));
+    CHECK(c.hoverIndex == -1);
+    CHECK(t.ui.hovered() == kNullEntity);  // a Chart is not focusable or hoverable like a control
+    t.ui.set_pointer({20, 60}, false);
+    t.frame();
+    chart_events();
+    t.ui.reset();  // a scene load forgets the state (and the virtual pointer): the next frame reports the sample again
+    t.ui.set_pointer({20, 60}, false);
+    t.frame();
+    CHECK(chart_events().size() == 1);
+}
