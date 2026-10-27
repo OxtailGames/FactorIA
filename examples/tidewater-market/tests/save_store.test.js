@@ -4,7 +4,7 @@ import { storage, session, scene, platform } from "factoria";
 import { smallTown, fillHouses, runDays } from "./town_helper.js";
 import { createGame } from "../scripts/game/state.js";
 import { VERSION } from "../scripts/game/savegame.js";
-import { SLOTS, writeEntry, readMeta, listSlots, latestEntry, loadEntry, renameEntry, deleteEntry, deleteSlot, dataKey, metaKey, cleanName } from "../scripts/game/save_store.js";
+import { SLOTS, writeEntry, readMeta, listSlots, latestEntry, loadEntry, renameEntry, deleteEntry, deleteSlot, dataKey, metaKey, pictureKey, cleanName } from "../scripts/game/save_store.js";
 import slotV1 from "./fixtures/slot_v1.json";
 import { Autosaver } from "../scripts/game/autosave.js";
 import { syncCloud, pickWinner, cloudKey, listConflicts, takeConflict } from "../scripts/game/cloud_sync.js";
@@ -267,4 +267,50 @@ test("a slot written by the first version of the game (tests/fixtures/slot_v1.js
   const res = loadEntry(2, "manual", createGame({ testMap: true }).data);
   expect(res.ok).toBe(true);
   expect(res.state.hash()).toBe(slotV1.meta.hash);
+});
+
+test("a slot picture belongs to its entry: written with it, replaced by the next write, removed with it and by a cloud pull", async () => {
+  storage.clear();
+  game.platform.reset();
+  const state = town(2);
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="; // 1 x 1 PNG
+  expect(writeEntry(1, "manual", state, { picture: png }).ok).toBe(true);
+  expect(storage.get(pictureKey(1, "manual"), null)).toBe(png);
+  expect(storage.get(pictureKey(1, "auto"), null)).toBe(null); // the autosave is another entry
+  expect(writeEntry(1, "manual", state, { picture: null }).ok).toBe(true); // this game has none: the old one must not stay
+  expect(storage.get(pictureKey(1, "manual"), null)).toBe(null);
+  writeEntry(2, "manual", state, { picture: png });
+  writeEntry(2, "auto", state, { picture: png, async: true }).written; // storage.get sees an async write at once
+  expect(storage.get(pictureKey(2, "auto"), null)).toBe(png);
+  deleteEntry(2, "manual");
+  expect(storage.get(pictureKey(2, "manual"), null)).toBe(null);
+  expect(storage.get(pictureKey(2, "auto"), null)).toBe(png);
+  deleteSlot(2);
+  expect(storage.get(pictureKey(2, "auto"), null)).toBe(null);
+  // a copy that comes from the cloud is another game: the picture of the entry it replaces goes
+  writeEntry(3, "manual", state, { picture: png, playSeconds: 10 });
+  const other = town(5);
+  await platform.cloud.save("tm_slot_3", { revision: 900, meta: { ...readMeta(3, "manual"), revision: 900, hash: other.hash(), day: other.clock.day, playSeconds: 400 }, save: JSON.parse(JSON.stringify(storage.get(dataKey(3, "manual")))) });
+  const res = await syncCloud({ isCurrent: () => true });
+  expect(res.ok).toBe(true);
+  expect(readMeta(3, "manual").revision).toBe(900);
+  expect(storage.get(pictureKey(3, "manual"), null)).toBe(null);
+});
+
+test("the autosaver puts a picture of the running game next to the save, or none when it cannot take one", () => {
+  storage.clear();
+  const state = town(2);
+  const saver = new Autosaver(state, { slot: 1, scenario: "sandbox", name: "", playSeconds: 0 });
+  saver.saveManual(1, "Pic");
+  const pic = storage.get(pictureKey(1, "manual"), null);
+  expect(typeof pic).toBe("string");
+  expect(pic.startsWith("iVBORw0KGgo")).toBe(true);
+  saver.held = null; // rememberPicture() found no renderer
+  saver.saveManual(1, "Pic");
+  expect(storage.get(pictureKey(1, "manual"), null)).toBe(null);
+  saver.held = "remembered";
+  saver.saveManual(1, "Pic");
+  expect(storage.get(pictureKey(1, "manual"), null)).toBe("remembered");
+  saver.forgetPicture();
+  expect(saver.held).toBe(undefined);
 });

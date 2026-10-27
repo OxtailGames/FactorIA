@@ -1,6 +1,7 @@
 // @ts-check
-// The picture of a save slot. The engine cannot hand a script a screenshot of the running game as a texture (ENGINE_FEEDBACK FB-0020),
-// so a slot shows a small top-down map of the town instead: at most 48 x 48 cells, one colour each, kept as run-length text.
+// The map thumbnail of a save slot. A save made in a run with a renderer has a real picture of the town (picture.js, FB-0020), which
+// the slot screen shows instead; this top-down map is what a slot shows when it has none: a save made before pictures, a run with no
+// graphics, or an entry that came from the cloud. At most 48 x 48 cells, one colour each, kept as run-length text in the slot meta.
 //
 //   const thumb = makeThumbnail(state);    // { w, h, rows: ["w12s3g5", ...] }  letter + run length, as in thumbRuns
 //   thumbRuns(thumb)                       // [{ row, col, len, kind }] one per run, what the slot screen draws as quads

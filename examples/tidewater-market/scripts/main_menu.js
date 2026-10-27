@@ -35,4 +35,8 @@ export default class MainMenu extends Behaviour {
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());
   }
+
+  onDestroy() {
+    this.slots.destroy(); // frees the slot pictures it made
+  }
 }

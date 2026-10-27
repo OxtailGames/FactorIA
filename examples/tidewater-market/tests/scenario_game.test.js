@@ -1,7 +1,8 @@
 // A scenario on the game screen: the goal panel, the toast and the win screen, and the Save entry of the pause menu.
 import { test, expect, game } from "factoria:test";
 import { storage, scene, session } from "factoria";
-import { readMeta, hasData } from "../scripts/game/save_store.js";
+import { readMeta, hasData, pictureKey } from "../scripts/game/save_store.js";
+import { takePicture } from "../scripts/game/picture.js";
 
 const MENU = "scenes/menu.scene.json";
 const GAME = "scenes/game.scene.json";
@@ -102,6 +103,7 @@ test("pause menu: Save game opens the slots, saves into one (asking before it re
   const ctl = start({ slot: 0, scenario: "sandbox", name: "" });
   tap("pause");
   expect(game.paused).toBe(true);
+  const withMenu = takePicture(); // what a capture now would show: the pause menu over the town
   expect(game.find("pause_save").get("Button").text).toBe("Save game");
   game.click("pause_save");
   game.step(2);
@@ -117,6 +119,15 @@ test("pause menu: Save game opens the slots, saves into one (asking before it re
   expect(readMeta(2, "manual").hash).toBe(ctl.state.hash());
   expect(ctl.run.slot).toBe(2); // the game belongs to the slot it was saved into: it autosaves there from now on
   expect(game.find("slots_message").get("Text").text).toBe("Saved to slot 2");
+  // The slot has a real picture of the town (taken before the menu opened, so not the menu), and its row shows it.
+  const pic = storage.get(pictureKey(2, "manual"), null);
+  expect(typeof pic).toBe("string");
+  expect(pic.startsWith("iVBORw0KGgo")).toBe(true); // a PNG file in Base64
+  expect(pic).not.toBe(withMenu);
+  const shown = game.find("slot_2_thumb").children;
+  expect(shown.length).toBe(1);
+  expect(shown[0].get("Panel").texture.startsWith("runtime:")).toBe(true);
+  expect(game.find("slot_1_thumb").children[0].get("Panel").texture).toBe(""); // an empty slot: a plain square
   game.screenshot(".factoria/tmp/save_slots.png");
   const first = readMeta(2, "manual").revision;
   game.click("slot_2_main"); // a slot that is taken: ask first

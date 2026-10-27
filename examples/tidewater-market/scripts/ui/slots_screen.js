@@ -14,9 +14,10 @@
 // The widget ids are stable and public (tests and the tour use them):
 //   slots_continue, slot_<n>_main (Load / New game / Save here), slot_<n>_auto, slot_<n>_rename, slot_<n>_delete, slots_back,
 //   scenario_<id>, scenario_back, confirm_yes, confirm_no, rename_field, rename_ok, rename_cancel
-import { world, ui, i18n, game } from "factoria";
+import { world, ui, i18n, game, storage } from "factoria";
 import { getData } from "../game/data.js";
-import { SLOTS, listSlots, latestEntry, loadEntry, renameEntry, deleteSlot, readMeta } from "../game/save_store.js";
+import { SLOTS, listSlots, latestEntry, loadEntry, renameEntry, deleteSlot, readMeta, pictureKey } from "../game/save_store.js";
+import { showPicture } from "../game/picture.js";
 import { scenarioIds } from "../game/scenarios.js";
 import { syncCloud, removeQuietly, listConflicts } from "../game/cloud_sync.js";
 import { thumbRuns, THUMB_COLORS } from "../game/thumbnail.js";
@@ -68,6 +69,8 @@ export class SlotsScreen {
     this.pendingSlot = 0;
     this.confirmAction = /** @type {null | (() => void)} */ (null);
     this.off = /** @type {Array<() => void>} */ ([]);
+    /** The picture textures on show, by slot: made in drawThumb, destroyed when the slot is drawn again and in destroy(). */
+    this.pictures = /** @type {Map<number, import("factoria").Texture>} */ (new Map());
     this.build();
     this.bind();
   }
@@ -202,7 +205,17 @@ export class SlotsScreen {
   destroy() {
     for (const off of this.off) off();
     this.off = [];
+    this.freePictures();
     for (const p of [this.slots, this.scenarios, this.confirm, this.rename]) if (p && p.alive) p.destroy();
+  }
+
+  /** Destroy the picture textures of these slots (all when none are named): the engine allows 32 at a time. */
+  freePictures(slots = [...this.pictures.keys()]) {
+    for (const n of slots) {
+      const tex = this.pictures.get(n);
+      if (tex) tex.destroy();
+      this.pictures.delete(n);
+    }
   }
 
   // ---- actions -------------------------------------------------------------------------------------------------------
@@ -362,7 +375,7 @@ export class SlotsScreen {
     world.find(`slot_${n}_auto`).get("Button").interactable = !!auto;
     world.find(`slot_${n}_rename`).get("Button").interactable = !!manual && !!meta;
     world.find(`slot_${n}_delete`).get("Button").interactable = !!manual || !!auto;
-    this.drawThumb(world.find(`slot_${n}_thumb`), meta ? meta.thumb : null);
+    this.drawThumb(n, world.find(`slot_${n}_thumb`), meta ? meta.thumb : null, !!manual);
   }
 
   scenarioName(id) {
@@ -371,11 +384,21 @@ export class SlotsScreen {
     return text === key ? id : text;
   }
 
-  /** The thumbnail as rows of coloured rectangles (run-length: one rectangle per run). */
-  drawThumb(panel, thumb) {
+  /**
+   * The picture of slot n: the saved screenshot (storage key .pic) as a Panel with a texture, or when the entry has none (an older
+   * save, a run that could not capture) the thumbnail as rows of coloured rectangles (run-length: one rectangle per run).
+   */
+  drawThumb(n, panel, thumb, hasSave = true) {
     for (const old of [...panel.children]) {
       old.active = false;
       old.destroy();
+    }
+    this.freePictures([n]); // nothing draws the last one any more
+    const pic = hasSave ? showPicture(storage.get(pictureKey(n, "manual"), null)) : null;
+    if (pic) {
+      this.pictures.set(n, pic);
+      world.spawn({ components: { Panel: { size: [THUMB_BOX, THUMB_BOX], texture: pic.id, color: [1, 1, 1, 1], layer: this.layer + 4 } } }, { parent: panel });
+      return;
     }
     if (!thumb || !Array.isArray(thumb.rows) || !(thumb.w > 0) || !(thumb.h > 0)) {
       world.spawn({ components: { Panel: { size: [THUMB_BOX, THUMB_BOX], color: [0.08, 0.1, 0.14, 1], layer: this.layer + 4 } } }, { parent: panel });
