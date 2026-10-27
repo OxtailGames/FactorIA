@@ -14,7 +14,7 @@
 // (interactable kind "puzzle") and, for the letter, from the Items page.
 //
 // Opening a screen locks the porter ("screen") and tells the camera script to ignore drags (scripts/ui/screen_state.js). Escape
-// is ui_cancel and "pause" at once, so MenuStack.busy keeps the pause menu away while a screen is open and two frames after.
+// is ui_cancel and "pause" at once: the cancel handler returns true, which consumes the press so the pause menu stays shut.
 // Closing releases the porter two frames later too: the click or press that closed the screen must not also walk him.
 //
 // The 3D view of an item is a second perspective Camera, spawned at run time, that draws a small stage far from the lodge
@@ -30,7 +30,6 @@
 // pitch, zoom, item}).
 import { Behaviour, ui, input, world, i18n } from "factoria";
 import { EVENTS } from "./events.js";
-import { MenuStack } from "./ui/menu_stack.js";
 import { screenState } from "./ui/screen_state.js";
 import * as kit from "./ui/kit.js";
 import * as items from "./items.js";
@@ -92,14 +91,17 @@ export default class Screens extends Behaviour {
     notebook.markSeen();
     world.on(EVENTS.flagChanged, () => this.announceClues());
     ui.on("click", (e) => this.onClick(e.entity.id));
-    ui.on("cancel", () => this.mode && this.back());
+    ui.on("cancel", () => {
+      if (!this.mode) return false;
+      this.back();
+      return true;
+    });
   }
 
   /** The scene is going away (an area change, a chapter fade, a load): a screen left open must not leave the lodge locked. */
   onDestroy() {
     if (this.mode || this.releaseIn > 0) {
       screenState.open = false;
-      MenuStack.busy = false;
     }
     this.mode = null;
     this.releaseIn = 0;
@@ -182,7 +184,6 @@ export default class Screens extends Behaviour {
     this.releaseIn = 0;
     this.porterBehaviour()?.lock("screen");
     screenState.open = true;
-    MenuStack.busy = true;
   }
 
   /** One step back: a puzzle opened from the Items page returns to it, anything else closes. */
@@ -229,7 +230,6 @@ export default class Screens extends Behaviour {
     if (this.releaseIn > 0 && --this.releaseIn === 0) {
       this.porterBehaviour()?.unlock("screen");
       screenState.open = false;
-      MenuStack.busy = false;
     }
     this.updateHud();
     if (!this.mode) {

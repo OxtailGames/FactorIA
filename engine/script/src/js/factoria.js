@@ -989,6 +989,10 @@
   const players = [];  // input.player(i) objects, made on first use
   const input = {
     down: (a) => N.inAction(0, a), pressed: (a) => N.inAction(1, a), released: (a) => N.inAction(2, a),
+    // consume(action): this frame's press of the action is handled; later readers (input.pressed of the same action or of any
+    // action that shares one of its bindings) read false until the next frame. The UI consumes ui_submit when it clicks a
+    // focused Button or Toggle, and ui_cancel when a ui.on("cancel") handler returns true or a drag takes it.
+    consume: (a) => N.inConsume(a),
     // value(action): 0..1, analog for gamepad sticks and triggers (the action is "down" from 0.5). axis() and vector() are analog too.
     value: (a) => N.inValue(a),
     axis: (neg, pos) => N.inAxis(neg, pos),
@@ -1056,6 +1060,12 @@
     // True while the platform shows its own keyboard for the focused TextField (the Steam Deck's, through a native plugin):
     // the menu kit's on-screen keyboard stays closed then. Read-only; false without such a plugin.
     get platformKeyboard() { return N.inCursor(3); },
+    // Text input mode: true while a TextField has the focus (the engine sets it) or a script turned it on. Actions bound to
+    // printable keys (letters, digits, Space, punctuation) read as not down / pressed meanwhile, so typing P does not pause. A
+    // script that runs its own text entry (the menu kit's on-screen keyboard) sets it true while it is open and false after;
+    // setting it never turns off the TextField's own mode, and a scene load turns the script's flag off.
+    get textInputMode() { return N.inCursor(4); },
+    set textInputMode(on) { N.inCursor(4, !!on); },
     // The system Back button or gesture (Android). Handlers run newest first at the start of the frame; the first one that
     // does not return false consumes the press. When none does (or there is none), the game quits, as Back always did.
     // Handlers end with the scene, like ui.on. Returns the function that removes the handler.
@@ -1883,6 +1893,10 @@
       }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
+        if (type === "cancel") {  // a handler that returns true handled the press: input.pressed("ui_cancel" | "pause"...) reads false after it
+          if (fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous }) === true) N.inConsume("ui_cancel");
+          return;
+        }
         if (type === "chartHover") fn({ type, id: data?.id ?? null, entity: source, index: data?.index ?? -1, series: data?.series ?? -1, value: data?.value });
         else fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous });
       }, null);
@@ -3748,7 +3762,7 @@
   }
 
   function resetScene() {
-    voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
+    voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }

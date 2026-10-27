@@ -10,7 +10,6 @@ import * as puzzles from "../scripts/puzzles.js";
 import * as notebook from "../scripts/notebook.js";
 import * as save from "../scripts/save_data.js";
 import { screenState } from "../scripts/ui/screen_state.js";
-import { MenuStack } from "../scripts/ui/menu_stack.js";
 import strings from "../locales/en.json";
 
 const screens = () => game.find("screens").behaviour;
@@ -40,7 +39,6 @@ describe("opening and closing", () => {
     expect(screens().tab).toBe("notebook");
     expect(porter().behaviour.locked).toBe(true);
     expect(screenState.open).toBe(true);
-    expect(MenuStack.busy).toBe(true);
     expect(game.find("hud_items").active).toBe(false);
     const yaw = cam().behaviour.yaw;
     game.mouseMove([200, 300]);
@@ -71,7 +69,6 @@ describe("opening and closing", () => {
     game.step(4);
     expect(porter().behaviour.locked).toBe(false);
     expect(screenState.open).toBe(false);
-    expect(MenuStack.busy).toBe(false);
     expect(game.find("hud_items").active).toBe(true);
   });
 
@@ -109,12 +106,10 @@ describe("opening and closing", () => {
   test("a scene change with a screen open never leaves the lodge locked", () => {
     screens().open("items");
     game.step(3);
-    expect(MenuStack.busy).toBe(true);
     game.load("scenes/cellar.scene.json", { arrive: "spawn_default" });
     game.step(30);
     expect(scene.current).toBe("scenes/cellar.scene.json");
     expect(screenState.open).toBe(false);
-    expect(MenuStack.busy).toBe(false);
     expect(porter().behaviour.locked).toBe(false);
     expect(screens().mode).toBe(null);
   });

@@ -22,7 +22,6 @@ import * as dialogue from "./dialogue.js";
 import * as cutscene from "./cutscene.js";
 import { cast } from "./dialogue_data.js";
 import { load, CAPTION_BACKGROUNDS, AUTO_ADVANCE } from "./settings.js";
-import { MenuStack } from "./ui/menu_stack.js";
 
 /** Seconds after a line appears during which presses do nothing: the press that opened or ended the last line is still down. */
 const SETTLE = 0.2;
@@ -98,7 +97,11 @@ export default class DialogueView extends Behaviour {
     ui.on("click", "dlg_log_button", () => this.toggleLog(true));
     ui.on("click", "dlg_log_close", () => this.toggleLog(false));
     this.choiceButtons.forEach((b, i) => ui.on("click", b.id, () => this.pick(i)));
-    ui.on("cancel", () => this.logOpen && this.toggleLog(false));
+    ui.on("cancel", () => {
+      if (!this.logOpen) return false;
+      this.toggleLog(false);
+      return true; // Escape closed the log: ui_cancel is consumed, so "pause" does not open the pause menu on the same press
+    });
     i18n.on("change", () => this.retranslate());
   }
 
@@ -226,7 +229,6 @@ export default class DialogueView extends Behaviour {
 
   onUpdate(dt) {
     dialogue.tick(dt);
-    if (this.busyFrames > 0 && --this.busyFrames === 0) MenuStack.busy = false;
     if (this.settle > 0) this.settle -= dt;
     // A cut-scene covers the conversation that asked for it: the box goes away and comes back (with the same line) when it is over.
     const covered = cutscene.active();
@@ -277,9 +279,6 @@ export default class DialogueView extends Behaviour {
     if (open) this.focusBefore = ui.focused;
     this.logOpen = open;
     this.logPanel.active = open;
-    // Escape is ui_cancel (closes the log) and "pause" at once: while the log is open, and for two frames after, the pause menu waits.
-    if (open) MenuStack.busy = true;
-    else this.busyFrames = 2;
     for (const e of this.logEntries) e.destroy();
     this.logEntries = [];
     if (!open) {

@@ -317,6 +317,7 @@ struct Panel : UiBox {
     Vec2 maxSize{0, 0};                       // upper bound of the size, per axis (0 = none); holds when fit is true too
     bool uniformSize = false;                 // autoSize buttons / toggles / sliders inside share the largest size
     bool modal = false;                       // while active: only the widgets inside it get the pointer, the wheel and navigation
+    bool wheelPassThrough = false;            // modal only: the wheel is left to scripts (input.mouse.wheel) instead of consumed
     UiLayout fallbackLayout = UiLayout::None; // layout used instead of `layout` when that would not fit the screen
     bool usingFallback = false;               // runtime: laid out with fallbackLayout right now
 };
