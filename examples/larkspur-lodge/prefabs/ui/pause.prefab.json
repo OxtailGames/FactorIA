@@ -50,6 +50,28 @@
             }
           },
           {
+            "id": "pause_save",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Save game",
+                "key": "pause.save",
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "pause_load",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Load game",
+                "key": "pause.load",
+                "layer": 302
+              }
+            }
+          },
+          {
             "id": "pause_options",
             "components": {
               "Button": {
