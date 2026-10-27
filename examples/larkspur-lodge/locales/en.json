@@ -15,7 +15,9 @@
     "credits": "Credits",
     "shop": "Shop",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "load": "Load game",
+    "chapters": "Chapter select"
   },
   "options": {
     "title": "Options",
@@ -94,7 +96,9 @@
   "pause": {
     "title": "Paused",
     "resume": "Resume",
-    "mainMenu": "Main menu"
+    "mainMenu": "Main menu",
+    "save": "Save game",
+    "load": "Load game"
   },
   "prompt": {
     "format": "[{key}] {verb} {name}",
@@ -524,5 +528,63 @@
     "log": "Log",
     "logTitle": "Conversation log",
     "close": "Close"
+  },
+  "keyboard": {
+    "space": "Space",
+    "delete": "Delete",
+    "done": "Done"
+  },
+  "slots": {
+    "titleSave": "Save game",
+    "titleLoad": "Load game",
+    "empty": "Slot {n}: empty",
+    "emptyAuto": "Autosave: empty",
+    "used": "Slot {n}: {name}\nChapter {chapter}, {time}",
+    "usedAuto": "Autosave: {name}\nChapter {chapter}, {time}",
+    "damaged": "Slot {n}: damaged (delete it to free the slot)",
+    "damagedAuto": "Autosave: damaged (delete it)",
+    "damagedNote": "A slot cannot be read. Delete it, or load another.",
+    "unnamed": "Unnamed",
+    "autoName": "autosave",
+    "delete": "Delete",
+    "nameTitle": "Name the save in slot {n}",
+    "namePlaceholder": "Name this save",
+    "confirmSave": "Save",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete slot {n}?",
+    "confirmDelete": "Delete",
+    "saved": "Saved to slot {n}.",
+    "noGame": "There is no game to save yet.",
+    "noCutscene": "You cannot save during a cut-scene.",
+    "noDialogue": "You cannot save during a conversation.",
+    "busy": "You cannot save right now."
+  },
+  "chapterSelect": {
+    "title": "Chapter select",
+    "note": "Start the night again from a chapter you have reached.",
+    "chapter": "Chapter {n}: {title}",
+    "locked": "Chapter {n}: not reached yet"
+  },
+  "ach": {
+    "ending_dawn": {
+      "name": "Dawn at the Lodge",
+      "desc": "Reach the dawn ending."
+    },
+    "ending_quiet": {
+      "name": "A Quiet Morning",
+      "desc": "Reach the quiet ending."
+    },
+    "ending_long": {
+      "name": "The Long Night",
+      "desc": "Reach the long night ending."
+    },
+    "all_endings": {
+      "name": "Every Dawn",
+      "desc": "Reach all three endings."
+    },
+    "all_clues": {
+      "name": "Nothing Missed",
+      "desc": "Find every clue in one night."
+    }
   }
 }

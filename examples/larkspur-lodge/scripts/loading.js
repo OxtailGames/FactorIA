@@ -11,7 +11,10 @@ export default class Loading extends Behaviour {
     const go = () => {
       if (this.gone) return; // this scene was left first (a test that moved on): the Promise must not load a scene now
       this.loading = true;
-      scene.load(session.nextScene);
+      // A loaded save (scripts/saves.js launch) asks for the porter to stand where it was saved (scripts/area.js, `restore`).
+      const restore = session.loadRestore === true;
+      session.loadRestore = false;
+      scene.load(session.nextScene, restore ? { restore: true } : undefined);
     };
     this.job.promise.then(go, go);
   }

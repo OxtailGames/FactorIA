@@ -1,0 +1,380 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Slots",
+    "components": {
+      "Panel": {
+        "size": [980, 640],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 10,
+        "padding": [20, 16, 20, 16],
+        "color": [0.06, 0.07, 0.1, 0.97]
+      }
+    },
+    "children": [
+      {
+        "id": "slots_title",
+        "components": {
+          "Text": {
+            "text": "Save game",
+            "fontSize": 36,
+            "space": "screen",
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "slots_note",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 20,
+            "space": "screen",
+            "layer": 301,
+            "maxWidth": 900
+          }
+        }
+      },
+      {
+        "id": "slots_list",
+        "components": {
+          "ScrollList": {
+            "size": [940, 420],
+            "layer": 301,
+            "spacing": 8,
+            "padding": [6, 6, 6, 6],
+            "color": [0, 0, 0, 0.25]
+          }
+        },
+        "children": [
+          {
+            "id": "row_auto",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_auto",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_auto",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "delete_auto",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_1",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_1",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_1",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "delete_1",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_2",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_2",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_2",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "delete_2",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_3",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_3",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_3",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "delete_3",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_4",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_4",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_4",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "delete_4",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_5",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_5",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_5",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "delete_5",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "slots_back",
+        "tags": ["back"],
+        "components": {
+          "Button": {
+            "text": "Back",
+            "key": "menu.back",
+            "autoSize": true,
+            "layer": 302
+          }
+        }
+      }
+    ]
+  }
+}
