@@ -1,0 +1,7 @@
+{
+  "format": "larkspur.save/1",
+  "area": "upstairs",
+  "spawn": { "position": [1.5, 0.95, -2], "yaw": 90 },
+  "story": { "flags": { "chapter": 2, "know_oil": true }, "counters": { "trust_hedda": 2 } },
+  "inventory": ["library_key"]
+}
