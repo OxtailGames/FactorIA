@@ -4,6 +4,18 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Input routing: a consumed action, text input mode and the wheel under a modal
+
+- `input.consume(action)`: later readers in the frame see the press as gone, for the action and for every action on the
+  same key (Escape is `ui_cancel` and `pause`). The UI consumes `ui_submit` when it clicks a focused Button or Toggle and
+  `ui_cancel` when a drag takes it or a `ui.on("cancel")` handler returns `true`, so Escape closes a dialog without also
+  opening the pause menu (LL/FB-0008).
+- `input.textInputMode`: true while a TextField has the focus (or a script set it); actions bound to printable keys read
+  as up meanwhile, so typing P in a TextField does not pause. The menu kit's on-screen keyboard sets it, its
+  `ui.on("cancel")` returns `true`, and `MenuStack.busy` resets when a scene builds a `MenuStack` (LL/FB-0503).
+- `Panel.wheelPassThrough`: a modal Panel leaves the mouse wheel to scripts (LL/FB-0012).
+- Larkspur Lodge drops its `MenuStack.busy` routing around the dialogue log, the screens and the save dialog.
+
 Every hit of a ray, and colliders you can switch off
 
 - `physics.raycast3dAll(origin, dir, maxDistance, opts)` and `raycast2dAll(from, to, opts)` return every collider the ray

@@ -375,6 +375,20 @@ public:
     static constexpr float kActionDownThreshold = 0.5f;
     bool action_down(std::string_view action) const;
     bool action_pressed(std::string_view action) const;   // became down this frame (analog too)
+    // A reader handled this frame's press of `action`: from now until the next begin_frame() the press reads as gone, for
+    // that action and for every other action that shares one of its bindings (Escape is "pause" and "ui_cancel": the UI
+    // consumes ui_cancel when a widget handles it, so the pause handler that reads "pause" later sees nothing). Only the
+    // press edge (action_pressed) is taken away; action_down and action_value keep reading the held input. Applies to
+    // the global actions, not to player_action_*. An unknown action is ignored.
+    void consume_action(std::string_view action);
+    // Text input mode: while a TextField (or a script's on-screen keyboard, set_script_text_input) has the focus, the
+    // typed keys belong to the text. An action bound to a printable key (letters, digits, Space, punctuation, alone or
+    // with Shift; not Enter, Escape, arrows, F keys or a Ctrl/Alt/Super chord) reads as up for that binding: action_down,
+    // action_pressed, action_released and action_value ignore it. The UI sets the first flag from the focus each frame;
+    // a script sets the second one.
+    void set_ui_text_input(bool on) { uiTextInput_ = on; }
+    void set_script_text_input(bool on) { scriptTextInput_ = on; }
+    bool text_input_mode() const { return uiTextInput_ || scriptTextInput_; }
     bool action_released(std::string_view action) const;
     // 0..1: the maximum over the action's bindings. Keys, mouse, touch and pad buttons give 0 or 1; a half-axis binding
     // such as GamepadLeftStickRight gives the stick's push in that direction after the deadzone (0 at rest, 1 at full
@@ -551,6 +565,13 @@ private:
     std::array<bool, size_t(MouseButton::Count)> mouseReleasedEdge_{};
     Vec2 mouse_{}, mouseDelta_{};
     float wheel_ = 0.0f;
+    bool uiTextInput_ = false, scriptTextInput_ = false;
+    std::vector<std::string> consumedActions_;  // consume_action() of this frame
+    std::vector<Binding> consumedBindings_;     // their pressed bindings: another action on the same input is consumed too
+    bool binding_consumed(const Binding& b) const;
+    bool binding_typed(const Binding& b) const;  // a printable key that text input mode takes
+    // The bindings of a list that can be read now: not the typed ones and, for a press, not the consumed ones.
+    std::vector<Binding> readable(const std::vector<Binding>& list, bool forPress) const;
     std::vector<Touch> touches_;
     bool touchDown_ = false, prevTouchDown_ = false;
     bool touchPressedEdge_ = false, touchReleasedEdge_ = false;

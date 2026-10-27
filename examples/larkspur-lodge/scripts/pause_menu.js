@@ -30,7 +30,6 @@ export default class PauseMenu extends Behaviour {
       panel.active = false;
     }
     this.pic = null;
-    this.cancelled = false;
     this.slots = new SlotScreen(this.menus, { getPic: () => this.pic });
     progress.watch();
     ui.on("click", "resume", () => this.resume());
@@ -44,10 +43,13 @@ export default class PauseMenu extends Behaviour {
     });
     ui.on("click", (e) => e.entity.hasTag("back") && this.back());
     // ui_cancel (Escape, gamepad B) goes back one panel. Escape is also "pause": onUpdate handles that press.
-    // While the save dialog is on top it takes the press itself (typing a name blocks the pause key, so Escape reaches only here).
+    // While the save dialog is on top it takes the press itself: returning true consumes ui_cancel, so "pause" reads false
+    // in onUpdate. A screen or the dialogue log that closed on the same press consumed it already: nothing to do here.
     ui.on("cancel", () => {
-      if (this.slots.cancel()) this.cancelled = true;
-      else if (!input.pressed("pause")) this.back();
+      if (!input.pressed("ui_cancel")) return false;
+      if (this.slots.cancel()) return true;
+      if (!input.pressed("pause")) this.back();
+      return false;
     });
   }
 
@@ -62,8 +64,7 @@ export default class PauseMenu extends Behaviour {
     this.slots.tick();
     if (!game.paused) this.keepGame();
     // The pause key opens the menu, and inside it goes back one panel like ui_cancel (from the pause panel: resume).
-    if (input.pressed("pause") && !MenuStack.busy && !this.cancelled) game.paused ? this.back() : this.pause();
-    this.cancelled = false;
+    if (input.pressed("pause") && !MenuStack.busy) game.paused ? this.back() : this.pause();
   }
 
   /** Each running frame: counts the play time and autosaves when a new chapter has begun and the game can be saved. */

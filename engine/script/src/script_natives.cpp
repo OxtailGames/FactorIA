@@ -1678,6 +1678,15 @@ NATIVE(inAction) {
     return JS_NewBool(ctx, kind == 0 ? in.action_down(a) : kind == 1 ? in.action_pressed(a) : in.action_released(a));
 }
 
+NATIVE(inConsume) {  // (action): the press of the action is handled; later readers this frame see it as not pressed
+    SETUP;
+    std::string a = arg_str(ctx, argc, argv, 0);
+    JSValue exc = JS_UNDEFINED;
+    if (!check_action(I, ctx, a, exc)) return exc;
+    I->host->input().consume_action(a);
+    return JS_UNDEFINED;
+}
+
 NATIVE(inAxis) {
     SETUP;
     std::string n = arg_str(ctx, argc, argv, 0), p = arg_str(ctx, argc, argv, 1);
@@ -2229,7 +2238,7 @@ NATIVE(testVibrations) {
     return I->from_json(Json(I->host->input().vibrations()));
 }
 
-NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only), value?): sets when given; returns the state
+NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only)|4 text input mode (sets the script flag), value?): sets when given; returns the state
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     Input& in = I->host->input();
@@ -2238,9 +2247,11 @@ NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 p
         if (kind == 0) in.set_mouse_visible(v);
         else if (kind == 1) in.set_mouse_locked(v);
         else if (kind == 2) in.set_keyboard_shown(v);
+        else if (kind == 4) in.set_script_text_input(v);
     }
     return JS_NewBool(ctx, kind == 0 ? in.mouse_visible() : kind == 1 ? in.mouse_locked()
-                                                          : kind == 3 ? in.platform_keyboard() : in.keyboard_shown());
+                                                          : kind == 3 ? in.platform_keyboard()
+                                                          : kind == 4 ? in.text_input_mode() : in.keyboard_shown());
 }
 
 // ---- window -----------------------------------------------------------------------------------------------------------
@@ -3634,7 +3645,7 @@ const Reg kRegs[] = {
     R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
     R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
-    R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
+    R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inConsume, 1), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),

@@ -256,6 +256,8 @@ void Input::begin_frame() {
     text_.clear();
     backEdge_ = false;
     pasteEdge_ = false;
+    consumedActions_.clear();
+    consumedBindings_.clear();
 }
 
 void Input::vibrate(float seconds) {
@@ -1192,13 +1194,57 @@ std::vector<std::string> Input::action_names() const {
 
 bool Input::has_action(std::string_view action) const { return actions_.count(std::string(action)) != 0; }
 
+bool Input::binding_typed(const Binding& b) const {
+    if (!text_input_mode() || b.kind != Binding::Kind::Key) return false;
+    if (b.mods & ~modifier::Shift) return false;  // Ctrl, Alt and Super chords are commands, not typing
+    const Key k = b.key;
+    return (k >= Key::A && k <= Key::Num9) || k == Key::Space || (k >= Key::Minus && k <= Key::GraveAccent);
+}
+
+bool Input::binding_consumed(const Binding& b) const {
+    for (const Binding& c : consumedBindings_) {
+        if (c.kind != b.kind) continue;
+        switch (b.kind) {
+            case Binding::Kind::PadButton:
+                if (c.button == b.button) return true;
+                break;
+            case Binding::Kind::PadAxis:
+                if (c.axis == b.axis && c.sign == b.sign) return true;
+                break;
+            default:
+                if (same_input(c, b)) return true;
+        }
+    }
+    return false;
+}
+
+std::vector<Input::Binding> Input::readable(const std::vector<Binding>& list, bool forPress) const {
+    std::vector<Binding> out;
+    out.reserve(list.size());
+    for (const Binding& b : list)
+        if (!binding_typed(b) && !(forPress && binding_consumed(b))) out.push_back(b);
+    return out;
+}
+
+void Input::consume_action(std::string_view action) {
+    auto it = actions_.find(std::string(action));
+    if (it == actions_.end()) return;
+    consumedActions_.emplace_back(action);
+    // Only the bindings that went down this frame: a key that is merely held must not silence another action.
+    View all;
+    all.anyPad = all.pointer = all.keyboard = true;
+    for (const Binding& b : it->second)
+        if (edge_in({b}, all, false)) consumedBindings_.push_back(b);
+}
+
 float Input::action_value(std::string_view action) const {
     std::string key(action);
     if (overrides_.count(key)) return 1.0f;
     auto it = actions_.find(key);
     if (it == actions_.end()) return 0.0f;
     float v = 0.0f;
-    for (const auto& b : it->second) v = std::max(v, binding_value(b, false));
+    for (const auto& b : it->second)
+        if (!binding_typed(b)) v = std::max(v, binding_value(b, false));
     return v;
 }
 
@@ -1206,14 +1252,16 @@ bool Input::action_down(std::string_view action) const { return action_value(act
 
 bool Input::action_pressed(std::string_view action) const {
     std::string name(action);
+    if (std::find(consumedActions_.begin(), consumedActions_.end(), name) != consumedActions_.end()) return false;
     bool wasDown = prevOverrides_.count(name) != 0;
     bool edge = overridePressedEdge_.count(name) != 0;
     auto it = actions_.find(name);
     if (it != actions_.end()) {
         View all;
         all.anyPad = all.pointer = all.keyboard = true;
-        wasDown = wasDown || was_down_in(it->second, all);
-        edge = edge || edge_in(it->second, all, false);
+        const std::vector<Binding> list = readable(it->second, true);
+        wasDown = wasDown || was_down_in(list, all);
+        edge = edge || edge_in(list, all, false);
     }
     return edge && !wasDown;
 }
@@ -1227,8 +1275,9 @@ bool Input::action_released(std::string_view action) const {
     if (it != actions_.end()) {
         View all;
         all.anyPad = all.pointer = all.keyboard = true;
-        wasDown = wasDown || was_down_in(it->second, all);
-        edge = edge || edge_in(it->second, all, true);
+        const std::vector<Binding> list = readable(it->second, false);
+        wasDown = wasDown || was_down_in(list, all);
+        edge = edge || edge_in(list, all, true);
     }
     return wasDown || edge;
 }

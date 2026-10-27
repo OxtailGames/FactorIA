@@ -526,6 +526,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `maxSize` | vec2 | `[0.0,0.0]` | Upper bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is cut to it, also when `fit` is true (a fitted panel stops growing and its content overflows: use a ScrollList or `autoShrink`/`maxWidth` on the texts to keep it readable). When both bounds are set and cross, `minSize` wins. `ui.scale` multiplies it like `size`. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
 | `uniformSize` | bool | `false` | true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children of the panels and lists inside it; active ones only) takes the size of the largest of them, width and height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a grid of level buttons as wide as the widest label. (since 0.2.0) |
 | `modal` | bool | `false` | true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. With several modal panels active the one with the highest `layer` (the later entity on a tie) is the scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too. (not released yet, on main after 0.2.0) |
+| `wheelPassThrough` | bool | `false` | true: a `modal` panel leaves the mouse wheel to scripts instead of consuming it: input.mouse.wheel keeps reading what the player turned (a zoom in an inventory view that is a modal). A ScrollList inside the modal that has more to show still scrolls and keeps the wheel for itself, as before. Only the modal panel that scopes the input counts; no effect on a panel that is not modal. (not released yet, on main after 0.2.0) |
 | `fallbackLayout` | enum: none \\| row \\| column \\| grid | `"none"` | Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`. (since 0.2.0) |
 | `usingFallback` | bool | `false` | Runtime: true while the panel is laid out with `fallbackLayout` instead of `layout`. Read-only. Runtime-only (not saved). (since 0.2.0) |
 
@@ -3645,6 +3646,16 @@ declare module "factoria" {
      */
     readonly keyboardShown: boolean;
     /**
+     * This frame's press of `action` is handled: until the next frame input.pressed() reads false for it and for every other action that shares one of its bindings that went down (Escape is both "pause" and "ui_cancel"). Only the press is taken: down() and value() keep reading the held input, and players (input.player(i)) are not affected. The UI runs before scripts and consumes ui_submit when it clicks a focused Button or Toggle, ui_cancel when a drag took it or when a ui.on("cancel") handler returns true. Call it in your own handler when you take a press that another script would also act on. Unknown actions throw with a suggestion. Example: ui.on("cancel", () => { if (!dialog.open) return false; dialog.close(); return true; });
+     * @since unreleased
+     */
+    consume(action: string): void;
+    /**
+     * True while the player is typing text: a TextField has the focus (the engine sets it) or a script turned it on. Actions bound to printable keys (letters, digits, Space, punctuation, alone or with Shift; not Enter, Escape, arrows, F keys or Ctrl/Alt/Super chords) read as not down, pressed or released meanwhile for those bindings, so typing P in a save-name field does not pause. Assigning true is for a script's own text entry (the menu kit's on-screen keyboard); assigning false only clears the script's flag, a focused TextField keeps the mode on. A scene load clears the script's flag.
+     * @since unreleased
+     */
+    textInputMode: boolean;
+    /**
      * True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only.
      * @since unreleased
      */
@@ -5317,15 +5328,15 @@ declare module "factoria" {
      */
     on(type: "dragStart" | "dragOver" | "drop" | "dragCancel", target: Entity | string, fn: (e: UiDragEvent) => void): () => void;
     /**
-     * Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
+     * Listens to a widget event from any widget. A "cancel" handler that returns true handled the press: input.consume("ui_cancel") is called for it, so the same Escape does not also read as pressed for "pause" or any action on that key later in the frame (Escape closes a dialog and the pause menu stays shut). The click of a focused Button or Toggle pressed by ui_submit is consumed by the UI itself. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
      * @since 0.1.6
      */
-    on(type: "click" | "change" | "submit" | "focus" | "cancel", fn: (e: UiEvent) => void): () => void;
+    on(type: "click" | "change" | "submit" | "focus" | "cancel", fn: (e: UiEvent) => void | boolean): () => void;
     /**
-     * Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
+     * Listens to a widget event from one widget only (a "cancel" handler that returns true consumes ui_cancel, see above); `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
      * @since 0.1.6
      */
-    on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void): () => void;
+    on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void;
     /**
      * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
      * @since 0.1.6
@@ -8752,6 +8763,11 @@ declare module "factoria" {
      */
     modal: boolean;
     /**
+     * true: a `modal` panel leaves the mouse wheel to scripts instead of consuming it: input.mouse.wheel keeps reading what the player turned (a zoom in an inventory view that is a modal). A ScrollList inside the modal that has more to show still scrolls and keeps the wheel for itself, as before. Only the modal panel that scopes the input counts; no effect on a panel that is not modal.
+     * @since unreleased
+     */
+    wheelPassThrough: boolean;
+    /**
      * Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`.
      * @since 0.2.0
      */
@@ -10330,7 +10346,7 @@ declare module "factoria" {
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number; zoom?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
