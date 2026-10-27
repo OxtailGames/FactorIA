@@ -1148,7 +1148,20 @@ void register_builtin_components(TypeRegistry& r) {
             .field("autoShrink", &Button::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &Button::minFontSize, kMinFontSizeDoc).range(1, 4096)
             .field("markup", &Button::markup, kMarkupDoc)
-            .field("bold", &Button::bold, kBoldDoc);
+            .field("bold", &Button::bold, kBoldDoc)
+            .asset_field("icon", &Button::icon, "texture",
+                         "Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. "
+                         "Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it.")
+            .field("iconRegion", &Button::iconRegion,
+                   "Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). "
+                   "A zero size means the whole texture.")
+            .field("iconSize", &Button::iconSize,
+                   "Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32].")
+            .enum_field("iconPosition", &Button::iconPosition, {"left", "top", "alone"},
+                        "left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, "
+                        "the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the "
+                        "button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the "
+                        "label shrinks to the room the icon leaves.");
     }
     {
         auto toggle = r.add<Toggle>("Toggle",

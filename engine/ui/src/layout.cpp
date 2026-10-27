@@ -161,6 +161,16 @@ Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::strin
 Vec2 fitted_size(const Button& b, Vec2 design, const VisualMeasure& m) {
     Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f, b.maxTextScale, {b.markup, b.bold});
     if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth, b.maxTextScale, {b.markup, b.bold});
+    if (!b.icon.empty()) {  // the icon and the label are one group (ui_button_content)
+        const Vec2 is{std::max(0.0f, b.iconSize.x), std::max(0.0f, b.iconSize.y)};
+        if (b.iconPosition == ButtonIconPosition::Alone || label.x <= 0)
+            return {std::max(design.x, std::ceil(is.x + 16.0f)), std::max(design.y, std::ceil(is.y + 16.0f))};
+        if (b.iconPosition == ButtonIconPosition::Top)
+            return {std::max(design.x, std::ceil(std::max(label.x, is.x) + 32.0f)),
+                    std::max(design.y, std::ceil(label.y + is.y + kUiButtonIconGap + 16.0f))};
+        return {std::max(design.x, std::ceil(label.x + is.x + kUiButtonIconGap + 32.0f)),
+                std::max(design.y, std::ceil(std::max(label.y, is.y) + 16.0f))};
+    }
     if (label.x <= 0) return design;
     return {std::max(design.x, std::ceil(label.x + 32.0f)), std::max(design.y, std::ceil(label.y + 16.0f))};
 }

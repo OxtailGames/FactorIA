@@ -239,7 +239,9 @@ the renderers all use the same size, so what a test measures is what is drawn:
   track, knob and value in a 28 px row under it. A `Toggle`'s box is one line of its label high (`fontSize` at the
   player's text size, times 1.2, plus 4 px), centred, and never taller than the widget minus 12 px: a wrapped label or
   an `autoSize` toggle that grew taller does not make the box bigger. `Toggle.autoShrink` and `minFontSize` work like
-  the Button's and fit the label into the room right of the box.
+  the Button's and fit the label into the room right of the box. A `Button` with an `icon` (`iconPosition` `left` or
+  `top`) gives the icon its side of the button: `autoSize` adds the icon's size and a 6 px gap, and `autoShrink` fits the
+  label into what is left. With `iconPosition: "alone"` there is no label and `autoSize` fits the icon.
 - **`ui.overflowed(entityOrId)`** is `true` when a text still does not fit its box at the size it is drawn at (after
   the scale, the cap and the shrink did what they could). `ui.state` has `"overflowed": true` on those widgets and Texts.
   A test: `ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);`

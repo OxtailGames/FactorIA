@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Buttons with an icon
+
+- `Button.icon` (a texture), `iconRegion` (a sprite-sheet frame), `iconSize` and `iconPosition` (`left`, `top` or `alone`)
+  draw an icon inside the button, so a click on the icon presses it. The label sits beside or under the icon, the pair
+  centred; `alone` draws the icon only. `autoSize` grows the button to hold both and `autoShrink` shrinks the label to the
+  room the icon leaves. Tidewater Market's build menu items are Buttons with the building as their icon.
+
 Drag and drop
 
 - `draggable` on any widget or Panel (`true`, or `{ "payload", "slop" }`) lets the player drag it with the mouse, a finger or

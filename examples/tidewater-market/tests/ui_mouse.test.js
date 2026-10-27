@@ -194,7 +194,7 @@ test("tooltips: they wait, say what and which key, stay on the screen and go awa
   // a build menu item names what the building needs and gives
   game.click("cat_production");
   game.step(20);
-  game.mouseMove(centreOf("item_bakery"));
+  game.mouseMove(centreOf("tool_bakery"));
   game.step(40);
   expect(title()).toBe("Bakery");
   const lines = body();

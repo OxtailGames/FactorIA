@@ -149,6 +149,21 @@ void text_left(const Ctx& c, const std::string& s, const std::string& font, floa
     text(c, lay, x, zoneY + (zoneH - lay.size.y) * 0.5f, col, layer, clip);
 }
 
+// A Button's icon: its region of the texture (whole texture for a zero-size region) stretched over `dst`.
+void icon(const Ctx& c, const Button& b, const Rect& dst, int layer, const Rect& clip) {
+    if (dst.empty()) return;
+    TextureAsset* tex = c.f.assets->texture(b.icon);
+    const Rect& reg = b.iconRegion;
+    const bool whole = reg.w <= 0 || reg.h <= 0;
+    const float tw = float(std::max(1, tex->width)), th = float(std::max(1, tex->height));
+    const Vec2 lo = tex->uv(whole ? 0.0f : reg.x, whole ? 0.0f : reg.y);
+    const Vec2 hi = tex->uv(whole ? tw : reg.x + reg.w, whole ? th : reg.y + reg.h);
+    c.list().begin_item(layer, 0, tex, SamplerKind::Linear, BlendMode::Alpha, clip);
+    quad(c, snap(c, dst.x), snap(c, dst.y), snap(c, dst.x + dst.w), snap(c, dst.y + dst.h), lo.x, lo.y, hi.x, hi.y,
+         pack(Color{1, 1, 1, 1}, c.fade));
+    c.list().end_item();
+}
+
 Color scaled(Color k, float mul, float add) { return {k.r * mul + add, k.g * mul + add, k.b * mul + add, k.a}; }
 Color with_alpha(Color k, float a) { return {k.r, k.g, k.b, k.a * a}; }
 
@@ -290,12 +305,17 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     const int layer = b.layer + 1;  // labels and marks; the focus ring is one more
     if (kind == UiKind::Button) {
         const Button& btn = *world.get<Button>(e);
+        const bool alone = !btn.icon.empty() && btn.iconPosition == ButtonIconPosition::Alone;
         // Every line centred (also inside a wrap box); a label that does not fit is cut at the button's edge.
-        const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center,
-                                    btn.autoShrink ? label_px(c, world, e, r) : 0.0f, {btn.markup, btn.bold});
+        const TextLayout lay = alone ? TextLayout{}
+                                     : line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center,
+                                            btn.autoShrink ? label_px(c, world, e, r) : 0.0f, {btn.markup, btn.bold});
+        const UiButtonContent content = ui_button_content(btn, r, lay.size);
         const Rect clip = c.clip.empty() ? to_pixels(c, r) : ui_intersect(to_pixels(c, r), c.clip);
-        if (!clip.empty())
-            text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, clip);
+        if (!clip.empty()) {
+            if (!btn.icon.empty()) icon(c, btn, content.icon, layer, clip);
+            text(c, lay, content.labelPos.x, content.labelPos.y, btn.textColor, layer, clip);
+        }
     } else if (kind == UiKind::Toggle) {
         const Toggle& t = *world.get<Toggle>(e);
         const float side = ui_toggle_box_side(t, r.h, c.f.textScale);
