@@ -219,7 +219,7 @@ What the command does, file by file; do it by hand when you want to see each fil
   the size. The text size has no button in the kit: set `ui.textScale` from `textScale` of the settings the same way.
 - **Controls.** A click on an action's button waits for the next press (`input.lastPressed()`, skipping the frame of the
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
-  `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
+  `MenuStack.busy` keeps Escape and B from closing the panel (and `MenuStack.busy` is cleared whenever a scene builds a new `MenuStack`). `input.buttonName(action)` names the button as the
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
   `input.lastPressed()` gives a chord when modifiers are held ("Ctrl+Z", "Shift+MouseLeft"), so the player records one by
   holding the modifiers and pressing the key; a modifier pressed on its own is taken when it is let go ("LeftShift"), and
@@ -416,6 +416,12 @@ card.ask({
   handler stands down. It does not pause the game: that is `holdClock`, which sets `game.paused` (scripts that must keep
   running meanwhile set `runWhilePaused`). A game with its own clock (a speed control) leaves `holdClock` off and holds
   that clock itself, as Tidewater Market does.
+- **The wheel and Escape under a modal.** A modal consumes the mouse wheel (a ScrollList inside still scrolls); set
+  `wheelPassThrough: true` on it when a script should keep the wheel, such as a zoom in an inventory view. Escape is
+  `ui_cancel` and usually `pause`: a `ui.on("cancel", ...)` handler that closes the panel returns `true`, which consumes
+  the press (`input.consume("ui_cancel")`), so the pause handler of the same frame does not also open the pause menu. While
+  a TextField or the on-screen keyboard has the focus, actions bound to letters read as not pressed (`input.textInputMode`),
+  so typing P does not pause. The kit's `MenuStack` resets `MenuStack.busy` when a scene builds one.
 - **Mouse, keyboard, pad.** The choices are Buttons in a column: up and down (arrows, D-pad, left stick) move between the
   ones that can be chosen, Enter, Space or gamepad A picks, a click picks. The first choice that can be chosen has the focus,
   Continue has it on the result stage. A disabled choice is not focusable and a click on it does nothing: its `disabled`
@@ -821,6 +827,7 @@ export class MenuStack {
 
   /** @param {string | null} root the panel that is always there (the main menu), or null (gameplay: nothing open) */
   constructor(root) {
+    MenuStack.busy = false; // a new scene builds a new stack: a flag a scene that went left on must not block the next one
     this.root = root;
     /** @type {Array<{ id: string, focus: any }>} */
     this.open = root ? [{ id: root, focus: null }] : [];
@@ -2790,6 +2797,7 @@ export default class OnScreenKeyboard extends Behaviour {
 
   onStart() {
     OnScreenKeyboard.isOpen = false;
+    input.textInputMode = false;
     this.panel = world.spawnPrefab("prefabs/ui/keyboard.prefab.json");
     this.panel.id = "keyboard";
     this.panel.active = false;
@@ -2801,7 +2809,11 @@ export default class OnScreenKeyboard extends Behaviour {
     this.ignoreAge = 0;
     ui.on("focus", (e) => this.onFocus(e.entity));
     ui.on("click", (e) => e.entity.hasTag("osk") && this.onClick(e.entity));
-    ui.on("cancel", () => this.field && this.close(false));
+    ui.on("cancel", () => {
+      if (!this.field) return false;
+      this.close(false);
+      return true; // B / Escape closed the keyboard: nothing else acts on this press (ui_cancel is consumed)
+    });
   }
 
   onDestroy() {
@@ -2837,6 +2849,7 @@ export default class OnScreenKeyboard extends Behaviour {
     this.field = field;
     this.shift = false;
     OnScreenKeyboard.isOpen = true;
+    input.textInputMode = true; // the typed keys belong to the keyboard: game actions on letters read as up meanwhile
     this.build(keysFor(i18n.language));
     this.holdOthers();
     this.panel.active = true;

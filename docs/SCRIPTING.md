@@ -272,6 +272,16 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   player's scheme (all the modifier keys of the chord must be in it); mouse chords belong to the shared pointer, like the
   mouse. A chord starts when its input goes down with the modifiers held, or when the last modifier arrives while the
   input is already down.
+- Consumed presses and text input. `input.consume(action)` says this frame's press of the action is handled: until the next
+  frame `input.pressed` reads false for it and for every other action that shares a binding that went down (Escape is
+  `pause` and `ui_cancel`; `down` and `value` keep reading the held input). The UI runs before scripts and consumes
+  `ui_submit` when it clicks a focused Button or Toggle, and `ui_cancel` when a drag took it or when a
+  `ui.on("cancel", fn)` handler returns `true`, so `ui.on("cancel", () => { if (!dialog.open) return false; dialog.close();
+  return true; })` closes a dialog on Escape without the pause handler of the same frame opening the pause menu.
+  `input.textInputMode` is true while a TextField has the focus (or a script set it, for its own text entry such as the
+  menu kit's on-screen keyboard; a scene load clears the script's flag): actions bound to printable keys (letters, digits,
+  Space, punctuation, alone or with Shift) then read as not down, pressed or released for those bindings, so typing P in a
+  save-name field does not pause. Enter, Escape, arrows, F keys and Ctrl/Alt/Super chords stay actions.
 - Mouse: `mouse.position` (screen, top-left origin), `mouse.world` (world coords via the camera under the pointer: the main camera when there is one),
   `mouse.delta`, `mouse.wheel`, `mouse.down("left")`, `mouse.pressed("right")`
 - Touch: `touches` → `[{ id, position, world, pressed }]`. The first finger also drives the mouse (position, and the
@@ -885,7 +895,8 @@ the press is released over the same widget; a Slider follows the pointer while p
   frame's UI update: a game's own click or zoom skips when it is true. `ui.setPointer(x, y, { down })` replaces the
   mouse for the UI from the next frame on (hover, press, Slider drag, click on release, the wheel's target) until
   `ui.setPointer(null)`; use it for a gamepad cursor and in tests. `ui.wheelConsumed` is true on a frame whose wheel
-  scrolled a ScrollList (`input.mouse.wheel` reads 0 then).
+  scrolled a ScrollList (`input.mouse.wheel` reads 0 then). A modal Panel consumes the wheel too, unless it has
+  `wheelPassThrough: true`: then a script under it (a zoom in an inventory view) still reads `input.mouse.wheel`.
 - **Tooltips.** `tooltip` on any widget or Panel is a string (a localization key or plain text) or
   `{ "title", "lines": [text | {text, color}], "args" }`; `ui.setTooltip(entity, fn)` registers a function that returns
   that content when the tooltip is about to show (null: none). It shows after `ui.tooltipDelay` seconds (get / set, 0 to

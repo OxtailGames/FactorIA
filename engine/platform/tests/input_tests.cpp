@@ -1318,3 +1318,56 @@ TEST_CASE("chords: per-player bindings follow the player's scheme and keep the s
     CHECK(in.player_last_pressed(0) == "Ctrl+Z");
     CHECK(in.player_last_pressed(1).empty());
 }
+
+TEST_CASE("consume_action takes the press from the action and from every action on the same key, for the frame") {
+    Input in;
+    in.set_actions(Json::parse(R"({"pause":["P","Escape","GamepadStart"],"ui_cancel":["Escape","GamepadB"],"other":["Q"]})"));
+    in.begin_frame();
+    in.on_key(Key::Escape, true);
+    in.on_key(Key::Q, true);
+    CHECK(in.action_pressed("pause"));
+    CHECK(in.action_pressed("ui_cancel"));
+    in.consume_action("ui_cancel");
+    CHECK_FALSE(in.action_pressed("ui_cancel"));
+    CHECK_FALSE(in.action_pressed("pause"));  // Escape is bound to it too
+    CHECK(in.action_pressed("other"));          // an unrelated key is untouched
+    CHECK(in.action_down("pause"));             // only the press is taken
+    in.begin_frame();
+    in.on_key(Key::Escape, false);
+    in.begin_frame();
+    in.on_key(Key::Escape, true);
+    CHECK(in.action_pressed("pause"));  // the next press is a new one
+    in.consume_action("unknown");       // ignored
+}
+
+TEST_CASE("text input mode: printable keys stop reading as actions, other keys do not") {
+    Input in;
+    in.set_actions(Json::parse(
+        R"({"pause":["P","Escape"],"jump":["Space"],"save":["Ctrl+S"],"shout":["Shift+H"],"confirm":["Enter"],"left":["Left"]})"));
+    in.set_ui_text_input(true);
+    CHECK(in.text_input_mode());
+    in.begin_frame();
+    in.on_key(Key::P, true);
+    in.on_key(Key::Space, true);
+    in.on_key(Key::Enter, true);
+    in.on_key(Key::Left, true);
+    CHECK_FALSE(in.action_pressed("pause"));
+    CHECK_FALSE(in.action_down("pause"));
+    CHECK_FALSE(in.action_pressed("jump"));
+    CHECK(in.action_pressed("confirm"));
+    CHECK(in.action_pressed("left"));
+    in.begin_frame();
+    in.on_key(Key::Escape, true);
+    CHECK(in.action_pressed("pause"));  // Escape is no printable key
+    in.set_ui_text_input(false);
+    in.set_script_text_input(true);
+    CHECK(in.text_input_mode());
+    in.set_script_text_input(false);
+    CHECK_FALSE(in.text_input_mode());
+    in.begin_frame();
+    in.on_key(Key::P, false);
+    in.on_key(Key::Escape, false);
+    in.begin_frame();
+    in.on_key(Key::P, true);
+    CHECK(in.action_pressed("pause"));
+}

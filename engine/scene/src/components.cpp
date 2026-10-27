@@ -1173,6 +1173,11 @@ void register_builtin_components(TypeRegistry& r) {
                    "scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's "
                    "card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but "
                    "still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.")
+            .field("wheelPassThrough", &Panel::wheelPassThrough,
+                   "true: a `modal` panel leaves the mouse wheel to scripts instead of consuming it: input.mouse.wheel keeps "
+                   "reading what the player turned (a zoom in an inventory view that is a modal). A ScrollList inside the "
+                   "modal that has more to show still scrolls and keeps the wheel for itself, as before. Only the modal "
+                   "panel that scopes the input counts; no effect on a panel that is not modal.")
             .enum_field("fallbackLayout", &Panel::fallbackLayout, {"none", "row", "column", "grid"},
                         "Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen "
                         "(none = never switch). The panel leaves the screen when its content size + padding, or the size of "
