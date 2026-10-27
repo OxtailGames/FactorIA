@@ -628,7 +628,7 @@
       },
       {
        "sig": "readonly tilemap: TilemapAPI",
-       "doc": "Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get(\"Tilemap\") answers null instead."
+       "doc": "Single-tile access to this entity's Tilemap component (getTile, setTile, width, height) and the cell <-> world conversion for both projections (cellAt, cellToWorld). Throws if the entity has no Tilemap; entity.get(\"Tilemap\") answers null instead."
       },
       {
        "sig": "readonly video: VideoAPI",
@@ -3651,7 +3651,7 @@
     {
      "kind": "class",
      "name": "TilemapAPI",
-     "doc": "Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.",
+     "doc": "Reads and writes single tiles of a Tilemap (entity.tilemap) and converts between cells and world points (cellAt, cellToWorld) for square and isometric maps. A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.",
      "members": [
       {
        "sig": "getTile(x: number, y: number): number",
@@ -3660,6 +3660,14 @@
       {
        "sig": "setTile(x: number, y: number, tile: number): void",
        "doc": "Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step."
+      },
+      {
+       "sig": "cellAt(point: Vec2Like): { col: number; row: number } | null",
+       "doc": "The cell under a WORLD point, by the entity's transform and the map's `projection` (the square for \"orthogonal\", the diamond for \"isometric\"); null when the point is outside the map. To pick the cell under the mouse pass `camera.screenToWorld(input.mouse.position)`. `cellToWorld(col, row)` is the inverse for the centre of a cell. Example: `const c = ground.tilemap.cellAt(camera.screenToWorld(input.mouse.position)); if (c) ground.tilemap.setTile(c.col, c.row, 3)`."
+      },
+      {
+       "sig": "cellToWorld(col: number, row: number): Vec2",
+       "doc": "The WORLD position of the centre of cell (col, row) (0-based, row 0 = TOP row), by the entity's transform and the map's `projection`: the middle of the square, or of the diamond. The cell may lie outside the map. `cellAt(cellToWorld(c, r))` is `{ col: c, row: r }` for a cell inside the map."
       },
       {
        "sig": "readonly width: number",

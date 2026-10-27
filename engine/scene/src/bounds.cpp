@@ -68,11 +68,11 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
 
     if (const Tilemap* tm = W.get<Tilemap>(e)) {
         const TilemapSize size = tilemap_size(*tm);
-        // What the renderer draws: local x right, y DOWN from the top-left corner.
-        if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0)
-            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false,
-                               rect_quad(0.0f, -static_cast<float>(size.height) * tm->tileSize.y,
-                                         static_cast<float>(size.width) * tm->tileSize.x, 0.0f)));
+        // What the renderer draws: local x right, y DOWN from the top-left corner (an isometric map: the box of its diamonds).
+        if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0) {
+            const Rect b = tilemap_local_bounds(*tm, size);
+            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false, rect_quad(b.x, b.y, b.x + b.w, b.y + b.h)));
+        }
     }
 
     if (const Sprite* s = W.get<Sprite>(e); s && (includeScreenSpace || s->space == RenderSpace::World)) {

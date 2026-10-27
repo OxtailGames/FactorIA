@@ -178,6 +178,9 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 |---|---|---|---|
 | `tileset` | asset (texture) | `""` | Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom). |
 | `tileSize` | vec2 | `[16.0,16.0]` | Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units). |
+| `projection` | enum: orthogonal \\| isometric | `"orthogonal"` | How the cells lie in the world. "orthogonal" (default): square tiles of tileSize, tile (col, row) at x = col * tileSize.x, y = -row * tileSize.y from the entity's top-left corner. "isometric": diamond tiles, tileSize.x wide and groundHeight (default tileSize.y) high, 2:1 for the usual 100 x 50. +col runs down-right and +row down-left on screen; the entity's position is the TOP corner of the map (the top vertex of tile (0, 0)), tile (col, row) has its centre at ((col - row) * tileSize.x / 2, -(col + row + 1) * groundHeight / 2). The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so a tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld convert between cells and world points for both projections. (not released yet, on main after 0.2.0) |
+| `groundHeight` | float | `0.0` | Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 apart. 0 (the default) = tileSize.y, a tile image that is exactly the diamond (tileSize [100, 50]). Set it when the tile image is taller than the diamond because it also shows the side of a block or a low wall: tileSize [100, 65] with groundHeight 50 is a 100 x 50 diamond with 15 units of side below it. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
+| `groundOffset` | float | `0.0` | Isometric only. How far the top corner of the ground diamond lies below the top edge of the tile image, in world units. 0 (the default) = the image starts at the diamond's top corner and anything taller hangs below it (a block side). Set it to the height of a tree or a wall that rises above the ground to draw the image that much higher: tileSize [100, 96], groundHeight 50, groundOffset 31 has 31 units above the diamond and 15 below. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
 | `columns` | int | `0` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout. Range 0.0..4096.0. |
 | `margin` | int | `0` | Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map. Range 0.0..4096.0. (not released yet, on main after 0.2.0) |
 | `spacing` | int | `0` | Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)). Range 0.0..4096.0. (not released yet, on main after 0.2.0) |
@@ -2381,14 +2384,14 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an isometric map's position is its TOP corner, and objects stand at the centres of its diamonds); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
 | `legend` | object | no | Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0\|90\|180\|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
 | `legendFrom` | string | no | Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted. |
-| `tilemap` | object | no | Tilemap field values (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
 | `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
@@ -2658,6 +2661,34 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign nothing. Works on any computer. Default false. |
 
 ## scene
+
+### `tilemap.cell_at`
+
+Not released yet (on main after 0.2.0).
+
+The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds).
+
+Returns {id, col, row, inside, tile} for the Tilemap on entity `id`: the cell that contains the world point (`x`, `y`), by the entity's world transform (position, rotation, scale) and the map's `projection`. `inside` is false when the cell lies outside the map (col and row are then still the cell numbers the point falls in, so negative or past the edge) and `tile` is -1. Pair it with `camera.screenToWorld` to pick the cell under the mouse; the script form is `entity.tilemap.cellAt(point)`. Example: tilemap.cell_at {"id":"ground","x":120,"y":-80}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `x` | number | yes | World x. |
+| `y` | number | yes | World y (+Y up). |
+
+### `tilemap.cell_to_world`
+
+Not released yet (on main after 0.2.0).
+
+The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds).
+
+Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position of the centre of cell (`col`, `row`) (0-based, row 0 = TOP row), by the entity's world transform and the map's `projection`. The cell may lie outside the map. It is the inverse of tilemap.cell_at for the cell's centre; the script form is `entity.tilemap.cellToWorld(col, row)`. Example: tilemap.cell_to_world {"id":"ground","col":3,"row":4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `col` | integer | yes | Tile column, 0 = leftmost. |
+| `row` | integer | yes | Tile row, 0 = TOP row. |
 
 ### `tilemap.set_tile` (modifies state)
 
@@ -3206,7 +3237,7 @@ declare module "factoria" {
      */
     readonly animator: AnimatorAPI;
     /**
-     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height) and the cell <-> world conversion for both projections (cellAt, cellToWorld). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
      * @since unreleased
      */
     readonly tilemap: TilemapAPI;
@@ -6380,7 +6411,7 @@ declare module "factoria" {
   }
 
   /**
-   * Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   * Reads and writes single tiles of a Tilemap (entity.tilemap) and converts between cells and world points (cellAt, cellToWorld) for square and isometric maps. A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
    * @since unreleased
    */
   export class TilemapAPI {
@@ -6394,6 +6425,16 @@ declare module "factoria" {
      * @since unreleased
      */
     setTile(x: number, y: number, tile: number): void;
+    /**
+     * The cell under a WORLD point, by the entity's transform and the map's `projection` (the square for "orthogonal", the diamond for "isometric"); null when the point is outside the map. To pick the cell under the mouse pass `camera.screenToWorld(input.mouse.position)`. `cellToWorld(col, row)` is the inverse for the centre of a cell. Example: `const c = ground.tilemap.cellAt(camera.screenToWorld(input.mouse.position)); if (c) ground.tilemap.setTile(c.col, c.row, 3)`.
+     * @since unreleased
+     */
+    cellAt(point: Vec2Like): { col: number; row: number } | null;
+    /**
+     * The WORLD position of the centre of cell (col, row) (0-based, row 0 = TOP row), by the entity's transform and the map's `projection`: the middle of the square, or of the diamond. The cell may lie outside the map. `cellAt(cellToWorld(c, r))` is `{ col: c, row: r }` for a cell inside the map.
+     * @since unreleased
+     */
+    cellToWorld(col: number, row: number): Vec2;
     /**
      * Map width in tiles.
      * @since unreleased
@@ -7432,6 +7473,21 @@ declare module "factoria" {
      */
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
+    /**
+     * How the cells lie in the world. "orthogonal" (default): square tiles of tileSize, tile (col, row) at x = col * tileSize.x, y = -row * tileSize.y from the entity's top-left corner. "isometric": diamond tiles, tileSize.x wide and groundHeight (default tileSize.y) high, 2:1 for the usual 100 x 50. +col runs down-right and +row down-left on screen; the entity's position is the TOP corner of the map (the top vertex of tile (0, 0)), tile (col, row) has its centre at ((col - row) * tileSize.x / 2, -(col + row + 1) * groundHeight / 2). The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so a tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld convert between cells and world points for both projections.
+     * @since unreleased
+     */
+    projection: "orthogonal" | "isometric";
+    /**
+     * Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 apart. 0 (the default) = tileSize.y, a tile image that is exactly the diamond (tileSize [100, 50]). Set it when the tile image is taller than the diamond because it also shows the side of a block or a low wall: tileSize [100, 65] with groundHeight 50 is a 100 x 50 diamond with 15 units of side below it.
+     * @since unreleased
+     */
+    groundHeight: number;
+    /**
+     * Isometric only. How far the top corner of the ground diamond lies below the top edge of the tile image, in world units. 0 (the default) = the image starts at the diamond's top corner and anything taller hangs below it (a block side). Set it to the height of a tree or a wall that rises above the ground to draw the image that much higher: tileSize [100, 96], groundHeight 50, groundOffset 31 has 31 units above the diamond and 15 below.
+     * @since unreleased
+     */
+    groundOffset: number;
     /**
      * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
@@ -10102,7 +10158,7 @@ declare module "factoria" {
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };

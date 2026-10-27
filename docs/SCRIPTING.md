@@ -148,7 +148,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `isGrounded(tolerance?)` | 2D or 3D physics: standing on something (contact normal up) |
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `animator` | skeletal animation of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
-| `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
+| `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `cellAt(point)`, `cellToWorld(col, row)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |
 
@@ -169,7 +169,8 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   entity's world transform (parents included).
 - **Tilemap.** The size of the map as it is drawn and collides (the rows form, or `width` x `height` of the flat form;
   the same helper as the renderer) times `tileSize`. The entity position is the map's TOP-left corner, so the map spans
-  `x .. x + w` and `y - h .. y` at scale 1. An empty map has no bounds (`null`).
+  `x .. x + w` and `y - h .. y` at scale 1. An empty map has no bounds (`null`). An isometric map is the box around all
+  its diamonds and the images drawn on them.
 - **Sprite, Shape2D.** The drawn box from `size` and `pivot`. A sprite without `size` uses its `region`, else the
   texture's pixel size (32 x 32 for a plain colour quad or a missing texture). A circle is its bounding square
   (diameter `size.x`), a line is the stroked segment from the origin to `size`, and the outline `thickness` of the other
@@ -725,6 +726,7 @@ write the whole array back: that copies the grid on every call.
 - `setTile(col, row, id)` writes one tile: `-1` empties it, otherwise a tile index (with the flip/rotate flags that
   `scene.import_ascii` writes). It returns `false`, and changes nothing, for a cell outside the map or a bad value.
 - `width` and `height` are the map size in tiles.
+- `cellAt([x, y])` is the cell under a world point: `{col, row}`, or `null` when the point is outside the map. `cellToWorld(col, row)` is the world position of the centre of a cell (a `Vec2`; the cell may be outside the map, its position is still computed). Both apply the entity's position, rotation and scale and follow `Tilemap.projection`, so they are the way to pick a cell of an isometric map: `map.tilemap.cellAt(input.mouse.world)`. The same maths is available from outside a script as the commands `tilemap.cell_at` and `tilemap.cell_to_world`.
 2D physics sees the change on the next step and rebuilds only the colliders of the tiles that changed, so `setTile(x, y,
 -1)` opens a hole a body falls through. The same edit from outside a script is the command `tilemap.set_tile`
 (`{id, col, row, tile}`). Writing the whole `tiles` array still works and rebuilds the colliders.

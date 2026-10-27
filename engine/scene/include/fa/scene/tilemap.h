@@ -5,6 +5,12 @@
 //   the Tilemap entity's position is the map's TOP-LEFT corner, +Y up, row 0 = top row;
 //   tile (col, row) covers x in [col*tw, (col+1)*tw] and y in [-(row+1)*th, -row*th] in the entity's local space
 //   (tw, th = tileSize); the world matrix of the entity (position, rotation, scale) maps that to the world.
+// ISOMETRIC maps (Tilemap::projection) keep row 0 = the top row and col 0 = the left column of the data, but the cells are
+//   diamonds: +col runs down-right and +row down-left on screen. The entity's position is the TOP corner of the map (the top
+//   vertex of tile (0, 0)); with hw = tw / 2 and hh = groundHeight / 2 (tilemap_ground_height()) the centre of tile
+//   (col, row) is ((col - row) * hw, -(col + row + 1) * hh) in local space. The tile image is tw wide and th high with the
+//   diamond's top corner groundOffset below its top edge. tilemap_cell_center() and tilemap_cell_at_local() hold both
+//   geometries; the renderer, 2D physics, light occluders, tile paths, bounds and scripts all go through them.
 #pragma once
 
 #include <string>
@@ -109,8 +115,30 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm);
 // tiles.size() must be width*height.
 void set_tilemap_grid(Tilemap& tm, int width, int height, const std::vector<int>& tiles);
 
-// Centre of tile (col, row) in the tilemap entity's LOCAL space: ((col + 0.5) * tw, -(row + 0.5) * th).
+// True when the map is drawn and collides as diamonds (Tilemap::projection == Isometric).
+inline bool tilemap_isometric(const Tilemap& tm) { return tm.projection == TilemapProjection::Isometric; }
+
+// Height of one grid row's footprint: tileSize.y for an orthogonal map; for an isometric one groundHeight, or tileSize.y when
+// groundHeight is 0. The rows of an isometric map are half of it apart.
+float tilemap_ground_height(const Tilemap& tm);
+
+// Centre of tile (col, row) in the tilemap entity's LOCAL space. Orthogonal: ((col + 0.5) * tw, -(row + 0.5) * th).
+// Isometric: ((col - row) * tw / 2, -(col + row + 1) * groundHeight / 2), the middle of the diamond.
 Vec2 tilemap_cell_center(const Tilemap& tm, int col, int row);
+
+// The cell that contains a point of the tilemap's local space (y up), whether or not it lies inside the map: the caller
+// compares it with tilemap_size(). Orthogonal: the square; isometric: the diamond (its edges belong to the cell on their
+// right and below). False when the tile size is not positive.
+bool tilemap_cell_at_local(const Tilemap& tm, Vec2 local, int& col, int& row);
+
+// The linear map from the tilemap's local space to CELL space, where cell (col, row) is the unit square
+// [col, col+1) x [row, row+1): cx = m[0] * x + m[1] * y, cy = m[2] * x + m[3] * y. Orthogonal: (x / tw, -y / th). Isometric:
+// the same for a diamond grid, so a walk through cells works on both. All zero when the tile size is not positive.
+void tilemap_local_to_cell(const Tilemap& tm, float m[4]);
+
+// The box (min x, min y, max x, max y, local space, y up) the drawn tiles of an isometric or orthogonal map of `size` cover,
+// tall tile images (groundOffset, a taller tileSize) included.
+Rect tilemap_local_bounds(const Tilemap& tm, const TilemapSize& size);
 
 // Number of tiles a tileset image of imageWidth x imageHeight pixels holds for this tilemap: tileset_columns() times the
 // number of whole tile rows. 0 when it cannot be known.

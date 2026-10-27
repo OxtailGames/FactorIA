@@ -168,6 +168,17 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
         err("/tileSize", "tileSize [" + number_text(tm.tileSize.x) + ", " + number_text(tm.tileSize.y) + "] must be positive in both axes",
             "Example: \"tileSize\": [32, 32] (the size of one tile in the tileset image AND in the world).");
 
+    if (tilemap_isometric(tm) && tm.tileSize.x > 0 && tm.tileSize.y > 0) {
+        if (tm.groundHeight < 0.0f || tm.groundOffset < 0.0f)
+            err(tm.groundHeight < 0.0f ? "/groundHeight" : "/groundOffset", "groundHeight and groundOffset cannot be negative",
+                "Use 0 for the default (groundHeight = tileSize.y, groundOffset = 0).");
+        else if (tm.groundOffset + tilemap_ground_height(tm) > tm.tileSize.y + 1e-3f)
+            warn("/groundOffset",
+                 "the ground diamond (groundOffset " + number_text(tm.groundOffset) + " + height " + number_text(tilemap_ground_height(tm)) +
+                     ") is taller than the tile image (tileSize.y " + number_text(tm.tileSize.y) + "): the bottom of the diamond is cut off",
+                 "Make tileSize.y at least groundOffset + groundHeight, or lower groundOffset / groundHeight.");
+    }
+
     // ---- solidTiles
     if (!tm.solidTiles.is_array()) {
         err("/solidTiles", "solidTiles must be an array of tile indices, got " + describe_json_value(tm.solidTiles),
@@ -292,8 +303,53 @@ void set_tilemap_grid(Tilemap& tm, int width, int height, const std::vector<int>
     tm.tiles = std::move(arr);
 }
 
+float tilemap_ground_height(const Tilemap& tm) {
+    return tilemap_isometric(tm) && tm.groundHeight > 0.0f ? tm.groundHeight : tm.tileSize.y;
+}
+
 Vec2 tilemap_cell_center(const Tilemap& tm, int col, int row) {
+    if (tilemap_isometric(tm)) {
+        const float hw = tm.tileSize.x * 0.5f, hh = tilemap_ground_height(tm) * 0.5f;
+        return {float(col - row) * hw, -float(col + row + 1) * hh};
+    }
     return {(float(col) + 0.5f) * tm.tileSize.x, -(float(row) + 0.5f) * tm.tileSize.y};
+}
+
+void tilemap_local_to_cell(const Tilemap& tm, float m[4]) {
+    m[0] = m[1] = m[2] = m[3] = 0.0f;
+    if (!(tm.tileSize.x > 0.0f) || !(tm.tileSize.y > 0.0f)) return;
+    if (tilemap_isometric(tm)) {
+        const float ax = 0.5f / (tm.tileSize.x * 0.5f), ay = 0.5f / (tilemap_ground_height(tm) * 0.5f);
+        m[0] = ax; m[1] = -ay;
+        m[2] = -ax; m[3] = -ay;
+    } else {
+        m[0] = 1.0f / tm.tileSize.x;
+        m[3] = -1.0f / tm.tileSize.y;
+    }
+}
+
+bool tilemap_cell_at_local(const Tilemap& tm, Vec2 local, int& col, int& row) {
+    float m[4];
+    tilemap_local_to_cell(tm, m);
+    if (m[0] == 0.0f && m[1] == 0.0f) return false;
+    const float cx = m[0] * local.x + m[1] * local.y, cy = m[2] * local.x + m[3] * local.y;
+    if (!std::isfinite(cx) || !std::isfinite(cy) || std::fabs(cx) > 1e9f || std::fabs(cy) > 1e9f) return false;
+    col = static_cast<int>(std::floor(cx));
+    row = static_cast<int>(std::floor(cy));
+    return true;
+}
+
+Rect tilemap_local_bounds(const Tilemap& tm, const TilemapSize& size) {
+    const float w = float(size.width), h = float(size.height);
+    if (!tilemap_isometric(tm)) return Rect{0.0f, -h * tm.tileSize.y, w * tm.tileSize.x, h * tm.tileSize.y};
+    // Tile (c, r) has its image x in [(c-r-1)*hw ... (c-r+1)*hw] and y from topVertex + groundOffset down by tileSize.y,
+    // where topVertex = -(c+r)*hh. The extremes are the corner cells.
+    const float hw = tm.tileSize.x * 0.5f, hh = tilemap_ground_height(tm) * 0.5f;
+    const float minX = -(h) * hw;                 // c = 0, r = height - 1: left edge of its image
+    const float maxX = w * hw;                    // c = width - 1, r = 0: right edge of its image
+    const float top = tm.groundOffset;            // tile (0, 0)
+    const float bottom = -(w + h - 2.0f) * hh + tm.groundOffset - tm.tileSize.y;  // tile (width - 1, height - 1)
+    return Rect{minX, bottom, maxX - minX, top - bottom};
 }
 
 int tileset_tile_count(const Tilemap& tm, int imageWidth, int imageHeight) {

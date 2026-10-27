@@ -153,6 +153,25 @@ TEST_CASE("pick bounds: Text uses the measurer it is given, otherwise the headle
     CHECK_FALSE(pick_hit(w, text, approx, Vec2{35, -5}, kDesign));
 }
 
+TEST_CASE("pick bounds: an isometric Tilemap is picked by the box around its diamonds, from its top vertex") {
+    World w;
+    const Entity map = make_entity(w, "iso", {1000, 500, 0});
+    Tilemap& tm = w.add<Tilemap>(map);
+    tm.projection = TilemapProjection::Isometric;
+    tm.tileSize = {100, 50};
+    tm.tiles = Json::parse("[[0,0,0,0],[0,0,0,0],[0,0,0,0]]");  // 4 columns x 3 rows
+    const PickBounds b = pick_bounds(w, map, {});
+    REQUIRE(b.valid);
+    // x: from -3 * 50 to +4 * 50 around the entity; y: the top vertex down to (4 + 3 - 2) * 25 + 50 = 175.
+    CHECK(pick_hit(w, map, b, Vec2{1000, 400}, kDesign));
+    CHECK(pick_hit(w, map, b, Vec2{850.5f, 480}, kDesign));
+    CHECK(pick_hit(w, map, b, Vec2{1199, 480}, kDesign));
+    CHECK_FALSE(pick_hit(w, map, b, Vec2{849, 480}, kDesign));
+    CHECK_FALSE(pick_hit(w, map, b, Vec2{1201, 480}, kDesign));
+    CHECK_FALSE(pick_hit(w, map, b, Vec2{1000, 501}, kDesign));
+    CHECK_FALSE(pick_hit(w, map, b, Vec2{1000, 324}, kDesign));
+}
+
 TEST_CASE("pick bounds: a Tilemap in rows form is picked by its rows, from its top-left corner") {
     World w;
     const Entity map = make_entity(w, "map", {-300, 200, 0});

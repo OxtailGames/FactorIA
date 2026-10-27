@@ -1,11 +1,23 @@
 {
-  "$comment": "Terrain kinds. The order is the terrain index stored in a map (index = position in this object), so only ever append. frame = atlas frame (data/atlas.json); decor = how the view dresses the cell (trees on forest); seasonal = the season tint of seasons.json multiplies its colour; buildable = an ordinary building may stand here (a building's own `terrain` list overrides it); roadable = a road may be laid here.",
+  "$comment": "Terrain kinds. The order is the terrain index stored in a map (index = position in this object), so only ever append. frame = atlas frame (data/atlas.json) of the terrain piece; tile = the cell's index in the terrain tilesets (see `tileset`); decor = how the view dresses the cell (trees on forest: one of treeVariants pictures with three trees, picked by a hash of the cell); seasonal = the season tint of seasons.json multiplies its colour; buildable = an ordinary building may stand here (a building's own `terrain` list overrides it); roadable = a road may be laid here.",
   "format": "tidewater.terrain/1",
   "terrain": {
-    "water":  { "char": "w", "frame": "terrain.water", "buildable": false, "roadable": false, "color": [0.45, 0.72, 0.85, 1] },
-    "sand":   { "char": "s", "frame": "terrain.sand",  "buildable": true,  "roadable": true,  "seasonal": true, "color": [0.84, 0.80, 0.55, 1] },
-    "grass":  { "char": "g", "frame": "terrain.grass", "buildable": true,  "roadable": true,  "seasonal": true, "color": [0.55, 0.70, 0.29, 1] },
-    "forest": { "char": "f", "frame": "terrain.grass", "buildable": false, "roadable": false, "decor": "trees", "seasonal": true, "tint": [0.82, 0.92, 0.8, 1], "color": [0.30, 0.50, 0.25, 1] },
-    "rock":   { "char": "r", "frame": "terrain.rock",  "buildable": false, "roadable": false, "color": [0.60, 0.60, 0.64, 1] }
+    "water":  { "char": "w", "frame": "terrain.water", "tile": 0, "buildable": false, "roadable": false, "color": [0.45, 0.72, 0.85, 1] },
+    "sand":   { "char": "s", "frame": "terrain.sand", "tile": 2, "buildable": true, "roadable": true, "seasonal": true, "color": [0.84, 0.8, 0.55, 1] },
+    "grass":  { "char": "g", "frame": "terrain.grass", "tile": 3, "buildable": true, "roadable": true, "seasonal": true, "color": [0.55, 0.7, 0.29, 1] },
+    "forest": { "char": "f", "frame": "terrain.grass", "tile": 4, "buildable": false, "roadable": false, "decor": "trees", "seasonal": true, "tint": [0.82, 0.92, 0.8, 1], "color": [0.3, 0.5, 0.25, 1] },
+    "rock":   { "char": "r", "frame": "terrain.rock", "tile": 1, "buildable": false, "roadable": false, "color": [0.6, 0.6, 0.64, 1] }
+  },
+  "tileset": {
+    "$comment": "The ground of the map is ONE isometric Tilemap (scripts/game/map_view.js) whose picture is one PNG per season, made by assets/src/make_terrain_tiles.py from the frames in assets/src/frames: do not edit the PNGs, edit the frames or this table and run the script again. Every cell of a PNG is tileSize pixels; the diamond's top corner is groundOffset below the cell's top edge (room for the trees). Tile numbers: the `tile` of each terrain kind; roadTile + the 4-bit neighbour mask (0..15) for a road piece; treeTile + 0..treeVariants-1 for a forest with trees (the plain forest tile is the one without trees, shown under a building). The seasonal tint is baked into the sand, grass, forest and tree pictures; water, rock and roads are the same in every season.",
+    "tileSize": [100, 105],
+    "groundHeight": 50,
+    "groundOffset": 40,
+    "columns": 8,
+    "roadTile": 5,
+    "treeTile": 21,
+    "treeVariants": 24,
+    "treeSeed": 7,
+    "seasons": { "spring": "assets/tiles/spring.png", "summer": "assets/tiles/summer.png", "autumn": "assets/tiles/autumn.png", "winter": "assets/tiles/winter.png" }
   }
 }
