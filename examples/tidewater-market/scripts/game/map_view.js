@@ -1,9 +1,13 @@
 // @ts-check
-// MapView: draws a GameState with sprite entities, one per tile, tree, road piece and building, and keeps them in step with
-// the state by listening to its events (scripts/game/events.js). It never changes the state.
+// MapView: draws a GameState and keeps it in step with the state by listening to its events (scripts/game/events.js). The ground
+// (terrain, trees, roads) is ONE isometric Tilemap, one batched mesh in depth order; buildings, the ghost and the highlight
+// diamonds are sprites and shapes. It never changes the state.
 //
-// Draw order (Sprite.layer, then lower y on top inside a layer, which is exactly isometric depth sorting):
-//   0 terrain   1 roads   3 highlights   10 trees and buildings   11 map overlays (over a dense town)   12 ghost   14-15 the pips of the overlays   (the HUD is UI, always above)
+// The Tilemap's picture is one PNG per season (data/terrain.json "tileset", made by assets/src/make_terrain_tiles.py): a season
+// change swaps the PNG, a road or a building that clears a forest cell writes one tile with tilemap.setTile.
+//
+// Draw order (Sprite.layer, then lower y on top inside a layer, then creation order, which for sprites is isometric depth sorting):
+//   0 the ground Tilemap   3 highlights   10 buildings and walkers   11 map overlays (over a dense town)   12 ghost   14-15 the pips of the overlays   (the HUD is UI, always above)
 import { world } from "factoria";
 import { cellToWorld, footprintFront } from "./iso.js";
 import { hash01 } from "./mapgen.js";
@@ -27,21 +31,18 @@ export class MapView {
     this.state = state;
     this.atlas = state.data.atlas;
     this.texture = this.atlas.texture;
-    this.tileEntities = [];
-    /** @type {Map<number, any>} */
-    this.roadEntities = new Map();
+    this.tileset = state.data.tileset;
     /** @type {Map<number, any>} */
     this.buildingEntities = new Map();
-    /** @type {Array<any[]>} trees of each cell (index r * width + c), so a building can hide the ones it stands on. */
-    this.trees = [];
+    /** @type {Set<number>} the forest cells (index r * width + c) a building stands on: their trees are cut down. */
+    this.cleared = new Set();
     this.pool = [];
     this.poolUsed = 0;
     this.ghost = null;
     this.unsubscribe = [];
-    /** @type {Array<{ entity: any, base: number[] }>} the sprites the season tint multiplies (seasonal terrain and trees) */
-    this.seasonal = [];
+    this.season = state.clock.date().season;
+    this.ground = null;
     this.build();
-    this.tintSeason(state.clock.date().season);
     const ev = state.events;
     this.unsubscribe.push(ev.on("clock.season", (e) => this.tintSeason(e.date.season)));
     this.unsubscribe.push(ev.on("roads.changed", (e) => this.refreshRoads(e.cells)));
@@ -76,68 +77,58 @@ export class MapView {
   }
 
   build() {
-    const { map, data } = this.state;
+    const { map } = this.state;
+    const t = this.tileset;
+    const rows = [];
     for (let r = 0; r < map.height; r++) {
-      for (let c = 0; c < map.width; c++) {
-        const id = map.terrainAt(c, r);
-        const def = data.terrain[id];
-        const [x, y] = cellToWorld(c, r);
-        const extra = def.tint ? { color: def.tint } : {};
-        const tile = this.sprite(def.frame, x, y, LAYER.terrain, extra);
-        this.tileEntities.push(tile);
-        if (def.seasonal) this.seasonal.push({ entity: tile, base: def.tint || [1, 1, 1, 1] });
-        if (def.decor === "trees") this.trees[map.index(c, r)] = this.makeTrees(c, r, x, y);
-      }
+      const row = [];
+      for (let c = 0; c < map.width; c++) row.push(this.tileAt(c, r));
+      rows.push(row);
     }
+    // The entity sits at the top corner of the map: cell (0, 0) is the diamond centred on the world origin (iso.js cellToWorld).
+    this.ground = world.spawn({
+      id: "ground",
+      components: {
+        Transform: { position: [0, t.groundHeight / 2, 0] },
+        Tilemap: {
+          tileset: t.seasons[this.season],
+          projection: "isometric",
+          tileSize: t.tileSize,
+          groundHeight: t.groundHeight,
+          groundOffset: t.groundOffset,
+          columns: t.columns,
+          layer: LAYER.terrain,
+          tiles: rows,
+        },
+      },
+    });
   }
 
-  /** Three conifers on a forest cell, placed by a hash of the cell so they are the same every time. */
-  makeTrees(c, r, x, y) {
-    const out = [];
-    for (let i = 0; i < 3; i++) {
-      const a = hash01(this.state.map.seed, c, r, 40 + i);
-      const b = hash01(this.state.map.seed, c, r, 50 + i);
-      const kind = Math.floor(hash01(this.state.map.seed, c, r, 60 + i) * 6);
-      // inside the diamond: |dx| / 50 + |dy| / 25 < 0.75
-      const dx = (a * 2 - 1) * 34;
-      const dy = (b * 2 - 1) * (17 - Math.abs(dx) / 2) * 0.9;
-      const tree = this.sprite(`tree.${kind}`, x + dx, y + dy - 2, LAYER.object);
-      this.seasonal.push({ entity: tree, base: [1, 1, 1, 1] });
-      out.push(tree);
+  /** The tile of a cell: a road piece by its neighbours, else the terrain, a forest with one of its pictures of trees unless a building cut them down. */
+  tileAt(c, r) {
+    const { map, data } = this.state;
+    const t = this.tileset;
+    if (this.state.isRoad(c, r)) return t.roadTile + this.state.roadMask(c, r);
+    const def = data.terrain[map.terrainAt(c, r)];
+    if (def.decor === "trees" && !this.cleared.has(map.index(c, r))) {
+      return t.treeTile + Math.floor(hash01(map.seed, c, r, 40) * t.treeVariants);
     }
-    return out;
+    return def.tile;
   }
 
-  /** Multiply the colour of the seasonal terrain and the trees by the tint of a season (data/seasons.json). */
+  /** Show the tileset of a season (data/seasons.json tints: the sand, grass and trees of that PNG are already multiplied by it). */
   tintSeason(season) {
-    const info = this.state.data.seasons[season];
-    if (!info) return;
-    const t = info.tint;
-    for (const { entity, base } of this.seasonal) {
-      entity.get("Sprite").color = [base[0] * t[0], base[1] * t[1], base[2] * t[2], base[3] * t[3]];
-    }
+    if (!this.tileset.seasons[season] || season === this.season) return;
+    this.season = season;
+    this.ground.get("Tilemap").tileset = this.tileset.seasons[season];
   }
 
-  /** The picture of a road cell: its neighbours decide the piece. */
+  /** The picture of a road cell: its neighbours decide the piece; a cell that stopped being road shows its terrain again. */
   refreshRoads(cells) {
     const { map } = this.state;
     for (const [c, r] of cells) {
-      const key = map.index(c, r);
-      const isRoad = this.state.isRoad(c, r);
-      const existing = this.roadEntities.get(key);
-      if (!isRoad) {
-        if (existing) {
-          existing.destroy();
-          this.roadEntities.delete(key);
-        }
-        continue;
-      }
-      const frame = this.atlas.roadFrames[String(this.state.roadMask(c, r))];
-      if (existing) this.setFrame(existing, frame);
-      else {
-        const [x, y] = cellToWorld(c, r);
-        this.roadEntities.set(key, this.sprite(frame, x, y, LAYER.road));
-      }
+      if (c < 0 || r < 0 || c >= map.width || r >= map.height) continue;
+      this.ground.tilemap.setTile(c, r, this.tileAt(c, r));
     }
   }
 
@@ -146,7 +137,7 @@ export class MapView {
     if (def.kind === "road") return;
     const [x, y] = footprintFront(b.x, b.y, b.w, b.h);
     this.buildingEntities.set(b.id, this.sprite(`building.${b.type}.${b.rot}`, x, y, LAYER.object));
-    this.setTreesActive(b, false);
+    this.setTreesCut(b, true);
   }
 
   buildingRemoved(b) {
@@ -155,15 +146,18 @@ export class MapView {
       e.destroy();
       this.buildingEntities.delete(b.id);
     }
-    this.setTreesActive(b, true);
+    this.setTreesCut(b, false);
   }
 
-  /** Trees on a cell a building covers are hidden; they come back when it is demolished. */
-  setTreesActive(b, active) {
+  /** The trees on the cells a building covers are cut down (the plain forest tile shows); they come back when it is demolished. */
+  setTreesCut(b, cut) {
+    const { map } = this.state;
     const def = this.state.data.buildings[b.type];
     for (const [c, r] of footprintCells(def, b.x, b.y, b.rot)) {
-      const list = this.trees[this.state.map.index(c, r)];
-      if (list) for (const t of list) t.active = active;
+      const key = map.index(c, r);
+      if (cut) this.cleared.add(key);
+      else this.cleared.delete(key);
+      this.ground.tilemap.setTile(c, r, this.tileAt(c, r));
     }
   }
 

@@ -6,7 +6,7 @@
     "maxDrawCalls": 24,
     "maxLights": 4,
     "maxTextureMB": 32,
-    "maxEntities": 3500,
+    "maxEntities": 400,
     "maxTriangles": 1000
   },
   "runners": {
@@ -16,12 +16,12 @@
       "cpuMsP95": 12.287,
       "cpuMsMax": 461.912,
       "peakMemoryMB": 116.5,
-      "drawCalls": 9,
-      "entities": 2712,
+      "drawCalls": 10,
+      "entities": 112,
       "graphics": "Metal / Apple M5",
       "triangles": 0,
       "lights": 0,
-      "textureMB": 13.21
+      "textureMB": 15.77
     }
   }
 }

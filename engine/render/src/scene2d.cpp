@@ -448,12 +448,45 @@ void gather_2d(World& world, Frame& f) {
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
         view.x -= 1; view.y -= 1; view.w += 2; view.h += 2;
-        for (int r = 0; r < h; ++r) {
-            for (int c = 0; c < w; ++c) {
+        // An isometric map is drawn row by row from the top corner: back to front, so a tile covers the edge of the ones
+        // behind it. Its tiles are diamonds placed by tilemap_cell_center(); the picture hangs from the diamond's top corner
+        // by groundOffset (a taller picture shows the side of a block, or a tree that rises above the ground).
+        const bool iso = tilemap_isometric(tm);
+        const float isoHw = tw * 0.5f, isoHh = tilemap_ground_height(tm) * 0.5f;
+        int c0 = 0, c1 = w - 1, r0 = 0, r1 = h - 1;
+        if (iso && cull) {
+            // The cells whose picture can reach the view: the view's corners in cell space, widened by the picture's extent.
+            float lm[4];
+            tilemap_local_to_cell(tm, lm);
+            const Mat4 inv = m.inverse();
+            float minA = 1e30f, maxA = -1e30f, minB = 1e30f, maxB = -1e30f;
+            // The view grows by one picture (tw, th) in every direction, so a picture centred outside still counts.
+            const Rect wide{view.x - tw, view.y - th, view.w + 2 * tw, view.h + 2 * th};
+            for (int k = 0; k < 4; ++k) {
+                const Vec3 q = inv.transform_point({wide.x + ((k & 1) ? wide.w : 0.0f), wide.y + ((k & 2) ? wide.h : 0.0f), 0.0f});
+                const float a = lm[0] * q.x + lm[1] * q.y, b = lm[2] * q.x + lm[3] * q.y;
+                minA = std::min(minA, a); maxA = std::max(maxA, a);
+                minB = std::min(minB, b); maxB = std::max(maxB, b);
+            }
+            if (std::isfinite(minA + maxA + minB + maxB)) {
+                c0 = std::max(0, int(std::floor(minA)) - 1); c1 = std::min(w - 1, int(std::ceil(maxA)) + 1);
+                r0 = std::max(0, int(std::floor(minB)) - 1); r1 = std::min(h - 1, int(std::ceil(maxB)) + 1);
+            }
+        }
+        for (int r = r0; r <= r1; ++r) {
+            for (int c = c0; c <= c1; ++c) {
                 const int value = tilemap_tile_at(tm, grid, c, r);
                 if (value < 0) continue;
                 const int idx = tile_index(value), flags = tile_flags(value);
-                float x0 = float(c) * tw, y1 = -float(r) * th, x1 = x0 + tw, y0 = y1 - th;
+                float x0, x1, y0, y1;
+                if (iso) {
+                    x0 = float(c - r) * isoHw - isoHw;
+                    x1 = x0 + tw;
+                    y1 = -float(c + r) * isoHh + tm.groundOffset;
+                    y0 = y1 - th;
+                } else {
+                    x0 = float(c) * tw; y1 = -float(r) * th; x1 = x0 + tw; y0 = y1 - th;
+                }
                 if (cull) {
                     Vec3 a = em.xf(x0, y0), b = em.xf(x1, y1);
                     Rect box{std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(a.x - b.x), std::fabs(a.y - b.y)};

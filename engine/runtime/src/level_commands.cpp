@@ -405,7 +405,7 @@ Request parse_request(const Engine::Impl& I, const Json& a) {
     for (const char* k : {"tiles", "width", "height"})
         if (q.tilemap.contains(k))
             bad_arg(std::string("'tilemap.") + k + "' cannot be set: the grid (tiles, width, height) comes from 'rows' and 'legend'",
-                    "Remove it from 'tilemap'; pass only tileset, tileSize, margin, spacing, columns, solidTiles, color, layer there.");
+                    "Remove it from 'tilemap'; pass only tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer there.");
     if (a.contains("path")) q.path = scene_file_arg(a["path"], "path", true);
     if (a.contains("from")) q.from = scene_file_arg(a["from"], "from", false);
     q.dryRun = a.value("dryRun", false);
@@ -546,19 +546,19 @@ void check_tileset(Tilemap& tm, const Request& q, const std::vector<LegendEntry>
     }
 }
 
-// `position` is where the chosen `anchor` point of the map goes; the entity's own origin is the top-left corner.
+// `position` is where the chosen `anchor` point of the map goes; the entity's own origin is the top-left corner (the top
+// corner of an isometric map, whose anchors name the corners of the box around all its diamonds).
 void place_tilemap(World& W, Entity mapE, const Tilemap& tm, const Request& q, std::size_t width, std::size_t height) {
     Vec3 pos = q.position;
     if (!q.hasZ) pos.z = W.world_position(mapE).z;
     const Mat4 m = W.world_matrix(mapE);
     const float sx = length(m.transform_dir({1, 0, 0})), sy = length(m.transform_dir({0, 1, 0}));
-    const float mapW = float(width) * tm.tileSize.x * sx, mapH = float(height) * tm.tileSize.y * sy;
-    if (q.anchor == "bottom-left") {
-        pos.y += mapH;
-    } else if (q.anchor == "center") {
-        pos.x -= mapW * 0.5f;
-        pos.y += mapH * 0.5f;
-    }
+    const Rect box = tilemap_local_bounds(tm, TilemapSize{int(width), int(height)});
+    Vec2 at{box.x, box.y + box.h};  // top-left of the box, in the entity's local space (y up)
+    if (q.anchor == "bottom-left") at = {box.x, box.y};
+    else if (q.anchor == "center") at = {box.x + box.w * 0.5f, box.y + box.h * 0.5f};
+    pos.x -= at.x * sx;
+    pos.y -= at.y * sy;
     W.set_world_position(mapE, pos);
 }
 
@@ -1215,9 +1215,9 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). "
          "`overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. "
          "The tilemap is the entity `entity` (default \"tilemap\"): created when missing, updated when it exists; `tilemap` sets "
-         "its Tilemap fields (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is "
+         "its Tilemap fields (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is "
          "derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like "
-         "Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor "
+         "Tilemap everywhere; an isometric map's position is its TOP corner, and objects stand at the centres of its diamonds); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor "
          "bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; "
          "ids are `id` from the legend (unique objects such as \"player\") or generated in row-major order as <prefab name>_<n> "
          "(coin_1, coin_2...); every object is tagged \"tilemap:<entity>\". With `replace` (default true) the objects of earlier "
@@ -1262,7 +1262,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "legendFrom":{"type":"string",
                              "description":"Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted."},
                "tilemap":{"type":"object",
-                          "description":"Tilemap field values (tileset, tileSize, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend."},
+                          "description":"Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend."},
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},
                "replace":{"type":"boolean","default":true,
                           "description":"Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them."},
@@ -1351,6 +1351,60 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                                    "col is 0.." + std::to_string(std::max(size.width - 1, 0)) + ", row is 0.." +
                                        std::to_string(std::max(size.height - 1, 0)) + " (row 0 = top); tile is -1 or a tileset index.");
             return Json::object({{"id", I.world.id_of(e)}, {"col", col}, {"row", row}, {"tile", tile}, {"previous", previous}});
+        });
+
+    I.commands.add(
+        {"tilemap.cell_at",
+         "The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds).",
+         "Returns {id, col, row, inside, tile} for the Tilemap on entity `id`: the cell that contains the world point "
+         "(`x`, `y`), by the entity's world transform (position, rotation, scale) and the map's `projection`. `inside` is "
+         "false when the cell lies outside the map (col and row are then still the cell numbers the point falls in, so "
+         "negative or past the edge) and `tile` is -1. Pair it with `camera.screenToWorld` to pick the cell under the mouse; "
+         "the script form is `entity.tilemap.cellAt(point)`. Example: tilemap.cell_at {\"id\":\"ground\",\"x\":120,\"y\":-80}",
+         parse_schema(R"json({"type":"object","required":["id","x","y"],"properties":{
+               "id":{"type":"string","description":"Id (or name) of the entity that has the Tilemap."},
+               "x":{"type":"number","description":"World x."},
+               "y":{"type":"number","description":"World y (+Y up)."}}})json"),
+         true, "scene"},
+        [&I](const Json& a) {
+            Entity e = need_entity(I.world, a);
+            const Tilemap* tm = I.world.get<Tilemap>(e);
+            if (!tm)
+                throw CommandError("invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
+                                   "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap' by default).");
+            const Vec3 local = I.world.world_matrix(e).inverse().transform_point({a["x"].get<float>(), a["y"].get<float>(), 0.0f});
+            int col = 0, row = 0;
+            if (!tilemap_cell_at_local(*tm, {local.x, local.y}, col, row))
+                throw CommandError("invalid_argument", "The Tilemap on '" + I.world.id_of(e) + "' has no positive tileSize, so it has no cells",
+                                   "Set Tilemap.tileSize to [width, height] in world units.");
+            const TilemapSize size = tilemap_size(*tm);
+            const bool inside = col >= 0 && row >= 0 && col < size.width && row < size.height;
+            return Json::object({{"id", I.world.id_of(e)}, {"col", col}, {"row", row}, {"inside", inside},
+                                 {"tile", inside ? tilemap_tile_at(*tm, size, col, row) : -1}});
+        });
+
+    I.commands.add(
+        {"tilemap.cell_to_world",
+         "The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds).",
+         "Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position of the centre of cell (`col`, `row`) "
+         "(0-based, row 0 = TOP row), by the entity's world transform and the map's `projection`. The cell may lie outside the "
+         "map. It is the inverse of tilemap.cell_at for the cell's centre; the script form is "
+         "`entity.tilemap.cellToWorld(col, row)`. Example: tilemap.cell_to_world {\"id\":\"ground\",\"col\":3,\"row\":4}",
+         parse_schema(R"json({"type":"object","required":["id","col","row"],"properties":{
+               "id":{"type":"string","description":"Id (or name) of the entity that has the Tilemap."},
+               "col":{"type":"integer","description":"Tile column, 0 = leftmost."},
+               "row":{"type":"integer","description":"Tile row, 0 = TOP row."}}})json"),
+         true, "scene"},
+        [&I](const Json& a) {
+            Entity e = need_entity(I.world, a);
+            const Tilemap* tm = I.world.get<Tilemap>(e);
+            if (!tm)
+                throw CommandError("invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
+                                   "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap' by default).");
+            const int col = a["col"].get<int>(), row = a["row"].get<int>();
+            const Vec2 local = tilemap_cell_center(*tm, col, row);
+            const Vec3 w = I.world.world_matrix(e).transform_point({local.x, local.y, 0.0f});
+            return Json::object({{"id", I.world.id_of(e)}, {"col", col}, {"row", row}, {"x", w.x}, {"y", w.y}});
         });
 }
 

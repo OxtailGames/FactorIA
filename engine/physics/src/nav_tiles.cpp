@@ -177,11 +177,17 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     std::reverse(out.cells.begin(), out.cells.end());
     out.cost = sc.g[std::size_t(end)];
     for (std::size_t i = 1; i < out.cells.size(); ++i) {
-        const float dx = float(out.cells[i].first - out.cells[i - 1].first) * grid.cellSize.x;
-        const float dy = float(out.cells[i].second - out.cells[i - 1].second) * grid.cellSize.y;
-        out.length += std::sqrt(dx * dx + dy * dy);
+        const Vec2 a = nav_tile_cell_center(grid, out.cells[i - 1].first, out.cells[i - 1].second);
+        const Vec2 b = nav_tile_cell_center(grid, out.cells[i].first, out.cells[i].second);
+        out.length += std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
     }
     return out;
+}
+
+Vec2 nav_tile_cell_center(const NavTileGrid& grid, int col, int row) {
+    if (grid.isometric)
+        return {grid.origin.x + float(col - row) * grid.cellSize.x * 0.5f, grid.origin.y - float(col + row + 1) * grid.cellSize.y * 0.5f};
+    return {grid.origin.x + (float(col) + 0.5f) * grid.cellSize.x, grid.origin.y - (float(row) + 0.5f) * grid.cellSize.y};
 }
 
 NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
@@ -190,7 +196,8 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
     if (size.empty()) return g;
     g.width = size.width;
     g.height = size.height;
-    g.cellSize = tm.tileSize;
+    g.cellSize = {tm.tileSize.x, tilemap_ground_height(tm)};
+    g.isometric = tilemap_isometric(tm);
     g.cost.assign(std::size_t(g.width) * std::size_t(g.height), 1.0f);
     std::vector<int> solid;
     if (tm.solidTiles.is_array())
@@ -319,8 +326,8 @@ Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Js
     Json cells = Json::array(), points = Json::array();
     for (const auto& c : p.cells) {
         cells.push_back(Json::array({c.first, c.second}));
-        const float lx = grid.origin.x + (float(c.first) + 0.5f) * grid.cellSize.x;
-        const float ly = grid.origin.y - (float(c.second) + 0.5f) * grid.cellSize.y;
+        const Vec2 local = nav_tile_cell_center(grid, c.first, c.second);
+        const float lx = local.x, ly = local.y;
         if (toWorld) {
             const Vec3 w = toWorld->transform_point({lx, ly, 0.0f});
             points.push_back(Json::array({w.x, w.y}));

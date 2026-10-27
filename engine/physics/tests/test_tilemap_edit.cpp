@@ -168,3 +168,36 @@ TEST_CASE("tilemap: 1000 single-tile writes cost less than rewriting the whole a
     CHECK(t1 - t0 < t2 - t1);
     CHECK(tm.edits.size() <= 1000);
 }
+
+TEST_CASE("2d: an isometric map collides as diamonds, and single writes patch one diamond") {
+    Sim s;
+    Entity map = s.world.create("iso", "iso");
+    Tilemap& tm = s.world.add<Tilemap>(map);
+    tm.projection = TilemapProjection::Isometric;
+    tm.tileSize = {100, 50};
+    tm.solidTiles = Json::array({1});
+    tm.width = 3;
+    tm.height = 3;
+    tm.tiles = Json::parse("[-1,-1,-1, -1,1,-1, -1,-1,-1]");
+    s.run(2);
+    // Cell (1, 1) is a diamond centred at (0, -75) with half-axes 50 x 25.
+    CHECK(tile_box_count(s) == 1);
+    auto solid_at = [&](Vec2 p) { return s.physics.raycast2d(s.world, {p.x, p.y + 30}, {p.x, p.y - 30}).has_value(); };
+    CHECK(solid_at({0, -75}));
+    CHECK(solid_at({30, -75}));
+    // Inside the 100x50 square of the cell but outside the diamond: a short segment above the diamond's slanted top edge.
+    CHECK_FALSE(s.physics.raycast2d(s.world, {45, -45}, {45, -60}).has_value());
+    CHECK(s.physics.raycast2d(s.world, {5, -45}, {5, -60}).has_value());
+    CHECK_FALSE(solid_at({0, -75 + 80}));
+    // A neighbouring diamond is its own collider (no run merging): two cells give two shapes.
+    REQUIRE(set_tilemap_tile(tm, 2, 1, 1));
+    s.run(1);
+    CHECK(tile_box_count(s) == 2);
+    CHECK(solid_at({50, -100}));  // cell (2, 1): centre ((2 - 1) * 50, -(2 + 1 + 1) * 25) = (50, -100)
+    REQUIRE(set_tilemap_tile(tm, 1, 1, -1));
+    s.run(1);
+    CHECK(tile_box_count(s) == 1);
+    CHECK_FALSE(solid_at({-20, -75}));
+    CHECK(solid_at({50, -100}));
+    CHECK(tm.edits.empty());
+}

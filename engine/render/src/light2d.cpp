@@ -40,7 +40,7 @@ struct Occluder {
     TilemapSize size;
     Mat4 inv;                // world -> the tilemap's local space (Parallax included: it is drawn there)
     Vec3 axisX, axisY;       // the world axes in local space: inv applied to (1,0,0) and (0,1,0)
-    float tw = 16.0f, th = 16.0f;
+    float m[4] = {1, 0, 0, -1};  // local -> cell space (tilemap_local_to_cell): the same walk for squares and diamonds
     std::vector<int> solid;  // tile indices that block light, sorted
     CellRect area;           // the cells `flags` covers
     std::vector<std::uint8_t> flags;
@@ -51,16 +51,17 @@ struct Occluder {
     }
     // The cells of the map that a light at (px, py) with `radius` can reach (the bounding square of its disc).
     CellRect window(float px, float py, float radius) const {
-        float minx = kInf, maxx = -kInf, miny = kInf, maxy = -kInf;
+        // Cell space (tilemap_local_to_cell): cell (c, r) is [c, c+1) x [r, r+1) whatever the projection; the cells that
+        // touch the square are those of its bounding box in cell space.
+        float fc0 = kInf, fc1 = -kInf, fr0 = kInf, fr1 = -kInf;
         for (int k = 0; k < 4; ++k) {
             const Vec3 q = inv.transform_point({px + ((k & 1) ? radius : -radius), py + ((k & 2) ? radius : -radius), 0.0f});
-            minx = std::min(minx, q.x); maxx = std::max(maxx, q.x);
-            miny = std::min(miny, q.y); maxy = std::max(maxy, q.y);
+            const float a = m[0] * q.x + m[1] * q.y, b = m[2] * q.x + m[3] * q.y;
+            fc0 = std::min(fc0, a); fc1 = std::max(fc1, a);
+            fr0 = std::min(fr0, b); fr1 = std::max(fr1, b);
         }
-        if (!(minx <= maxx) || !(miny <= maxy)) return {};
-        // Cell space: x / tw to the right, -y / th downwards (row 0 is the top row).
-        const float fc0 = std::floor(minx / tw), fc1 = std::floor(maxx / tw);
-        const float fr0 = std::floor(-maxy / th), fr1 = std::floor(-miny / th);
+        if (!(fc0 <= fc1) || !(fr0 <= fr1)) return {};
+        fc0 = std::floor(fc0); fc1 = std::floor(fc1); fr0 = std::floor(fr0); fr1 = std::floor(fr1);
         CellRect w;
         w.c0 = int(std::clamp(fc0, 0.0f, float(size.width)));
         w.c1 = int(std::clamp(fc1, -1.0f, float(size.width - 1)));
@@ -156,8 +157,7 @@ void assign_shadow_rows(World& world, Frame& f) {
         if (o.solid.empty()) return;
         std::sort(o.solid.begin(), o.solid.end());
         o.tm = &tm;
-        o.tw = tm.tileSize.x;
-        o.th = tm.tileSize.y;
+        tilemap_local_to_cell(tm, o.m);
         o.inv = visual_world_matrix(world, e).inverse();
         o.axisX = o.inv.transform_dir({1.0f, 0.0f, 0.0f});
         o.axisY = o.inv.transform_dir({0.0f, 1.0f, 0.0f});
@@ -227,7 +227,7 @@ void assign_shadow_rows(World& world, Frame& f) {
         for (const auto& [k, win] : w.windows) {
             const Occluder& o = occluders[k];
             h.bytes(o.inv.m, sizeof(float) * 16);
-            h.add(o.tw); h.add(o.th);
+            h.bytes(o.m, sizeof o.m);
             o.hash_window(h, win);
         }
         const std::uint64_t key = h.h;
@@ -240,7 +240,7 @@ void assign_shadow_rows(World& world, Frame& f) {
             for (const auto& [k, win] : w.windows) {
                 const Occluder& o = occluders[k];
                 const Vec3 q = o.inv.transform_point({w.px, w.py, 0.0f});
-                origin.push_back({q.x / o.tw, -q.y / o.th});
+                origin.push_back({o.m[0] * q.x + o.m[1] * q.y, o.m[2] * q.x + o.m[3] * q.y});
             }
             for (int i = 0; i < kShadowAngles; ++i) {
                 float best = w.radius;
@@ -248,7 +248,7 @@ void assign_shadow_rows(World& world, Frame& f) {
                     const Occluder& o = occluders[w.windows[n].first];
                     const float lx = dirs[std::size_t(i)].c * o.axisX.x + dirs[std::size_t(i)].s * o.axisY.x;
                     const float ly = dirs[std::size_t(i)].c * o.axisX.y + dirs[std::size_t(i)].s * o.axisY.y;
-                    best = std::min(best, cast_ray(o, origin[n].cx, origin[n].cy, lx / o.tw, -ly / o.th, best));
+                    best = std::min(best, cast_ray(o, origin[n].cx, origin[n].cy, o.m[0] * lx + o.m[1] * ly, o.m[2] * lx + o.m[3] * ly, best));
                 }
                 const std::uint32_t v = std::uint32_t(std::lround(std::clamp(best / w.radius, 0.0f, 1.0f) * 65535.0f));
                 std::uint8_t* t = &e.row[std::size_t(i) * 4];

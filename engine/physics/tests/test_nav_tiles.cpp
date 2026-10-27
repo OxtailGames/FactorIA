@@ -189,6 +189,38 @@ TEST_CASE("nav tiles: a Tilemap entity, solid tiles, costs and world points") {
     CHECK(bad.error().message.find("cost") != std::string::npos);
 }
 
+TEST_CASE("nav tiles: a path on an isometric Tilemap walks the diamonds and reports world points at their centres") {
+    World world;
+    Entity map = world.create("iso", "iso");
+    world.get<Transform>(map)->position = {1000, 0, 0};
+    Tilemap& tm = world.add<Tilemap>(map);
+    tm.projection = TilemapProjection::Isometric;
+    tm.tileSize = {100, 50};
+    tm.solidTiles = Json::array({1});
+    tm.width = 4;
+    tm.height = 3;
+    tm.tiles = Json::parse("[0,0,0,0, 0,1,1,0, 0,0,0,0]");
+
+    auto r = nav_tile_query(world, Json::parse(R"({"tilemap":"iso","from":[0,1],"to":[3,1]})"));
+    REQUIRE(r.ok());
+    const Json& j = r.value();
+    CHECK(j["found"] == true);
+    CHECK(j["cells"].size() == 6);  // round the two solid tiles, exactly as the grid logic says
+    // Cell (0, 1): centre ((0 - 1) * 50, -(0 + 1 + 1) * 25) = (-50, -50) from the map's top vertex, plus the entity position.
+    CHECK(j["points"][0][0].get<float>() == doctest::Approx(950.0f));
+    CHECK(j["points"][0][1].get<float>() == doctest::Approx(-50.0f));
+    // The last point is cell (3, 1): ((3 - 1) * 50, -(3 + 1 + 1) * 25) = (100, -125).
+    const std::size_t n = j["points"].size();
+    CHECK(j["points"][n - 1][0].get<float>() == doctest::Approx(1100.0f));
+    CHECK(j["points"][n - 1][1].get<float>() == doctest::Approx(-125.0f));
+    // A step along a column or a row is a diagonal on screen, sqrt(50^2 + 25^2) long.
+    const NavTileGrid grid = nav_tile_grid_from_tilemap(tm, Json::object());
+    CHECK(grid.isometric);
+    const Vec2 a = nav_tile_cell_center(grid, 0, 0), b = nav_tile_cell_center(grid, 1, 0);
+    CHECK(std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)) == doctest::Approx(std::sqrt(50.0f * 50.0f + 25.0f * 25.0f)));
+    CHECK(j["length"].get<float>() == doctest::Approx(5.0f * std::sqrt(50.0f * 50.0f + 25.0f * 25.0f)));
+}
+
 TEST_CASE("nav tiles: a plain grid with origin and cell size") {
     World world;
     auto r = nav_tile_query(world, Json::parse(

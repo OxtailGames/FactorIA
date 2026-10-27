@@ -1452,3 +1452,48 @@ TEST_CASE("tilemap_version: scene.set_component and set_tilemap_tile both move t
     REQUIRE(set_tilemap_tile(*tm, 1, 1, 2));
     CHECK(tilemap_version(*tm) > v1);
 }
+
+TEST_CASE("import_ascii on an isometric map: objects stand at the diamond centres, anchors use the drawn box, cell_at inverts cell_to_world") {
+    Session s("iso");
+    Json a = Json::parse(R"({
+      "rows": ["#.#", "...", "#o#"],
+      "legend": { "#": 0, ".": 1, "o": { "prefab": "prefabs/coin.prefab.json", "id": "coin" } },
+      "tilemap": { "tileset": "assets/tiles.png", "tileSize": [32, 32], "projection": "isometric", "groundHeight": 16,
+                   "solidTiles": [0] },
+      "position": [500, 200]
+    })");
+    auto r = s.import(a);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    Json map = s.entity("tilemap");
+    CHECK(map["components"]["Tilemap"]["projection"] == "isometric");
+    // The top-left anchor is the corner of the box around all the images: its left edge is 3 rows * 16 = 48 left of the top
+    // vertex (the image of cell (0, 2) reaches half a tile past its centre) and its top is groundOffset (0) above it, so the
+    // entity (the top vertex) sits at (548, 200).
+    CHECK(position_of(map).x == doctest::Approx(500.0f + 48.0f));
+    CHECK(position_of(map).y == doctest::Approx(200.0f));
+    // The coin was written at '(col 1, row 2)': centre ((1 - 2) * 16, -(1 + 2 + 1) * 8) = (-16, -32) from the top vertex.
+    Json coin = s.entity("coin");
+    REQUIRE(coin.is_object());
+    CHECK(position_of(coin).x == doctest::Approx(548.0f - 16.0f));
+    CHECK(position_of(coin).y == doctest::Approx(200.0f - 32.0f));
+
+    auto c = s.call("tilemap.cell_at", Json{{"id", "tilemap"}, {"x", position_of(coin).x}, {"y", position_of(coin).y}});
+    REQUIRE_MESSAGE(c.ok, error_text(c));
+    CHECK(c.result["col"] == 1);
+    CHECK(c.result["row"] == 2);
+    CHECK(c.result["inside"] == true);
+    CHECK(c.result["tile"] == -1);  // an object glyph leaves its cell empty
+    auto w = s.call("tilemap.cell_to_world", Json{{"id", "tilemap"}, {"col", 2}, {"row", 0}});
+    REQUIRE_MESSAGE(w.ok, error_text(w));
+    CHECK(w.result["x"].get<float>() == doctest::Approx(548.0f + 32.0f));
+    CHECK(w.result["y"].get<float>() == doctest::Approx(200.0f - 24.0f));
+    // A point left of the map is outside, with the cell numbers it would have.
+    auto out = s.call("tilemap.cell_at", Json{{"id", "tilemap"}, {"x", 400}, {"y", 100}});
+    REQUIRE_MESSAGE(out.ok, error_text(out));
+    CHECK(out.result["inside"] == false);
+    CHECK(out.result["tile"] == -1);
+    // An entity without a Tilemap teaches.
+    auto bad = s.call("tilemap.cell_at", Json{{"id", "cam"}, {"x", 0}, {"y", 0}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "Tilemap"));
+}

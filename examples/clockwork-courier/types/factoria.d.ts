@@ -417,7 +417,7 @@ declare module "factoria" {
      */
     readonly animator: AnimatorAPI;
     /**
-     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height) and the cell <-> world conversion for both projections (cellAt, cellToWorld). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
      * @since unreleased
      */
     readonly tilemap: TilemapAPI;
@@ -3683,7 +3683,7 @@ declare module "factoria" {
   }
 
   /**
-   * Reads and writes single tiles of a Tilemap (entity.tilemap). A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   * Reads and writes single tiles of a Tilemap (entity.tilemap) and converts between cells and world points (cellAt, cellToWorld) for square and isometric maps. A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
    * @since unreleased
    */
   export class TilemapAPI {
@@ -3697,6 +3697,16 @@ declare module "factoria" {
      * @since unreleased
      */
     setTile(x: number, y: number, tile: number): void;
+    /**
+     * The cell under a WORLD point, by the entity's transform and the map's `projection` (the square for "orthogonal", the diamond for "isometric"); null when the point is outside the map. To pick the cell under the mouse pass `camera.screenToWorld(input.mouse.position)`. `cellToWorld(col, row)` is the inverse for the centre of a cell. Example: `const c = ground.tilemap.cellAt(camera.screenToWorld(input.mouse.position)); if (c) ground.tilemap.setTile(c.col, c.row, 3)`.
+     * @since unreleased
+     */
+    cellAt(point: Vec2Like): { col: number; row: number } | null;
+    /**
+     * The WORLD position of the centre of cell (col, row) (0-based, row 0 = TOP row), by the entity's transform and the map's `projection`: the middle of the square, or of the diamond. The cell may lie outside the map. `cellAt(cellToWorld(c, r))` is `{ col: c, row: r }` for a cell inside the map.
+     * @since unreleased
+     */
+    cellToWorld(col: number, row: number): Vec2;
     /**
      * Map width in tiles.
      * @since unreleased
@@ -4735,6 +4745,21 @@ declare module "factoria" {
      */
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
+    /**
+     * How the cells lie in the world. "orthogonal" (default): square tiles of tileSize, tile (col, row) at x = col * tileSize.x, y = -row * tileSize.y from the entity's top-left corner. "isometric": diamond tiles, tileSize.x wide and groundHeight (default tileSize.y) high, 2:1 for the usual 100 x 50. +col runs down-right and +row down-left on screen; the entity's position is the TOP corner of the map (the top vertex of tile (0, 0)), tile (col, row) has its centre at ((col - row) * tileSize.x / 2, -(col + row + 1) * groundHeight / 2). The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so a tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld convert between cells and world points for both projections.
+     * @since unreleased
+     */
+    projection: "orthogonal" | "isometric";
+    /**
+     * Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 apart. 0 (the default) = tileSize.y, a tile image that is exactly the diamond (tileSize [100, 50]). Set it when the tile image is taller than the diamond because it also shows the side of a block or a low wall: tileSize [100, 65] with groundHeight 50 is a 100 x 50 diamond with 15 units of side below it.
+     * @since unreleased
+     */
+    groundHeight: number;
+    /**
+     * Isometric only. How far the top corner of the ground diamond lies below the top edge of the tile image, in world units. 0 (the default) = the image starts at the diamond's top corner and anything taller hangs below it (a block side). Set it to the height of a tree or a wall that rises above the ground to draw the image that much higher: tileSize [100, 96], groundHeight 50, groundOffset 31 has 31 units above the diamond and 15 below.
+     * @since unreleased
+     */
+    groundOffset: number;
     /**
      * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
@@ -7405,7 +7430,7 @@ declare module "factoria" {
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };

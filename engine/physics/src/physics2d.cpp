@@ -70,6 +70,7 @@ std::vector<int> read_solid(const Tilemap& tm) {
 std::uint64_t hash_tilemap_layout(const Tilemap& tm, const TilemapSize& size, const WorldPose& pose) {
     Hasher h;
     h.add(size.width); h.add(size.height); h.add(tm.tileSize.x); h.add(tm.tileSize.y);
+    h.add(int(tm.projection)); h.add(tilemap_ground_height(tm));  // the diamonds of an isometric map are not boxes
     h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
     if (tm.solidTiles.is_array())
         for (const Json& j : tm.solidTiles)
@@ -418,7 +419,8 @@ void Physics2D::sync_tilemaps(World& world) {
         }
         const bool active = world.active_in_hierarchy(e);
 
-        const float tw = tm->tileSize.x * pose.scale.x, th = tm->tileSize.y * pose.scale.y;
+        const bool iso = tilemap_isometric(*tm);
+        const float tw = tm->tileSize.x * pose.scale.x, th = (iso ? tilemap_ground_height(*tm) : tm->tileSize.y) * pose.scale.y;
         b2ShapeDef sd = b2DefaultShapeDef();
         sd.material.friction = 0.5f;
         sd.material.restitution = 0.0f;
@@ -432,6 +434,12 @@ void Physics2D::sync_tilemaps(World& world) {
         struct CellRun { int c0, c1, r0, r1; };
         auto make_runs = [&](int c0, int c1, int r0, int r1, auto&& is_solid) {
             std::vector<CellRun> runs;
+            if (iso) {  // a diamond is its own shape: one per solid cell, nothing to merge
+                for (int r = r0; r <= r1; ++r)
+                    for (int c = c0; c <= c1; ++c)
+                        if (is_solid(c, r)) runs.push_back({c, c, r, r});
+                return runs;
+            }
             std::vector<std::size_t> prevIdx;
             for (int r = r0; r <= r1; ++r) {
                 std::vector<std::size_t> curIdx;
@@ -460,6 +468,19 @@ void Physics2D::sync_tilemaps(World& world) {
         };
         // Tilemap origin = TOP-LEFT corner, +Y up: tile (c, r) spans x in [c*tw, (c+1)*tw], y in [-(r+1)*th, -r*th].
         auto add_box = [&](TileBody& tb, const CellRun& run) {
+            if (iso) {
+                // The diamond of tile (c, r): centre ((c - r) * tw / 2, -(c + r + 1) * th / 2) (tw, th = the footprint, scaled).
+                const float cx = float(run.c0 - run.r0) * tw * 0.5f, cy = -float(run.c0 + run.r0 + 1) * th * 0.5f;
+                const float hx = std::max(tw * 0.5f * inv, kMinHalf), hy = std::max(th * 0.5f * inv, kMinHalf);
+                const b2Vec2 pts[4] = {{cx * inv, cy * inv + hy}, {cx * inv - hx, cy * inv}, {cx * inv, cy * inv - hy}, {cx * inv + hx, cy * inv}};
+                const b2Hull hull = b2ComputeHull(pts, 4);
+                const b2Polygon poly = b2MakePolygon(&hull, 0.0f);
+                b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
+                register_shape(sid, e, false, false, &tb.shapeKeys);
+                tb.runs.push_back({run.c0, run.c1, run.r0, run.r1, sid});
+                tb.boxes.push_back(Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv}));
+                return;
+            }
             float cx = (float(run.c0 + run.c1 + 1) * 0.5f) * tw;
             float cy = -(float(run.r0 + run.r1 + 1) * 0.5f) * th;
             float hx = std::max(float(run.c1 - run.c0 + 1) * tw * 0.5f * inv, kMinHalf);
