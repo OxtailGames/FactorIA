@@ -861,8 +861,9 @@ the press is released over the same widget; a Slider follows the pointer while p
   ```
 - `ui.layout()` runs the UI layout now, as every frame does: change a label, call it, then read `Button.size`,
   `Panel.size` or `ui.rectOf(...)`. `Panel.usingFallback` tells whether a panel is laid out with its `fallbackLayout`.
-- `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it throws, saying why, when
-  the entity is not a focusable widget, is inactive or has `interactable: false`. `ui.focus(null)` holds: an open
+- `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it returns `true` when the
+  widget took the focus and `false`, changing nothing, when the widget has `interactable: false` (a greyed-out button: fall back to
+  another one); it throws, saying why, when the entity is not a focusable widget or is inactive. `ui.focus(null)` holds: an open
   panel's `autoFocus` does not take the focus back until the next `ui_up` / `ui_down` / `ui_left` / `ui_right` press
   (that press only wakes `autoFocus`; it does not also move the new focus). `ui.focused` and `ui.hovered`
   are the focused widget and the one under the pointer (Entity or `null`): check `ui.hovered` so a click meant for a

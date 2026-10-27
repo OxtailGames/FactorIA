@@ -1020,7 +1020,7 @@ NATIVE(uiCancelDrag) {
     return JS_UNDEFINED;
 }
 
-NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot take focus
+NATIVE(uiFocus) {  // (entity | null): true when focused; false for a disabled widget; throws saying why for any other entity that cannot take focus
     SETUP;
     UiSystem* U = I->host->ui();
     if (!U) return throw_err(ctx, "ui.focus: this run has no UI system");
@@ -1029,8 +1029,12 @@ NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot 
         JSValue exc = JS_UNDEFINED;
         if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
     }
-    if (U->set_focus(W, e)) return JS_UNDEFINED;
+    if (U->set_focus(W, e)) return JS_TRUE;
     const UiKind kind = ui_kind(W, e);
+    if (ui_is_control(kind) && W.active_in_hierarchy(e)) {
+        const UiControl* ctl = ui_control(W, e);
+        if (ctl && !ctl->interactable) return JS_FALSE;  // greyed out: a screen that restores focus falls back itself
+    }
     std::string why;
     if (!ui_is_control(kind))
         why = kind == UiKind::None ? "it has no Button, Toggle, Slider or TextField component"
@@ -1038,7 +1042,7 @@ NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot 
                                          (kind == UiKind::Panel || kind == UiKind::ScrollList ? " is a container and" : " is touch-only and") +
                                          " cannot be focused; focus a Button, Toggle, Slider or TextField";
     else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
-    else why = "its interactable is false; set interactable = true first";
+    else why = "it cannot take focus";
     return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);
 }
 

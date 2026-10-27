@@ -325,6 +325,7 @@ bool leaves_screen(const World& w, Entity e, const Panel& p, Vec2 design, const 
     const Vec2 c = content_size(p.layout, children_of(w, e, design, m), p.spacing, p.columns);
     Vec2 need{c.x + p.padding.x + p.padding.z, c.y + p.padding.y + p.padding.w};
     for (Entity a = w.parent(e); a; a = w.parent(a)) {
+        if (w.get<ScrollList>(a)) return false;  // a ScrollList clips and scrolls what is in it: nothing is lost
         const Panel* up = w.get<Panel>(a);
         if (!up || !up->fit || used_layout(*up) == UiLayout::None) break;
         need = up->size;
@@ -422,6 +423,12 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
     for (const auto& [depth, e] : containers) {  // only the final layout can be too big
         const Panel* p = w.get<Panel>(e);
         if (!warn || !p || !p->fit || used_layout(*p) == UiLayout::None) continue;
+        bool scrolled = false;  // in a ScrollList the panel is clipped and scrolls: nothing is off screen for good
+        for (Entity a = w.parent(e); a && !scrolled; a = w.parent(a)) scrolled = w.get<ScrollList>(a) != nullptr;
+        if (scrolled) {
+            warnedFit_.erase(e.bits());
+            continue;
+        }
         const Vec2 screen = ui_layout_screen(w, design);
         if (p->size.x > screen.x + 0.5f || p->size.y > screen.y + 0.5f) {
             if (warnedFit_.insert(e.bits()).second)
