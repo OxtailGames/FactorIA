@@ -2,5 +2,70 @@
   "format": "factoria.feedback/1",
   "project": "Larkspur Lodge",
   "engineVersion": "0.2.0",
-  "entries": []
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "Crash when a widget has a parent without a UI component",
+      "missing": "Pressing the mouse (or a tap) over any Panel, Button or other widget whose parent entity has no UI component (a plain HUD root with a Transform and a Script) crashes the engine with a segmentation fault (UiSystem::update_drag, engine/ui/src/drag.cpp: ui_box(w, a)->draggable is read for every ancestor while looking for a draggable one, and ui_box is null for an ancestor that is not a widget). Minimal repro: a Panel with a Text child inside an entity that has only a Transform, then game.click on the Panel in a test. Found by clicking the prompt panel of the HUD prefab.",
+      "workaround": "The HUD prefab root (prefabs/ui/hud.prefab.json) carries a fully transparent 1x1 Panel with layout none, which is a widget and is never hit, so every widget below it has only widget ancestors.",
+      "workaroundFiles": [
+        "prefabs/ui/hud.prefab.json"
+      ],
+      "suggestion": "In update_drag skip an ancestor for which ui_box is null (or stop the walk at the first non-widget), and add a test with a widget under a plain entity. Also worth a validate warning for a widget under a non-widget parent if that layout is not meant to be supported.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "No raycast that returns every hit",
+      "missing": "physics.raycast3d returns only the first collider along the ray. The camera needs everything between the lens and the porter (every wall and piece of furniture that hides him) to fade it, and the click-to-walk ray must skip the walls that are only there to fade and reach the object behind them.",
+      "workaround": "scripts/lodge_camera.js and scripts/porter.js cast again from just past each hit, up to 8 times per ray, with the hit entity in the ignore list. Up to 8 queries per ray, several rays per frame, plus overlapSphere around the lens.",
+      "workaroundFiles": [
+        "scripts/lodge_camera.js",
+        "scripts/porter.js"
+      ],
+      "suggestion": "physics.raycast3dAll(origin, dir, maxDistance, opts) returning the hits sorted by distance (with a max count), or an option on raycast3d.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "Collider3D has no enabled field",
+      "missing": "A door that has been opened must stop blocking the porter, the camera sweep, the click rays and the NavMesh, but stay in the scene (its open/closed state is saved and the mesh stays visible). Collider3D has isTrigger, layer and mask but nothing to switch it off.",
+      "workaround": "scripts/interactable.js removes the component with entity.remove('Collider3D') when the door opens, and a scene that loads with the flag already set does the same. The collider is gone for good, so closing it again would have to add it back.",
+      "workaroundFiles": [
+        "scripts/interactable.js"
+      ],
+      "suggestion": "Collider3D.enabled (and Collider2D.enabled), writable at run time, kept out of the NavMesh bake when false; or a documented way to move a collider to a layer that nothing hits.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
 }
