@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A choice card and modal panels
+
+- `Panel.modal`: while the panel is active the mouse, the wheel and keyboard / gamepad navigation reach only its widgets (a
+  focus scope). What is under it gets no hover, press, click, focus, tooltip or drop, the focus stays inside it,
+  `ui.pointerOverUi` is true everywhere and the wheel is not passed on. The topmost modal panel (highest `layer`) is the scope.
+- The menu kit has a `card` part: `Card` in `scripts/ui/card.js` with `prefabs/ui/card.prefab.json` is a modal card with a
+  title, a wrapped rich-text body, choice buttons that each have a detail line, a choice greyed out with its reason shown, a
+  result stage with Continue and a `holdClock` option (`game.paused` while it is open); mouse, arrows and pad. See MENUS.md.
+- Tidewater Market's event and story cards are the kit's card; its draw calls and entities are the same.
+
 Atlas packing while developing
 
 - `assets.pack_atlas {folder, out, table, maxSize, padding}` packs a folder of images into one PNG and writes the frame table

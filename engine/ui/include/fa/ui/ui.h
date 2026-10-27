@@ -49,6 +49,10 @@ std::optional<Rect> ui_screen_rect(const World& world, Entity e, Vec2 designSize
 // last, as for the hover. Reads the rectangles the last layout wrote.
 // `ignore` (and its descendants) is not looked at: the drag image that follows the pointer.
 Entity ui_widget_at(const World& world, Vec2 designSize, Vec2 p, Entity ignore = kNullEntity);
+// The modal Panel that scopes the input right now: the active Panel with `modal` and the highest layer (the later entity on a
+// tie), or kNullEntity. ui_widget_at() and the UiSystem treat only it and its descendants as reachable while there is one.
+Entity ui_modal_panel(const World& world);
+
 
 // A TextField the player focused or left with a gamepad, for the platform's own keyboard (the runtime hands it to a native
 // plugin: fa_plugin.h, FaTextInput). `rect` is in design pixels; the runtime converts it to window pixels.

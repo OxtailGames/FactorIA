@@ -5,12 +5,13 @@
 //   - draws the ships (ShipView), tells the store about achievements (StoreBridge),
 //   - the HUD: one reputation item in the top bar (controller.addHudItem) and an Orders button under it (key O),
 //   - the order board (prefabs/ui/order_board.prefab.json): one row per ship with its order, a Fill order button,
-//   - the event / story card (prefabs/ui/event_card.prefab.json): modal, the clock waits while it is open,
+//   - the event / story card (the menu kit's scripts/ui/card.js and prefabs/ui/card.prefab.json): modal, the clock waits while it is open,
 //   - toasts for the ships, the orders, the reputation and the achievements.
 //
 // Everything is driven by the mouse: the Orders button, Fill order, a card's choice buttons, Continue and Close are all Buttons.
 // Layers: the board and the card are 300+ (above the HUD at 200-210 and the toast at 220, below nothing).
 import { Behaviour, world, ui, i18n, input, game, scene } from "factoria";
+import { Card } from "../ui/card.js";
 import { ShipView } from "./ship_view.js";
 import { StoreBridge } from "./achievements.js";
 import { amountText, coinsText, numberText } from "./format.js";
@@ -227,8 +228,6 @@ export default class TradeUi extends Behaviour {
     if (id === "btn_orders") this.toggleBoard();
     else if (id === "board_close") this.closeBoard();
     else if (id.startsWith("fill_")) this.fill(Number(id.slice(5)));
-    else if (id.startsWith("choice_")) this.choose(id.slice(7));
-    else if (id === "card_continue") this.trade.dismiss();
   }
 
   fill(shipId) {
@@ -362,15 +361,20 @@ export default class TradeUi extends Behaviour {
     b.root.get("Panel").size = [720, Math.round(y + 6 + foot2.height + 24)];
   }
 
-  // ---- the event / story card --------------------------------------------------------------------------------------
+  // ---- the event / story card (the menu kit's Card: modal, so the map and the HUD under it get nothing) -----------------
 
   openCard() {
     if (!this.trade.card) return;
     this.closeBoard();
     this.closeCard(true);
-    const root = world.spawnPrefab("prefabs/ui/event_card.prefab.json");
-    this.controller.uiPanels.push(root);
-    this.cardUi = { root, views: [], buttons: [] };
+    // The clock is held by onUpdate (the game has its own speeds), so the kit's holdClock stays off.
+    const card = new Card({
+      reasonColor: "bad",
+      onChoose: (id) => this.choose(id),
+      onContinue: () => this.trade.dismiss(),
+    });
+    this.controller.uiPanels.push(card.root);
+    this.cardUi = { card, root: card.root };
     this.renderCard();
   }
 
@@ -379,106 +383,35 @@ export default class TradeUi extends Behaviour {
     const c = this.cardUi;
     const card = this.trade.card;
     if (!c || !card) return;
-    for (const v of c.views) v.destroy();
-    for (const b of c.buttons) b.destroy();
-    c.views = [];
-    c.buttons = [];
-    const rich = () => {
-      const v = new RichBlock({ layer: 300, parent: c.root });
-      c.views.push(v);
-      return v;
-    };
     const { def, base } = this.trade.cardDef(card);
-    const X = 0; // children of a Panel are placed from its top-left corner (the panel itself is put at 320, 100 at the end)
-    const Y = 0;
-    const W = 640;
-    const pad = 24;
-    const kindText = world.find("card_kind");
-    const titleText = world.find("card_title");
-    kindText.get("Text").text = t(card.kind === "story" ? "trade.card.story" : "trade.card.event");
-    const title = t(`${base}.title`);
-    titleText.get("Text").text = title;
-    // the text size option grows the card's text up to RICH_CAP: the title sits under the kind line, and a button is as tall as its text
-    const k = Math.min(ui.textScale, RICH_CAP);
-    const titleY = Y + 16 + Math.round(18 * k * 1.3) + 4;
-    kindText.position = [X + pad, Y + 16, 0];
-    titleText.position = [X + pad, titleY, 0];
-    const buttonH = Math.round(38 * k);
-    let y = titleY + ui.measureText(title, { fontSize: 32, maxWidth: W - pad * 2, space: "screen", maxTextScale: RICH_CAP }).height + 16;
+    const kind = t(card.kind === "story" ? "trade.card.story" : "trade.card.event");
     if (card.stage === "choose") {
-      const body = rich().set(t(`${base}.body`), { x: X + pad, y, maxWidth: W - pad * 2, fontSize: 20 });
-      y += body.height + 18;
-      for (const choice of def.choices) {
-        const can = this.trade.canChoose(choice);
-        const btn = world.spawn(
-          {
-            id: `choice_${choice.id}`,
-            components: {
-              Transform: { position: [X + pad, y, 0] },
-              Button: {
-                text: t(`${base}.choice.${choice.id}`),
-                size: [W - pad * 2, buttonH],
-                fontSize: 20,
-                anchor: [0, 0],
-                pivot: [0, 1],
-                layer: 302,
-                autoShrink: true,
-                minFontSize: 8,
-                maxTextScale: RICH_CAP,
-                interactable: can.ok,
-                color: can.ok ? COLOR_BUTTON : COLOR_DISABLED,
-              },
-            },
-          },
-          { parent: c.root },
-        );
-        c.buttons.push(btn);
-        y += buttonH + 4;
-        let line;
-        if (choice.outcomes) line = `[c:gold]${t("trade.card.risky")}[/c]`;
-        else if (!can.ok) line = `[c:bad]${t("trade.card.cannot", { list: Object.entries(can.missing).map(([k, n]) => amountMarkup(k, n)).join("  ") })}[/c]`;
-        else line = effectsMarkup(choice.effects, t) || `[c:muted]${t("trade.card.free")}[/c]`;
-        const r = rich().set(line, { x: X + pad + 8, y, maxWidth: W - pad * 2 - 16, fontSize: 18 });
-        y += Math.max(r.height, 24) + 12;
-      }
+      c.card.ask({
+        kind,
+        title: t(`${base}.title`),
+        body: t(`${base}.body`),
+        choices: def.choices.map((choice) => {
+          const can = this.trade.canChoose(choice);
+          let detail;
+          if (choice.outcomes) detail = `[c:gold]${t("trade.card.risky")}[/c]`;
+          else detail = effectsMarkup(choice.effects, t) || `[c:muted]${t("trade.card.free")}[/c]`;
+          const reason = can.ok ? false : t("trade.card.cannot", { list: Object.entries(can.missing).map(([k, n]) => amountMarkup(k, n)).join("  ") });
+          return { id: choice.id, text: t(`${base}.choice.${choice.id}`), detail, disabled: reason };
+        }),
+      });
     } else {
       const key = card.outcome === null || card.outcome === undefined ? `${base}.result.${card.choice}` : `${base}.result.${card.choice}.${card.outcome}`;
-      const body = rich().set(t(key), { x: X + pad, y, maxWidth: W - pad * 2, fontSize: 20 });
-      y += body.height + 14;
-      const line = effectsMarkup(this.trade.resultEffects(card), t);
-      if (line) {
-        const r = rich().set(line, { x: X + pad, y, maxWidth: W - pad * 2, fontSize: 22 });
-        y += r.height + 14;
-      }
-      c.buttons.push(
-        world.spawn(
-          {
-            id: "card_continue",
-            components: {
-              Transform: { position: [X + W - pad - 160, y, 0] },
-              Button: { text: t("trade.card.continue"), size: [160, buttonH], fontSize: 20, anchor: [0, 0], pivot: [0, 1], layer: 302, autoFocus: true, autoShrink: true, minFontSize: 8, maxTextScale: RICH_CAP },
-            },
-          },
-          { parent: c.root },
-        ),
-      );
-      y += buttonH + 4;
+      c.card.answer({ body: t(key), effects: effectsMarkup(this.trade.resultEffects(card), t) });
     }
-    c.root.get("Panel").size = [W, y + pad];
-    c.root.position = [320, 100, 0];
   }
 
-  /** @param {boolean} [quiet] */
-  closeCard(quiet) {
+  closeCard() {
     const c = this.cardUi;
     if (!c) return;
     const i = this.controller.uiPanels.indexOf(c.root);
     if (i >= 0) this.controller.uiPanels.splice(i, 1);
-    for (const v of c.views) v.destroy();
-    for (const b of c.buttons) b.destroy();
-    c.root.destroy();
+    c.card.close();
     this.cardUi = null;
-    void quiet;
   }
 
   /** The trade was restored from a save: draw what it holds now. */

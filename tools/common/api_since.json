@@ -244,6 +244,7 @@
     "Panel.layout": "0.1.6",
     "Panel.maxSize": "unreleased",
     "Panel.minSize": "unreleased",
+    "Panel.modal": "unreleased",
     "Panel.padding": "0.1.6",
     "Panel.pivot": "0.1.6",
     "Panel.safeArea": "0.2.0",

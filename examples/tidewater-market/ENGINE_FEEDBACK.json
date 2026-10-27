@@ -579,7 +579,10 @@
       "suggestion": "A documented modal 'card' widget in the menu kit: title, wrapped body, N choice buttons with a detail line.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.19): Panel.modal (a focus scope: the pointer, the wheel and navigation reach only the panel's widgets; nothing under it is hovered, clicked, given a tooltip or taken as a drop target) and the menu kit's card part (scripts/ui/card.js, prefabs/ui/card.prefab.json): title, wrapped body, choices with a detail line, a choice disabled with its reason, a result stage and an optional game.paused hold. trade_ui.js uses it; the game keeps its own clock hold (its speed buttons), so it does not pass holdClock."
+      ]
     },
     {
       "id": "FB-0034",

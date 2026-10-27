@@ -80,6 +80,13 @@
       "localeKeys": ["captions"]
     },
     {
+      "name": "card",
+      "description": "A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.",
+      "requires": [],
+      "files": ["prefabs/ui/card.prefab.json", "scripts/ui/card.js", "tests/card.test.js"],
+      "localeKeys": ["card"]
+    },
+    {
       "name": "cameraRig",
       "description": "The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it.",
       "requires": [],
