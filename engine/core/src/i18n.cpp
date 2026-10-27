@@ -218,6 +218,19 @@ std::vector<PluralCategory> plural_categories(std::string_view language, bool ev
     return {found.begin(), found.end()};  // the enum is ordered zero .. other
 }
 
+// ================================================================================================== gender
+bool is_gender_code(std::string_view code) { return code == "f" || code == "m" || code == "n"; }
+
+std::vector<std::string> gender_forms(std::string_view language) {
+    const std::vector<std::string> sub = split(language, '-');
+    const std::string lang = sub.empty() ? std::string() : to_lower(sub[0]);
+    for (const char* three : {"de", "ru", "uk", "pl", "cs", "sk", "sl", "hr", "sr", "bg", "el", "ro", "lt", "lv"})
+        if (lang == three) return {"f", "m", "n"};
+    for (const char* two : {"es", "fr", "pt", "it", "ca", "ar", "he", "iw", "hi", "ur", "nl", "sv", "da", "nb", "nn", "no"})
+        if (lang == two) return {"f", "m"};
+    return {};
+}
+
 // ================================================================================================== string tables
 namespace {
 
@@ -244,6 +257,27 @@ bool is_plural_object(const Json& obj) {
         any = true;
     }
     return any;
+}
+
+bool is_select_object(const Json& obj) {
+    bool any = false;
+    for (auto it = obj.begin(); it != obj.end(); ++it) {
+        if (!it.key().empty() && it.key()[0] == '$') continue;
+        if (!is_gender_code(it.key()) && it.key() != "other") return false;
+        any = true;
+    }
+    return any;
+}
+
+// {"text": "Ligera", "gender": "f"}: exactly those two keys (besides $ metadata).
+bool is_gendered_object(const Json& obj) {
+    std::size_t n = 0;
+    for (auto it = obj.begin(); it != obj.end(); ++it) {
+        if (!it.key().empty() && it.key()[0] == '$') continue;
+        if (it.key() != "text" && it.key() != "gender") return false;
+        ++n;
+    }
+    return n == 2 && obj.contains("text") && obj.contains("gender");
 }
 
 struct Flattener {
@@ -280,6 +314,39 @@ struct Flattener {
                                    "other is a plural entry: give a group another key name.)");
             return add(prefix, std::move(entry), pointer);
         }
+        if (!prefix.empty() && is_select_object(obj)) {
+            StringEntry entry;
+            for (auto it = obj.begin(); it != obj.end(); ++it) {
+                if (!it.key().empty() && it.key()[0] == '$') continue;
+                if (!it->is_string())
+                    return table_error(file, pointer + "/" + escape_pointer(it.key()),
+                                       "expected a string for the form '" + it.key() + "' of the select entry '" + prefix + "', got " +
+                                           describe_json_value(*it),
+                                       "Every form is a string, e.g. \"f\": \"la {name}\".");
+                entry.selects[it.key()] = it->get<std::string>();
+            }
+            if (!entry.selects.count("other"))
+                return table_error(file, pointer, "the select entry '" + prefix + "' has no \"other\" form",
+                                   "Every select entry needs \"other\", the form used for a name without a known gender, e.g. {\"f\": "
+                                   "\"la {name}\", \"m\": \"el {name}\", \"other\": \"{name}\"}. (An object whose keys are all of f, m, n, other "
+                                   "is a select entry: give a group another key name.)");
+            return add(prefix, std::move(entry), pointer);
+        }
+        if (!prefix.empty() && is_gendered_object(obj)) {
+            const Json& text = obj["text"];
+            const Json& gender = obj["gender"];
+            if (!text.is_string())
+                return table_error(file, pointer + "/text", "expected a string, got " + describe_json_value(text),
+                                   "A gendered string is {\"text\": \"Ligera\", \"gender\": \"f\"}.");
+            if (!gender.is_string() || !is_gender_code(gender.get<std::string>()))
+                return table_error(file, pointer + "/gender", "'" + prefix + "' has the gender " + describe_json_value(gender) + ", which is not f, m or n",
+                                   "Use \"f\" (feminine), \"m\" (masculine) or \"n\" (neuter). (An object with exactly the keys text and gender is a "
+                                   "gendered string: give a group other key names.)");
+            StringEntry entry;
+            entry.text = text.get<std::string>();
+            entry.gender = gender.get<std::string>();
+            return add(prefix, std::move(entry), pointer + "/text");
+        }
         for (auto it = obj.begin(); it != obj.end(); ++it) {
             const std::string& k = it.key();
             if (!k.empty() && k[0] == '$') continue;  // metadata
@@ -294,7 +361,7 @@ struct Flattener {
                 if (auto err = walk(*it, key, childPointer)) return err;
             } else {
                 return table_error(file, childPointer, "expected a string, got " + describe_json_value(*it),
-                                   "Every value of a string table is a string, or an object of nested keys or plural forms; "
+                                   "Every value of a string table is a string, or an object of nested keys, plural forms or gender forms; "
                                    "numbers belong in {placeholders} (i18n.t(\"" + key + "\", {count: 3})).");
             }
         }
@@ -509,11 +576,26 @@ std::optional<std::string> I18n::translate(std::string_view key, const Json& arg
             PluralCategory category = PluralCategory::Other;
             const auto count = args.is_object() ? args.find("count") : Json::const_iterator();
             if (args.is_object() && count != args.end() && count->is_number()) category = plural_category(table->language, count->get<double>());
-            else
+            else if (e.forms.size() > 1)  // {"other": ...} alone needs no count (it is how a select entry looks in English)
                 warn_once("plural|" + k, "'" + k + "' is a plural entry but was asked for without a numeric args.count: using the \"other\" "
                                          "form (hint: i18n.t(\"" + k + "\", {count: n}))");
             const auto form = e.forms.find(category);
             text = &(form != e.forms.end() ? form : e.forms.find(PluralCategory::Other))->second;
+        } else if (e.select()) {
+            std::string gender;
+            const auto given = args.is_object() ? args.find("gender") : Json::const_iterator();
+            if (args.is_object() && given != args.end() && given->is_string()) gender = given->get<std::string>();
+            else
+                warn_once("select|" + k, "'" + k + "' is a select entry but was asked for without a string args.gender: using the \"other\" "
+                                         "form (hint: i18n.t(\"" + k + "\", {gender: i18n.gender(\"the.noun.key\")}))");
+            auto form = gender.empty() ? e.selects.end() : e.selects.find(gender);
+            if (form == e.selects.end()) {
+                if (!gender.empty())
+                    warn_once("selectform|" + k + "|" + gender, "'" + k + "' (" + table->file + ") has no \"" + gender + "\" form: using \"other\" "
+                                                                "(hint: add \"" + gender + "\" next to the other forms)");
+                form = e.selects.find("other");
+            }
+            text = &form->second;
         }
         std::vector<std::string> missing;
         std::vector<std::string> problems;
@@ -562,6 +644,15 @@ std::string I18n::t(std::string_view key, const Json& args) const {
                           (enabled() ? "" : " (localization is off: factoria.json has no \"localization\" section)"));
     }
     return std::string(key);
+}
+
+std::string I18n::gender(std::string_view key) const {
+    const std::string k(key);
+    for (const StringTable* table : chain_) {
+        const auto it = table->entries.find(k);
+        if (it != table->entries.end()) return it->second.gender;
+    }
+    return {};
 }
 
 bool I18n::has(std::string_view key) const {

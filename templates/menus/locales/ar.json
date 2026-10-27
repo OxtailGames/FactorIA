@@ -10,7 +10,7 @@
     "back": "رجوع"
   },
   "loading": {
-    "text": "جارٍ التحميل..."
+    "progress": "جارٍ التحميل... {percent}%"
   },
   "captions": {
     "welcome": "مرحبًا أيها المسافر.",
