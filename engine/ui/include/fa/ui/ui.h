@@ -6,7 +6,7 @@
 //   layout -> focus rules (lost focus, autoFocus) -> keys / pad (navigation, submit, cancel, text) -> pointer
 //   (hover, press, drag, wheel; the pointer is the mouse or set_pointer()) -> the runtime flags of the widgets (focused / hovered / pressed / caret).
 // Events go into world.events().game with the widget as source and `{id, ...}` as data: ui.click, ui.change {value},
-// ui.submit {value}, ui.focus, ui.cancel {id|null}. Scripts get them through world.on / Behaviour.onEvent / ui.on.
+// ui.submit {value}, ui.focus, ui.cancel {id|null}, ui.dragStart / ui.dragOver / ui.drop / ui.dragCancel (drag.cpp). Scripts get them through world.on / Behaviour.onEvent / ui.on.
 //
 // The ui_* actions it reads (ui_up, ui_down, ui_left, ui_right, ui_submit, ui_cancel) are installed with default
 // bindings by the runtime unless factoria.json defines an action of the same name (ui_with_default_actions()).
@@ -47,7 +47,8 @@ std::optional<Rect> ui_screen_rect(const World& world, Entity e, Vec2 designSize
 // ScrollList clips away at `p`, a Panel with a fully transparent colour and no texture (it draws nothing), a Captions
 // line, an inactive entity and a box with no area. Topmost is the highest `layer`, and among equal layers the entity made
 // last, as for the hover. Reads the rectangles the last layout wrote.
-Entity ui_widget_at(const World& world, Vec2 designSize, Vec2 p);
+// `ignore` (and its descendants) is not looked at: the drag image that follows the pointer.
+Entity ui_widget_at(const World& world, Vec2 designSize, Vec2 p, Entity ignore = kNullEntity);
 
 // A TextField the player focused or left with a gamepad, for the platform's own keyboard (the runtime hands it to a native
 // plugin: fa_plugin.h, FaTextInput). `rect` is in design pixels; the runtime converts it to window pixels.
@@ -96,6 +97,24 @@ UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle&
 struct UiTooltipHooks {
     std::function<Json(Entity)> widget;  // asked for a widget registered with set_script_tooltip
     std::function<Json(Vec2)> world;     // asked with the pointer when it rests on no widget, if set_world_tooltip(true)
+};
+
+// ---- drag and drop (docs/MENUS.md, "Drag and drop") -------------------------------------------------------------------------
+// What `draggable` of a widget says: the payload the drag carries and the pixels the pointer must travel after the press.
+struct UiDragSpec {
+    Json payload;
+    float slop = 6.0f;
+};
+// Reads UiBox.draggable: null / false = nullopt with no error (not draggable); true = defaults; {payload, slop}. nullopt with `error`
+// set for any other shape.
+std::optional<UiDragSpec> ui_drag_spec(const Json& draggable, std::string* error = nullptr);
+
+// Whether a widget (or the world) takes a drop: Script asks a function through UiDropHooks.
+enum class UiDropMode : std::int32_t { None, Accept, Reject, Script };
+// `drag` is {id: source id, payload, x, y}.
+struct UiDropHooks {
+    std::function<bool(Entity target, const Json& drag)> widget;
+    std::function<bool(const Json& drag)> world;
 };
 
 class UiSystem {
@@ -177,7 +196,22 @@ public:
     // Seconds of rest still needed before the tooltip under the pointer shows (0 once it shows), for tests.
     float tooltip_wait() const { return tooltipShown_ ? 0.0f : std::max(0.0f, tooltipDelay_ - tooltipRest_); }
 
-    // Scene load: no focus, no hover, no press, no tooltip.
+    // ---- drag and drop. update() starts a drag when the pointer moves past the slop of a draggable widget it pressed, emits
+    // ui.dragStart / ui.dragOver / ui.drop / ui.dragCancel (data: {id: source, payload, x, y, target: id | null, accepts}, and
+    // `reason` on a cancel) and swallows the click. A target is the nearest widget at or above the one under the pointer that
+    // has a rule from set_drop_target(); a widget with none refuses, the world (nothing under the pointer) accepts unless
+    // set_drop_target(kNullEntity, ...) says otherwise.
+    void set_drop_hooks(UiDropHooks hooks) { dropHooks_ = std::move(hooks); }
+    void set_drop_target(Entity e, UiDropMode mode);
+    // The widget that follows the pointer while dragging (its centre under the pointer; it is ignored by hit-testing). kNullEntity = none.
+    void set_drag_image(Entity e) { dragImage_ = e; }
+    bool dragging() const { return drag_.active; }
+    // null when no drag; else {id, payload, from: [x, y], x, y, target: id | null, accepts}.
+    Json drag_json(const World& world) const;
+    // Ends the drag with ui.dragCancel {reason} (no-op when none).
+    void cancel_drag(World& world, const char* reason = "cancel");
+
+    // Scene load: no focus, no hover, no press, no tooltip, no drag.
     void reset();
 
 private:
@@ -210,6 +244,31 @@ private:
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then
     std::array<Repeat, 4> nav_;   // up, down, left, right
     Repeat backspace_;
+
+    // drag and drop (drag.cpp)
+    struct DragState {
+        bool active = false;
+        Entity source;
+        std::string sourceId;
+        Json payload;
+        Vec2 from{}, pos{};
+        Entity target;
+        bool accepts = false;
+        bool started = false;  // dragStart not sent yet
+    };
+    void update_drag(World& world, Vec2 designSize, Vec2 mouse, bool down, bool pressed, bool released, const VisualMeasure& measure,
+                     bool navCancel);
+    void drag_emit(World& world, const char* name, const char* reason = nullptr);
+    DragState drag_;
+    Entity dragCand_;   // a draggable widget the pointer pressed and has not yet moved far enough
+    Vec2 dragCandFrom_{};
+    UiDropHooks dropHooks_;
+    std::unordered_map<u64, UiDropMode> dropRules_;
+    UiDropMode worldDrop_ = UiDropMode::Accept;
+    Entity dragImage_;
+    Vec2 lastDragPos_{};
+    u64 lastDragTarget_ = 0;
+    bool lastDragAccepts_ = false;
 
     // tooltips (tooltip.cpp)
     void update_tooltip(World& world, const Input& input, Vec2 designSize, float dt, const VisualMeasure& measure, Vec2 pointer,

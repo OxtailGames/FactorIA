@@ -276,6 +276,7 @@ struct UiBox {
     std::string texture;                      // optional background image, drawn 9-slice with `slice`
     Vec4 slice{0, 0, 0, 0};                   // 9-slice borders in texture pixels [left, top, right, bottom]
     Json tooltip;                             // null = none; a locale key / text, or {title, lines, args}: shown after the pointer rests on it
+    Json draggable;                           // null / false = no; true or {payload, slop}: the player can drag it (ui.on("dragStart" ...))
 };
 
 // What Button, Toggle, Slider and TextField add to UiBox.

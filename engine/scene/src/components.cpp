@@ -22,6 +22,16 @@ constexpr const char* kTooltipDoc =
     "the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the "
     "text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, \"Tooltips\".";
 
+// UiBox.draggable, the same on every widget kind.
+constexpr const char* kDraggableDoc =
+    "Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not "
+    "draggable; true = draggable with the default slop; an object {\"payload\": any JSON, \"slop\": pixels} sets what the drag "
+    "carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A "
+    "press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click "
+    "the release would make is swallowed, a tooltip hides, and ui.on(\"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\") "
+    "report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. "
+    "Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, \"Drag and drop\".";
+
 // The fields every UI widget shares (UiBox), registered once for each kind so their documentation exists in one place.
 template <class T>
 TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
@@ -61,7 +71,8 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives "
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
                "left + right (or top + bottom) the borders shrink proportionally.")
-        .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc);
+        .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
+        .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc);
 }
 
 // maxTextScale of Text and of the UI widgets.

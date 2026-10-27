@@ -13,7 +13,7 @@
 //   a shortcut       an action in factoria.json, then hud.onKey("action", () => ...)
 // P6: the pointer is scripts/game/pointer.js (mouse or gamepad cursor); the options of settings.live() change how the HUD looks and
 // behaves (safeColors: marks besides colours, reducedMotion: no fading, holdFree: click to carry a worker instead of dragging it).
-import { world, ui, input, i18n } from "factoria";
+import { world, ui, input, i18n, time } from "factoria";
 import { pointer } from "./pointer.js";
 import { live } from "../settings.js";
 import { cellToWorld } from "./iso.js";
@@ -36,8 +36,6 @@ const ICON_BOX = 44;
 const CHIPS = 4;
 const NOTICE_SLOTS = 5;
 const CHART_POINTS = 40;
-/** A press that moves more than this many pixels before the release is a drag. */
-const DRAG_SLOP = 6;
 /** The most shapes an overlay draws in one frame (the cells in view; the map has 100 x 100 cells; a safe-colours cell takes three). */
 const OVERLAY_BUDGET = 1500;
 const COLUMN_WIDTHS = { name: 200, stock: 100, made: 100, used: 100, price: 90 };
@@ -82,11 +80,12 @@ export class Hud {
     this.overlayClock = 0;
     this.keyHandlers = new Map();
     this.mouse = { x: 0, y: 0 };
-    /** The drag of a worker chip: { villager, startX, startY, active, over } or null. */
+    /** The drag of a worker chip (the engine's drag, or the click-to-carry mode): { villager, active, over, verdict, carry } or null. */
     this.chipDrag = null;
+    /** time.frame of the last drag the engine ended because Esc (ui_cancel) was pressed: the same Esc must not also close something else. */
+    this.cancelFrame = -1;
     this.shown = {};
     this.chipVillagers = [];
-    this.chipDragged = false;
     this.noticeSlots = [];
 
     this.buildRightColumn();
@@ -99,6 +98,7 @@ export class Hud {
     this.buildOverlayLegend();
     this.buildDragChip();
     this.registerTooltips();
+    this.registerDrag();
     this.addOverlay("desirability", { label: "desirability", color: [0.45, 0.9, 0.35], field: (s) => overlayField(s, "desirability") });
     this.addOverlay("market", { label: "market", color: [1, 0.8, 0.25], field: (s) => overlayField(s, "market") });
     this.addOverlay("warehouse", { label: "warehouse", color: [0.4, 0.7, 1], field: (s) => overlayField(s, "warehouse") });
@@ -398,10 +398,6 @@ export class Hud {
     if (id.startsWith("gsort_")) return this.sortBy(id.slice(6)), true;
     if (id.startsWith("notice_")) return this.clickNotice(Number(id.slice(7))), true;
     if (id.startsWith("chip_")) {
-      if (this.chipDragged) {
-        this.chipDragged = false;
-        return true;
-      }
       const vid = this.chipVillagers[Number(id.slice(5))];
       if (vid) this.select("villager", vid);
       return true;
@@ -992,10 +988,6 @@ export class Hud {
   }
 
   /**
-   * Hold-free (option, or a gamepad in use): a click on a worker chip picks the worker up and the next click puts it down (on a
-   * building: it works there; anywhere else: nothing happens), instead of dragging it with the button held. `carry` marks that mode.
-   */
-  /**
    * The inspector hangs from the bottom-right corner; when it is taller than the room under the right-hand column (large text or a
    * large UI scale make both bigger) it stands left of the column instead of over it. Uses last frame's rectangles (ui.rectOf is in
    * screen pixels; the position of the panel is in UI units, ui.scale times smaller).
@@ -1044,50 +1036,74 @@ export class Hud {
     }
   }
 
+  /** The worker chips can be dragged (the engine's drag and drop, docs/MENUS.md): the engine tells when a drag starts, ends or is dropped. */
+  registerDrag() {
+    for (const chip of this.chips) chip.set("Button", { draggable: true });
+    ui.on("dragStart", (e) => {
+      if (!e.id.startsWith("chip_")) return;
+      const villager = this.chipVillagers[Number(e.id.slice(5))];
+      if (!villager) return ui.cancelDrag();
+      this.chipDrag = { villager, active: true, over: 0, carry: false };
+      ui.setDragImage(this.chip); // the engine keeps the chip under the pointer
+      this.chip.position = [toUnits(e.x), toUnits(e.y), 0]; // until the engine's first move of it
+      setActive(this.chip, true);
+    });
+    // released anywhere over the map: the building under the pointer (aimed every frame by updateChipDrag) takes the worker or says no
+    ui.on("drop", (e) => {
+      if (this.chipDrag && !this.chipDrag.carry && e.id.startsWith("chip_")) this.dropChip(this.chipDrag);
+    });
+    // released over the interface, or Esc: nothing happens
+    ui.on("dragCancel", (e) => {
+      if (!e.id.startsWith("chip_")) return;
+      if (this.chipDrag && !this.chipDrag.carry) this.endChipDrag();
+      if (e.reason === "cancel") this.cancelFrame = time.frame;
+    });
+  }
+
+  endChipDrag() {
+    this.chipDrag = null;
+    setActive(this.chip, false);
+  }
+
+  /** The dragged worker is put down: on a workplace that takes it, it works there; on one that does not, a toast says why. */
+  dropChip(d) {
+    if (d.over && d.verdict && d.verdict.ok) {
+      const res = this.state.sim.people.reassign(d.villager, d.over);
+      if (res.ok) this.ctl.toast(t("drag.done", { id: d.villager, name: buildingName(this.state.buildings.get(d.over).type) }));
+      if (this.sel) this.refreshInspector();
+    } else if (d.over && d.verdict) {
+      this.ctl.toast(t("drag.no", { reason: t(`drag.reason.${d.verdict.code}`) }));
+    }
+    this.endChipDrag();
+  }
+
+  /**
+   * Hold-free (option, or a gamepad in use): a click on a worker chip picks the worker up and the next click puts it down (on a
+   * building: it works there; anywhere else: nothing happens), instead of dragging it with the button held. `carry` marks that mode.
+   * While a worker is dragged or carried, the building under the pointer is the target: it is coloured and the chip says if it works.
+   */
   updateChipDrag(m) {
     const hovered = pointer.hovered();
     const free = live().holdFree || pointer.pad;
-    if (input.pressed("primary")) this.chipDragged = false; // a drop elsewhere than on the chip never clicks it; do not swallow the next click
     let picked = false;
-    if (input.pressed("primary") && hovered && hovered.id && hovered.id.startsWith("chip_")) {
+    if (free && !this.chipDrag && input.pressed("primary") && hovered && hovered.id && hovered.id.startsWith("chip_")) {
       const vid = this.chipVillagers[Number(hovered.id.slice(5))];
       if (vid) {
-        this.chipDrag = { villager: vid, startX: m.x, startY: m.y, active: free, over: 0, carry: free };
+        this.chipDrag = { villager: vid, active: true, over: 0, carry: true };
         picked = true;
       }
     }
     const d = this.chipDrag;
     if (!d) return;
-    if (!d.active && Math.hypot(m.x - d.startX, m.y - d.startY) > DRAG_SLOP && input.down("primary")) d.active = true;
-    if (d.active) {
-      const cell = this.ctl.hover;
-      const b = cell ? this.state.buildingAt(cell[0], cell[1]) : null;
-      d.over = b ? b.id : 0;
-      d.verdict = b ? canDropWorker(this.state, d.villager, b.id) : { ok: false, code: "none" };
-      setActive(this.chip, true);
-      this.chip.position = [toUnits(m.x) + 12, toUnits(m.y) + 28, 0];
-      this.chipText.get("Text").text = d.over && !d.verdict.ok ? t("drag.no", { reason: t(`drag.reason.${d.verdict.code}`) }) : t("drag.villager", { id: d.villager });
-      this.chip.get("Panel").color = d.over && !d.verdict.ok ? [0.55, 0.2, 0.18, 0.95] : d.over ? [0.2, 0.5, 0.3, 0.95] : [0.2, 0.35, 0.55, 0.95];
-    }
-    if (d.carry ? input.pressed("primary") && !picked : input.released("primary")) {
-      if (d.active) {
-        this.chipDragged = true;
-        if (d.over && d.verdict && d.verdict.ok) {
-          const res = this.state.sim.people.reassign(d.villager, d.over);
-          if (res.ok) this.ctl.toast(t("drag.done", { id: d.villager, name: buildingName(this.state.buildings.get(d.over).type) }));
-          if (this.sel) this.refreshInspector();
-        } else if (d.over && d.verdict) {
-          this.ctl.toast(t("drag.no", { reason: t(`drag.reason.${d.verdict.code}`) }));
-        }
-      }
-      this.chipDrag = null;
-      setActive(this.chip, false);
-    }
-  }
-
-  /** Does a press that started on the UI belong to a worker drag (the map must not treat the release as a click)? */
-  dragging() {
-    return !!(this.chipDrag && this.chipDrag.active);
+    const cell = this.ctl.hover;
+    const b = cell ? this.state.buildingAt(cell[0], cell[1]) : null;
+    d.over = b ? b.id : 0;
+    d.verdict = b ? canDropWorker(this.state, d.villager, b.id) : { ok: false, code: "none" };
+    setActive(this.chip, true);
+    if (d.carry) this.chip.position = [toUnits(m.x) + 12, toUnits(m.y) + 28, 0]; // a dragged chip is moved by the engine
+    this.chipText.get("Text").text = d.over && !d.verdict.ok ? t("drag.no", { reason: t(`drag.reason.${d.verdict.code}`) }) : t("drag.villager", { id: d.villager });
+    this.chip.get("Panel").color = d.over && !d.verdict.ok ? [0.55, 0.2, 0.18, 0.95] : d.over ? [0.2, 0.5, 0.3, 0.95] : [0.2, 0.35, 0.55, 0.95];
+    if (d.carry && input.pressed("primary") && !picked) this.dropChip(d);
   }
 
   /** Is a worker being carried (hold-free)? The click that puts it down is not a click on the map. */
@@ -1124,10 +1140,11 @@ export class Hud {
   escape() {
     const ctl = this.ctl;
     if (this.chipDrag && this.chipDrag.active) {
-      this.chipDrag = null;
-      setActive(this.chip, false);
+      if (!this.chipDrag.carry) ui.cancelDrag();
+      this.endChipDrag();
       return true;
     }
+    if (this.cancelFrame === time.frame) return true; // the engine ended a drag on this very Esc (ui_cancel)
     const modal = [...this.openOrder].reverse().find((n) => n !== "build" && n !== "inspector");
     if (modal) {
       this.close(modal);
