@@ -9,7 +9,10 @@
 //   "season"   a season ended: asked by the clock event, written at the end of the frame (never inside a clock step)
 //   "timer"    every `intervalSeconds` of play, when the town changed since the last save
 //   "leave"    the window lost the focus, the app was suspended, or the window is closing (the tab or app may be gone next)
-// The web gives a game no signal when a tab is hidden or closed (ENGINE_FEEDBACK FB-0021): the timer and the season are the net there.
+// The web raises suspend when a tab is hidden and quit when it closes (pagehide), so "leave" saves there too; the timer and the
+// season are the net for a browser that gives no signal at all.
+// "season" and "timer" write off the frame (storage.setAsync: a worker thread, the save compressed); "leave" writes at once, because
+// the app may be gone before an asynchronous write runs.
 import { writeEntry } from "./save_store.js";
 
 export const AUTOSAVE_SECONDS = 120;
@@ -91,7 +94,7 @@ export class Autosaver {
     this.sinceSave = 0;
     const sig = this.signature();
     if (sig === this.lastSignature && reason !== "season") return null;
-    const res = this.write("auto");
+    const res = this.write("auto", undefined, reason === "season" || reason === "timer");
     if (!res.ok) return null;
     this.lastSignature = sig;
     this.log.push(reason);
@@ -109,7 +112,7 @@ export class Autosaver {
     return res;
   }
 
-  write(kind, name) {
+  write(kind, name, offFrame = false) {
     const run = this.run;
     const tracker = run.tracker;
     const res = writeEntry(run.slot, kind, this.state, {
@@ -118,8 +121,14 @@ export class Autosaver {
       playSeconds: run.playSeconds,
       extra: tracker ? tracker.saveFields() : undefined,
       progress: tracker ? tracker.metaFields() : undefined,
+      async: offFrame,
     });
     this.lastError = res.ok ? null : res.error;
+    if (res.ok && res.written) {
+      res.written.catch((e) => {
+        this.lastError = { code: "storage", message: `the game could not be saved (${e && e.message})`, hint: "free some disk space and try again" };
+      });
+    }
     if (res.ok && this.onWritten) this.onWritten(run.slot, kind);
     return res;
   }

@@ -401,3 +401,30 @@ void simulate_color_vision(Image& img, ColorSimulation mode) {
 }
 
 }  // namespace fa
+
+// ---- zlib helpers (fa/core/compress.h): they live here because this unit owns the stb implementations ----
+#include "fa/core/compress.h"
+
+namespace fa {
+
+std::string zlib_compress(std::string_view data) {
+    int outLen = 0;
+    unsigned char* z = stbi_zlib_compress(reinterpret_cast<unsigned char*>(const_cast<char*>(data.data())),
+                                          static_cast<int>(data.size()), &outLen, 8);
+    if (!z) return {};
+    std::string out(reinterpret_cast<const char*>(z), static_cast<std::size_t>(outLen));
+    STBIW_FREE(z);
+    return out;
+}
+
+Result<std::string> zlib_decompress(std::string_view stream, std::size_t expectedSize) {
+    int outLen = 0;
+    char* p = stbi_zlib_decode_malloc_guesssize_headerflag(stream.data(), static_cast<int>(stream.size()),
+                                                           static_cast<int>(expectedSize > 0 ? expectedSize : stream.size() * 4 + 64), &outLen, 1);
+    if (!p) return Error{"the compressed data is damaged or cut short", "Write the value again with storage.set."};
+    std::string out(p, static_cast<std::size_t>(outLen));
+    STBI_FREE(p);
+    return out;
+}
+
+}  // namespace fa

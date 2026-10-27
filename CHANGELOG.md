@@ -4,6 +4,22 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The web's hide and close signals, and storage that scales
+
+- A web export raises `suspend` when its tab is hidden and `resume` when it is shown again (`visibilitychange`), and `quit`
+  when the page goes away (`pagehide`; it cannot be cancelled there). The save folder is copied to IndexedDB right after
+  those handlers run, so a `storage.set` inside one is kept (before, only a 500 ms timer was scheduled). SCRIPTING.md
+  ("Window close") lists which of `blur`, `suspend` and `quit` each platform raises; MOBILE.md and EXPORTING.md say what the
+  web does (TM/FB-0021).
+- `storage` writes one file per key in `<save folder>/storage/`, so a save rewrites its own key only. An older `storage.json`
+  is read at the first start, split into key files and renamed `storage.migrated.json`. `storage.size(key)` gives the bytes
+  of a key's file. `storage.set(key, value, {compress: true})` stores the value zlib-compressed. `storage.setAsync(key, value,
+  options?)` returns a Promise and writes off the frame (a worker thread; between frames on the web); the writes still waiting are made after the
+  `suspend` and `quit` handlers. Docs: SCRIPTING.md
+  (storage) (TM/FB-0022).
+- Tidewater Market writes its timer and season autosaves with `storage.setAsync` (compressed) and its blur, suspend and quit
+  saves at once with `storage.set`.
+
 Tile paths on a reusable grid, and flow fields
 
 - `nav.createGrid({ width, height, cost?, origin?, cellSize? })` keeps a cost grid in the engine. `nav.findTilePath(grid,
