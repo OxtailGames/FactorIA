@@ -173,6 +173,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`nav.flow_field`](commands/physics.md#navflow_field): Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells. _Not released yet._
 - [`nav.info`](commands/physics.md#navinfo): List the NavMesh3D components with their bounds, agent size, bake state and stats. _Not released yet._
 - [`physics.raycast`](commands/physics.md#physicsraycast): Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
+- [`physics.raycast_all`](commands/physics.md#physicsraycast_all): Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first. _Not released yet._
 - [`physics.shape_cast`](commands/physics.md#physicsshape_cast): Sweep a circle, sphere or box from one point to another and return the first collider it touches.
 
 ### [platform](commands/platform.md)

@@ -36,6 +36,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 | `size` | vec2 | `[32.0,32.0]` | box/capsule: [width, height] in world units (capsule is vertical). |
 | `radius` | float | `16.0` | circle: radius in world units. |
 | `offset` | vec2 | `[0.0,0.0]` | Shape center offset [x, y] from the entity origin, in world units. |
+| `enabled` | bool | `true` | false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or trigger events, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on). (not released yet, on main after 0.2.0) |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = no bounce, 1 = perfectly elastic. Range 0.0..1.0. |
@@ -56,6 +57,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. (since 0.2.0) |
 | `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn. (since 0.2.0) |
 | `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits). |
+| `enabled` | bool | `true` | false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on). (not released yet, on main after 0.2.0) |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |

@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Every hit of a ray, and colliders you can switch off
+
+- `physics.raycast3dAll(origin, dir, maxDistance, opts)` and `raycast2dAll(from, to, opts)` return every collider the ray
+  crosses, nearest first, up to `opts.maxHits` (default 32); the command is `physics.raycast_all`. No more casting again
+  from just past each hit.
+- `Collider3D.enabled` and `Collider2D.enabled` (default true), writable at run time: a disabled collider is skipped by
+  raycasts, shape casts, overlaps, contacts and trigger events and left out of the NavMesh3D bake, and the component stays,
+  so a door that opened can close again. The change takes effect at the next physics sync (once a frame, before scripts).
+
 Isometric tilemaps and cell picking
 
 - `Tilemap.projection: "isometric"` draws diamond tiles (a 2:1 city or strategy map) as one batched mesh, row by row so the

@@ -15,7 +15,7 @@ Add a `NavMesh3D` to an entity (usually an empty `navmesh` entity) and size it t
 
 The box is centred on the entity's world position (`size` is in meters; scale and rotation are ignored). It is baked from
 the **static** 3D colliders inside it: a `Collider3D` with no `RigidBody3D`, or with a static one. Triggers, dynamic and
-kinematic bodies, characters and colliders with `navObstacle` or `navWalkable` are left out of the bake. The bake runs by itself when the
+kinematic bodies, characters, disabled colliders (`enabled: false`) and colliders with `navObstacle` or `navWalkable` are left out of the bake. The bake runs by itself when the
 scene loads and again whenever a static collider inside the box changes (`autoBake`, on by default); `nav.bake` does it on
 demand.
 
