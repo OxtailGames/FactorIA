@@ -52,6 +52,52 @@
           "minimum": 0.5,
           "maximum": 3,
           "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+        },
+        "tooltipDelay": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60,
+          "description": "Seconds the pointer rests on a widget before its tooltip shows (default 0.5; 0 = at once). Scripts change it with ui.tooltipDelay. docs/MENUS.md, \"Tooltips\"."
+        },
+        "tooltipOnTouch": {
+          "type": "boolean",
+          "description": "Default false: tooltips stay off while the last input was a touch (a finger has no hover). true shows them there too."
+        },
+        "tooltip": {
+          "type": "object",
+          "description": "The look of every tooltip (the UI theme for them); sizes are UI units. Keys: color and textColor and titleColor (colours), texture and slice (a 9-slice background), font, fontSize, titleSize, maxWidth (lines wrap here), spacing, padding [l, t, r, b], gap (from the pointer), layer (draw order).",
+          "additionalProperties": false,
+          "properties": {
+            "color": {},
+            "textColor": {},
+            "titleColor": {},
+            "texture": {
+              "type": "string"
+            },
+            "slice": {},
+            "font": {
+              "type": "string"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "titleSize": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "spacing": {
+              "type": "number"
+            },
+            "padding": {},
+            "gap": {
+              "type": "number"
+            },
+            "layer": {
+              "type": "integer"
+            }
+          }
         }
       }
     },
@@ -457,19 +503,48 @@
       "type": "object",
       "description": "Usage analytics of the game (docs/ANALYTICS.md): analytics.event(name, props) queues small events and sends them in batches to `endpoint` through http.fetch, only after the player consented (analytics.setConsent). Its host must also be in \"network\".\"hosts\". Nothing is sent without this section. Say in your privacy policy and the store privacy forms what is sent (docs/LEGAL.md). `factoria validate` reports every problem with how to fix it.",
       "properties": {
-        "endpoint": { "type": "string", "description": "The https:// address that receives each batch as a POST with a JSON body { game, version, sentOn, events: [{ name, props, t }] }. Its host must be listed in network.hosts." },
-        "batch": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Events that make a batch go out at once. Default 20." },
-        "flushSeconds": { "type": "number", "minimum": 1, "maximum": 3600, "description": "The longest an event waits in the queue before it is sent (engine seconds). Default 30." },
-        "timeoutSeconds": { "type": "number", "minimum": 0.5, "maximum": 120, "description": "Seconds one request may take. Default 10." },
-        "consentFromAds": { "type": "boolean", "description": "For a game with ads: until the player answers the analytics question themselves, analytics counts as granted when the ads consent is (GDPR granted and tracking authorized or not required). The player's own answer always wins. Default false." }
+        "endpoint": {
+          "type": "string",
+          "description": "The https:// address that receives each batch as a POST with a JSON body { game, version, sentOn, events: [{ name, props, t }] }. Its host must be listed in network.hosts."
+        },
+        "batch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Events that make a batch go out at once. Default 20."
+        },
+        "flushSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "The longest an event waits in the queue before it is sent (engine seconds). Default 30."
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 120,
+          "description": "Seconds one request may take. Default 10."
+        },
+        "consentFromAds": {
+          "type": "boolean",
+          "description": "For a game with ads: until the player answers the analytics question themselves, analytics counts as granted when the ads consent is (GDPR granted and tracking authorized or not required). The player's own answer always wins. Default false."
+        }
       }
     },
     "remoteConfig": {
       "type": "object",
       "description": "Remote values for the game (docs/ANALYTICS.md): remoteConfig.get(key, default) reads a JSON object fetched once at start from `url` through http.fetch, cached in storage for offline runs. The host must also be in \"network\".\"hosts\". Nothing is fetched without this section.",
       "properties": {
-        "url": { "type": "string", "description": "The https:// address of a JSON object (at most 64 KB and 500 keys). Its host must be listed in network.hosts." },
-        "timeoutSeconds": { "type": "number", "minimum": 0.5, "maximum": 30, "description": "Seconds the fetch may take. Default 5." }
+        "url": {
+          "type": "string",
+          "description": "The https:// address of a JSON object (at most 64 KB and 500 keys). Its host must be listed in network.hosts."
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 30,
+          "description": "Seconds the fetch may take. Default 5."
+        }
       }
     },
     "platform": {

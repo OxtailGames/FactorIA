@@ -2382,6 +2382,30 @@
        "doc": "Runs the UI layout now, exactly what every frame does: autoSize sizes, fit sizes, ScrollList fill, positions and the Panel fallbackLayout choice. After changing a label or a font size, call it and read Button.size, Panel.size or ui.rectOf right away, with no game.step. Throws when the run has no UI system. Example: button.get(\"Button\").text = \"A longer label\"; ui.layout(); const w = ui.rectOf(button).w;"
       },
       {
+       "sig": "showTooltip(content: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object }, at?: { x: number; y: number }): void",
+       "doc": "Shows a tooltip now, for something that is not a widget (a map tile, a chart point). `content` is a string or { title, lines, args }; each text is a localization key when localization is on and has it, else it is shown as written. `at` is a screen position in design pixels (default: the pointer); the box is placed next to it and flipped to stay on screen, like the tooltip of a widget, and styled by the \"ui\" section of factoria.json (tooltip). It stays until ui.hideTooltip(), until the pointer moves more than 5 pixels from where it was at the call, or until a scene loads. Throws on a content that is not a string or an object. Example: ui.showTooltip({ title: \"Harbour\", lines: [\"Docks: 3\"] }, { x: 400, y: 300 })."
+      },
+      {
+       "sig": "hideTooltip(): void",
+       "doc": "Hides the tooltip at once, whatever showed it (a widget, a script function or ui.showTooltip). A tooltip of a widget shows again only after the pointer rests again."
+      },
+      {
+       "sig": "setTooltip(target: Entity | string, tooltip: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object } | ((entity: Entity) => string | object | null) | null): void",
+       "doc": "Sets the tooltip of a widget or Panel. Static content is written to the `tooltip` field of its UI component; a function is called when the tooltip is about to show (and each frame while it shows) and returns the content, or null for no tooltip, so it can read the game state; it ends with the scene. null removes the tooltip. A tooltip shows after ui.tooltipDelay seconds of rest within 5 pixels, on the first widget under the pointer or its ancestors that has one. Example: ui.setTooltip(\"buy\", () => ({ title: \"Buy\", lines: [`${price} coins`] }))."
+      },
+      {
+       "sig": "setWorldTooltip(fn: ((x: number, y: number) => string | object | null) | null): void",
+       "doc": "Sets a function asked for a tooltip when the pointer rests over no widget; it gets the pointer in design pixels and returns the content or null. Its tooltip has source \"world\". null removes it. It ends with the scene."
+      },
+      {
+       "sig": "readonly tooltip: { title: string; lines: string[]; rect: number[]; source: \"widget\" | \"script\" | \"world\" | \"manual\"; widget: string | null } | null",
+       "doc": "The tooltip that shows now, or null: its title, its lines, its rect [x, y, w, h] in screen pixels (with the interface scale), what showed it (source) and the entity id of the widget for \"widget\" and \"script\". Same as `tooltip` in ui.state. Read it after game.step."
+      },
+      {
+       "sig": "tooltipDelay: number",
+       "doc": "Seconds the pointer rests before a tooltip shows, 0 to 60 (default: tooltipDelay of the \"ui\" section of factoria.json, 0.5). The rest is counted with the game's UI time, so tests with game.step are exact. Setting a number outside 0 to 60 throws. Resets to the project value for every test file."
+      },
+      {
        "sig": "textScale: number",
        "doc": "The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space \"screen\") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space \"screen\") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer (ui.scale makes room by growing the whole interface). Setting a number outside 0.5 to 3 throws; clamp a saved value first. A change sends the \"textScale\" event (ui.on). The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command."
       },
@@ -4456,7 +4480,7 @@
       },
       {
        "sig": "setStorageText(text: string | null): void",
-       "doc": "Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text (\"{\\\"hi\") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file."
+       "doc": "Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text (\"{\"hi\") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file."
       },
       {
        "sig": "vibrations(): number[]",

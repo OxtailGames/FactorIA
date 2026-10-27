@@ -231,6 +231,7 @@ void World::clear() {
     settings_ = SceneSettings{};
     events_.clear();
     scenePath_.clear();
+    tooltip_ = UiTooltipView{};
 }
 
 bool World::active_in_hierarchy(Entity e) const {

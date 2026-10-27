@@ -57,8 +57,8 @@ const within = (a, b) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.w <= b.
 
 /**
  * Everything that is wrong with the layout on screen now, as short lines ("overflow title: ...").
- * @param {{ ignore?: string[], only?: string }} [opts] ignore: ids (or id prefixes) that are not the subject of the test, e.g. "tooltip_"
- *   (a tooltip is transient); only: the id of the one panel to judge, for a modal screen with the game behind it
+ * @param {{ ignore?: string[], only?: string }} [opts] ignore: ids (or id prefixes) that are not the subject of the test, e.g. "notice_"
+ *   (a toast is transient); only: the id of the one panel to judge, for a modal screen with the game behind it
  */
 export function layoutProblems({ ignore = [], only = "" } = {}) {
   ui.layout();

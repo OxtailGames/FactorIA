@@ -26,6 +26,7 @@
 #include "fa/core/math.h"
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
+#include "fa/scene/ui_tooltip.h"
 
 namespace fa {
 
@@ -161,6 +162,13 @@ public:
     float ui_scale() const { return uiScale_; }
     void set_ui_scale(float scale) { uiScale_ = scale; }
 
+    // Tooltips (ui_tooltip.h): the project's delay and style (a setting of the game, so it survives clear() and scene loads like
+    // ui_scale()) and the tooltip on screen now, which fa_ui writes every frame, fa_render draws and a scene load removes.
+    const UiTooltipSettings& ui_tooltip_settings() const { return tooltipSettings_; }
+    void set_ui_tooltip_settings(const UiTooltipSettings& s) { tooltipSettings_ = s; }
+    const UiTooltipView& ui_tooltip() const { return tooltip_; }
+    UiTooltipView& ui_tooltip() { return tooltip_; }
+
     // True when the game's current language is written right to left. The runtime sets it with the language (localization
     // pass); Text align start / end and Panel direction auto read it; a test sets it to try a right-to-left language. Survives
     // clear() and scene loads, like the safe insets.
@@ -196,6 +204,8 @@ private:
     Rng rng_;
     EdgeInsets safeInsets_;
     float uiScale_ = 1.0f;
+    UiTooltipSettings tooltipSettings_;
+    UiTooltipView tooltip_;
     bool rtl_ = false;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;

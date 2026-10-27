@@ -5,7 +5,8 @@
 // How a later package adds something (README, "Interface (P3)"):
 //   a panel          hud.addPanel("name", { root, refresh, every? })  then hud.open("name") / hud.toggle("name")
 //                    (Esc closes the open panels, newest first; a panel is a Panel entity you spawn with ui_kit.js)
-//   a tooltip        hud.tooltips.add(entity, () => ({ title, lines: [{ text, color? }] }))   (return null for "none now")
+//   a tooltip        ui.setTooltip(entity, () => ({ title, lines: [{ text, color? }] }))   (return null for "none now"); the engine
+//                    shows it (factoria.json "ui" has the look), see registerTooltips()
 //   a notification   hud.notices.push("key", args, cell, buildingId, "warn" | "bad")  with the text in locales ui.notice.<key>
 //   an overlay       hud.addOverlay("id", { color: [r, g, b], field(state, hud) -> { values: Float32Array, cells: number[] } })
 //                    the name and hint are the locale strings ui.overlay.<id> and ui.overlay.hint.<id>
@@ -21,7 +22,7 @@ import { footprintCells } from "./rules.js";
 import { amountText, buildingName, compactText, coinsText, dateText, goodsBagText, listText, numberText, villagersText } from "./format.js";
 import { DESIGN } from "./camera_math.js";
 import {
-  COLORS, FONT, LAYER, Tooltips, button, icon, inside, isActive, label, panel, setActive, setIcon, toUnits,
+  COLORS, FONT, LAYER, button, icon, inside, isActive, label, panel, setActive, setIcon, toUnits,
 } from "./ui_kit.js";
 import {
   COVERAGE, GOODS_COLUMNS, Notices, Recorder, SHORTCUTS, Traffic, canDropWorker, categories, centreOf, describeBuilding,
@@ -60,7 +61,8 @@ export class Hud {
     this.recorder = new Recorder(this.state);
     this.notices = new Notices(this.state);
     this.traffic = new Traffic(this.state);
-    this.tooltips = new Tooltips();
+    /** true: the engine's tooltips ask for nothing (a drag, the event card, the pause menu, whose level scripts are stopped) */
+    this.tipsOff = false;
     /** @type {{ kind: "building" | "villager", id: number } | null} */
     this.sel = null;
     this.cats = categories(this.data);
@@ -856,7 +858,8 @@ export class Hud {
   // ---- tooltips ---------------------------------------------------------------------------------------------------------------------------------
 
   registerTooltips() {
-    const tips = this.tooltips;
+    // the engine's tooltip (docs/MENUS.md, "Tooltips") asks these functions when the pointer has rested; `tipsOff` silences them all
+    const tips = { add: (target, content) => ui.setTooltip(target, () => (this.tipsOff ? null : content())) };
     const ctl = this.ctl;
     const plain = (title, lines = []) => () => ({ title, lines: lines.map((text) => (typeof text === "string" ? { text } : text)) });
     const key = (name) => t(`key.${name}`);
@@ -875,17 +878,18 @@ export class Hud {
       const e = world.find(`item_${type}`);
       tips.add(e, () => (this.isOpen("build") ? this.buildingTip(type) : null));
     }
-    // the top bar: coins, goods, population
-    const coins = world.find("coins_text");
-    tips.add(coins, () => {
+    // the top bar: coins, goods, population. They are Text, which has no tooltip of its own, so the bar's Panel answers for the
+    // one under the pointer.
+    const barTips = [];
+    barTips.push([world.find("coins_text"), () => {
       const sim = this.state.sim;
       const l = sim.ledger;
       return { title: t("tip.coinsTitle"), lines: [{ text: t("tip.coins", { money: coinsText(this.state.economy.coins) }) }, { text: t("tip.coinsFlow", { sales: numberText(l.sales), wages: numberText(l.wages + l.upkeep) }), color: COLORS.dim }] };
-    });
+    }]);
     for (const id of this.data.goodIds) {
       const text = world.find(`good_${id}_text`);
       if (!text) continue;
-      tips.add(text, () => {
+      barTips.push([text, () => {
         const r = this.recorder.rates(id);
         const lines = [
           { text: t("tip.stock", { n: numberText(Math.floor(this.state.economy.get(id))), cap: numberText(this.state.sim.capacity()) }) },
@@ -893,15 +897,20 @@ export class Hud {
           { text: t("tip.price", { price: coinsText(this.state.sim.priceOf(id)), base: numberText(this.data.goods[id].basePrice) }), color: COLORS.gold },
         ];
         return { title: i18n.t(`good.${id}`), lines };
-      });
+      }]);
     }
     const pop = world.find("pop_text");
     if (pop) {
-      tips.add(pop, () => {
+      barTips.push([pop, () => {
         const s = this.state.sim.summary();
         return { title: t("tip.popTitle"), lines: [{ text: t("tip.pop", { population: villagersText(s.population), housing: numberText(s.housing), employed: s.employed, jobs: s.jobs }) }, { text: t("tip.popHungry", { n: s.hungry }), color: s.hungry ? COLORS.red : COLORS.dim }] };
-      });
+      }]);
     }
+    tips.add(ctl.hudBar, () => {
+      const m = pointer.position();
+      const hit = barTips.find(([text]) => inside(text, m.x, m.y));
+      return hit ? hit[1]() : null;
+    });
     for (let i = 0; i < 4; i++) {
       const sb = world.find(`speed_${i}`);
       if (sb) tips.add(sb, plain(t(`tip.speed${i}`), [{ text: key(`speed${i}`), color: COLORS.gold }]));
@@ -918,7 +927,13 @@ export class Hud {
     this.chips.forEach((b, i) => tips.add(b, () => (this.chipVillagers[i] ? { title: t("tip.chipTitle", { id: this.chipVillagers[i] }), lines: [{ text: t("tip.chip") }] } : null)));
     for (const id of Object.keys(this.inspBtn)) tips.add(this.inspBtn[id], () => ({ title: t(`insp.btn.${id}`), lines: [{ text: t(`insp.btnHint.${id}`) }] }));
     // the map: a building under the pointer when nothing is being built
-    tips.fallback = (x, y) => (this.over({ x, y }) ? null : this.mapTip());
+    ui.setWorldTooltip((x, y) => (this.tipsOff || this.over({ x, y }) ? null : this.mapTip()));
+  }
+
+  /** The pause menu opens: this script stops updating, so the tooltips must answer nothing until `update` runs again. */
+  pause() {
+    this.tipsOff = true;
+    ui.hideTooltip();
   }
 
   /** The tooltip of the building under the pointer (no tool, no drag), or null. */
@@ -972,7 +987,8 @@ export class Hud {
     this.updateChipDrag(m);
     this.placeInspector();
     this.placeCentred();
-    this.tooltips.update(dt, m, !!(this.chipDrag && this.chipDrag.active) || input.down("primary") || this.cardOpen());
+    // the engine shows the tooltips (and hides them while a button is down); these cases ask it for none
+    this.tipsOff = !!(this.chipDrag && this.chipDrag.active) || this.cardOpen();
   }
 
   /**

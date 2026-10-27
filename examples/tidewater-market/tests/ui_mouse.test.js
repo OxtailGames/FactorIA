@@ -143,59 +143,61 @@ test("goods table: opens, sorts by any column both ways, scrolls with the wheel 
 });
 
 test("tooltips: they wait, say what and which key, stay on the screen and go away when the pointer moves", () => {
-  const { rig, hud } = townScene();
-  const tip = () => ui.rectOf("tooltip");
-  const visible = () => game.find("tooltip").position[0] > -1000;
+  const { rig } = townScene();
+  const visible = () => ui.tooltip !== null;
+  const title = () => ui.tooltip.title;
+  const body = () => ui.tooltip.lines.join("\n");
   game.mouseMove(centreOf("btn_goods"));
   game.step(10);
   expect(visible()).toBe(false); // not at once
   game.step(40);
   expect(visible()).toBe(true);
-  expect(textOf("tooltip_title")).toBe("Goods  (G)");
-  expect(textOf("tooltip_line_1")).toContain("Key: G");
+  expect(title()).toBe("Goods  (G)");
+  expect(ui.tooltip.lines[1]).toContain("Key: G");
+  expect(ui.tooltip.source).toBe("script");
   // the bottom button of the right column: the tooltip does not leave the screen
   game.mouseMove(centreOf("btn_help"));
   game.step(2);
   expect(visible()).toBe(false);
   game.step(40);
   expect(visible()).toBe(true);
-  const r = tip();
-  expect(r.x).toBeGreaterThanOrEqual(0);
-  expect(r.x + r.w).toBeLessThanOrEqual(1280);
-  expect(r.y + r.h).toBeLessThanOrEqual(720);
-  // a click while it shows hides it, a new target restarts the wait
+  const r = ui.tooltip.rect;
+  expect(r[0]).toBeGreaterThanOrEqual(0);
+  expect(r[0] + r[2]).toBeLessThanOrEqual(1280);
+  expect(r[1] + r[3]).toBeLessThanOrEqual(720);
+  // moving away hides it, a new target restarts the wait
   game.mouseMove({ x: 20, y: 700 });
   game.step(2);
   expect(visible()).toBe(false);
   // the top bar numbers explain themselves
   game.mouseMove(centreOf("coins_text"));
   game.step(40);
-  expect(textOf("tooltip_title")).toBe("Coins");
+  expect(title()).toBe("Coins");
   game.mouseMove(centreOf("pop_text"));
   game.step(40);
-  expect(textOf("tooltip_title")).toBe("Villagers");
+  expect(title()).toBe("Villagers");
   game.mouseMove(centreOf("good_fish_text"));
   game.step(40);
-  expect(textOf("tooltip_title")).toBe("fish");
-  expect(textOf("tooltip_line_1")).toContain("a day");
+  expect(title()).toBe("fish");
+  expect(ui.tooltip.lines[1]).toContain("a day");
   // a building on the map, with no tool in hand
   game.mouseMove(cellAt(rig, 5, 3));
   game.step(40);
-  expect(textOf("tooltip_title")).toBe("Farm");
-  expect(textOf("tooltip_line_0")).toContain("Workers");
+  expect(title()).toBe("Farm");
+  expect(ui.tooltip.source).toBe("world");
+  expect(ui.tooltip.lines[0]).toContain("Workers");
   // but not while a tool is held
   pickFromMenu("house");
   game.mouseMove(cellAt(rig, 5, 3));
   game.step(40);
   expect(visible()).toBe(false);
-  expect(hud.tooltips.current).toBe(null);
   // a build menu item names what the building needs and gives
   game.click("cat_production");
   game.step(20);
   game.mouseMove(centreOf("item_bakery"));
   game.step(40);
-  expect(textOf("tooltip_title")).toBe("Bakery");
-  const lines = [0, 1, 2, 3, 4, 5].map((i) => textOf(`tooltip_line_${i}`)).join("\n");
+  expect(title()).toBe("Bakery");
+  const lines = body();
   expect(lines).toContain("Cost:");
   expect(lines).toContain("Needs:");
   expect(lines).toContain("flour");

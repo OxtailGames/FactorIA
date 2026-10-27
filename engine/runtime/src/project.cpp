@@ -522,6 +522,9 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                                   "(docs/TEXT.md, \"Interface size\"). The Options menu and scripts change it with ui.scale.");
             s.uiScale = float(v);
         }
+        Result<UiTooltipSettings> tip = parse_tooltip_settings(*it, at("/ui"));
+        if (!tip.ok()) return tip.error();
+        s.uiTooltip = tip.value();
     }
     if (auto it = j.find("platforms"); it != j.end() && !it->is_null()) {
         if (!it->is_array()) return field_error("/platforms", "an array of platform names", *it);
@@ -639,6 +642,26 @@ constexpr const char* kSchemaText =
           "minimum": 0.5,
           "maximum": 3,
           "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+        },
+        "tooltipDelay": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60,
+          "description": "Seconds the pointer rests on a widget before its tooltip shows (default 0.5; 0 = at once). Scripts change it with ui.tooltipDelay. docs/MENUS.md, \"Tooltips\"."
+        },
+        "tooltipOnTouch": {
+          "type": "boolean",
+          "description": "Default false: tooltips stay off while the last input was a touch (a finger has no hover). true shows them there too."
+        },
+        "tooltip": {
+          "type": "object",
+          "description": "The look of every tooltip (the UI theme for them); sizes are UI units. Keys: color and textColor and titleColor (colours), texture and slice (a 9-slice background), font, fontSize, titleSize, maxWidth (lines wrap here), spacing, padding [l, t, r, b], gap (from the pointer), layer (draw order).",
+          "additionalProperties": false,
+          "properties": {
+            "color": {}, "textColor": {}, "titleColor": {}, "texture": {"type": "string"}, "slice": {}, "font": {"type": "string"},
+            "fontSize": {"type": "number"}, "titleSize": {"type": "number"}, "maxWidth": {"type": "number"}, "spacing": {"type": "number"},
+            "padding": {}, "gap": {"type": "number"}, "layer": {"type": "integer"}
+          }
         }
       }
     },
