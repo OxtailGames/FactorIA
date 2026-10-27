@@ -4,19 +4,92 @@
   "id": "com.oxtailgames.larkspurlodge",
   "version": "0.1.0",
   "engine": "0.2.0",
-  "mainScene": "scenes/main.scene.json",
-  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
-  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "mainScene": "scenes/menu.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": false
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
   "input": {
     "actions": {
-      "move_forward": ["W", "Up"],
-      "move_back": ["S", "Down"],
-      "move_left": ["A", "Left"],
-      "move_right": ["D", "Right"],
-      "move_up": ["E", "Space"],
-      "move_down": ["Q", "LeftShift"]
+      "move_forward": [
+        "W",
+        "Up",
+        "GamepadLeftStickUp"
+      ],
+      "move_back": [
+        "S",
+        "Down",
+        "GamepadLeftStickDown"
+      ],
+      "move_left": [
+        "A",
+        "Left",
+        "GamepadLeftStickLeft"
+      ],
+      "move_right": [
+        "D",
+        "Right",
+        "GamepadLeftStickRight"
+      ],
+      "run": [
+        "LeftShift",
+        "RightShift",
+        "GamepadLeftThumb"
+      ],
+      "interact": [
+        "F",
+        "Enter",
+        "GamepadA"
+      ],
+      "camera_left": [
+        "Q",
+        "GamepadRightStickLeft"
+      ],
+      "camera_right": [
+        "E",
+        "GamepadRightStickRight"
+      ],
+      "camera_up": [
+        "GamepadRightStickUp"
+      ],
+      "camera_down": [
+        "GamepadRightStickDown"
+      ],
+      "zoom_in": [
+        "R",
+        "GamepadRightShoulder"
+      ],
+      "zoom_out": [
+        "V",
+        "GamepadLeftShoulder"
+      ],
+      "pause": [
+        "Escape",
+        "P",
+        "GamepadStart"
+      ]
     }
   },
-  "platforms": ["macos", "windows", "ios", "linux"],
-  "feedbackFile": "ENGINE_FEEDBACK.json"
+  "platforms": [
+    "macos",
+    "windows",
+    "ios",
+    "linux"
+  ],
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "localization": {
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ]
+  }
 }

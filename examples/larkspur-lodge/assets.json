@@ -1,0 +1,734 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/models/characters/Textures/texture-a.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/Textures/texture-b.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/Textures/texture-e.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/Textures/texture-f.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-a.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-b.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-e.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-f.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bathroomMirror.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bear.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bedBunk.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bedDouble.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bedSingle.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bench.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/benchCushion.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseClosed.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseClosedWide.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseOpen.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseOpenLow.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/books.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cabinetBed.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cabinetBedDrawer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cabinetBedDrawerTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cardboardBoxClosed.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cardboardBoxOpen.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chair.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chairCushion.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chairDesk.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chairRounded.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/coatRack.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/coatRackStanding.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/desk.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/doorway.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/doorwayOpen.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/dryer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/floorFull.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/hoodLarge.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenBar.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinet.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinetCornerInner.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinetDrawer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinetUpper.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCoffeeMachine.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenFridgeLarge.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenMicrowave.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenSink.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenStove.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampRoundFloor.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampRoundTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampSquareFloor.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampSquareTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/loungeChair.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/loungeChairRelax.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/loungeSofa.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/pillow.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/plantSmall1.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/plantSmall2.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/plantSmall3.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/pottedPlant.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/radio.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugDoormat.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugRectangle.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugRound.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugSquare.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/sideTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/sideTableDrawers.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/stairs.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/stoolBar.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/table.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableCloth.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableCoffee.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableCrossCloth.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableRound.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/toaster.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/trashcan.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wall.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallCorner.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallDoorway.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallDoorwayWide.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallWindow.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/washer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    }
+  }
+}
