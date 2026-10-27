@@ -125,7 +125,7 @@ describe("using things", () => {
     game.step(2);
     expect(door.isOpen).toBe(true);
     expect(story.has("open.library_door")).toBe(true);
-    expect(game.find("library_door").has("Collider3D")).toBe(false);
+    expect(game.find("library_door").get("Collider3D").enabled).toBe(false);
     expect(hud().promptText === "" || !hud().promptText.includes("library door")).toBe(true);
   });
 
@@ -145,6 +145,6 @@ describe("using things", () => {
     story.set("open.library_door");
     enter("ground", "spawn_default", true);
     expect(game.find("library_door").behaviour.isOpen).toBe(true);
-    expect(game.find("library_door").has("Collider3D")).toBe(false);
+    expect(game.find("library_door").get("Collider3D").enabled).toBe(false);
   });
 });

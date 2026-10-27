@@ -312,25 +312,18 @@ export default class LodgeCamera extends Behaviour {
     }
   }
 
-  /** Adds to `out` every fade-layer entity on the segment from -> to (the ray is restarted after each hit: raycast3d returns only the first). */
+  /** Adds to `out` every fade-layer entity on the segment from -> to (physics.raycast3dAll: nearest first, at most maxFadeHits). */
   collectBetween(from, to, out) {
-    let o = from;
     const dx = to[0] - from[0];
     const dy = to[1] - from[1];
     const dz = to[2] - from[2];
     const total = Math.hypot(dx, dy, dz);
     if (total < 1e-4) return;
-    const dir = [dx / total, dy / total, dz / total];
-    let travelled = 0;
-    for (let i = 0; i < this.maxFadeHits; i++) {
-      const hit = physics.raycast3d(o, dir, total - travelled, { mask: LAYER_FADE });
-      if (!hit) return;
-      out.add(hit.entity);
-      const step = hit.distance + 0.03;
-      travelled += step;
-      if (travelled >= total) return;
-      o = [o[0] + dir[0] * step, o[1] + dir[1] * step, o[2] + dir[2] * step];
-    }
+    const hits = physics.raycast3dAll(from, [dx / total, dy / total, dz / total], total, {
+      mask: LAYER_FADE,
+      maxHits: this.maxFadeHits,
+    });
+    for (const hit of hits) out.add(hit.entity);
   }
 }
 

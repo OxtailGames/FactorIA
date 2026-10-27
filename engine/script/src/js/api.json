@@ -1628,6 +1628,10 @@
       {
        "sig": "ignoreTriggers?: boolean",
        "doc": "Skip trigger colliders (default true); false hits them too."
+      },
+      {
+       "sig": "maxHits?: number",
+       "doc": "Only raycast2dAll / raycast3dAll: at most this many hits, the nearest ones (default 32)."
       }
      ]
     },
@@ -1647,6 +1651,14 @@
       {
        "sig": "raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null",
        "doc": "3D raycast from an origin along a direction, at most maxDistance (default 1000) far."
+      },
+      {
+       "sig": "raycast3dAll(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3>[]",
+       "doc": "Every collider a 3D ray crosses, sorted by distance (nearest first), at most opts.maxHits (default 32); one hit per entity. Same filters as raycast3d (a collider that contains the origin is skipped; triggers too unless ignoreTriggers: false). A Collider3D with enabled = false is not reported. Use it to find everything between the camera and a character, or to click through colliders that only exist to be faded."
+      },
+      {
+       "sig": "raycast2dAll(from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2>[]",
+       "doc": "Every collider a 2D segment crosses, sorted by distance (nearest first), at most opts.maxHits (default 32); one hit per entity. Same filters as raycast (2D). A Collider2D with enabled = false is not reported."
       },
       {
        "sig": "shapeCast(shape: CastShape3D, from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: RaycastOptions): RayHit<Vec3> | null",

@@ -1345,6 +1345,7 @@
 
   const maskOf = (o) => (o && typeof o.mask === "number" ? o.mask : -1);
   const ignoreOf = (o) => (o && o.ignore !== undefined && o.ignore !== null ? entityHandle(o.ignore, "physics option `ignore`") : null);
+  const maxHitsOf = (o) => (o && typeof o.maxHits === "number" ? Math.max(0, Math.floor(o.maxHits)) : 32);
   const trigOf = (o) => !(o && o.ignoreTriggers === false);
   function hitOf(r, is2d) {
     if (!r) return null;
@@ -1371,6 +1372,15 @@
     raycast3d(origin, dir, maxDistance = 1000, o) {
       const a = vecArr(origin, 3, "physics.raycast3d(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3d(origin, dir) `dir`");
       return hitOf(N.raycast3d(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o)), false);
+    },
+    // raycast2dAll / raycast3dAll: every collider the ray crosses, nearest first (see api.json).
+    raycast2dAll(from, to, o) {
+      const a = vecArr(from, 2, "physics.raycast2dAll(from, to) `from`"), b = vecArr(to, 2, "physics.raycast2dAll(from, to) `to`");
+      return N.raycast2dAll(a[0], a[1], b[0], b[1], maskOf(o), ignoreOf(o), trigOf(o), maxHitsOf(o)).map((r) => hitOf(r, true));
+    },
+    raycast3dAll(origin, dir, maxDistance = 1000, o) {
+      const a = vecArr(origin, 3, "physics.raycast3dAll(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3dAll(origin, dir) `dir`");
+      return N.raycast3dAll(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o), maxHitsOf(o)).map((r) => hitOf(r, false));
     },
     // shapeCast(shape, from, to, { mask, ignore, ignoreTriggers }): sweeps a shape from `from` to `to` (2D when `from` is 2D, else 3D)
     // and returns the first collider it touches like raycast does ({ entity, point, normal, distance } | null). distance = how far the

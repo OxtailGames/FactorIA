@@ -82,6 +82,9 @@ std::optional<RaycastHit> Physics::raycast2d(World& world, Vec2 from, Vec2 to, s
 std::optional<RaycastHit> Physics::raycast2d(World& world, Vec2 from, Vec2 to, const RaycastOptions& options) {
     return impl_->p2d.raycast(world, from, to, options);
 }
+std::vector<RaycastHit> Physics::raycast2d_all(World& world, Vec2 from, Vec2 to, const RaycastOptions& options) {
+    return impl_->p2d.raycast_all(world, from, to, options);
+}
 std::vector<Entity> Physics::overlap_circle2d(World& world, Vec2 center, float radius, std::int32_t mask) {
     return impl_->p2d.overlap_circle(world, center, radius, mask);
 }
@@ -96,6 +99,10 @@ std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir
 std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
                                              const RaycastOptions& options) {
     return impl_->p3d.raycast(world, origin, dir, maxDistance, options);
+}
+std::vector<RaycastHit> Physics::raycast3d_all(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                               const RaycastOptions& options) {
+    return impl_->p3d.raycast_all(world, origin, dir, maxDistance, options);
 }
 std::vector<Entity> Physics::overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask) {
     return impl_->p3d.overlap_sphere(world, center, radius, mask);

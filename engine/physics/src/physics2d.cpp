@@ -746,6 +746,7 @@ void Physics2D::sync(World& world) {
     for (Entity e : world.entities()) {
         RigidBody2D* rb = world.get<RigidBody2D>(e);
         Collider2D* col = world.get<Collider2D>(e);
+        if (col && !col->enabled) col = nullptr;  // a disabled collider is as good as absent: no queries or contacts
         if ((!rb && !col) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
         sync_entity(world, e, rb, col);
     }
@@ -1118,6 +1119,59 @@ std::optional<RaycastHit> Physics2D::raycast(World& world, Vec2 from, Vec2 to, c
     h.normal = {ctx.normal.x, ctx.normal.y, 0.0f};
     h.distance = ctx.fraction * len;
     return h;
+}
+
+std::vector<RaycastHit> Physics2D::raycast_all(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt) {
+    std::vector<RaycastHit> out;
+    ensure_world(world);
+    const float ppm = settings_.pixelsPerMeter;
+    Vec2 d = to - from;
+    float len = length(d);
+    if (len < 1e-6f || opt.maxHits <= 0) return out;
+    const b2Vec2 origin{from.x / ppm, from.y / ppm};
+    struct AllCtx {
+        std::function<bool(b2ShapeId)> accept;
+        std::vector<std::pair<b2ShapeId, RaycastHit>> hits;
+        const Physics2D* self = nullptr;
+        float ppm = 1.0f, len = 1.0f;
+    } ctx;
+    ctx.self = this;
+    ctx.ppm = ppm;
+    ctx.len = len;
+    ctx.accept = [&](b2ShapeId s) {
+        bool trig = false;
+        Entity e = entity_of(s, &trig);
+        if (e.is_null() || !live(world, e)) return false;
+        if (trig && opt.ignoreTriggers) return false;
+        if (entity_or_ancestor_is(world, e, opt.ignore)) return false;
+        if (b2Shape_TestPoint(s, origin)) return false;  // origin inside this collider: skip it
+        return true;
+    };
+    auto cb = [](b2ShapeId shape, b2Vec2 point, b2Vec2 normal, float fraction, void* user) -> float {
+        auto* c = static_cast<AllCtx*>(user);
+        if (!c->accept(shape)) return -1.0f;
+        RaycastHit h;
+        h.entity = c->self->entity_of(shape);
+        h.point = {point.x * c->ppm, point.y * c->ppm, 0.0f};
+        h.normal = {normal.x, normal.y, 0.0f};
+        h.distance = fraction * c->len;
+        c->hits.emplace_back(shape, h);
+        return 1.0f;  // keep going: every shape along the segment
+    };
+    b2QueryFilter qf = b2DefaultQueryFilter();
+    qf.categoryBits = ~0ull;
+    qf.maskBits = mask_bits(opt.mask);
+    b2World_CastRay(world_, origin, {d.x / ppm, d.y / ppm}, qf, cb, &ctx);
+    // A body with several fixtures is one entity: keep the nearest hit of each entity.
+    std::stable_sort(ctx.hits.begin(), ctx.hits.end(),
+                     [](const auto& a, const auto& b) { return a.second.distance < b.second.distance; });
+    for (const auto& [shape, h] : ctx.hits) {
+        bool dup = false;
+        for (const RaycastHit& o : out) dup = dup || o.entity == h.entity;
+        if (!dup) out.push_back(h);
+    }
+    if (out.size() > static_cast<std::size_t>(opt.maxHits)) out.resize(static_cast<std::size_t>(opt.maxHits));
+    return out;
 }
 
 static std::vector<Entity> finish_overlap(std::vector<std::uint64_t>& bits, const World& world) {
