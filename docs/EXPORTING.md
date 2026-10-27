@@ -1058,8 +1058,8 @@ server sends no `Content-Length`) and `{{favicon}}` (`favicon.png`, or `data:,` 
   (`storage`: one file per key) is copied to IndexedDB, so a game that saves in its `suspend` and `quit` handlers keeps the
   save after its tab is closed. The browser can still kill a page before the copy ends, so keep a timer autosave too. To
   check it: export, serve and open the game, make progress, close the tab (or navigate away), open the game again and see
-  that the save is there. `storage.setAsync` has no worker thread on the web: its write runs between frames, so a save
-  made while the page closes uses `storage.set`. Which signals each platform raises: [SCRIPTING.md](SCRIPTING.md) "Window
+  that the save is there. `storage.setAsync` has no worker thread on the web: its write runs between frames, or right after
+  the `suspend` and `quit` handlers, before the copy. Which signals each platform raises: [SCRIPTING.md](SCRIPTING.md) "Window
   close".
 - **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria
   validate` already warns about big files; the zip is deflated, so a host that compresses (gzip, brotli) saves little more.

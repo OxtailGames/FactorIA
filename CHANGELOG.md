@@ -14,7 +14,8 @@ The web's hide and close signals, and storage that scales
 - `storage` writes one file per key in `<save folder>/storage/`, so a save rewrites its own key only. An older `storage.json`
   is read at the first start, split into key files and renamed `storage.migrated.json`. `storage.size(key)` gives the bytes
   of a key's file. `storage.set(key, value, {compress: true})` stores the value zlib-compressed. `storage.setAsync(key, value,
-  options?)` returns a Promise and writes off the frame (a worker thread; between frames on the web). Docs: SCRIPTING.md
+  options?)` returns a Promise and writes off the frame (a worker thread; between frames on the web); the writes still waiting are made after the
+  `suspend` and `quit` handlers. Docs: SCRIPTING.md
   (storage) (TM/FB-0022).
 - Tidewater Market writes its timer and season autosaves with `storage.setAsync` (compressed) and its blur, suspend and quit
   saves at once with `storage.set`.

@@ -958,8 +958,8 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
   compression and the write happen off the frame: on a worker thread on desktop and phones, and between frames on the web
   (a browser player has no threads). Serializing `value` to JSON still happens in the call. Writes to one key land in the
   order they were asked; `set`, `remove`, `clear` and `size` wait for the writes still running, and the game does not
-  end before they finish. A save made when the window is closing should use `set`: on the web an asynchronous write waits
-  for the next frame, which a closing tab never runs. In a test the write is deferred to the next `game.step`, so
+  end before they finish. The writes still waiting are also made right after the `suspend` and `quit` handlers run, so a
+  `setAsync` from one of them is on disk (on the web, in the copy sent to IndexedDB) before the app is hidden or closed. In a test the write is deferred to the next `game.step`, so
   `const p = storage.setAsync("slot", data); game.step(1); await p;`. A Promise outlives nothing it needs: storage is not
   tied to a scene.
 - `storage.corrupt` — `true` when a storage file (a key's file, or an older `storage.json`) did not parse at the first use
