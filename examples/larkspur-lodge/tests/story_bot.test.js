@@ -10,6 +10,7 @@ import * as chapters from "../scripts/chapters.js";
 import * as dialogue from "../scripts/dialogue.js";
 import * as story from "../scripts/story.js";
 import * as items from "../scripts/items.js";
+import * as cutscene from "../scripts/cutscene.js";
 import strings from "../locales/en.json";
 
 /** Gets the porter through chapter 1 (Hedda tells him Dr. Vale is missing) after Mara's welcome. */
@@ -24,10 +25,19 @@ function chapter1(bot, mara, hedda) {
 /** The ending screen is up and says what the story reached. */
 function expectEnding(bot, id) {
   const ch = game.find("chapters").behaviour;
-  for (let i = 0; i < 600 && !ch.endingShown; i += 10) game.step(10);
+  for (let i = 0; i < 600 && !ch.endingShown; i += 10) {
+    bot.skipCutscene(); // the ending is told by its cut-scene first; the bot skips it with the skip key
+    game.step(10);
+  }
   expect(ch.endingShown, `the ending screen after ${bot.trail.join(" > ")}`).toBe(true);
   expect(chapters.ending()).toBe(id);
   expect(game.find("ending_ui").active).toBe(true);
+  // Every cut-scene of the night played and was skipped by the bot: the intro, a lead-in per chapter, the adit, the ending's.
+  const told = cutscene.seen();
+  for (const want of ["intro", "chapter_2", "chapter_3", "chapter_4", "chapter_5", "adit_descent", "adit_rescue", `ending_${id}`]) {
+    expect(told.find((e) => e.id === want), `cut-scene ${want} after ${bot.trail.join(" > ")}`).toBeTruthy();
+  }
+  expect(told.every((e) => e.skipped)).toBe(true);
   expect(game.find("ending_title").get("Text").text).toBe(strings.ending[id].title);
   game.screenshot(`.factoria/screenshots/bot_ending_${id}.png`);
 }
@@ -100,7 +110,7 @@ test("the dawn ending: trust earned, the survey understood, the truth told", () 
   bot.talk("vale", ["truth"]);
   expect(story.get("ending")).toBe("dawn");
   expectEnding(bot, "dawn");
-  expect(report("dawn", bot)).toBe("961c7a0a");
+  expect(report("dawn", bot)).toBe("0f61f418");
 });
 
 test("the quiet ending: the evidence is burned for the sake of the household", () => {
@@ -137,7 +147,7 @@ test("the quiet ending: the evidence is burned for the sake of the household", (
   expect(items.has("torn_letter")).toBe(false);
   expect(story.get("ending")).toBe("quiet");
   expectEnding(bot, "quiet");
-  expect(report("quiet", bot)).toBe("8d892f44");
+  expect(report("quiet", bot)).toBe("0540ad76");
 });
 
 test("the long night: nobody trusted, the culprit named in front of everyone", () => {
@@ -162,7 +172,7 @@ test("the long night: nobody trusted, the culprit named in front of everyone", (
   bot.talk("vale", ["accuse"]);
   expect(story.get("ending")).toBe("long");
   expectEnding(bot, "long");
-  expect(report("long", bot)).toBe("a5fc2711");
+  expect(report("long", bot)).toBe("6e723f03");
 });
 
 test("the choices decide the ending: the quiet way is closed to a porter nobody trusts", () => {

@@ -524,5 +524,57 @@
     "log": "Log",
     "logTitle": "Conversation log",
     "close": "Close"
+  },
+  "cutscene": {
+    "intro": {
+      "line01": "Larkspur Lodge. Eleven at night, and the storm has taken the road, the telephone and most of the good humour.",
+      "line02": "Close the door, porter, you are letting the whole mountain in.",
+      "line03": "The pass is shut till morning. Nobody comes, nobody goes.",
+      "line04": "You have the keys, the stove and a house full of strangers until dawn."
+    },
+    "chapter_2": {
+      "card1": "Midnight",
+      "line01": "The supper went cold on the long table. Dr. Vale's chair was still pushed back, as if he meant to return."
+    },
+    "chapter_3": {
+      "card1": "One in the morning",
+      "line01": "A locked door on the upstairs landing, and a house that has stopped pretending to sleep."
+    },
+    "chapter_4": {
+      "card1": "Three in the morning",
+      "line01": "The wind found one note it liked and kept it. Below the kitchen, the old way waited behind the wine."
+    },
+    "chapter_5": {
+      "card1": "Dawn",
+      "line01": "The wind drops all at once, like a breath let go. The windows go from black to grey.",
+      "line02": "Is it quiet, or have I gone deaf in that hole?",
+      "line03": "It is quiet, Ansel. Sit. You have a great deal to tell us."
+    },
+    "adit_descent": {
+      "line01": "The third shelf turns on a hinge nobody has oiled in thirty years. Put your shoulder to it.",
+      "line02": "The rack swings inward with a sound like a long breath, and the lantern shows a stair going down."
+    },
+    "adit_rescue": {
+      "line01": "Dr. Vale comes up the steps one at a time, the lamp in the porter's hand and the page forty in his coat.",
+      "line02": "Easy, doctor. Easy. You are out now.",
+      "line03": "Thirty years, Haas. And it was still exactly where we left it."
+    },
+    "ending_dawn": {
+      "line01": "At eight the pass opened and the first car came down out of the white.",
+      "line02": "I should have told you all of it years ago. The stones, the page, all of it.",
+      "line03": "The survey will say it for us. It always did."
+    },
+    "ending_quiet": {
+      "line01": "The page curled in the stove and was gone before anyone found the words to stop it.",
+      "line02": "Thank you. I will not forget what that cost you.",
+      "line03": "Nobody is punished tonight. That is not the same as nobody being free."
+    },
+    "ending_long": {
+      "line01": "No car came down in the morning. The snow had other plans for the Brandt road.",
+      "line02": "It was my silence. Let the Captain pay for it, and let the rest of you go in peace.",
+      "line03": "Peace. Is that what you call it?"
+    },
+    "skip": "Skip",
+    "hint": "{key} to skip"
   }
 }

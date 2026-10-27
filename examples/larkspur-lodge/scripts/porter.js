@@ -16,6 +16,8 @@
 // Entity layout (every area scene): "porter" (this script + CharacterController3D, origin = capsule centre) with a child
 // "porter_model" (the glb and its Animator, turned to face the heading).
 //
+// A cut-scene may set `puppet` (it then places the porter itself and sets `yaw` and `puppetSpeed`; see scripts/cutscene.js).
+//
 // Other scripts use: lock(reason) / unlock(reason) (no input while a reason is held: "transition", "dialogue", "cutscene"),
 // faceYaw(deg), walkTo(path), goTo(point), use(interactable), and read `yaw`, `speed`, `grounded`, `target`, `locked`.
 import { Behaviour, input, physics, world, camera, nav, ui, i18n } from "factoria";
@@ -87,6 +89,9 @@ export default class Porter extends Behaviour {
     this.device = input.lastDevice;
     this.model = world.find(this.modelId);
     this.anim = this.model ? this.model.animator : null;
+    /** True while a cut-scene moves the porter by hand (scripts/cutscene.js): no physics, no input; `puppetSpeed` drives the animation. */
+    this.puppet = false;
+    this.puppetSpeed = 0;
     /** The Interactable behaviours of the scene; read on the first update, when every script has started. */
     this.interactables = null;
   }
@@ -121,6 +126,15 @@ export default class Porter extends Behaviour {
 
   // -------------------------------------------------------------------------------------------------- movement
   onFixedUpdate(dt) {
+    if (this.puppet) {
+      this.vx = 0;
+      this.vz = 0;
+      this.vy = 0;
+      this.speed = this.puppetSpeed;
+      if (this.model) this.model.get("Transform").rotation = [0, this.yaw + 180, 0];
+      if (this.anim) this.anim.set("speed", this.speed);
+      return;
+    }
     let ix = 0;
     let iz = 0;
     if (!this.locked) {

@@ -21,7 +21,7 @@ export default class MainMenu extends Behaviour {
     ui.on("click", "play", () => {
       story.reset(); // a new game starts with no story flags and an empty inventory
       items.reset();
-      chapters.begin(); // chapter 1 of the night; the conversation history starts empty
+      chapters.begin({ intro: true }); // chapter 1 of the night, opened by the intro; the conversation history starts empty
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });

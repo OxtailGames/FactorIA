@@ -1,0 +1,21 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "broken",
+  "doc": "A cut-scene full of mistakes for tests/cutscene_data.test.js. Not part of the game.",
+  "duration": 10,
+  "room": "libary",
+  "actors": {
+    "porter": { "as": "porter" },
+    "mara": { "as": "npc", "cast": "maara" },
+    "ghost": { "as": "extra", "cast": "haas" }
+  },
+  "timeline": [
+    { "at": 0, "do": "fade", "to": 2, "seconds": 1 },
+    { "at": 5, "do": "caption", "key": "cutscene.nope", "seconds": 2, "voice": "intro_1" },
+    { "at": 2, "do": "camra", "pos": [0, 1, 0], "look": [1, 1, 1], "seconds": 1 },
+    { "at": 3, "do": "camera", "pos": [0, 1], "look": [1, 1, 1], "seconds": 1, "ease": "inout" },
+    { "at": 4, "do": "move", "actor": "maraa", "to": [1, 2], "seconds": 2 },
+    { "at": 9, "do": "card", "key": "cutscene.intro.line01", "seconds": 3, "volume": 3 }
+  ],
+  "end": { "fade": 1, "set": [{ "set": "intro_sen" }] }
+}

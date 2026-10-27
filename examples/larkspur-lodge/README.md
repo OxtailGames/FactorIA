@@ -20,7 +20,7 @@ The game is built in packages. Each one adds to the contracts below and replaces
 | P1 | The lodge, the porter and the camera: rooms, night lighting, three movement schemes, interaction, doors between areas, title / game / pause, test room, these contracts | done |
 | P2 | Dialogue and story: the runner in `scripts/dialogue.js`, dialogue files and their validator, the dialogue box, six characters, five chapters, three endings, the story bot | done |
 | P3 | Items and puzzles: the puzzle chain that ends the storm, the item uses | pending (the item catalogue and inventory exist) |
-| P4 | Cut-scenes and voice: the player in `scripts/cutscene.js`, subtitles | pending (stub) |
+| P4 | Cut-scenes and voice: the player in `scripts/cutscene.js`, ten cut-scenes, captions, the voice pipeline | done (no voice clips yet: see Cut-scenes) |
 | P5 | Saves: slots, autosave, versioning, cloud | pending (the data shape exists, nothing is written to storage) |
 | P6 | Sound, options, accessibility | pending (the menu kit's options exist; the game plays no sound yet) |
 | P7 | Shipping: store builds, icons, listings | pending |
@@ -73,7 +73,7 @@ counters, `snapshot()`, `restore(data)`, `reset()`. Flags used so far:
 | Flag | Meaning | Set by | Read by |
 |---|---|---|---|
 | `storm_over` | the storm stopped | P3 (puzzle chain) | the `front_door` (`requiresFlag`) |
-| `intro_seen` | the opening cut-scene has played | P4 | P4 |
+| `intro_seen` | the opening cut-scene has played or was skipped | the end state of the `intro` cut-scene | `scripts/chapters.js` (a new game plays the intro once) |
 | `chapter`, `interviews`, `trust`, `ending`, the clue flags | the story (P2) | the dialogue data, `scripts/chapters.js` | dialogue conditions, `scripts/cast.js`, P3; every flag has a `doc` in `data/story.json` |
 | `open.<door id>` | the door was opened (stays open) | `interactable.js` | `interactable.js` |
 | `<once>` of an item box (e.g. `test_box_taken`) | the box was emptied | `interactable.js` | `interactable.js` |
@@ -102,6 +102,8 @@ Counters: `examined.<object id>`, the times an object was examined. `interviews`
 | `chapter_changed` | `{ chapter, previous }` |
 | `story_ended` | `{ ending }` (the ending screen is up) |
 | `cutscene_requested` | `{ id }` (sent by `cutscene.play`) |
+| `cutscene_started` | `{ id, skippable }` |
+| `cutscene_ended` | `{ id, skipped }` (the end state is in place) |
 | `device_changed` | `{ device }` (the last device that gave input changed) |
 
 ### Interaction API
@@ -167,7 +169,7 @@ route where none holds is an error.
 
 **Conditions** (`scripts/conditions.js`; a list means all of them): `flag`, `!flag`, `count>=3` (`= != > >= < <=`), `ending=dawn`,
 `item:id`, `!item:id`. **Effects** have one key: `{"set": "flag", "value": true}`, `{"add": "flag", "by": 1}`, `{"give": "item"}`,
-`{"take": "item"}`, `{"cutscene": "id"}` (asks `scripts/cutscene.js`, a stub until P4, which sends `cutscene_requested`),
+`{"take": "item"}`, `{"cutscene": "id"}` (asks `scripts/cutscene.js`, which plays it, or queues it behind the one that plays),
 `{"end": true}`. The effects of a line run when it is reached; a choice's own effects run when it is picked, before its `next`.
 
 **Never edit the generated JSON.** The conversations are written in `assets/src/story/ch1.py` .. `ch5.py`; the flags, chapters,
@@ -215,19 +217,47 @@ tap), blocks the porter, and turns to him while they talk.
 **Hooks for P3.** Every flag in `data/story.json` has a `doc` saying who sets and who reads it. P3 builds on `know_oil`, `know_cellar`,
 `know_page`, `know_argument` (clues said in chapter 2), `survey_known`, `hedda_letter`, `adit_known`, `adit_open`, `vale_found`,
 `page_recovered`, `storm_over` (set when chapter 5 begins; the front door reads it) and the `*_taken` flags of the item boxes. P3's
-code may `story.set` the same flags and the chapters follow. The cut-scene ids asked through the stub are `adit_descent` and
-`adit_rescue` (P4).
+code may `story.set` the same flags and the chapters follow. The cut-scenes `adit_descent` and
+`adit_rescue` exist; P3 asks for them with `cutscene.play(id)` or a `{"cutscene": id}` effect.
 
 **The story bot.** `tests/story_bot.test.js` plays the whole night three times from the title screen with `tests/helpers/bot.js`
 (it stands next to a thing, presses the use key, picks answers from a list, waits for the fades) and pins an `fnv1a` hash of the
 story state after each ending: dawn `961c7a0a`, quiet `8d892f44`, long `a5fc2711`. When the story changes the test prints the
 state: check the change is meant, then update the hash.
 
-### Cut-scene player (stub)
+### Cut-scenes (P4)
 
-`scripts/cutscene.js`: `play(id, { skippable })` returns `{ id, played: false, skipped: false, skippable, stub: true }` and
-sends `cutscene_requested`; `active()` is false. P4 fills in the body: while one plays the porter is locked
-(`lock("cutscene")`) and the pause menu still works.
+`scripts/cutscene.js`: `play(id, { skippable })` returns `{ id, played, queued, skippable, reason? }` (a second one asked while one
+plays waits its turn), `active()` is true from `play()` until the end state is in place (P5 refuses to save while it is), `skip()`,
+`seen()` (`[{ id, skipped }]` since the game began) and `busy()`. The player runs on the engine clock, so it stops with the pause
+menu and a test with `game.step()` sees the same. While one plays the porter is locked (`lock("cutscene")`) and puppeted, the
+camera is directed (`lodge_camera.direct()`), `cutscene_started` / `cutscene_ended` are sent and the pause menu still works (the
+timeline and the voice wait, the line that was speaking starts again when the game goes on). It needs the HUD (`cutscene_ui` in
+`prefabs/ui/hud.prefab.json` drives the tick, the bars, the captions, the title card and the Skip button); without one `play()`
+answers `played: false` with a reason. Its state is dropped when the scene it started in is no longer the current one or its porter
+is gone.
+
+**Skipping** (`skip_cutscene`: Space, gamepad B; the Skip button, a tap on a phone) finishes every move and camera move, stops the
+voice, clears the captions and applies the end state, so a skipped and a watched cut-scene leave the game the same.
+
+**Data.** `data/cutscenes/<id>.cutscene.json` (format `larkspur.cutscene/1`: `id`, `doc`, `duration`, `room`, `area`, `skippable`,
+`actors`, `timeline` of steps `fade`, `camera`, `caption`, `card`, `move`, `face`, `anim`, and `end { fade, set }`). The files are
+written by `assets/src/build_cutscenes.py`: edit that, never the JSON, then add a new file to `scripts/cutscene_data.js` and
+`data/story.json` `cutscenes` by hand (no glob import, FB-0005). `data/cutscenes/rooms.json` gives each room its reverb.
+`project.validate_cutscenes` (also run by the tests) checks every file with its file, JSON pointer, a hint and a "did you mean"
+(unknown room, actor, step, flag, string key, voice id, bad ranges, steps out of order, a clip that does not exist or is longer
+than its step).
+
+**When they play.** `intro`: a new game from the title (`session.introPending`, once, `intro_seen`). `chapter_2`..`chapter_5`: when
+the chapter begins, before the chapter card. `adit_descent` and `adit_rescue`: asked by the dialogue data or by P3.
+`ending_dawn`, `ending_quiet`, `ending_long`: just before the ending screen.
+
+**Captions and voice.** Every caption step names a locale key and a speaker; the caption shows `Speaker: text` through `ui.caption`
+and lasts as long as its voice clip, or its `seconds` when there is none. `data/cutscenes/voice_script.json` lists the 24 lines to
+speak; `data/cutscenes/voice.json` maps a line id to `{ path, seconds }` once a clip exists. **No clip ships yet**: no voice provider
+was available to `assets.generate_voice` (ENGINE_FEEDBACK FB-0012), so captions run on their placeholder timing; adding the clips
+to `voice.json` is all it takes. Voice plays on the `voiceover` bus (`factoria.json` `audio.buses`), with the reverb of the
+cut-scene's room and the music ducked under it (`scripts/mix.js`).
 
 ### Save data shape (stub)
 
@@ -248,7 +278,9 @@ then loads the area scene with `scene.load(path, { restore: true })`. P5 adds th
 
 `tests/` has movement, interaction, camera, areas, flow, data, screenshot and kit tests (`factoria test`);
 `tests/helpers/lodge.js` has `enter(area, spawn)`, `stand(x, z, yaw)`, `porter()` and `cam()`. The screenshot test writes
-`.factoria/screenshots/hall.png` for a look at the lighting. P2 adds `dialogue_data`, `dialogue_runner`, `dialogue_ui`,
+`.factoria/screenshots/hall.png` for a look at the lighting. P4 adds `cutscene_data` (the files and the validator, with
+`tests/fixtures/broken_cutscene.json`) and `cutscene` (playing, skipping by keyboard, gamepad and touch, captions in time with
+voice, `tests/fixtures/test_voice.wav` made by `assets/src/make_test_voice.py`); it writes `cutscene_caption.png`, `cutscene_card.png` and `cutscene_fade.png`. P2 adds `dialogue_data`, `dialogue_runner`, `dialogue_ui`,
 `cast_chapters` and `story_bot` tests; the dialogue UI and ending tests write `dialogue_line.png`, `dialogue_choices.png` and
 `ending_quiet.png` there. `tests/helpers/bot.js` has the `Bot` (`play`, `use`, `go`, `talk`, `state`) and `fnv1a`.
 
@@ -259,4 +291,5 @@ crashes the click handling (FB-0001), the camera and the click rays re-cast to f
 removes its collider because `Collider3D` has no `enabled` (FB-0003). P2 adds: the dialogue text reveal pads the text because
 `Text` cannot show part of a line (FB-0004), the data files are imported by hand (FB-0005), Escape is both cancel and pause
 (FB-0008), and the options menu got a text speed row by hand (FB-0011). FB-0006, FB-0007, FB-0009 and FB-0010 are
-documentation gaps met while writing the UI and its tests.
+documentation gaps met while writing the UI and its tests. P4 adds: no voice provider for `assets.generate_voice` (FB-0012) and a
+reload of the same scene that `scene.current` cannot tell apart (FB-0013); it met FB-0001 and FB-0006 again.

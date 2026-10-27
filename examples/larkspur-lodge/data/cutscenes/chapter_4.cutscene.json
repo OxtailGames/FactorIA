@@ -1,0 +1,33 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "chapter_4",
+  "doc": "Lead-in to chapter 4, The old way: a card and a narrated line on a black screen.",
+  "duration": 11,
+  "room": "cellar",
+  "skippable": true,
+  "actors": {},
+  "timeline": [
+    {
+      "at": 0,
+      "do": "fade",
+      "to": 1,
+      "seconds": 0
+    },
+    {
+      "at": 0.4,
+      "do": "card",
+      "key": "cutscene.chapter_4.card1",
+      "seconds": 3.6
+    },
+    {
+      "at": 1.8,
+      "do": "caption",
+      "key": "cutscene.chapter_4.line01",
+      "seconds": 7.0,
+      "voice": "chapter_4_01"
+    }
+  ],
+  "end": {
+    "fade": 1
+  }
+}

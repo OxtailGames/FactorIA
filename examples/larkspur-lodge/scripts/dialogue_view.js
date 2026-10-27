@@ -14,6 +14,7 @@
 import { Behaviour, ui, input, world, i18n } from "factoria";
 import { EVENTS } from "./events.js";
 import * as dialogue from "./dialogue.js";
+import * as cutscene from "./cutscene.js";
 import { cast } from "./dialogue_data.js";
 import { load } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
@@ -81,6 +82,7 @@ export default class DialogueView extends Behaviour {
     this.settle = 0;
     this.logEntries = [];
     this.logScroll = 0;
+    this.covered = false;
 
     world.on(EVENTS.dialogueLine, (line) => this.show(line));
     world.on(EVENTS.dialogueEnded, () => this.hide());
@@ -107,7 +109,7 @@ export default class DialogueView extends Behaviour {
     this.speed = speed;
     this.settle = SETTLE;
     if (!this.root.active) world.find("hud")?.behaviour?.clearMessage(); // the box opens where the message line is
-    this.root.active = true;
+    this.root.active = !cutscene.active();
     this.hideChoices();
     this.nextButton.active = true;
     if (this.revealed >= this.total) this.revealDone();
@@ -158,7 +160,7 @@ export default class DialogueView extends Behaviour {
   // ----------------------------------------------------------------------------------------------------- the input
   /** Completes the line being revealed, else goes on to the next line. */
   press() {
-    if (!this.shown || this.logOpen || this.settle > 0) return;
+    if (!this.shown || this.logOpen || this.settle > 0 || cutscene.active()) return;
     if (this.revealed < this.total) {
       this.revealDone();
       this.settle = 0.1;
@@ -169,7 +171,7 @@ export default class DialogueView extends Behaviour {
   }
 
   pick(index) {
-    if (!this.shown || this.logOpen || this.settle > 0 || !this.choicesShown) return;
+    if (!this.shown || this.logOpen || this.settle > 0 || !this.choicesShown || cutscene.active()) return;
     if (index >= this.shown.choices.length) return;
     dialogue.choose(index);
   }
@@ -178,6 +180,14 @@ export default class DialogueView extends Behaviour {
     dialogue.tick(dt);
     if (this.busyFrames > 0 && --this.busyFrames === 0) MenuStack.busy = false;
     if (this.settle > 0) this.settle -= dt;
+    // A cut-scene covers the conversation that asked for it: the box goes away and comes back (with the same line) when it is over.
+    const covered = cutscene.active();
+    if (covered !== this.covered) {
+      this.covered = covered;
+      this.root.active = !covered && this.shown !== null;
+      if (!covered) this.settle = SETTLE;
+    }
+    if (covered) return;
     if (input.pressed("dialogue_log") && (this.shown || this.logOpen)) this.toggleLog(!this.logOpen);
     if (!this.shown) return;
     if (this.revealed < this.total && !this.logOpen) {
