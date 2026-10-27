@@ -9,7 +9,8 @@
 // platform that has a keyboard for pads (the Steam Deck, through a native plugin) shows its own: while
 // input.platformKeyboard is true this one stays closed too.
 //
-// The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
+// The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys (Korean too: an on-screen keyboard cannot
+// compose Hangul syllables, so a Korean pad player types Latin letters or uses the system keyboard; ENGINE_FEEDBACK FB-0905).
 import { Behaviour, ui, input, world, i18n } from "factoria";
 
 /** Lowercase letters of each script, then the digits are added. A game can add its own: LAYOUTS.ja = "...". */
@@ -17,9 +18,10 @@ export const LAYOUTS = {
   latin: "abcdefghijklmnopqrstuvwxyz",
   cyrillic: "абвгдежзийклмнопрстуфхцчшщъыьэюя",
   greek: "αβγδεζηθικλμνξοπρστυφχψω",
+  hebrew: "אבגדהוזחטיכךלמםנןסעפףצץקרשת",
 };
 /** Language code -> script of LAYOUTS (languages not listed use "latin"). */
-export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek" };
+export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek", he: "hebrew", iw: "hebrew" };
 /** Extra letters a Latin language needs, after the digits. */
 export const EXTRA = {
   es: "ñáéíóúü", fr: "àâçèéêëîïôùûœ", de: "äöüß", pt: "ãõçáéíóúâê", it: "àèéìòù", pl: "ąćęłńóśźż",

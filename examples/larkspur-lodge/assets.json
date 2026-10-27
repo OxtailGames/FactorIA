@@ -191,6 +191,25 @@
         "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
       }
     },
+    "assets/fonts/NotoSansKR-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosanskr",
+        "license": "OFL-1.1",
+        "author": "Google, Adobe (Noto Sans KR, Source Han Sans)",
+        "notes": "Noto Sans KR variable font (sha256 194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252), pinned to wght 400 and cut to the characters of locales/ko.json plus Latin and punctuation by assets/src/build_fonts.py (the engine's assets.subset_font). Re-run it when a Korean string changes. The license text is assets/fonts/OFL.txt."
+      }
+    },
+    "assets/fonts/OFL.txt": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://github.com/google/fonts/blob/main/ofl/notosanskr/OFL.txt",
+        "license": "OFL-1.1",
+        "author": "Google, Adobe"
+      }
+    },
     "assets/icon.png": {
       "provenance": {
         "origin": "original",

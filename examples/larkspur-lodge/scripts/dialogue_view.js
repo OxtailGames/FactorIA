@@ -99,6 +99,25 @@ export default class DialogueView extends Behaviour {
     ui.on("click", "dlg_log_close", () => this.toggleLog(false));
     this.choiceButtons.forEach((b, i) => ui.on("click", b.id, () => this.pick(i)));
     ui.on("cancel", () => this.logOpen && this.toggleLog(false));
+    i18n.on("change", () => this.retranslate());
+  }
+
+  /** The player changed the language (Options, from the pause menu) while a line is open: say the same line in it, at once. */
+  retranslate() {
+    if (!this.shown) return;
+    const key = this.shown.textKey;
+    this.speakerLabel.text = (this.showNames && speakerName(this.shown.speaker)) || " ";
+    this.shown.text = i18n.t(key);
+    this.full = wrap(this.shown.text, TEXT_WIDTH);
+    this.total = this.full.length;
+    this.revealed = this.total;
+    this.progress = this.total;
+    this.textLabel.text = this.full === "" ? " " : this.full;
+    if (this.choicesShown) {
+      this.shown.choices.forEach((c, i) => {
+        this.choiceButtons[i].get("Button").text = `${i + 1}.  ${i18n.t(c.textKey)}`;
+      });
+    }
   }
 
   /** The options that change how the box looks: its background and whether the speaker's name shows. */
@@ -126,7 +145,7 @@ export default class DialogueView extends Behaviour {
     const color = NAME_COLOR[line.speaker] ?? DEFAULT_NAME_COLOR;
     this.speakerLabel.text = name || " ";
     this.speakerLabel.color = rgba(color);
-    this.shown = { speaker: line.speaker, text: i18n.t(line.textKey), choices: line.choices };
+    this.shown = { speaker: line.speaker, textKey: line.textKey, text: i18n.t(line.textKey), choices: line.choices };
     this.full = wrap(this.shown.text, TEXT_WIDTH);
     this.total = this.full.length;
     this.progress = speed > 0 ? 0 : this.total;
@@ -281,6 +300,7 @@ export default class DialogueView extends Behaviour {
               text: name ? `[c:${color}]${name}[/c]  ${text}` : text,
               fontSize: 22,
               maxWidth: 840,
+              align: "start",
               markup: true,
               layer: 252,
               space: "screen",
