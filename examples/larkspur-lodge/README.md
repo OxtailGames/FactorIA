@@ -468,8 +468,8 @@ it writes `slots_load.png` and `chapter_select.png`).
 ## Known limits and engine gaps
 
 See `ENGINE_FEEDBACK.json`: the HUD root carries a transparent Panel because a widget under a parent without a UI component
-crashes the click handling (FB-0001), the camera and the click rays re-cast to find every hit (FB-0002), and an opened door
-removes its collider because `Collider3D` has no `enabled` (FB-0003). P2 adds: the dialogue text reveal pads the text because
+crashes the click handling (FB-0001), the camera and the click rays used to re-cast to find every hit (FB-0002, now `physics.raycast3dAll`), and an opened door
+used to remove its collider because `Collider3D` had no `enabled` (FB-0003, now switched off). P2 adds: the dialogue text reveal pads the text because
 `Text` cannot show part of a line (FB-0004), the data files are imported by hand (FB-0005), Escape is both cancel and pause
 (FB-0008), and the options menu got a text speed row by hand (FB-0011). FB-0006, FB-0007, FB-0009 and FB-0010 are
 documentation gaps met while writing the UI and its tests. P5 adds: slots are written by hand on top of `storage` (FB-0501), the

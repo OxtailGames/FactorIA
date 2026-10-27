@@ -624,6 +624,7 @@ struct RigidBody2D {
 };
 
 struct Collider2D {
+    bool enabled = true;              // false: the collider is switched off (no queries, no contacts), the component stays
     ColliderShape shape = ColliderShape::Box;
     Vec2 size{32, 32};                // box: width,height; capsule: width,height (vertical)
     float radius = 16.0f;             // circle radius
@@ -687,6 +688,7 @@ struct RigidBody3D {
 // convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only).
 enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh };
 struct Collider3D {
+    bool enabled = true;              // false: the collider is switched off (no queries, contacts or NavMesh bake)
     ColliderShape3D shape = ColliderShape3D::Box;
     Vec3 size{1, 1, 1};               // box extents (full size, in the entity's rotated frame, scaled by Transform.scale)
     float radius = 0.5f;              // sphere / capsule radius

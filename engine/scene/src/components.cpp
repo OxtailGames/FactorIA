@@ -731,6 +731,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("size", &Collider2D::size, "box/capsule: [width, height] in world units (capsule is vertical).")
         .field("radius", &Collider2D::radius, "circle: radius in world units.")
         .field("offset", &Collider2D::offset, "Shape center offset [x, y] from the entity origin, in world units.")
+        .field("enabled", &Collider2D::enabled,
+               "false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or "
+               "trigger events, but the component and its settings stay. Writable at run time (a door that opened stops "
+               "blocking, closing it turns the collider back on).")
         .field("isTrigger", &Collider2D::isTrigger, "true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement.")
         .field("friction", &Collider2D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider2D::restitution, "Bounciness: 0 = no bounce, 1 = perfectly elastic.").range(0, 1)
@@ -865,6 +869,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("offset", &Collider3D::offset,
                "Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and "
                "mesh: where the model's own origin sits).")
+        .field("enabled", &Collider3D::enabled,
+               "false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes "
+               "no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. "
+               "Writable at run time (a door that opened stops blocking, closing it turns the collider back on).")
         .field("isTrigger", &Collider3D::isTrigger, "true = sensor: reports overlaps but does not block movement.")
         .field("friction", &Collider3D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider3D::restitution, "Bounciness: 0 = none, 1 = perfectly elastic.").range(0, 1)

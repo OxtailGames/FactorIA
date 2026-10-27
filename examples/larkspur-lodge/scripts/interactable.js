@@ -183,10 +183,11 @@ export default class Interactable extends Behaviour {
     return { ok, kind: this.kind, id, message };
   }
 
-  /** A door that opens: the open leaf replaces the shut one and the collider goes (the NavMesh3D learns it at once). */
+  /** A door that opens: the open leaf replaces the shut one and the collider is switched off (rays, the porter and the NavMesh3D pass through). */
   setOpen() {
     if (this.mesh) this.mesh.mesh = "assets/models/lodge/doorwayOpen.glb";
-    if (this.entity.has("Collider3D")) this.entity.remove("Collider3D");
+    const collider = this.entity.get("Collider3D");
+    if (collider) collider.enabled = false;
     this.setHighlight(false);
   }
 

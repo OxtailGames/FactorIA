@@ -1148,6 +1148,49 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return hit_json(I.world, hit);
           });
 
+    I.commands.add({"physics.raycast_all",
+           "Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.",
+           "Same arguments and options as physics.raycast, plus maxHits (default 32, the nearest ones are kept). Use it to see "
+           "everything between two points (what hides a character from the camera), or to click through colliders that only "
+           "exist to be faded. A collider with enabled=false is never reported. Result: {count, hits:[{entity, point, normal, "
+           "distance}]} sorted by distance. Example: physics.raycast_all {\"dimension\":\"3d\",\"origin\":[0,2,0],"
+           "\"direction\":[0,0,-1],\"maxDistance\":20,\"maxHits\":4}",
+           with_cast_options(parse_schema(R"({"type":"object","properties":{
+               "dimension":{"type":"string","enum":["2d","3d"],"default":"2d"},
+               "from":{"type":"array","description":"2D start [x,y]."},"to":{"type":"array","description":"2D end [x,y]."},
+               "origin":{"type":"array","description":"3D origin [x,y,z]."},"direction":{"type":"array","description":"3D direction."},
+               "maxDistance":{"type":"number","default":1000},
+               "maxHits":{"type":"integer","default":32,"description":"At most this many hits (the nearest)."}}})")),
+           true, "physics"},
+          [&I](const Json& a) {
+              std::string err;
+              std::vector<RaycastHit> hits;
+              auto need = [&](const char* key, auto& out) {
+                  if (!a.contains(key)) throw CommandError("invalid_argument", std::string("Missing '") + key + "'.", "See the command description for the 2D/3D forms.");
+                  if (!json_to(a[key], out, &err)) throw CommandError("invalid_argument", std::string(key) + ": " + err);
+              };
+              RaycastOptions opt = cast_options(I.world, a);
+              opt.maxHits = a.value("maxHits", 32);
+              if (a.value("dimension", std::string("2d")) == "3d") {
+                  Vec3 o, d;
+                  need("origin", o);
+                  need("direction", d);
+                  hits = I.physics.raycast3d_all(I.world, o, d, a.value("maxDistance", 1000.0f), opt);
+              } else {
+                  Vec2 f, t;
+                  need("from", f);
+                  need("to", t);
+                  hits = I.physics.raycast2d_all(I.world, f, t, opt);
+              }
+              Json arr = Json::array();
+              for (const RaycastHit& h : hits) {
+                  Json j = hit_json(I.world, h);
+                  j.erase("hit");
+                  arr.push_back(std::move(j));
+              }
+              return Json::object({{"count", static_cast<std::int64_t>(hits.size())}, {"hits", std::move(arr)}});
+          });
+
     I.commands.add({"physics.shape_cast",
            "Sweep a circle, sphere or box from one point to another and return the first collider it touches.",
            "Like physics.raycast, but the shape has size: use it to ask whether a character fits or how far a box can move "
