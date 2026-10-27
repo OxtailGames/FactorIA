@@ -1046,6 +1046,52 @@ TEST_CASE("ui layout: a fit panel larger than the screen logs one warning naming
     CHECK(warnings() == 1);
 }
 
+TEST_CASE("ui layout: a fit panel inside a ScrollList does not warn about the screen") {
+    Ui t;
+    clear_recent_logs();
+    Entity list = t.add<ScrollList>("rows_list", {0, 0}, {100, 100});
+    Entity col = t.add<Panel>("rows_panel", {0, 0}, {10, 10}, list);
+    Panel& p = *t.w.get<Panel>(col);
+    p.layout = UiLayout::Column;
+    p.fit = true;
+    for (int i = 0; i < 12; ++i) t.button(("r" + std::to_string(i)).c_str(), {0, 0}, {100, 30}, col);  // 360 > 180
+    for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.get<Panel>(col)->size.y > 180);
+    for (const LogEntry& e : recent_logs(200, LogLevel::Warn)) CHECK(e.message.find("rows_panel") == std::string::npos);
+}
+
+// ------------------------------------------------------------------------- widgets under a plain entity --
+TEST_CASE("ui tree: widgets under a plain entity click, drag, focus and hit-test without crashing") {
+    Ui t;
+    Entity root = t.w.create("hud_root", "hud_root");  // only a Transform: not a widget
+    Entity panel = t.add<Panel>("hud_panel", {0, 0}, {200, 100}, root);
+    Entity b = t.button("b", {10, 10}, {80, 20}, panel);
+    Entity d = t.button("d", {10, 50}, {80, 20}, root);  // a Button directly under the plain entity
+    t.w.get<Button>(d)->draggable = Json::object({{"payload", 1}});
+    t.frame();
+    CHECK(t.ui.set_focus(t.w, b));
+    CHECK(ui_widget_at(t.w, t.design, {20, 20}) == b);
+    t.events();
+    t.click({20, 20});
+    CHECK(t.events() == V{"ui.click:b"});
+    // a press that never becomes a drag, and one that does
+    t.click({20, 60});
+    t.events();
+    t.in.on_mouse_move({20, 60});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_move({120, 60});
+    t.frame();
+    CHECK(t.ui.dragging());
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame(2);
+    CHECK_FALSE(t.ui.dragging());
+    // a press on the panel, whose parent is the plain entity, and a tooltip walk over it
+    t.click({150, 90});
+    t.w.get<Button>(b)->interactable = false;
+    CHECK_FALSE(t.ui.set_focus(t.w, b));
+}
+
 // ------------------------------------------------------------------------------- right-to-left layouts --
 TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-left language only") {
     Ui t;
