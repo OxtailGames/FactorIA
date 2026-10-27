@@ -268,6 +268,11 @@ export default class Porter extends Behaviour {
     }
   }
 
+  /** Forgets the list of interactables so the next update reads it again: call it after spawning or destroying one (scripts/cast.js). */
+  refreshInteractables() {
+    this.interactables = null;
+  }
+
   /** Finds the nearest interactable in reach and in front, highlights it and writes the prompt. */
   updateTarget() {
     let best = null;

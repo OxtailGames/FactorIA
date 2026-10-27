@@ -29,8 +29,18 @@ export const EVENTS = Object.freeze({
   inventoryChanged: "inventory_changed",
   /** A story flag changed: { flag, value, previous } (scripts/story.js). */
   flagChanged: "flag_changed",
-  /** Something wants a conversation (P2): { id: dialogue id, speaker: entity id }. scripts/dialogue.js answers it. */
+  /** Something wants a conversation: { id: dialogue id, speaker: entity id }. scripts/dialogue.js answers it. */
   dialogueRequested: "dialogue_requested",
+  /** A conversation began: { id: conversation id, speaker: entity id of whoever talks }. */
+  dialogueStarted: "dialogue_started",
+  /** A line is on offer: { id: conversation id, node: node id, speaker: character id, textKey, voice: clip id | "", choices: [{ id, textKey }] }. */
+  dialogueLine: "dialogue_line",
+  /** A conversation is over: { id: conversation id, speaker: entity id, completed: false when it was aborted, picked: [choice ids] }. */
+  dialogueEnded: "dialogue_ended",
+  /** The night moved to another chapter: { chapter: new number, previous: number }. scripts/chapters.js sends it. */
+  chapterChanged: "chapter_changed",
+  /** The story is over: { ending: "dawn" | "quiet" | "long" }. The ending screen is up; the porter takes no input. */
+  storyEnded: "story_ended",
   /** Something wants a cut-scene (P4): { id: cut-scene id }. scripts/cutscene.js answers it. */
   cutsceneRequested: "cutscene_requested",
   /** The porter changed how it is controlled (the last device that gave input): { device: "keyboard"|"mouse"|"touch"|"gamepad" }. */

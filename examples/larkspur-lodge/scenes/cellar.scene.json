@@ -206,6 +206,33 @@
       }
     },
     {
+      "id": "dialogue",
+      "components": {
+        "Script": {
+          "path": "scripts/dialogue_view.js"
+        }
+      }
+    },
+    {
+      "id": "cast",
+      "components": {
+        "Script": {
+          "path": "scripts/cast.js",
+          "props": {
+            "area": "cellar"
+          }
+        }
+      }
+    },
+    {
+      "id": "chapters",
+      "components": {
+        "Script": {
+          "path": "scripts/chapters.js"
+        }
+      }
+    },
+    {
       "id": "f_cellar",
       "components": {
         "Transform": {
