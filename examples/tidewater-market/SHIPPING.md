@@ -85,7 +85,7 @@ Seen while playing:
 - The engine's page handed the wasm to the player through `Module.wasmBinary`, which Emscripten 6 no longer reads, so the
   8.4 MB wasm was downloaded twice on every load. Fixed in the engine (`platforms/web/shell.html` now uses
   `instantiateWasm`); the export above is from the fixed engine and fetches it once.
-- The tooltip of the building under the pointer stayed drawn over the pause menu (the level's scripts stop while paused).
+- The tooltip of the building under the pointer stayed drawn over the pause menu (the level's scripts stop while paused; the engine now draws tooltips and the Hud answers it with nothing while paused).
   Fixed: opening the menu puts it away (`tests/pause.test.js`).
 - The first click on a building card right after switching the build tab did not select it once; the next click did.
   Not reproduced since.

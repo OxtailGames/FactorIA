@@ -150,6 +150,7 @@ struct Engine::Impl {
     bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
+    std::optional<UiTooltipSettings> appliedProjectTooltip;  // the project's tooltip delay and look last applied
     float appliedProjectUiScale = -1.0f;  // the project's ui.scale last applied; -1 before the first time
     // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
     // text of every component with a `key`. switch_language: i18n.set_language + apply + the "i18n.change" game event.

@@ -1884,3 +1884,136 @@ TEST_CASE("ui scale: autoSize and text overflow are measured in UI units, so a l
     CHECK(t.rect(b).h == doctest::Approx(2 * r1.h));
     CHECK(!ui_text_overflowed(t.w, b, t.design, measure_at(1.0f)));
 }
+
+// ------------------------------------------------------------------------------------------------------ tooltips --
+TEST_CASE("tooltip placement: below and right of the pointer, flipped and pushed to stay inside the screen") {
+    const Vec2 screen{1280, 720}, size{300, 80};
+    auto inside = [&](Vec2 at) { return at.x >= 4 && at.y >= 4 && at.x + size.x <= screen.x - 4 + 0.01f && at.y + size.y <= screen.y - 4 + 0.01f; };
+    const Vec2 mid = ui_tooltip_place({640, 360}, size, screen, 16);
+    CHECK(mid.x == doctest::Approx(656));
+    CHECK(mid.y == doctest::Approx(382));
+    for (Vec2 corner : {Vec2{0, 0}, Vec2{1279, 0}, Vec2{0, 719}, Vec2{1279, 719}, Vec2{1270, 360}, Vec2{640, 715}}) {
+        const Vec2 at = ui_tooltip_place(corner, size, screen, 16);
+        CHECK_MESSAGE(inside(at), "pointer " << corner.x << "," << corner.y << " -> " << at.x << "," << at.y);
+    }
+    // flipped: left of the pointer at the right edge, above it at the bottom edge
+    const Vec2 br = ui_tooltip_place({1279, 719}, size, screen, 16);
+    CHECK(br.x + size.x < 1279);
+    CHECK(br.y + size.y < 719);
+    // a box bigger than the screen keeps its top-left corner on screen
+    const Vec2 big = ui_tooltip_place({600, 300}, {2000, 2000}, screen, 16);
+    CHECK(big.x == doctest::Approx(4));
+    CHECK(big.y == doctest::Approx(4));
+}
+
+TEST_CASE("tooltip content: a string, or {title, lines}; an empty line is skipped; mistakes say what to write") {
+    std::string err;
+    auto plain = ui_tooltip_text(Json("Gold: 120"), nullptr, &err);
+    REQUIRE(plain);
+    CHECK(plain->title.empty());
+    REQUIRE(plain->lines.size() == 1);
+    CHECK(plain->lines[0].text == "Gold: 120");
+    auto rich = ui_tooltip_text(Json::parse(R"({"title":"Mill","lines":["Makes flour","",{"text":"low stock","color":"#ff0000"}]})"), nullptr, &err);
+    REQUIRE(rich);
+    CHECK(rich->title == "Mill");
+    REQUIRE(rich->lines.size() == 2);
+    CHECK(rich->lines[1].color.has_value());
+    CHECK(ui_tooltip_text(Json(nullptr), nullptr)->empty());
+    CHECK_FALSE(ui_tooltip_text(Json(12), nullptr, &err));
+    CHECK(err.find("string") != std::string::npos);
+    CHECK_FALSE(ui_tooltip_text(Json::parse(R"({"lines":"no"})"), nullptr, &err));
+    CHECK(err.find("array") != std::string::npos);
+    // a locale key is translated, with {placeholders} from args
+    I18n i18n;
+    i18n.configure("en", {"en"});
+    auto table = parse_string_table(Json::parse(R"({"tip":{"gold":"Gold: {n}"}})"), "en", "locales/en.json");
+    REQUIRE(table.ok());
+    REQUIRE(i18n.add_table(std::move(table.value())).ok());
+    auto keyed = ui_tooltip_text(Json::parse(R"({"title":"tip.gold","args":{"n":5}})"), &i18n, &err);
+    REQUIRE(keyed);
+    CHECK(keyed->title == "Gold: 5");
+}
+
+TEST_CASE("tooltips show after the rest delay, hide when the pointer leaves, and stay on screen") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity a = t.button("a", {1100, 600}, {160, 60});
+    t.w.get<Button>(a)->tooltip = Json("Hello");
+    UiTooltipSettings cfg;
+    cfg.delay = 0.5f;
+    t.w.set_ui_tooltip_settings(cfg);
+    t.ui.layout(t.w, t.design, {});
+    const Vec2 c = t.rect(a).center();
+    t.in.on_mouse_move(c);
+    t.frame(20);  // 20 / 64 s: not yet
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    t.frame(20);  // 40 / 64 s = 0.625 s
+    REQUIRE(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().widget == "a");
+    CHECK(t.w.ui_tooltip().source == "widget");
+    const Rect r = t.w.ui_tooltip().rect;
+    CHECK(r.x >= 4);
+    CHECK(r.y >= 4);
+    CHECK(r.x + r.w <= 1280);
+    CHECK(r.y + r.h <= 720);
+    t.in.on_mouse_move(c + Vec2{3, 2});  // within the slop
+    t.frame();
+    CHECK(t.w.ui_tooltip().shown);
+    t.in.on_mouse_move({100, 100});  // away
+    t.frame();
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    t.in.on_mouse_move(c);
+    t.frame(10);  // the timer starts over
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    // a pressed button hides it
+    t.frame(40);
+    CHECK(t.w.ui_tooltip().shown);
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+}
+
+TEST_CASE("tooltips: a script function can give the text, and showTooltip stays until the pointer moves away") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity a = t.button("a", {100, 100}, {160, 60});
+    t.ui.layout(t.w, t.design, {});
+    const Vec2 c = t.rect(a).center();
+    int asked = 0;
+    UiTooltipHooks hooks;
+    hooks.widget = [&](Entity) { ++asked; return Json::parse(R"({"title":"T","lines":["x"]})"); };
+    hooks.world = [&](Vec2 p) { return p.x > 600 ? Json("world") : Json(nullptr); };
+    t.ui.set_tooltip_hooks(hooks);
+    t.ui.set_script_tooltip(a, true);
+    t.ui.set_world_tooltip(true);
+    UiTooltipSettings cfg;
+    cfg.delay = 0.0f;
+    t.w.set_ui_tooltip_settings(cfg);
+    t.in.on_mouse_move(c);
+    t.frame(2);
+    REQUIRE(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().source == "script");
+    CHECK(asked > 0);
+    t.in.on_mouse_move({900, 400});  // over nothing: the world function
+    t.frame(2);
+    REQUIRE(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().source == "world");
+    t.in.on_mouse_move({500, 400});  // the world function says null
+    t.frame(2);
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    // manual
+    REQUIRE(t.ui.show_tooltip(t.w, Json("here"), {1279, 719}, t.design, {}).ok());
+    CHECK(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().source == "manual");
+    t.frame(2);
+    CHECK(t.w.ui_tooltip().shown);
+    t.in.on_mouse_move({20, 400});
+    t.frame();
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    CHECK_FALSE(t.ui.show_tooltip(t.w, Json(5), {0, 0}, t.design, {}).ok());
+    // reset (a scene load) forgets the functions
+    t.ui.reset();
+    t.in.on_mouse_move(c);
+    t.frame(2);
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+}

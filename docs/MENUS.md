@@ -374,6 +374,53 @@ over any. When the mouse moves again call `ui.setPointer(null)`. If the same but
 cursor rests (`ui.focus(null)` stays empty until the next D-pad press, an open panel's `autoFocus` does not take it back)
 or move only the hover (`down: false`) and let `ui_submit` press the widget you focused under the cursor.
 
+## Tooltips
+
+A tooltip is a small box with a title and lines that shows beside the pointer after it rests on something. The engine
+keeps the timer, the placement and the drawing; the game says what it says.
+
+```json
+{ "id": "buy", "components": { "Button": { "text": "Buy", "tooltip": { "title": "tip.buy.title", "lines": ["tip.buy.cost"], "args": { "cost": 12 } } } } }
+```
+
+- **Content.** A string (one line), or `{ "title": text, "lines": [text | {"text", "color"}], "args": {...} }`. Every text
+  is a localization key when localization is on and the current language has that key (`args` fills its `{placeholders}`;
+  the box follows a language change while it shows), and plain text otherwise. Empty lines are skipped.
+- **Where it can be set.** The `tooltip` field of any widget or Panel. The pointer's widget is the topmost one
+  (`ui.widgetAt`); if it has no tooltip, its nearest ancestor with one is used, so a tooltip on a Panel covers its children.
+  A Panel that draws nothing (alpha 0, no texture) is not hit, so it shows none. `Text` is not hit either: put the tooltip on
+  a Panel around it, or use `ui.setWorldTooltip`.
+- **From a script.** `ui.setTooltip(entity, () => ({ title: "Wheat", lines: [`${n} in stock`] }))` calls the function
+  when the pointer has rested for the delay and again every frame while the box shows, so the numbers stay current;
+  returning `null` shows nothing. `ui.setTooltip(entity, content)` writes the field, `ui.setTooltip(entity, null)` clears
+  it. `ui.setWorldTooltip((x, y) => content | null)` is asked when the pointer rests over no widget. Registrations end
+  with the scene. A game that pauses its scripts returns null from its functions while paused.
+- **Not a widget.** `ui.showTooltip(content, { x, y })` shows at once, at `x, y` in design pixels (default the pointer),
+  and stays until `ui.hideTooltip()`, a pointer move of more than 5 pixels, or a scene load.
+- **When.** After `ui.tooltipDelay` seconds of rest (default 0.5; the pointer may drift 5 pixels), counted with the UI
+  clock, not wall time. Moving farther, reaching another target, pressing the pointer button or loading a scene hides it. On
+  a phone it stays off until the last input was not a touch, unless `"tooltipOnTouch": true`.
+- **Placement.** Down and right of the pointer by `gap`; if that crosses the screen edge (4 pixels margin) it flips to the
+  other side of the pointer, and in the end it is clamped inside the screen.
+- **Theme**, in `factoria.json`:
+
+```json
+"ui": {
+  "tooltipDelay": 0.4,
+  "tooltipOnTouch": false,
+  "tooltip": { "color": [0.03, 0.04, 0.07, 0.96], "textColor": [0.92, 0.94, 0.98, 1], "titleColor": [1, 0.82, 0.3, 1],
+               "font": "assets/fonts/ui.ttf", "fontSize": 18, "titleSize": 20, "maxWidth": 300, "spacing": 3,
+               "padding": [10, 8, 10, 8], "gap": 16, "layer": 1000, "texture": "assets/ui/tip.png", "slice": [8, 8, 8, 8] }
+}
+```
+
+  Sizes are UI units, so `ui.scale` and `ui.textScale` apply. A line longer than `maxWidth` wraps. `layer` is the draw
+  order (1000: above every widget). An unknown key or a wrong type is an error that names the key and what it accepts.
+- **Tests.** `ui.tooltip` is `null` or `{ title, lines, rect, source, widget }` (`source` is `"widget"`, `"script"`,
+  `"world"` or `"manual"`; `rect` is `[x, y, w, h]` in screen pixels). Move the pointer with `ui.setPointer(x, y)`,
+  `game.step` past `ui.tooltipDelay`, and assert. `ui.check_layout` reports a `tooltip` issue for a visible widget
+  whose static tooltip is invalid or whose box is larger than the screen in some language or size.
+
 ## A studio intro: a video that any button skips
 
 A game that opens with a logo film uses a `Video` component and a few lines of script. It is not part of the kit (the

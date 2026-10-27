@@ -23,7 +23,7 @@ function checkScreen(name, open, { languages = LANGUAGES, scales = SCALES, ignor
       inLanguage(language, scale, () => {
         open();
         game.step(3);
-        for (const line of layoutProblems({ ignore: ["tooltip_", ...ignore], only })) found.push(`[${language} ${scale * 100}%] ${line}`);
+        for (const line of layoutProblems({ ignore, only })) found.push(`[${language} ${scale * 100}%] ${line}`);
       });
     }
   }

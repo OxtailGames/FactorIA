@@ -307,3 +307,25 @@ TEST_CASE("world: clock and rng are deterministic") {
     a.reset_clock();
     CHECK(a.frame() == 0);
 }
+
+TEST_CASE("tooltip settings: factoria.json \"ui\" keys are read and every mistake says where and what to write") {
+    auto ok = parse_tooltip_settings(Json::parse(R"({"tooltipDelay":0.4,"tooltipOnTouch":true,
+        "tooltip":{"color":"#102030","fontSize":16,"maxWidth":280,"padding":[6,4,6,4],"layer":500}})"), "factoria.json#/ui");
+    REQUIRE_MESSAGE(ok.ok(), ok.error().to_string());
+    CHECK(ok->delay == doctest::Approx(0.4f));
+    CHECK(ok->onTouch);
+    CHECK(ok->style.fontSize == doctest::Approx(16.0f));
+    CHECK(ok->style.maxWidth == doctest::Approx(280.0f));
+    CHECK(ok->style.padding.x == doctest::Approx(6.0f));
+    CHECK(ok->style.layer == 500);
+    CHECK(parse_tooltip_settings(Json::object(), "x").value() == UiTooltipSettings{});  // nothing set: the defaults
+    auto bad = parse_tooltip_settings(Json::parse(R"({"tooltipDelay":-1})"), "factoria.json#/ui");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("/ui/tooltipDelay") != std::string::npos);
+    CHECK_FALSE(bad.error().hint.empty());
+    auto typo = parse_tooltip_settings(Json::parse(R"({"tooltip":{"fontsize":16}})"), "factoria.json#/ui");
+    REQUIRE_FALSE(typo.ok());
+    CHECK(typo.error().message.find("fontSize") != std::string::npos);  // did you mean
+    CHECK_FALSE(parse_tooltip_settings(Json::parse(R"({"tooltip":{"maxWidth":"wide"}})"), "x").ok());
+    CHECK_FALSE(parse_tooltip_settings(Json::parse(R"({"tooltip":5})"), "x").ok());
+}

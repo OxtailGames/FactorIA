@@ -925,6 +925,61 @@ NATIVE(uiPointerState) {  // () -> [pointerOverUi, wheelConsumed, virtualPointer
     return a;
 }
 
+// ---- tooltips (ui_tooltip.h, docs/MENUS.md "Tooltips") -----------------------------------------------------------------------
+NATIVE(uiTooltipShow) {  // (content, x, y): throws when the content is not a tooltip
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.showTooltip: this run has no UI system");
+    const Json content = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
+    const Vec2 at{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    const VisualMeasure measure = script_measure(I, "ui.showTooltip");
+    Result<void> r = U->show_tooltip(W, content, at, I->host->design_size(), measure);
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiTooltipHide) {
+    SETUP;
+    if (UiSystem* U = I->host->ui()) U->hide_tooltip(W);
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiTooltipView) {  // () -> null | {title, lines, rect, source, widget}
+    SETUP;
+    return I->from_json(ui_tooltip_json(W.ui_tooltip(), ui_scale_clamped(W.ui_scale())));
+}
+
+NATIVE(uiTooltipDelay) {  // () -> seconds
+    SETUP;
+    return float_to_js(ctx, W.ui_tooltip_settings().delay);
+}
+
+NATIVE(uiSetTooltipDelay) {  // (seconds): 0 .. 60
+    SETUP;
+    double v = 0;
+    const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
+    if (!number || v < 0.0 || v > 60.0)
+        return throw_err(ctx, std::format("ui.tooltipDelay = {}: expected a number of seconds from 0 to 60 (0 shows a tooltip at once, the default is 0.5).",
+                                          arg_str(ctx, argc, argv, 0)));
+    UiTooltipSettings s = W.ui_tooltip_settings();
+    s.delay = float(v);
+    W.set_ui_tooltip_settings(s);
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiSetTooltipFn) {  // (entity, on): the entity has a script function for its tooltip
+    SETUP;
+    ENTITY(e, 0);
+    if (UiSystem* U = I->host->ui()) U->set_script_tooltip(e, arg_bool(ctx, argc, argv, 1, true));
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiSetWorldTooltipFn) {  // (on)
+    SETUP;
+    if (UiSystem* U = I->host->ui()) U->set_world_tooltip(arg_bool(ctx, argc, argv, 0, true));
+    return JS_UNDEFINED;
+}
+
 NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot take focus
     SETUP;
     UiSystem* U = I->host->ui();
@@ -3380,7 +3435,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

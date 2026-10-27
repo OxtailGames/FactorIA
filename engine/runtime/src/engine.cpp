@@ -81,6 +81,11 @@ void Engine::Impl::apply_project_settings() {
         self->set_ui_scale(project.uiScale);
         if (atStart) std::erase_if(world.events().game, [](const GameEvent& e) { return e.name == "ui.scale"; });
     }
+    // The tooltip settings, when the project file changes them (a script's ui.tooltipDelay survives an unrelated reload).
+    if (!appliedProjectTooltip || *appliedProjectTooltip != project.uiTooltip) {
+        appliedProjectTooltip = project.uiTooltip;
+        world.set_ui_tooltip_settings(project.uiTooltip);
+    }
     for (const std::string& problem : input.set_actions(ui_with_default_actions(project.inputActions))) {
         FA_WARN("input", "{}", problem);
         startupProblems.push_back(problem);
@@ -499,6 +504,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         speech().set_backend_factory(make_system_speech_backend);  // headless runs, tests and the editor only record
     }
     I.ui.set_clipboard(&I.clipboard);  // a TextField's Ctrl+V / Ctrl+C
+    I.ui.set_i18n(&I.i18n);            // a tooltip's locale keys
 
     // World + input.
     I.world.rng().reseed(config.seed);

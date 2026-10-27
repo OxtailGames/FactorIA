@@ -1840,7 +1840,55 @@
     get wheelConsumed() { return N.uiPointerState()[1]; },
     get focused() { return entityOf(N.uiState()[0]); },
     get hovered() { return entityOf(N.uiState()[1]); },
+    // The tooltip on screen now, or null: { title, lines: [text], rect: [x, y, w, h] in pixels, source, widget }.
+    get tooltip() { return N.uiTooltipView(); },
+    // Seconds the pointer rests on a widget before its tooltip shows (factoria.json "ui": {"tooltipDelay"}, default 0.5).
+    get tooltipDelay() { return N.uiTooltipDelay(); },
+    set tooltipDelay(v) { N.uiSetTooltipDelay(v); },
+    // Shows a tooltip now at a screen point (design pixels): for what is not a widget. `content` is a string (a locale key or the
+    // text) or { title, lines: [text | { text, color }], args }. It stays until ui.hideTooltip(), the pointer moving more than 5 px or a scene load.
+    showTooltip(content, at) {
+      if (at === null || typeof at !== "object" || typeof at.x !== "number" || typeof at.y !== "number" || !Number.isFinite(at.x) || !Number.isFinite(at.y))
+        throw new Error(`ui.showTooltip(content, { x, y }) expects the screen point (design pixels, y down) as the second argument, e.g. ui.showTooltip("Market", { x: 640, y: 360 }), but got ${inspect(at)}`);
+      N.uiTooltipShow(plain(content), at.x, at.y);
+    },
+    hideTooltip() { N.uiTooltipHide(); },
+    // The tooltip of a widget: content (the same shapes as the widget's `tooltip` field), a function that returns the content (or null
+    // for none) each time the tooltip is about to show, or null to remove it. A function is asked every frame while the pointer is on the widget.
+    setTooltip(target, what) {
+      const h = entityHandle(target, "ui.setTooltip(entity, tooltip)");
+      tooltipFns.delete(h);
+      N.uiSetTooltipFn(h, false);
+      if (typeof what === "function") {
+        tooltipFns.set(h, what);
+        N.uiSetTooltipFn(h, true);
+        return;
+      }
+      if (what !== null && typeof what !== "string" && (typeof what !== "object" || Array.isArray(what)))
+        throw new Error(`ui.setTooltip(entity, tooltip): tooltip is a string, { title, lines }, a function that returns one, or null, but got ${inspect(what)}`);
+      const e = entityOf(h);
+      const kind = ["Button", "Toggle", "Slider", "TextField", "Panel", "ScrollList", "TouchStick", "TouchButton", "Captions", "Video"].find((k) => e.has(k));
+      if (!kind) throw new Error(`ui.setTooltip(entity, tooltip): '${e.id}' is not a widget (it has no Panel, Button, Toggle, Slider, TextField or ScrollList component), so it has no tooltip. For something else use ui.setWorldTooltip or ui.showTooltip.`);
+      e.set(kind, { tooltip: what });
+    },
+    // A function (x, y) => content | null asked while the pointer rests on no widget, for what the player points at in the world (a building).
+    // null removes it. It lasts until the scene unloads.
+    setWorldTooltip(fn) {
+      if (fn !== null && typeof fn !== "function") throw new Error(`ui.setWorldTooltip(fn) expects a function (x, y) => content | null, or null to remove it, but got ${inspect(fn)}`);
+      worldTooltipFn = fn;
+      N.uiSetWorldTooltipFn(fn !== null);
+    },
   };
+  const tooltipFns = new Map();  // widget handle -> function, ui.setTooltip
+  let worldTooltipFn = null;
+  // What the engine asks when the pointer rests (UiSystem tooltip hooks): the answer as plain data, null for none or an error.
+  function tooltipFor(h) {
+    const fn = tooltipFns.get(h);
+    return fn ? plain(fn(entityOf(h))) ?? null : null;
+  }
+  function worldTooltip(x, y) {
+    return worldTooltipFn ? plain(worldTooltipFn(x, y)) ?? null : null;
+  }
 
   const assets = {
     // Reads the files ahead of time, a few per frame: returns a handle { progress, done, promise, ... } like scene.preload.
@@ -3496,16 +3544,18 @@
   function resetScene() {
     voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
+    tooltipFns.clear(); worldTooltipFn = null;
   }
 
   return {
+    tooltipFor, worldTooltip,
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
-    entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); },
+    entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); tooltipFns.delete(h); },
     entity: (h) => entityOf(h),
     emit: emitToListeners,
     testBegin, testRun, testCurrent,

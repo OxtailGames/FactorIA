@@ -288,14 +288,14 @@ goals never change the state hash. The bot reaches every scenario (`tests/scenar
 
 All of it lives in `scripts/game/ui_hud.js` (`Hud`, owned by the controller as `controller.hud`, updated once a frame),
 with pure helpers in `ui_model.js` (no engine calls; unit tests in `tests/ui_model.test.js`) and spawn helpers in
-`ui_kit.js` (`panel`, `label`, `button`, `icon`, `rule`, `Tooltips`). The controller still owns the tool, the hover, the map
+`ui_kit.js` (`panel`, `label`, `button`, `icon`, `rule`). The controller still owns the tool, the hover, the map
 drag and the top bar; everything else is the Hud's.
 
 | Piece | What it does |
 |---|---|
 | Build menu (key B, Build button) | A bar at the bottom: category tabs, then one item per building with its picture, name and cost; an item you cannot pay is red. Picking an item sets the tool and the bar follows the tool's category |
 | Inspector | A click on a building or villager (with no tool) opens it, at the bottom right: status, workers (up to four villager chips), what it makes, upkeep and refund; Rotate, Demolish, Home, Work, Release, Close. A click on bare ground or a road closes it |
-| Tooltips | After the pointer rests 0.4 s: every button (with its key), the numbers in the top bar, build menu items (cost, needs, gives) and, with no tool, the building under the pointer. Flipped near the screen edges |
+| Tooltips | After the pointer rests 0.4 s: every button (with its key), the numbers in the top bar, build menu items (cost, needs, gives) and, with no tool, the building under the pointer. Drawn by the engine (the `ui` section of `factoria.json` has the delay and the look), flipped near the screen edges |
 | Goods table (G) | Every good: stock, made and used per game day, price. Click a header to sort, again to reverse; the wheel scrolls it and does not zoom the map |
 | Charts (T) | Bars over the last days: coins, the stock of one good (click the good name to cycle) or what was made |
 | Notifications | Up to five at the top left; the same message for the same building stacks as (xN); a click (or N for the newest) moves the camera there and selects the building |
@@ -313,7 +313,7 @@ progress, the tool, the selection, the build bar, the overlay; only when none is
 
 - *A panel:* build a Panel with `ui_kit.js` (it starts hidden), then `hud.addPanel("name", { root, refresh, every })` and
   `hud.open("name")`, `hud.close`, `hud.toggle`. `refresh()` runs when it opens and every `every` seconds. Esc closes it, newest first, and the wheel is kept away from the map under any open panel.
-- *A tooltip:* `hud.tooltips.add(entity, () => ({ title, lines: [{ text, color? }] }))`; return null for none right now.
+- *A tooltip:* `ui.setTooltip(entity, () => ({ title, lines: [{ text, color? }] }))` (the engine's tooltip; return null for none right now), or the `tooltip` field of a widget for fixed text. Register it in `Hud.registerTooltips`, which also silences them while the pause menu is open or an event card is.
 - *A notification:* `hud.notices.push("key", args, cell, buildingId, "warn" | "bad")` with the text in `locales/en.json` at `ui.notice.<key>`; pushing the same key for the same building again raises its count instead of adding a line.
 - *An overlay:* `hud.addOverlay("id", { color: [r, g, b], field(state, hud) -> { values, cells } })`; the name and hint are `ui.overlay.<id>` and `ui.overlay.hint.<id>`. The Map button cycles through every registered overlay.
 - *A shortcut:* add the action to `factoria.json`, then `hud.onKey("action", fn)`.

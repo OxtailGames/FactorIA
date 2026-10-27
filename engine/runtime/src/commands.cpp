@@ -712,7 +712,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.",
-           "Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
+           "Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
            "value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy "
            "are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {\"mouse\": "
            "{\"position\": [x, y], \"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and "
@@ -721,7 +721,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "`value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton "
            "is a finger holding it (drive one with game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a "
            "Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space \"screen\") follow the widgets as "
-           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. Example: ui.state {}",
+           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. `tooltip` is the tooltip on screen now ({title, lines, rect, source, widget}, rect in pixels) or null (docs/MENUS.md, \"Tooltips\"). Example: ui.state {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
           [&engine, &I](const Json&) {
               Json state = I.ui.state(I.world, I.design_size(), I.measure());

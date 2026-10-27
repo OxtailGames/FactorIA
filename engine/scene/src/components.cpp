@@ -10,6 +10,18 @@ namespace fa {
 
 namespace {
 
+// UiBox.tooltip, the same on every widget kind.
+constexpr const char* kTooltipDoc =
+    "The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes "
+    "away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one "
+    "line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its "
+    "translation, anything else is shown as written). An object {\"title\": text, \"lines\": [text or {\"text\", \"color\"}], "
+    "\"args\": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the "
+    "tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a "
+    "Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on "
+    "the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the "
+    "text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, \"Tooltips\".";
+
 // The fields every UI widget shares (UiBox), registered once for each kind so their documentation exists in one place.
 template <class T>
 TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
@@ -48,7 +60,8 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture "
                "pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives "
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
-               "left + right (or top + bottom) the borders shrink proportionally.");
+               "left + right (or top + bottom) the borders shrink proportionally.")
+        .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc);
 }
 
 // maxTextScale of Text and of the UI widgets.
