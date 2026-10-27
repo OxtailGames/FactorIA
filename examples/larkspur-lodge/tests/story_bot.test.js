@@ -41,6 +41,11 @@ function chapter4(bot, haas) {
   bot.go("ground");
   bot.use("p_kitchen_box");
   expect(items.has("lamp_oil")).toBe(true);
+  // The storm cut the power: the latch of the adit needs the cellar circuit, so the puzzles come first (they end the storm).
+  expect(story.has("power_out")).toBe(true);
+  expect(story.has("storm_over")).toBe(false);
+  bot.fixTheFuse();
+  expect(story.has("storm_over")).toBe(true);
   bot.go("cellar");
   bot.talk("haas", haas);
   // vale_found ends chapter 4: the screen goes dark and the last chapter starts in the hall (a scene change from the cellar).
@@ -100,7 +105,7 @@ test("the dawn ending: trust earned, the survey understood, the truth told", () 
   bot.talk("vale", ["truth"]);
   expect(story.get("ending")).toBe("dawn");
   expectEnding(bot, "dawn");
-  expect(report("dawn", bot)).toBe("961c7a0a");
+  expect(report("dawn", bot)).toBe("39eadb04");
 });
 
 test("the quiet ending: the evidence is burned for the sake of the household", () => {
@@ -137,7 +142,7 @@ test("the quiet ending: the evidence is burned for the sake of the household", (
   expect(items.has("torn_letter")).toBe(false);
   expect(story.get("ending")).toBe("quiet");
   expectEnding(bot, "quiet");
-  expect(report("quiet", bot)).toBe("8d892f44");
+  expect(report("quiet", bot)).toBe("6117fdc3");
 });
 
 test("the long night: nobody trusted, the culprit named in front of everyone", () => {
@@ -162,7 +167,7 @@ test("the long night: nobody trusted, the culprit named in front of everyone", (
   bot.talk("vale", ["accuse"]);
   expect(story.get("ending")).toBe("long");
   expectEnding(bot, "long");
-  expect(report("long", bot)).toBe("a5fc2711");
+  expect(report("long", bot)).toBe("2c786cb1");
 });
 
 test("the choices decide the ending: the quiet way is closed to a porter nobody trusts", () => {
@@ -184,4 +189,30 @@ test("the choices decide the ending: the quiet way is closed to a porter nobody 
   expect(dialogue.current().line.node).toBe("dlg.ch5_vale.ask");
   expect(dialogue.current().line.choices.map((c) => c.id)).toEqual(["accuse", "wait"]);
   dialogue.abort();
+});
+
+test("the adit stays shut while the storm has the power: Haas points at the fuse box, and the puzzles open it", () => {
+  const bot = new Bot();
+  bot.play();
+  chapter1(bot, ["start"], ["asleep"]);
+  bot.talk("tobias", ["why"]);
+  bot.talk("lucian", ["why"]);
+  bot.talk("mara", ["blunt"]);
+  bot.talk("tobias", ["idea"]);
+  chapter3Door(bot);
+  bot.go("cellar");
+  bot.use("p_lantern_box");
+  bot.go("ground");
+  bot.use("p_kitchen_box");
+  expect(story.has("power_out")).toBe(true);
+  bot.go("cellar");
+  expect(bot.talk("haas", ["nopower"])).toContain("nopower");
+  expect(story.has("adit_open")).toBe(false);
+  expect(chapters.current()).toBe(4);
+  bot.fixTheFuse();
+  bot.go("cellar");
+  expect(bot.talk("haas", ["open"])).toContain("open");
+  bot.settle();
+  expect(story.has("adit_open")).toBe(true);
+  expect(chapters.current()).toBe(5);
 });

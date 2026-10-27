@@ -112,7 +112,8 @@
               "text": "dlg.ch4_haas.plan_c1",
               "if": [
                 "item:cellar_lantern",
-                "item:lamp_oil"
+                "item:lamp_oil",
+                "fuse_fixed"
               ],
               "effects": [
                 {
@@ -140,12 +141,27 @@
                 "!item:lamp_oil"
               ],
               "next": "dlg.ch4_haas.hint_oil"
+            },
+            {
+              "id": "nopower",
+              "text": "dlg.ch4_haas.plan_c4",
+              "if": [
+                "item:cellar_lantern",
+                "item:lamp_oil",
+                "!fuse_fixed"
+              ],
+              "next": "dlg.ch4_haas.hint_power"
             }
           ]
         },
         "dlg.ch4_haas.hint_lantern": {
           "speaker": "haas",
           "voice": "haas_ch4_haas_hint_lantern",
+          "next": "@end"
+        },
+        "dlg.ch4_haas.hint_power": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_hint_power",
           "next": "@end"
         },
         "dlg.ch4_haas.hint_oil": {

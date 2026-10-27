@@ -325,6 +325,133 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "The mouse wheel never reaches a script while a modal Panel is up",
+      "missing": "The item view of the inventory wanted the mouse wheel to zoom. The screen is a modal Panel (so clicks and the pad stay inside it) and a modal consumes the wheel unless a ScrollList scrolls, so input.mouse.wheel reads 0 on it. There is no way to ask for the wheel over one rectangle.",
+      "workaround": "Zoom is on + and - buttons in the corner of the view, R / V, the gamepad triggers and a pinch; the wheel code was removed.",
+      "workaroundFiles": [
+        "scripts/screens.js",
+        "factoria.json"
+      ],
+      "suggestion": "A Panel option (for example wheelPassThrough) or a rectangle in which a modal leaves the wheel to the game.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No UI widget that shows a 3D view",
+      "missing": "The inventory shows the selected item turning in 3D inside a window of the page. The UI draws over every camera, so a Camera viewport behind the UI is hidden by any panel that covers it, and no widget draws a camera or a render target.",
+      "workaround": "A second perspective Camera (viewport = the window) looks at a stage 300 m above the lodge, and the page is four opaque bands and a frame around a clear rectangle (the hole).",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "A viewport widget (or Panel.camera) that draws a named camera or a render texture inside its rectangle, clipped and layered like any widget.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Camera viewport fractions are not documented as fractions of the window",
+      "missing": "The item view camera has viewport fractions of the design area. As far as I could tell they count the whole window, so the view would not match the hole of a UI laid out in a fit design area when the window is not 16:9. Only 16:9 was checked.",
+      "workaround": "The game is designed and tested at 16:9 only.",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "Say in the Camera.viewport doc which rectangle the fractions count, and offer a mode that follows the UI design area.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "A destroyed entity is still found until the end of the frame",
+      "missing": "entity.destroy() takes effect at the end of the frame. A screen that rebuilt its UI with the same ids in the same frame had two entities of one id and clicks went to the old build.",
+      "workaround": "Every build of the screen uses a serial id prefix (scr<N>_); click handlers are keyed by the name without the prefix.",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "Document it on Entity.destroy and let world.find skip entities that are being destroyed.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-3d",
+      "severity": "nice-to-have",
+      "title": "Lights of a scene overexpose objects on a stage far from it",
+      "missing": "The item view stage has two point lights of its own, but ambient light and tone mapping made pale parts a white blot, so the colours of data/items.json came out far too bright.",
+      "workaround": "The two lights are weak, the camera sits further back and the part colours are multiplied by 0.45.",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "An option on Camera or MeshRenderer to ignore the scene ambient (a studio lighting preset for product views).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A greyed-out Button cannot take ui.focus",
+      "missing": "ui.focus on a Button whose interactable is false throws, so a screen that restores focus after a rebuild fails when the remembered button became disabled.",
+      "workaround": "build() checks interactable and falls back to the first enabled button.",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "Make ui.focus return false on a disabled widget instead of throwing, or document it.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

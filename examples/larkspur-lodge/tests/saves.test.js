@@ -126,28 +126,28 @@ describe("the format", () => {
 
   test("another package's part (register) and a plain session object (registerSession) are saved and restored", () => {
     clean();
-    session.notebook = { entries: ["oil on the stair"] };
-    save_data.register("notebook", {
-      snapshot: () => session.notebook,
-      restore: (d) => { session.notebook = d; },
-      reset: () => { session.notebook = { entries: [] }; },
+    session.diary = { entries: ["oil on the stair"] };
+    save_data.register("diary", {
+      snapshot: () => session.diary,
+      restore: (d) => { session.diary = d; },
+      reset: () => { session.diary = { entries: [] }; },
     });
-    save_data.registerSession("board", { links: [] });
-    session.board.links.push(["oil", "cellar"]);
-    for (const k of ["story", "inventory", "dialogue", "notebook", "board"]) expect(save_data.partKeys().includes(k)).toBe(true);
+    save_data.registerSession("marks", { links: [] });
+    session.marks.links.push(["oil", "cellar"]);
+    for (const k of ["story", "inventory", "dialogue", "diary", "marks"]) expect(save_data.partKeys().includes(k)).toBe(true);
     const data = JSON.parse(JSON.stringify(save_data.snapshot()));
-    expect(data.state.notebook.entries).toEqual(["oil on the stair"]);
-    expect(data.state.board.links).toEqual([["oil", "cellar"]]);
+    expect(data.state.diary.entries).toEqual(["oil on the stair"]);
+    expect(data.state.marks.links).toEqual([["oil", "cellar"]]);
     save_data.resetAll();
-    expect(session.notebook.entries).toEqual([]);
-    expect(session.board.links).toEqual([]);
+    expect(session.diary.entries).toEqual([]);
+    expect(session.marks.links).toEqual([]);
     expect(save_data.apply(data).ok).toBe(true);
-    expect(session.notebook.entries).toEqual(["oil on the stair"]);
-    expect(session.board.links).toEqual([["oil", "cellar"]]);
+    expect(session.diary.entries).toEqual(["oil on the stair"]);
+    expect(session.marks.links).toEqual([["oil", "cellar"]]);
     // a save from before the part existed starts it fresh
     const old = JSON.parse(JSON.stringify(v2));
     expect(save_data.apply(old).ok).toBe(true);
-    expect(session.notebook.entries).toEqual([]);
+    expect(session.diary.entries).toEqual([]);
   });
 
   test("a part whose module loads later still gets its data (pending hand-over)", () => {

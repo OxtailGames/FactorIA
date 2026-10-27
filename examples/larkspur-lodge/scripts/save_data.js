@@ -9,7 +9,8 @@
 //     "state": { "story": { "flags": {}, "counters": {} },                    one entry per registered part, see register()
 //                "inventory": ["library_key"],
 //                "dialogue": { "history": [], "log": [] },
-//                ... a part another package registered (P3: the notebook, the deduction board) } }
+//                "puzzles": {...}, "notebook": { "board": { "deductions": [], "redo": [] }, "notebook": { "seen": [] } },   (P3)
+//                ... a part another package registered } }
 //
 // VERSION 1 ("larkspur.save/1", P1/P2): { "format": "larkspur.save/1", "area": "ground",
 //     "spawn": { "position": [x, y, z], "yaw": 0 }, "story": {...}, "inventory": [...] }
@@ -34,6 +35,8 @@ import { session, world, didYouMean } from "factoria";
 import * as story from "./story.js";
 import * as items from "./items.js";
 import * as dialogue from "./dialogue.js";
+import * as puzzles from "./puzzles.js";
+import * as notebook from "./notebook.js";
 import { AREAS } from "./area.js";
 
 export const VERSION = 2;
@@ -92,6 +95,8 @@ function pending() {
 // The parts of this package.
 register("story", { snapshot: () => story.snapshot(), restore: (d) => story.restore(d), reset: () => story.reset() });
 register("inventory", { snapshot: () => items.snapshot(), restore: (d) => items.restore(d), reset: () => items.reset() });
+register("puzzles", { snapshot: () => puzzles.snapshot(), restore: (d) => puzzles.restore(d), reset: () => puzzles.reset() }); // P3: the puzzles in progress
+register("notebook", { snapshot: () => notebook.snapshot(), restore: (d) => notebook.restore(d), reset: () => notebook.reset() }); // P3: clues seen, the board and its undo / redo
 register("dialogue", {
   snapshot: () => JSON.parse(JSON.stringify({ history: dialogue.history(), log: dialogue.log() })),
   restore: (d) => {
