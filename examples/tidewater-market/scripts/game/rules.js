@@ -120,7 +120,7 @@ export function roadPath(from, to) {
 
 /** Which of the four neighbours of a road cell hold a road: a bit mask N = 1 (-c), E = 2 (-r), S = 4 (+c), W = 8 (+r). */
 export function roadMask(state, c, r) {
-  // N = -c (up-left on screen), E = -r (up-right), S = +c (down-right), W = +r (down-left): see assets/src/make_atlas.py
+  // N = -c (up-left on screen), E = -r (up-right), S = +c (down-right), W = +r (down-left): the ship.* and walker.* frames of assets/src/frames follow it
   const probe = [[-1, 0, 1], [0, -1, 2], [1, 0, 4], [0, 1, 8]];
   let mask = 0;
   for (const [dc, dr, bit] of probe) if (isRoad(state, c + dc, r + dr)) mask |= bit;

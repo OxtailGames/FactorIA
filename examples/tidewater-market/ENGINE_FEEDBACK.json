@@ -601,7 +601,10 @@
       "suggestion": "An atlas.pack command that packs a folder of images and writes the frame table the Sprite region field can use.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.22): assets.pack_atlas packs a folder of images into one PNG and writes data/atlas.json (rect and pivot per frame); packing again keeps the frames that did not change where they were. make_atlas.py is gone: the 107 frames are PNGs in assets/src/frames (pivots.json beside them) and the atlas is 1268x2048 instead of 2048x2048. The game keeps roadFrames in the same table (the command leaves unknown keys alone) and the icon regions of factoria.json, which rich_text.test.js checks."
+      ]
     },
     {
       "id": "FB-0035",
