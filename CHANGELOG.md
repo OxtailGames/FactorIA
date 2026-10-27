@@ -4,6 +4,12 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Web audio without the deprecated node
+
+- The web player plays through an `AudioWorkletNode` fed from the main thread by messages (no threads or `SharedArrayBuffer` needed),
+  with a `ScriptProcessorNode` only where worklets are missing: no deprecation warning in the console, a smaller buffer, and no
+  underruns at 60 fps. Latency is measured in EXPORTING.md (TM/FB-0054).
+
 A chart widget
 
 - `Chart` draws `values` (one series, or several) as bars or lines inside a widget rectangle, in one batch: the axis is

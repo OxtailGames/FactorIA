@@ -934,7 +934,10 @@
       "suggestion": "Move the sokol_audio web backend to an AudioWorklet.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.20): the web player plays through an AudioWorkletNode fed by messages (ScriptProcessorNode only as the fallback); no deprecation warning. Latency in EXPORTING.md."
+      ]
     },
     {
       "id": "FB-0055",
