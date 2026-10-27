@@ -66,6 +66,179 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No typewriter reveal for a Text",
+      "missing": "A dialogue box shows a line letter by letter. Text has no 'visible characters' field, and a markup colour with alpha 0 does not hide the rest of the line, so there is no way to reveal part of a line while the box keeps the size of the whole line.",
+      "workaround": "scripts/dialogue_view.js sets the Text to the first n characters followed by one blank line per line break still to come, so the box height does not change while it reveals. The line is wrapped first by wrap() with ui.measureText so it never re-wraps while it grows, and in a headless run ui.measureText only approximates the real width, so the break positions are checked in screenshots.",
+      "workaroundFiles": [
+        "scripts/dialogue_view.js"
+      ],
+      "suggestion": "A Text.visibleCharacters field (or a 'reveal' fraction 0..1) that clips the laid-out text without re-laying it out.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No glob import or file listing for data files",
+      "missing": "The story is one JSON table per chapter (data/dialogue/ch1..5.json) and the game and the validator tool must read all of them. A script can import a JSON file by a literal path only, and there is no fs listing for a project folder, so a new table file has to be added to an import list by hand.",
+      "workaround": "scripts/dialogue_data.js imports the five files and builds TABLES from them; tools/validate_dialogue.js uses that module, so the list lives in one place. tests/dialogue_data.test.js checks the tables, the story registry and the cast together.",
+      "workaroundFiles": [
+        "scripts/dialogue_data.js",
+        "tools/validate_dialogue.js"
+      ],
+      "suggestion": "import.meta.glob-like support for JSON data (import tables from \"../data/dialogue/*.json\"), or a project.list_files command a tool can call.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "A Button's key field is a locale key, not a hotkey",
+      "missing": "The field name 'key' on Button, Text, Toggle and Slider is the localization key. The choice buttons also answer to the keys 1..4, and nothing on the Button says how to do that: it is an input action that the script reads.",
+      "workaround": "Choices answer to the input actions choice_1..choice_4 declared in factoria.json, read in scripts/dialogue_view.js with input.pressed.",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/dialogue_view.js"
+      ],
+      "suggestion": "Say it in the ui doc next to the Button fields (and in the field's doc string), or rename the field in a future format version.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Screen anchor goes down but a widget pivot goes up",
+      "missing": "A Panel with anchor [0.5, 1] and pivot [0.5, 0] does not sit on the bottom edge: anchors count Y downwards from the top-left while the pivot of a widget counts Y upwards, so the first version of the dialogue box hung off the bottom of the screen. Only a screenshot showed it, validate did not.",
+      "workaround": "The dialogue and ending prefabs use pivot values found by looking at screenshots (prefabs/ui/dialogue.prefab.json).",
+      "workaroundFiles": [
+        "prefabs/ui/dialogue.prefab.json",
+        "prefabs/ui/ending.prefab.json"
+      ],
+      "suggestion": "One sentence and a small picture in the ui doc, and a validate warning when a screen widget lies completely outside the design size.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "Escape is both ui_cancel and pause",
+      "missing": "In the default bindings Escape is bound to the 'pause' action and to ui_cancel. A panel that closes on cancel (the dialogue backlog) closes and, in the same frame, the pause menu of the kit opens, as pause_menu.js reads input.pressed('pause'). A test showed it (tests/dialogue_ui.test.js, 'Escape closes the log').",
+      "workaround": "The dialogue view sets MenuStack.busy while its log is open and for two frames after it closes, which makes the kit's pause menu wait. This works only because the kit exposes MenuStack.busy.",
+      "workaroundFiles": [
+        "scripts/dialogue_view.js"
+      ],
+      "suggestion": "input.consume(action) or an event that tells the other readers that ui_cancel handled the press, or document in the menus doc that a cancel handler must set MenuStack.busy.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.tap(action) does not press a focused Button",
+      "missing": "In a test, game.tap('interact') does not click the Button that has the focus, while a real keyboard or gamepad press of the confirm key does. The first dialogue UI tests passed the action name and nothing happened.",
+      "workaround": "The tests use game.tapKey('Space') or a pad button (tests/dialogue_ui.test.js, complete()).",
+      "workaroundFiles": [
+        "tests/dialogue_ui.test.js"
+      ],
+      "suggestion": "Say in the testing doc which one drives the UI focus (the physical key or pad button), or let game.tap(action) go through the same path.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "Events emitted in a frame reach listeners one step later",
+      "missing": "world.emit in a script reaches world.on listeners only after the next game.step in a test, so a test that emits and asserts in the same frame sees nothing. It is not in the testing doc.",
+      "workaround": "tests step two frames (game.step(2)) before asserting on an event (tests/dialogue_runner.test.js).",
+      "workaroundFiles": [
+        "tests/dialogue_runner.test.js"
+      ],
+      "suggestion": "Document the delivery time of world.emit in the scripting doc.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "The menu kit options have no row for dialogue text speed",
+      "missing": "A game with dialogue needs a text speed setting. The kit's options prefab and options.js have audio rows only, and settings.js keeps a fixed list of fields.",
+      "workaround": "Added a text_speed Button to the audio section of prefabs/ui/options.prefab.json, a TEXT_SPEEDS list in scripts/settings.js and the cycling code in scripts/ui/options.js. The audio panel is taller for it.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "scripts/settings.js",
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "A project.add_menu_kit option (for example 'textSpeed': true) that adds the row, or a documented way to add a game row to the options menu.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

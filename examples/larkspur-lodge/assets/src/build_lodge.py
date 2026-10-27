@@ -349,6 +349,10 @@ class Area:
         out.append({"id": "area", "components": {"Script": {"path": "scripts/area.js", "props": {
             "area": self.name, "titleKey": self.title_key, "preload": self.preload}}}})
         out.append({"id": "pause_menu", "components": {"Script": {"path": "scripts/pause_menu.js"}}})
+        out.append({"id": "dialogue", "components": {"Script": {"path": "scripts/dialogue_view.js"}}})  # the dialogue box (spawns its own UI)
+        if self.name in STORY_AREAS:  # the people of the night and the chapters live in the areas the story walks through
+            out.append({"id": "cast", "components": {"Script": {"path": "scripts/cast.js", "props": {"area": self.name}}}})
+            out.append({"id": "chapters", "components": {"Script": {"path": "scripts/chapters.js"}}})
         scene = {
             "format": "factoria.scene/1",
             "settings": {"ambientLight": list(self.ambient) + [1], "skyColor": [0.02, 0.03, 0.07, 1], "horizonColor": [0.05, 0.06, 0.12, 1]},
@@ -381,6 +385,8 @@ class Area:
         with open(os.path.join(PROJECT, "scenes", "_view_" + self.name + ".scene.json"), "w") as f:
             json.dump(view, f, indent=1)
 
+
+STORY_AREAS = ("ground", "upstairs", "cellar")  # areas with a cast and chapters (not the test room)
 
 PORTER_ANIMATOR = {
     "params": {"speed": 0.0, "interact": False, "pickup": False},
